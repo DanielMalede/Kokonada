@@ -1,6 +1,10 @@
+jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedTokensModule());
+jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
+
 import { Skia } from '@shopify/react-native-skia';
+import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
+import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { regionOf, shadowFactor } from '../fieldLaw.ts';
 import { DEFERRED, FIELD_SCENES, HEAVIEST, IDS, SEAM, STEP_MS, WHOLE, frameIn, noWaypoint, sceneCatalogue, sizeOf, stateFor, still, throughLedger } from '../fieldScenes.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
@@ -10,7 +14,14 @@ import { staticsFor } from '../statics.ts';
 // The never-red scenes, the cheap structural checks (law round 2, item 8: the split). The frames, the
 // per-scene agreement and the planted catch run in the CanvasKit sweeps project
 // (fieldScenes.sweeps.skia.test.ts), where the check runs; the scene builders are shared
-// (field/fieldScenes.ts).
+// (field/fieldScenes.ts). The test-only fixture directions (__tests__/__fixtures__/fixtureTokens.ts) are
+// mocked in for the shadowed-grounds rows: they draw the plate shadows no shipped direction draws.
+
+it('the fixture mock: the fixture ids exist, BASE and DIRECTIONS.abyss are the shipped objects', () => {
+  expect(BASE).toBe(actualTokens().BASE);
+  expect(DIRECTIONS.abyss).toBe(actualTokens().DIRECTIONS.abyss);
+  for (const id of FIXTURE_IDS) expect(DIRECTIONS[id]).toBeDefined();
+});
 
 const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
 const { scenesOf, restTo, drawn } = sceneCatalogue(EXTENSIONS, deps);
@@ -44,8 +55,12 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
   });
 
   // The plate's shadows on the drawn pixels (designer 2.9): Linen light's outer shadow below the plate,
-  // Basin's inner ones on the face; Abyss draws none.
-  it.each([['abyss', 'dark', false], ['linen', 'light', true], ['linen', 'dark', false], ['basin', 'dark', true], ['basin', 'light', true]] as const)(
+  // Basin's inner ones on the face; Abyss draws none. The fixtures carry the same paths: fixture-outer's
+  // outer shadow on its light face only, fixture-inner's inner shadows on both faces.
+  it.each([
+    ['abyss', 'dark', false], ['linen', 'light', true], ['linen', 'dark', false], ['basin', 'dark', true], ['basin', 'light', true],
+    ['fixture-outer', 'light', true], ['fixture-outer', 'dark', false], ['fixture-inner', 'dark', true], ['fixture-inner', 'light', true],
+  ] as const)(
     '%s, %s face: shadowed grounds drawn: %s',
     (id, face, expected) => {
       const frame = frameIn(WHOLE, stateFor(id as DirectionId, face as Face, HEAVIEST, still(SEAM)), deps(id as DirectionId).statics);

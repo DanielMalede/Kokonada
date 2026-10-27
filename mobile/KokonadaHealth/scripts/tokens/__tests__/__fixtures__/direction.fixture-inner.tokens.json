@@ -1,0 +1,1937 @@
+{
+  "color": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "dark": {
+      "ground": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.15,
+            0.025,
+            240
+          ],
+          "alpha": 1,
+          "hex": "#030C15"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "v0"
+          }
+        }
+      },
+      "surface1": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.2,
+            0.03,
+            240
+          ],
+          "alpha": 1,
+          "hex": "#081822"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "v0"
+          }
+        }
+      },
+      "surface2": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.24,
+            0.032,
+            240
+          ],
+          "alpha": 1,
+          "hex": "#10212D"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "generated"
+          }
+        }
+      },
+      "text": {
+        "primary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.94,
+              0.015,
+              220
+            ],
+            "alpha": 1,
+            "hex": "#E1EEF2"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "v0"
+            }
+          }
+        },
+        "secondary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.72,
+              0.02,
+              225
+            ],
+            "alpha": 1,
+            "hex": "#98A8AE"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "tertiary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.64,
+              0.02,
+              230
+            ],
+            "alpha": 1,
+            "hex": "#808F96"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "onTint": {
+          "$type": "color",
+          "$value": "{color.dark.ground}"
+        },
+        "onInk": {
+          "$type": "color",
+          "$value": "{color.dark.text.onTint}"
+        }
+      },
+      "line": {
+        "hairline": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.28,
+              0.03,
+              235
+            ],
+            "alpha": 1,
+            "hex": "#1A2B36"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "control": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.55,
+              0.025,
+              230
+            ],
+            "alpha": 1,
+            "hex": "#63757E"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        }
+      },
+      "focus": {
+        "$type": "color",
+        "$value": "{color.dark.text.primary}"
+      },
+      "plate": {
+        "rim": {
+          "base": {
+            "$type": "color",
+            "$value": {
+              "colorSpace": "oklch",
+              "components": [
+                0.56,
+                0.03,
+                230
+              ],
+              "alpha": 1,
+              "hex": "#637883"
+            },
+            "$extensions": {
+              "com.kokonada": {
+                "hex": "generated"
+              }
+            }
+          },
+          "lit": {
+            "$type": "color",
+            "$value": {
+              "colorSpace": "oklch",
+              "components": [
+                0.8,
+                0.03,
+                220
+              ],
+              "alpha": 1,
+              "hex": "#A9C3CB"
+            },
+            "$extensions": {
+              "com.kokonada": {
+                "hex": "generated"
+              }
+            }
+          }
+        },
+        "ring": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.19,
+              0.028,
+              240
+            ],
+            "alpha": 1,
+            "hex": "#07151F"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "ringHighlight": {
+          "$type": "color",
+          "$value": "{color.dark.plate.ring}"
+        },
+        "face": {
+          "$type": "color",
+          "$value": "{color.dark.ground}"
+        }
+      },
+      "bead": {
+        "setting": {
+          "$type": "color",
+          "$value": "{color.dark.ground}"
+        },
+        "neutral": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.72,
+              0,
+              0
+            ],
+            "alpha": 1,
+            "hex": "#A4A4A4"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "shadow": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.15,
+              0.025,
+              240
+            ],
+            "alpha": 0.6,
+            "hex": "#030C15"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "v0"
+            }
+          }
+        }
+      },
+      "field": {
+        "restGlow": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.62,
+              0.045,
+              240
+            ],
+            "alpha": 1,
+            "hex": "#6E8A9F"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        }
+      },
+      "nav": {
+        "surface": {
+          "$type": "color",
+          "$value": "{color.dark.ground}"
+        },
+        "activeFill": {
+          "$type": "color",
+          "$value": "{color.dark.text.primary}"
+        },
+        "activeLabel": {
+          "$type": "color",
+          "$value": "{color.dark.text.primary}"
+        },
+        "inactive": {
+          "$type": "color",
+          "$value": "{color.dark.text.secondary}"
+        }
+      },
+      "avatar": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.dark.surface1}"
+        }
+      }
+    },
+    "light": {
+      "ground": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.97,
+            0.008,
+            210
+          ],
+          "alpha": 1,
+          "hex": "#EFF7F8"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "v0"
+          }
+        }
+      },
+      "surface1": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            1,
+            0,
+            0
+          ],
+          "alpha": 1,
+          "hex": "#FFFFFF"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "v0"
+          }
+        }
+      },
+      "surface2": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.985,
+            0.006,
+            210
+          ],
+          "alpha": 1,
+          "hex": "#F6FBFC"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "generated"
+          }
+        }
+      },
+      "text": {
+        "primary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.23,
+              0.035,
+              240
+            ],
+            "alpha": 1,
+            "hex": "#0C1F2C"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "v0"
+            }
+          }
+        },
+        "secondary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.44,
+              0.03,
+              235
+            ],
+            "alpha": 1,
+            "hex": "#435561"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "tertiary": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.52,
+              0.025,
+              230
+            ],
+            "alpha": 1,
+            "hex": "#5B6C75"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "onTint": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              1,
+              0,
+              0
+            ],
+            "alpha": 1,
+            "hex": "#FFFFFF"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "onInk": {
+          "$type": "color",
+          "$value": "{color.light.text.onTint}"
+        }
+      },
+      "line": {
+        "hairline": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.9,
+              0.01,
+              220
+            ],
+            "alpha": 1,
+            "hex": "#D7E0E3"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "control": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.6,
+              0.025,
+              230
+            ],
+            "alpha": 1,
+            "hex": "#72838C"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        }
+      },
+      "focus": {
+        "$type": "color",
+        "$value": "{color.light.text.primary}"
+      },
+      "plate": {
+        "rim": {
+          "base": {
+            "$type": "color",
+            "$value": {
+              "colorSpace": "oklch",
+              "components": [
+                0.5,
+                0.035,
+                240
+              ],
+              "alpha": 1,
+              "hex": "#516676"
+            },
+            "$extensions": {
+              "com.kokonada": {
+                "hex": "generated"
+              }
+            }
+          },
+          "lit": {
+            "$type": "color",
+            "$value": {
+              "colorSpace": "oklch",
+              "components": [
+                0.62,
+                0.03,
+                235
+              ],
+              "alpha": 1,
+              "hex": "#758996"
+            },
+            "$extensions": {
+              "com.kokonada": {
+                "hex": "generated"
+              }
+            }
+          }
+        },
+        "ring": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.995,
+              0.003,
+              210
+            ],
+            "alpha": 1,
+            "hex": "#FBFEFE"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "ringHighlight": {
+          "$type": "color",
+          "$value": "{color.light.plate.ring}"
+        },
+        "face": {
+          "$type": "color",
+          "$value": "{color.light.ground}"
+        }
+      },
+      "bead": {
+        "setting": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              1,
+              0,
+              0
+            ],
+            "alpha": 1,
+            "hex": "#FFFFFF"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "neutral": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.44,
+              0,
+              0
+            ],
+            "alpha": 1,
+            "hex": "#525252"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        },
+        "shadow": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.23,
+              0.035,
+              240
+            ],
+            "alpha": 0.25,
+            "hex": "#0C1F2C"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "v0"
+            }
+          }
+        }
+      },
+      "field": {
+        "restGlow": {
+          "$type": "color",
+          "$value": {
+            "colorSpace": "oklch",
+            "components": [
+              0.7,
+              0.035,
+              225
+            ],
+            "alpha": 1,
+            "hex": "#88A4AF"
+          },
+          "$extensions": {
+            "com.kokonada": {
+              "hex": "generated"
+            }
+          }
+        }
+      },
+      "nav": {
+        "surface": {
+          "$type": "color",
+          "$value": "{color.light.ground}"
+        },
+        "activeFill": {
+          "$type": "color",
+          "$value": "{color.light.text.primary}"
+        },
+        "activeLabel": {
+          "$type": "color",
+          "$value": "{color.light.text.primary}"
+        },
+        "inactive": {
+          "$type": "color",
+          "$value": "{color.light.text.secondary}"
+        }
+      },
+      "avatar": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.light.surface1}"
+        }
+      }
+    }
+  },
+  "elevation": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "none": {
+      "dark": {
+        "$type": "shadow",
+        "$value": []
+      },
+      "light": {
+        "$type": "shadow",
+        "$value": []
+      }
+    },
+    "e1": {
+      "dark": {
+        "$type": "shadow",
+        "$value": []
+      },
+      "light": {
+        "$type": "shadow",
+        "$value": []
+      }
+    },
+    "e2": {
+      "dark": {
+        "$type": "shadow",
+        "$value": []
+      },
+      "light": {
+        "$type": "shadow",
+        "$value": []
+      }
+    },
+    "raised": {
+      "dark": {
+        "$type": "shadow",
+        "$value": []
+      },
+      "light": {
+        "$type": "shadow",
+        "$value": []
+      }
+    },
+    "recessed": {
+      "dark": {
+        "$type": "shadow",
+        "$value": []
+      },
+      "light": {
+        "$type": "shadow",
+        "$value": []
+      }
+    }
+  },
+  "plate": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "inset": {
+      "$type": "dimension",
+      "$value": {
+        "value": 40,
+        "unit": "px"
+      }
+    },
+    "depth": {
+      "$type": "number",
+      "$value": -8
+    },
+    "shadow": {
+      "dark": {
+        "offsetY": {
+          "$type": "dimension",
+          "$value": {
+            "value": 4,
+            "unit": "px"
+          }
+        },
+        "blur": {
+          "$type": "dimension",
+          "$value": {
+            "value": 12,
+            "unit": "px"
+          }
+        },
+        "strength": {
+          "$type": "number",
+          "$value": 0.55
+        }
+      },
+      "light": {
+        "offsetY": {
+          "$type": "dimension",
+          "$value": {
+            "value": 3,
+            "unit": "px"
+          }
+        },
+        "blur": {
+          "$type": "dimension",
+          "$value": {
+            "value": 8,
+            "unit": "px"
+          }
+        },
+        "strength": {
+          "$type": "number",
+          "$value": 0.18
+        }
+      }
+    },
+    "shadow2": {
+      "dark": {
+        "offsetY": {
+          "$type": "dimension",
+          "$value": {
+            "value": 0,
+            "unit": "px"
+          }
+        },
+        "blur": {
+          "$type": "dimension",
+          "$value": {
+            "value": 0,
+            "unit": "px"
+          }
+        },
+        "strength": {
+          "$type": "number",
+          "$value": 0
+        }
+      },
+      "light": {
+        "offsetY": {
+          "$type": "dimension",
+          "$value": {
+            "value": -1,
+            "unit": "px"
+          }
+        },
+        "blur": {
+          "$type": "dimension",
+          "$value": {
+            "value": 2,
+            "unit": "px"
+          }
+        },
+        "strength": {
+          "$type": "number",
+          "$value": -0.02
+        }
+      }
+    },
+    "face": {
+      "vignette": {
+        "dark": {
+          "$type": "number",
+          "$value": -0.12
+        },
+        "light": {
+          "$type": "number",
+          "$value": 0
+        }
+      },
+      "centreLift": {
+        "dark": {
+          "$type": "number",
+          "$value": 0
+        },
+        "light": {
+          "$type": "number",
+          "$value": 0.03
+        }
+      }
+    },
+    "rim": {
+      "light": {
+        "$type": "number",
+        "$value": 1
+      }
+    },
+    "ringHighlightArc": {
+      "$type": "number",
+      "$value": 0
+    }
+  },
+  "bead": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "diameter": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "chromaScale": {
+      "$type": "number",
+      "$value": 1
+    },
+    "highlight": {
+      "mix": {
+        "$type": "number",
+        "$value": 0.45
+      },
+      "radius": {
+        "$type": "number",
+        "$value": 0.6
+      },
+      "offsetX": {
+        "$type": "number",
+        "$value": -0.3
+      },
+      "offsetY": {
+        "$type": "number",
+        "$value": -0.35
+      }
+    },
+    "shadow": {
+      "offsetY": {
+        "$type": "dimension",
+        "$value": {
+          "value": 2,
+          "unit": "px"
+        }
+      },
+      "blur": {
+        "$type": "dimension",
+        "$value": {
+          "value": 4,
+          "unit": "px"
+        }
+      }
+    },
+    "setting": {
+      "width": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.5,
+          "unit": "px"
+        }
+      }
+    }
+  },
+  "field": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "mask": {
+      "outside": {
+        "$type": "number",
+        "$value": 0
+      },
+      "face": {
+        "$type": "number",
+        "$value": 1
+      },
+      "ring": {
+        "$type": "number",
+        "$value": 0
+      },
+      "moat": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      },
+      "moatFeather": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        }
+      },
+      "quietFeather": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0,
+          "unit": "px"
+        }
+      }
+    },
+    "K": {
+      "dark": {
+        "$type": "number",
+        "$value": 0.72
+      },
+      "light": {
+        "$type": "number",
+        "$value": 0.22
+      }
+    },
+    "cap": {
+      "dark": {
+        "$type": "number",
+        "$value": 0.85
+      },
+      "light": {
+        "$type": "number",
+        "$value": 0.26
+      }
+    },
+    "presence": {
+      "min": {
+        "$type": "number",
+        "$value": 0.55
+      },
+      "none": {
+        "$type": "number",
+        "$value": 0.78
+      }
+    },
+    "genesisPresence": {
+      "$type": "number",
+      "$value": 1.2
+    },
+    "lobe": {
+      "radius": {
+        "$type": "number",
+        "$value": 0.95
+      },
+      "centreAlpha": {
+        "$type": "number",
+        "$value": 1
+      },
+      "centreBeta": {
+        "$type": "number",
+        "$value": 0
+      },
+      "neutralLobe": {
+        "$type": "number",
+        "$value": 1
+      }
+    },
+    "rest": {
+      "$extensions": {
+        "com.kokonada": {
+          "lobes": [
+            [
+              -0.35,
+              -0.3
+            ],
+            [
+              0.4,
+              0.35
+            ]
+          ]
+        }
+      }
+    },
+    "grain": {
+      "ground": {
+        "$type": "number",
+        "$value": 0.012
+      },
+      "inside": {
+        "$type": "number",
+        "$value": 0.012
+      }
+    },
+    "pivot": {
+      "$type": "number",
+      "$value": 0
+    },
+    "graph": {
+      "restIntenseRoute": {
+        "$type": "string",
+        "$value": "straight"
+      }
+    },
+    "drift": {
+      "D": {
+        "$type": "number",
+        "$value": 1.6
+      },
+      "A0": {
+        "$type": "number",
+        "$value": 0.06
+      }
+    },
+    "warp": {
+      "W0": {
+        "$type": "number",
+        "$value": 0.3
+      },
+      "orbit": {
+        "$type": "number",
+        "$value": 0.6
+      }
+    },
+    "shimmer": {
+      "deg": {
+        "$type": "number",
+        "$value": 6
+      }
+    },
+    "breath": {
+      "nRest": {
+        "$type": "number",
+        "$value": 11
+      },
+      "nStress": {
+        "$type": "number",
+        "$value": 6
+      },
+      "inhale": {
+        "$type": "number",
+        "$value": 0.4
+      },
+      "ampRadius": {
+        "$type": "number",
+        "$value": 0.08
+      },
+      "ampPresence": {
+        "$type": "number",
+        "$value": 0.08
+      }
+    },
+    "stillTime": {
+      "$type": "duration",
+      "$value": {
+        "value": 11000,
+        "unit": "ms"
+      }
+    }
+  },
+  "nav": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "surfaceOpacity": {
+      "$type": "number",
+      "$value": 0
+    },
+    "radius": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "insetSide": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "insetBottom": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "elevation": {
+      "$type": "string",
+      "$value": "none"
+    },
+    "topLine": {
+      "width": {
+        "$type": "dimension",
+        "$value": {
+          "value": 0,
+          "unit": "px"
+        }
+      }
+    },
+    "active": {
+      "dot": {
+        "size": {
+          "$type": "dimension",
+          "$value": {
+            "value": 4,
+            "unit": "px"
+          }
+        },
+        "offset": {
+          "$type": "dimension",
+          "$value": {
+            "value": 4,
+            "unit": "px"
+          }
+        }
+      },
+      "capsule": {
+        "opacity": {
+          "$type": "number",
+          "$value": 0
+        },
+        "height": {
+          "$type": "dimension",
+          "$value": {
+            "value": 48,
+            "unit": "px"
+          }
+        },
+        "radius": {
+          "$type": "dimension",
+          "$value": {
+            "value": 24,
+            "unit": "px"
+          }
+        },
+        "edgeWidth": {
+          "$type": "dimension",
+          "$value": {
+            "value": 0,
+            "unit": "px"
+          }
+        },
+        "depth": {
+          "$type": "number",
+          "$value": 0
+        }
+      }
+    }
+  },
+  "avatar": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "ringWidth": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1,
+        "unit": "px"
+      }
+    },
+    "depth": {
+      "$type": "number",
+      "$value": 0
+    }
+  },
+  "cta": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "keyline": {
+      "$type": "dimension",
+      "$value": {
+        "value": 0,
+        "unit": "px"
+      }
+    },
+    "pressScale": {
+      "$type": "number",
+      "$value": 0.98
+    }
+  },
+  "motion": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "placement": {
+      "scaleFrom": {
+        "$type": "number",
+        "$value": 0.6
+      },
+      "overshoot": {
+        "$type": "number",
+        "$value": 1
+      },
+      "easing": {
+        "$type": "string",
+        "$value": "motion.settle"
+      }
+    }
+  },
+  "type": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "voice": {
+      "l": {
+        "latin": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 30,
+              "unit": "px"
+            }
+          },
+          "lineHeight": {
+            "$type": "dimension",
+            "$value": {
+              "value": 38,
+              "unit": "px"
+            }
+          },
+          "tracking": {
+            "$type": "number",
+            "$value": -0.01
+          }
+        },
+        "hebrew": {
+          "size": {
+            "$type": "dimension",
+            "$value": {
+              "value": 30,
+              "unit": "px"
+            }
+          },
+          "lineHeight": {
+            "$type": "dimension",
+            "$value": {
+              "value": 40,
+              "unit": "px"
+            }
+          },
+          "tracking": {
+            "$type": "number",
+            "$value": 0
+          }
+        }
+      }
+    },
+    "ui": {
+      "title": {
+        "weight": {
+          "$type": "fontWeight",
+          "$value": 500
+        }
+      },
+      "display": {
+        "weight": {
+          "$type": "fontWeight",
+          "$value": 300
+        }
+      }
+    }
+  },
+  "radius": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "xs": {
+      "$type": "dimension",
+      "$value": {
+        "value": 6,
+        "unit": "px"
+      }
+    },
+    "s": {
+      "$type": "dimension",
+      "$value": {
+        "value": 10,
+        "unit": "px"
+      }
+    },
+    "m": {
+      "$type": "dimension",
+      "$value": {
+        "value": 14,
+        "unit": "px"
+      }
+    },
+    "l": {
+      "$type": "dimension",
+      "$value": {
+        "value": 20,
+        "unit": "px"
+      }
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": {
+        "value": 28,
+        "unit": "px"
+      }
+    }
+  },
+  "layout": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "gutter": {
+      "$type": "dimension",
+      "$value": {
+        "value": 24,
+        "unit": "px"
+      }
+    },
+    "gap": {
+      "aiToVoice": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        }
+      },
+      "voiceToPlate": {
+        "$type": "dimension",
+        "$value": {
+          "value": 24,
+          "unit": "px"
+        }
+      },
+      "plateToWell": {
+        "$type": "dimension",
+        "$value": {
+          "value": 32,
+          "unit": "px"
+        }
+      },
+      "wellToNav": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      }
+    }
+  },
+  "haptics": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "place": {
+      "$type": "string",
+      "$value": "TICK@0:0.50",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "EFFECT_TICK",
+          "trigger": "plate.tap"
+        }
+      }
+    },
+    "replace": {
+      "$type": "string",
+      "$value": "TICK@0:0.50,TICK@60:0.30",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "EFFECT_TICK",
+          "trigger": "plate.tap.fourth"
+        }
+      }
+    },
+    "remove": {
+      "$type": "string",
+      "$value": "TICK@0:0.30",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "CLOCK_TICK",
+          "trigger": "plate.tapLatest"
+        }
+      }
+    },
+    "commit": {
+      "$type": "string",
+      "$value": "SLOW_RISE@0:0.40,TICK@0:0.50",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "EFFECT_CLICK",
+          "trigger": "cta.press"
+        }
+      }
+    },
+    "ready": {
+      "$type": "string",
+      "$value": "QUICK_FALL@0:0.30",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "EFFECT_TICK",
+          "trigger": "music.ready"
+        }
+      }
+    },
+    "nav": {
+      "$type": "string",
+      "$value": "",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "",
+          "trigger": "nav.select"
+        }
+      }
+    },
+    "press": {
+      "$type": "string",
+      "$value": "",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "",
+          "trigger": "button.press"
+        }
+      }
+    },
+    "consent": {
+      "$type": "string",
+      "$value": "",
+      "$extensions": {
+        "com.kokonada": {
+          "fallback": "",
+          "trigger": "none"
+        }
+      }
+    }
+  },
+  "$extensions": {
+    "com.kokonada": {
+      "direction": "abyss",
+      "hardest": [
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "dark",
+          "node": "J",
+          "x": 0.02,
+          "y": 0.948,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "dark",
+          "node": "J",
+          "x": 0.02,
+          "y": 0.872,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "light",
+          "node": "I",
+          "x": -0.02,
+          "y": 0.948,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.top",
+          "element": "hero.plate.word.top",
+          "face": "light",
+          "node": "I",
+          "x": -0.02,
+          "y": 0.872,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "dark",
+          "node": "C",
+          "x": 0.948,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "dark",
+          "node": "C",
+          "x": 0.872,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "light",
+          "node": "C",
+          "x": 0.948,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.right",
+          "element": "hero.plate.word.right",
+          "face": "light",
+          "node": "C",
+          "x": 0.872,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "dark",
+          "node": "C",
+          "x": 0.02,
+          "y": -0.948,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "dark",
+          "node": "C",
+          "x": 0.02,
+          "y": -0.872,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "light",
+          "node": "R",
+          "x": -0.02,
+          "y": -0.948,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.bottom",
+          "element": "hero.plate.word.bottom",
+          "face": "light",
+          "node": "R",
+          "x": -0.02,
+          "y": -0.872,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "dark",
+          "node": "R",
+          "x": -0.948,
+          "y": -0.02,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "dark",
+          "node": "R",
+          "x": -0.872,
+          "y": -0.02,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "light",
+          "node": "I",
+          "x": -0.948,
+          "y": 0.02,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "word.left",
+          "element": "hero.plate.word.left",
+          "face": "light",
+          "node": "I",
+          "x": -0.872,
+          "y": 0.02,
+          "fontScale": 2,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "edge.rim",
+          "element": "hero.plate.rim",
+          "face": "dark",
+          "node": "C",
+          "x": 0,
+          "y": -1,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 3
+        },
+        {
+          "id": "edge.rim",
+          "element": "hero.plate.rim",
+          "face": "light",
+          "node": "R",
+          "x": -0.01,
+          "y": -1,
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": false,
+            "sweep": "T@4Hz"
+          },
+          "threshold": 3
+        },
+        {
+          "id": "reach.top",
+          "element": [
+            "hero.aiLine",
+            "hero.voiceLine"
+          ],
+          "face": "dark",
+          "beads": [
+            {
+              "node": "I",
+              "x": -0.5,
+              "y": 0.85
+            },
+            {
+              "node": "J",
+              "x": 0,
+              "y": 0.98
+            },
+            {
+              "node": "J",
+              "x": 0.5,
+              "y": 0.85
+            }
+          ],
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": "hold"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "reach.bottom",
+          "element": [
+            "hero.cta.label",
+            "hero.nav.item.*"
+          ],
+          "face": "dark",
+          "beads": [
+            {
+              "node": "R",
+              "x": -0.5,
+              "y": -0.85
+            },
+            {
+              "node": "C",
+              "x": 0,
+              "y": -0.98
+            },
+            {
+              "node": "C",
+              "x": 0.5,
+              "y": -0.85
+            }
+          ],
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": "hold"
+          },
+          "threshold": 4.5,
+          "iconThreshold": 3
+        },
+        {
+          "id": "reach.top",
+          "element": [
+            "hero.aiLine",
+            "hero.voiceLine"
+          ],
+          "face": "light",
+          "beads": [
+            {
+              "node": "I",
+              "x": -0.5,
+              "y": 0.85
+            },
+            {
+              "node": "J",
+              "x": 0,
+              "y": 0.98
+            },
+            {
+              "node": "J",
+              "x": 0.5,
+              "y": 0.85
+            }
+          ],
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": "hold"
+          },
+          "threshold": 4.5
+        },
+        {
+          "id": "reach.bottom",
+          "element": [
+            "hero.cta.label",
+            "hero.nav.item.*"
+          ],
+          "face": "light",
+          "beads": [
+            {
+              "node": "R",
+              "x": -0.5,
+              "y": -0.85
+            },
+            {
+              "node": "C",
+              "x": 0,
+              "y": -0.98
+            },
+            {
+              "node": "C",
+              "x": 0.5,
+              "y": -0.85
+            }
+          ],
+          "fontScale": 1,
+          "fieldState": {
+            "s": 0,
+            "c": 1,
+            "genesis": "hold"
+          },
+          "threshold": 4.5,
+          "iconThreshold": 3
+        }
+      ],
+      "neverRedScenes": [
+        {
+          "id": "seam",
+          "faces": [
+            "dark",
+            "light"
+          ],
+          "beads": [
+            {
+              "node": "I",
+              "x": -0.15,
+              "y": 0.8
+            },
+            {
+              "node": "J",
+              "x": 0.15,
+              "y": 0.8
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

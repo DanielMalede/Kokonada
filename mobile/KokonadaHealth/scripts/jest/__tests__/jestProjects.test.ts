@@ -38,13 +38,15 @@ function listTests(project: string, config?: string): string[] {
 }
 
 // jest's default testMatch, walked by hand: a file under __tests__/, or named *.test.* / *.spec.*,
-// with a js/ts extension, outside node_modules.
+// with a js/ts extension, outside node_modules and outside a __fixtures__ folder (test-only data and
+// helpers, never tests: both default projects ignore the folder).
 const TEST_EXT = /\.[mc]?[jt]sx?$/;
+const FIXTURES_DIR = '__fixtures__';
 function testsOnDisk(): string[] {
   const out: string[] = [];
   const walk = (dir: string, underTests: boolean) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (e.name === 'node_modules' || e.name === '.git') continue;
+      if (e.name === 'node_modules' || e.name === '.git' || e.name === FIXTURES_DIR) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) walk(full, underTests || e.name === '__tests__');
       else if (TEST_EXT.test(e.name) && (underTests || /\.(test|spec)\.[mc]?[jt]sx?$/.test(e.name))) out.push(rel(full));
@@ -161,6 +163,15 @@ describe('the two jest projects (MB-086)', () => {
     expect(byName.unit.setupFiles).toContain('<rootDir>/jest.setup.js');
     expect(byName.skia.setupFiles ?? []).not.toContain('<rootDir>/jest.setup.js');
     expect(byName.skia.testEnvironment).toBe('@shopify/react-native-skia/jestEnv.js');
+  });
+
+  it('a file under __fixtures__ is never a test: no project lists one, and both default projects ignore the folder', () => {
+    const helper = 'src/design/v2/__tests__/__fixtures__/fixtureTokens.ts';
+    expect(fs.existsSync(path.join(APP, helper))).toBe(true);
+    expect([unit, skia, sweeps, sweepsSkia()].flat().filter((f) => f.split('/').includes(FIXTURES_DIR))).toEqual([]);
+    expect(disk).not.toContain(helper);
+    const config = require('../../../jest.config.js') as { projects: Array<{ displayName: string; testPathIgnorePatterns: string[] }> };
+    for (const p of config.projects) expect([p.displayName, p.testPathIgnorePatterns]).toEqual([p.displayName, expect.arrayContaining(['/__fixtures__/'])]);
   });
 
   it('lives with the tooling it guards, not in src/design/v2 (whose relative imports must stay inside v2)', () => {

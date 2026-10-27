@@ -43,6 +43,17 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const FILES = sourceFiles(V2);
 const rel = (file: string) => path.relative(V2, file).split(path.sep).join('/');
 
+// The one exception, by file and specifier: the close-out's fixture directions are built by the real
+// token generator and schema (scripts/tokens/lib), test-only, from inside __tests__/__fixtures__.
+const ALLOWED_LEAVING: Record<string, readonly string[]> = {
+  '__tests__/__fixtures__/fixtureTokens.ts': ['../../../../../scripts/tokens/lib/emit.mjs', '../../../../../scripts/tokens/lib/schema.mjs'],
+};
+const isAllowed = (file: string, spec: string) => (ALLOWED_LEAVING[rel(file)] ?? []).includes(spec);
+
+/** The specifiers in `source` that name a __fixtures__ folder. */
+const fixtureImports = (source: string) => moduleSpecifiers(source).filter((spec) => spec.split('/').includes('__fixtures__'));
+const underTests = (file: string) => rel(file).split('/').includes('__tests__');
+
 describe('src/design/v2 imports nothing from outside v2', () => {
   it('the scan sees the real tree (a walk that finds nothing must fail, not pass)', () => {
     const seen = FILES.map(rel);
@@ -53,9 +64,27 @@ describe('src/design/v2 imports nothing from outside v2', () => {
 
   it('every relative import resolves inside src/design/v2', () => {
     const leaving = FILES.flatMap((file) =>
-      importsLeavingV2(fs.readFileSync(file, 'utf8'), file, V2).map((spec) => `${rel(file)} -> ${spec}`),
+      importsLeavingV2(fs.readFileSync(file, 'utf8'), file, V2)
+        .filter((spec) => !isAllowed(file, spec))
+        .map((spec) => `${rel(file)} -> ${spec}`),
     );
     expect(leaving).toEqual([]);
+  });
+
+  it('the exception is exactly the fixture builder’s two generator imports, both still there, and no other file', () => {
+    for (const [file, specs] of Object.entries(ALLOWED_LEAVING)) {
+      expect(importsLeavingV2(fs.readFileSync(path.join(V2, file), 'utf8'), path.join(V2, file), V2)).toEqual(specs);
+    }
+    expect(isAllowed(path.join(V2, 'field', 'fieldFrame.ts'), '../../../../../scripts/tokens/lib/emit.mjs')).toBe(false);
+  });
+
+  it('nothing outside a __tests__ folder imports the test-only __fixtures__ folder', () => {
+    expect(FILES.filter((f) => !underTests(f) && fixtureImports(fs.readFileSync(f, 'utf8')).length > 0).map(rel)).toEqual([]);
+    expect(FILES.filter((f) => underTests(f) && fixtureImports(fs.readFileSync(f, 'utf8')).length > 0).map(rel)).toContain('__tests__/fixtureDirections.test.ts');
+    const q = String.fromCharCode(39);
+    expect(fixtureImports('import { a } from ' + q + '../__tests__/__fixtures__/fixtureTokens.ts' + q + ';')).toEqual(['../__tests__/__fixtures__/fixtureTokens.ts']);
+    expect(fixtureImports('jest.mock(' + q + '../a.ts' + q + ', () => require(' + q + '../../__tests__/__fixtures__/fixtureTokens.ts' + q + '));')).toEqual(['../../__tests__/__fixtures__/fixtureTokens.ts']);
+    expect(fixtureImports('import { b } from ' + q + './fixtures.ts' + q + ';')).toEqual([]);
   });
 
   // Planted: the same scanner on source text that reaches back into v1. Each source is assembled

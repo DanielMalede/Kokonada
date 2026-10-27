@@ -21,6 +21,10 @@ const SWEEPS_TESTS = '\\.sweeps\\.test\\.[jt]sx?$';
 // project here leaves them out.
 const SWEEPS_SKIA_TESTS = '\\.sweeps\\.skia\\.test\\.[jt]sx?$';
 
+// Test-only fixtures (src/design/v2/__tests__/__fixtures__/: the close-out's fixture directions) sit
+// under __tests__ but are never tests, so both projects leave them out; jestProjects.test.ts pins it.
+const FIXTURES = '/__fixtures__/';
+
 // Two projects, one run: `jest` (and CI's `jest --ci`) runs both. jestProjects.test.ts checks that
 // together they run exactly the tests on disk, so a split can never silently drop a suite.
 module.exports = {
@@ -40,7 +44,7 @@ module.exports = {
       transformIgnorePatterns: [
         'node_modules/(?!(?:@react-native|react-native|@reduxjs/toolkit|immer|redux|reselect|redux-thunk|react-redux|zustand|@react-navigation|react-native-screens|react-native-haptic-feedback)/)',
       ],
-      testPathIgnorePatterns: ['/node_modules/', SKIA_TESTS, SWEEPS_TESTS],
+      testPathIgnorePatterns: ['/node_modules/', FIXTURES, SKIA_TESTS, SWEEPS_TESTS],
     },
     {
       displayName: 'skia',
@@ -51,7 +55,7 @@ module.exports = {
       testEnvironment: '@shopify/react-native-skia/jestEnv.js',
       setupFiles: ['@shopify/react-native-skia/jestSetup.js'],
       testMatch: ['**/*.skia.test.[jt]s?(x)'],
-      testPathIgnorePatterns: ['/node_modules/', SWEEPS_SKIA_TESTS],
+      testPathIgnorePatterns: ['/node_modules/', FIXTURES, SWEEPS_SKIA_TESTS],
       transform,
       // Skia's environment, setup and module build are ES modules, so they go through babel too.
       transformIgnorePatterns: [
