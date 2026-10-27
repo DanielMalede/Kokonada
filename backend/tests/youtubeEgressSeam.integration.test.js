@@ -10,7 +10,8 @@
 // and one YouTube genre ('nu-disco') that also sits in the energize mood's allow-list, so it would
 // steer the mood's on-taste Spotify seed — and drives the REAL generateAndEmitPlaylist over:
 //   • the emotion and heart branches, with VECTOR_DISCOVERY 'true' and unset,
-//   • a forced fallback (the LLM transport fails) on each branch,
+//   • a forced fallback on each branch: the LLM transport fails on the emotion branch; the heart
+//     branch makes no LLM call (BE-221), so there a Spotify discovery failure forces it,
 //   • a YouTube token with no Spotify link (the addition for the unconditional strip).
 // It asserts:
 //   1. every consumer of the profile received the SAME YouTube-free view: generateV2,
@@ -23,8 +24,9 @@
 //      cannot slip past (addition 1);
 //   4. no sentinel in ANY outbound HTTP request at all;
 //   5. the stored profile is untouched: the view is read-only.
-// Each run also proves its instruments are live (the LLM was called, Spotify was called, a playlist
-// was served), so a branch that silently skipped the work cannot pass.
+// Each run also proves its instruments are live (the LLM was called on the emotion branch and NOT
+// on the heart branch, which makes no LLM call since BE-221; Spotify was called; a playlist was
+// served), so a branch that silently skipped the work cannot pass.
 //
 // Real: MongoDB (User with tokens encrypted by the real setToken, MusicProfile), the biometric handler,
 // geminiEngine's prompt builders and LLM call, llmCall.chatJson, moodDescriptors, the deterministic
@@ -57,14 +59,21 @@ jest.mock('../app/services/llmCall', () => {
 jest.mock('../app/services/spotify', () => {
   const calls = [];
   const rec = (name, impl) => jest.fn(async (...args) => { calls.push({ name, args }); return impl(...args); });
+  // __fail.discovery: Spotify's discovery search fails, as a real 5xx does — the genre search under
+  // fetchVibeDiscovery has no catch of its own on the heart branch (no playlist queries).
+  const fail = { discovery: false };
   return {
     __calls: calls,
+    __fail: fail,
     getValidToken: jest.fn(async () => 'spotify-access-token'),
     artistGenresAvailable: jest.fn(() => true),
     markDiscoveryUnavailable: jest.fn(),
-    fetchVibeDiscovery: rec('fetchVibeDiscovery', () => [
-      { id: 'spd1', uri: 'spotify:track:spd1', name: 'Vibe Find', artists: [{ id: 'sp-artist-1', name: 'Spotify Artist' }] },
-    ]),
+    fetchVibeDiscovery: rec('fetchVibeDiscovery', () => {
+      if (fail.discovery) throw Object.assign(new Error('Request failed with status code 503'), { response: { status: 503 } });
+      return [
+        { id: 'spd1', uri: 'spotify:track:spd1', name: 'Vibe Find', artists: [{ id: 'sp-artist-1', name: 'Spotify Artist' }] },
+      ];
+    }),
     getArtistsGenres: rec('getArtistsGenres', () => ({ 'sp-artist-1': ['house'] })),
     searchTrackUri: rec('searchTrackUri', (_tok, { title, artist }) => ({ id: `s-${title}`, uri: `spotify:track:s-${String(title).replace(/\W+/g, '')}`, name: title, artist })),
     withFreshToken: rec('withFreshToken', () => { throw new Error('no Spotify session playlist in tests'); }),
@@ -163,11 +172,12 @@ afterAll(async () => {
 });
 
 let http;      // every outbound HTTP request: { verb, url, body }
-let llmFails;  // force the fallback by failing the LLM transport
+let llmFails;  // force the fallback by failing the LLM transport (emotion) or Spotify discovery (heart)
 beforeEach(async () => {
   await Promise.all([User.deleteMany({}), MusicProfile.deleteMany({}), PlaylistSession.deleteMany({})]);
   jest.clearAllMocks();
   spotify.__calls.length = 0;
+  spotify.__fail.discovery = false;
   http = [];
   llmFails = false;
   for (const level of ['log', 'info', 'warn', 'error']) jest.spyOn(console, level).mockImplementation(() => {});
@@ -255,6 +265,8 @@ const discoverySeeds = () => [
 async function run(branch, { vector = false, fallback = false, user }) {
   if (vector) process.env.VECTOR_DISCOVERY = 'true';
   llmFails = fallback;
+  // BE-221: the heart branch makes no LLM call, so a failing LLM cannot force its fallback.
+  spotify.__fail.discovery = fallback && branch === 'heart';
   const socket = makeSocket(user);
   await generateAndEmitPlaylist(socket, branch, makeState(branch));
   return socket.emit.mock.calls;
@@ -301,9 +313,16 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
       const user = await account(`${branch}-${vector}`);
       const emitted = await run(branch, { vector, user });
 
-      // The instruments were live on this branch.
-      expect(llmCall.chatJson).toHaveBeenCalled();
-      expect(http.some((h) => h.url === LLM_URL)).toBe(true);
+      // The instruments were live on this branch. BE-221: the heart branch makes no LLM call at all,
+      // so there the live instrument is its absence.
+      if (branch === 'heart') {
+        expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalled();
+        expect(llmCall.chatJson).not.toHaveBeenCalled();
+        expect(http.some((h) => h.url === LLM_URL)).toBe(false);
+      } else {
+        expect(llmCall.chatJson).toHaveBeenCalled();
+        expect(http.some((h) => h.url === LLM_URL)).toBe(true);
+      }
       if (vector) {
         expect(vectorDiscoveryFetch).toHaveBeenCalled();
         expect(spotify.__calls.some((c) => c.name === 'searchTrackUri' && c.args[1].title === 'Catalogue Find')).toBe(true);
@@ -320,15 +339,22 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
     });
   });
 
+  // BE-221: the heart branch's forced fallback moved from VECTOR_DISCOVERY=true to false: it is now
+  // forced by Spotify's discovery failing, and vector discovery never throws.
   it.each([
     ['emotion', false],
-    ['heart', true],
+    ['heart', false],
   ])('a forced fallback on the %s branch (VECTOR_DISCOVERY=%s): the library-only ladder sees no YouTube row', async (branch, vector) => {
     const user = await account(`fallback-${branch}`);
     const emitted = await run(branch, { vector, fallback: true, user });
 
     expect(buildDeterministicFallback).toHaveBeenCalled();
-    expect(http.some((h) => h.url === LLM_URL)).toBe(true); // the LLM was tried, and failed
+    if (branch === 'heart') {
+      expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(true); // discovery was tried, and failed
+      expect(http.some((h) => h.url === LLM_URL)).toBe(false); // and no LLM was ever asked
+    } else {
+      expect(http.some((h) => h.url === LLM_URL)).toBe(true); // the LLM was tried, and failed
+    }
     expectNoYoutubeEgress();
     const ready = emitted.find(([e]) => e === 'playlist_ready');
     expect(ready).toBeTruthy();
