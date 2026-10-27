@@ -109,7 +109,7 @@ _free_
 - task: `own:garmin-personal-client` (own)
 - title: Garmin personal lane PR 2: the Connect Personal API client, rate policy, the personal-to-summary mapper, and key redaction in Sentry and logs
 - branch: `feat/garmin-personal-client`
-- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`
+- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `TASKS.md`
 - resources: none
 - state: in-review · PR #274
 - started: 2026-10-26
