@@ -27,6 +27,7 @@ const MedicalProfile = require('../app/models/MedicalProfile');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
+const { persistMetrics } = require('../app/services/wearable/metricStore');
 const { MAX_FUTURE_SKEW_MS } = require('../app/services/wearable/adapter');
 
 jest.setTimeout(120000);
@@ -125,6 +126,22 @@ describe('the Garmin seam drops what is stamped past the clock (BE-206)', () => 
     const userId = new mongoose.Types.ObjectId(); // no consent record
     const res = await ingestSummaries(userId, [daily(nowSec() + HOUR)]);
     expect(res).toMatchObject({ refused: 'consent_not_current', droppedInFuture: 0 });
+  });
+
+  // RA-2 of #275, on the store itself: a time a Date cannot hold reached BiometricLog.find as an Invalid Date,
+  // whose cast threw, and the whole push failed. The cap drops it before any read or write and counts it.
+  it('the store\'s cap drops a metric whose time a Date cannot hold, counts it, and writes its neighbour', async () => {
+    const userId = await consentedUser();
+    const now = new Date(nowSec() * 1000);
+
+    const res = await persistMetrics(userId, [
+      { metric: 'heartRate', value: 61, unit: 'bpm', recordedAt: new Date(NaN), source: 'garmin', tzOffsetMinutes: null },
+      { metric: 'heartRate', value: 62, unit: 'bpm', recordedAt: new Date(now.getTime() - 60 * 1000), source: 'garmin', tzOffsetMinutes: null },
+    ], { dropOutsideRetention: true, dropInFuture: true, now });
+
+    expect(res.droppedInFuture).toBe(1);
+    expect(res.inserted).toBe(1);
+    expect((await BiometricLog.find({ userId })).map((r) => Number(r.heartRate))).toEqual([62]);
   });
 });
 

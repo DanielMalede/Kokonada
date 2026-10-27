@@ -140,6 +140,23 @@ describe('persistMetrics — the future cap is opt-in (BE-206)', () => {
     expect(mockFindOneAndUpdate.mock.calls[0][1].$set.restingHeartRate).toBe(51); // the 99 is in no median
   });
 
+  // RA-2 of #275: a time a Date cannot hold is NaN, and NaN fails every comparison, so `at > latest` kept it;
+  // on the real store the heart-rate read then threw a CastError for the whole push. Only a time provably at
+  // or before now + MAX_FUTURE_SKEW_MS is kept, and the rest is counted in droppedInFuture.
+  it('with dropInFuture, a metric whose time a Date cannot hold is dropped before any write and counted in droppedInFuture', async () => {
+    const BiometricLog = require('../app/models/BiometricLog');
+    const res = await persistMetrics('u1', [
+      { metric: 'heartRate', value: 61, recordedAt: new Date(NaN), source: 'garmin' },
+      { metric: 'restingHeartRate', value: 99, recordedAt: new Date(1e16), source: 'garmin' }, // past the 8.64e15 ms a Date holds
+      { metric: 'restingHeartRate', value: 51, recordedAt: at(-60 * 1000), source: 'garmin' },
+    ], { dropInFuture: true, now: NOW });
+
+    expect(res.droppedInFuture).toBe(2);
+    expect(BiometricLog.insertMany).not.toHaveBeenCalled();
+    expect(mockVitalInsertMany.mock.calls[0][0].map((d) => d.value)).toEqual([51]);
+    expect(mockFindOneAndUpdate.mock.calls[0][1].$set.restingHeartRate).toBe(51); // the 99 is in no median
+  });
+
   // Imported, not copied: under a registry where adapter.js allows an hour, the store keeps a reading
   // half an hour ahead that the real five minutes drop.
   it('the allowance is adapter.js MAX_FUTURE_SKEW_MS', async () => {
