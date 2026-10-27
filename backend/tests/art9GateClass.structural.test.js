@@ -192,8 +192,8 @@ function restViolation({ name, body }, routeCode) {
   return null;
 }
 
-// BE-205 (SEC-273-1): the Garmin ingest seam gates itself, so a caller that is not a controller (the
-// personal lane's pull job) cannot store a biometric without a current grant. Every file that references it
+// BE-205 (SEC-273-1): the Garmin ingest seam gates itself, so a caller that is not a controller (a job, a
+// script, a new route) cannot store a biometric without a current grant. Every file that references it
 // is pinned, so a new caller is a visible diff, and inside it the consent read and the decision come before
 // the normaliser and the store.
 const SEAM_SINKS = ['normalizeGarminSummaries(', 'persistMetrics('];
@@ -211,6 +211,60 @@ function callersOf(files, name) {
     return rest === code ? code : rest.replace(exportObject, '');
   };
   return files.filter((f) => reference.test(outsideOwn(f.code))).map((f) => f.file).sort();
+}
+
+// SEC-275-1: `ingestSummaries(userId, items, { now })` takes the clock as an option so a test can pin an
+// exact boundary; the future cap (now + MAX_FUTURE_SKEW_MS) and the retention filter both read it. A
+// production caller that passed `now:` (a client's timestamp, a stale date) would move both windows, so no
+// call under app/ may pass any option at all: `now` is the seam's only option, so a third argument, a spread
+// or the word `now` among the arguments is a violation, and a new option is a visible change to this pin.
+// An alias or a re-export cannot be read this way, so a reference that is not a direct call is one too.
+function splitTopLevel(args) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < args.length; i += 1) {
+    const ch = args[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth += 1;
+    else if (')]}'.includes(ch)) depth -= 1;
+    else if (ch === ',' && depth === 0) { parts.push(args.slice(start, i)); start = i + 1; }
+  }
+  parts.push(args.slice(start));
+  return parts.map((a) => a.trim()).filter((a) => a !== '');
+}
+
+function seamOptionViolations(files, name) {
+  const definition = new RegExp(`function\\s+${name}\\s*\\(`, 'g');
+  const exportObject = /module\.exports\s*=\s*\{[^}]*\}/g;
+  const violations = [];
+  for (const f of files) {
+    const rest = f.code.replace(definition, '');
+    const code = rest === f.code ? f.code : rest.replace(exportObject, '');
+    const reference = new RegExp(`\\b${name}\\b`, 'g');
+    let m;
+    while ((m = reference.exec(code)) !== null) {
+      const after = m.index + m[0].length;
+      const open = code.slice(after).search(/\S/) + after;
+      if (code[open] !== '(') { violations.push(`${f.file}: ${name} is referenced without a direct call`); continue; }
+      let depth = 0;
+      let close = -1;
+      for (let i = open; i < code.length; i += 1) {
+        if (code[i] === '(') depth += 1;
+        else if (code[i] === ')' && --depth === 0) { close = i; break; }
+      }
+      if (close < 0) { violations.push(`${f.file}: a call of ${name} could not be parsed`); continue; }
+      const args = splitTopLevel(code.slice(open + 1, close));
+      if (args.length > 2 || args.some((a) => a.startsWith('...') || /\bnow\b/.test(a))) {
+        violations.push(`${f.file}: ${name}(${args.join(', ')}) passes an option`);
+      }
+    }
+  }
+  return violations;
 }
 
 // The body of `(async) function name(…) { … }`. The parameter list is skipped by counting parentheses,
@@ -317,13 +371,32 @@ describe('the detectors are not vacuous', () => {
     const files = [
       { file: 'controllers/integrationsController.js', code: 'await garminIngest.ingestSummaries(user._id, items);' },
       { file: 'services/wearable/garminIngest.js', code: 'async function ingestSummaries(userId, items) {}\nmodule.exports = { ingestSummaries };' },
-      { file: 'workers/garminPersonalPull.js', code: 'const res = await ingestSummaries(userId, admitted.items);' },
+      { file: 'workers/summaryReplay.js', code: 'const res = await ingestSummaries(userId, admitted.items);' },
       { file: 'services/wearable/mapper.js', code: 'const seam = garminIngest.ingestSummaries;\nawait seam(userId, items);' },
       { file: 'services/wearable/barrel.js', code: "module.exports = { ingestSummaries: require('./garminIngest').ingestSummaries };" },
     ];
     expect(callersOf(files, 'ingestSummaries')).toEqual([
-      'controllers/integrationsController.js', 'services/wearable/barrel.js', 'services/wearable/mapper.js', 'workers/garminPersonalPull.js',
+      'controllers/integrationsController.js', 'services/wearable/barrel.js', 'services/wearable/mapper.js', 'workers/summaryReplay.js',
     ]);
+  });
+
+  it('SEC-275-1: the option scan flags a now:, any third argument, a spread and an alias; a two-argument call passes', () => {
+    const scan = (code) => seamOptionViolations([{ file: 'x.js', code }], 'ingestSummaries');
+
+    expect(scan('await garminIngest.ingestSummaries(user._id, items);')).toEqual([]);
+    expect(scan('await ingestSummaries(pick(a, b), [c, d], );')).toEqual([]);
+    expect(scan('await garminIngest.ingestSummaries(user._id, items, { now: new Date(req.body.at) });'))
+      .toEqual(['x.js: ingestSummaries(user._id, items, { now: new Date(req.body.at) }) passes an option']);
+    expect(scan('await ingestSummaries(u, i, { now });')).toHaveLength(1);
+    expect(scan('await ingestSummaries(u, i, opts);')).toHaveLength(1);
+    expect(scan('await ingestSummaries(...args);')).toHaveLength(1);
+    expect(scan('await ingestSummaries(u, { ...i, now });')).toHaveLength(1);
+    expect(scan('const seam = garminIngest.ingestSummaries;\nawait seam(u, i, { now });'))
+      .toEqual(['x.js: ingestSummaries is referenced without a direct call']);
+    expect(scan('await ingestSummaries(u, i')).toEqual(['x.js: a call of ingestSummaries could not be parsed']);
+    // The defining file's own definition, with its `{ now = new Date() }` default, and its export are not calls.
+    const own = 'async function ingestSummaries(userId, items, { now = new Date() } = {}) {}\nmodule.exports = { ingestSummaries };';
+    expect(seamOptionViolations([{ file: 'garminIngest.js', code: own }], 'ingestSummaries')).toEqual([]);
   });
 
   it('the scan found what it guards: ≥8 socket handlers and ≥5 biometric REST controllers', () => {
@@ -368,6 +441,12 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
 
   it('BE-205: ingestSummaries is referenced only from the Garmin webhook controller (a pin: a new caller or alias is a visible diff)', () => {
     expect(callersOf(ALL, 'ingestSummaries')).toEqual(['controllers/integrationsController.js']);
+  });
+
+  it('SEC-275-1: no call of ingestSummaries under app/ passes a now: or any other option (the clock is for tests alone)', () => {
+    const callers = ALL.filter((f) => callersOf([f], 'ingestSummaries').length > 0);
+    expect(callers.map((f) => f.file)).toEqual(['controllers/integrationsController.js']); // the scan read the real caller
+    expect(seamOptionViolations(callers, 'ingestSummaries')).toEqual([]);
   });
 
   it('BE-205: inside ingestSummaries the consent read and isCurrentGrant come before the normaliser and the store', () => {
