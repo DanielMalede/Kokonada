@@ -85,12 +85,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:l-check-waiver-row` (own)
-- title: TASKS: the L-check deviation of #255 (OPS-244) and J18's status reading (OPS-169)
-- branch: `docs/l-check-waiver-row`
-- paths: `TASKS.md`
+- task: `OPS-244` (TASKS)
+- title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
+- branch: `docs/ops244-waiver-partner`
+- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`
 - resources: none
-- state: in-review · PR #258
+- state: in-review · PR #259
 - started: 2026-10-18
 
 ### M04
@@ -106,13 +106,13 @@ _free_
 - started: 2026-10-26
 
 ### M06
-- task: `own:pii-guard` (own)
-- title: a forward-only guard against the partners' full names, emails and user paths in tracked files; two fixtures take a made-up name
-- branch: `test/pii-guard`
-- paths: `backend/tests/personalDataGuard.test.js`, `backend/tests/shadow.personalDataGuard.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `TASKS.md`
+- task: `own:garmin-personal-client` (own)
+- title: Garmin personal lane PR 2: the Connect Personal API client, rate policy, the personal-to-summary mapper, and key redaction in Sentry and logs
+- branch: `feat/garmin-personal-client`
+- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #268
-- started: 2026-10-20
+- state: in-review · PR #274
+- started: 2026-10-26
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)
