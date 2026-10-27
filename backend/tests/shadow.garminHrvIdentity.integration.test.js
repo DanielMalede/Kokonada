@@ -7,8 +7,9 @@
 // `metric@source@recordedAt`. When Garmin revises a night's window (a later sync, a re-pull of the same
 // day), the end moves, the identity moved with it, and the same night got a second hrv row, so the
 // baseline engine counted one night twice (EG-1 needs exactly one). For a Garmin HRV the identity is now
-// the night, filed under the UTC date of its end, and the first write wins. Every other series keeps its
-// per-reading identity: two Health Connect HRV readings in one night are two facts.
+// the night, filed under the local date of its end (RA-1 of #275; the UTC date when the summary carries no
+// offset), and the first write wins. Every other series keeps its per-reading identity: two Health Connect
+// HRV readings in one night are two facts.
 //
 // Real semantics: the REAL consent read, normalisers and stores on a REAL Mongo (mongodb-memory-server),
 // through both real ingest lanes (garminIngest.ingestSummaries, healthStore.ingestBatch). No schema change
@@ -111,5 +112,41 @@ describe('one Garmin HRV row per night (BE-191)', () => {
     await healthStore.ingestBatch(userId, 'health_connect', [{ type: 'hrv', value: 40, startDate: end.toISOString(), endDate: end.toISOString() }]);
 
     expect((await hrvRows(userId)).map((r) => r.source).sort()).toEqual(['garmin', 'health_connect']);
+  });
+});
+
+// RA-1 of #275: the night is filed under its LOCAL date, the UTC date of recordedAt + tzOffsetMinutes (the UTC
+// date when the summary carries no offset, as every case above does).
+describe('a Garmin night is filed under its local date (RA-1 of #275)', () => {
+  // A night worn at UTC+offsetHours that ends at endSec, `length` long.
+  const worn = (endSec, offsetHours, lastNightAvg, length = NIGHT) => ({
+    type: 'hrv',
+    summary: { startTimeInSeconds: endSec - length, startTimeOffsetInSeconds: offsetHours * HOUR, durationInSeconds: length, lastNightAvg },
+  });
+
+  it('a UTC+8 night re-pulled with its end moved across UTC midnight (07:50 to 08:30 local) stays one row', async () => {
+    const userId = await consentedUser();
+    const end = MIDNIGHT - 10 * MINUTE; // 23:50Z, 07:50 at UTC+8
+
+    await ingestSummaries(userId, [worn(end, 8, 48)]);
+    await ingestSummaries(userId, [worn(end + 40 * MINUTE, 8, 55, NIGHT + 40 * MINUTE)]); // 00:30Z, 08:30 at UTC+8
+
+    expect(await hrvRows(userId)).toEqual([{ source: 'garmin', value: 48, at: end * 1000 }]);
+  });
+
+  // The sign. Garmin's startTimeOffsetInSeconds is local minus UTC, so tzOffsetMinutes is east-positive and the
+  // local time is UTC + tzOffsetMinutes. A UTC-8 wearer who wakes at 08:10 and then at 07:50 ends the two nights
+  // at 16:10Z and at 15:50Z the next day: two local dates. Read with the sign flipped, they would be 00:10 and
+  // 23:50 of ONE date and the second night would be lost; only this case tells the two signs apart.
+  it('the offset is east-positive and added: a UTC-8 wearer who wakes at 08:10 and then 07:50 keeps two rows', async () => {
+    const userId = await consentedUser();
+    const first = MIDNIGHT - 2 * DAY + 16 * HOUR + 10 * MINUTE; // 16:10Z, 08:10 at UTC-8
+    const second = first + DAY - 20 * MINUTE; // 15:50Z the next day, 07:50 at UTC-8
+
+    await ingestSummaries(userId, [worn(first, -8, 47)]);
+    await ingestSummaries(userId, [worn(second, -8, 49)]);
+
+    const rows = await VitalSample.find({ userId, metric: 'hrv' }).sort({ recordedAt: 1 });
+    expect(rows.map((r) => [Number(r.value), r.tzOffsetMinutes])).toEqual([[47, -480], [49, -480]]);
   });
 });
