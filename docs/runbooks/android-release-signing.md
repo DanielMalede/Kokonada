@@ -6,7 +6,7 @@ owner: the owner (DAN- rows); security-auditor and resilience-auditor review (J1
 
 # Android release signing and the standalone build
 
-How the production Android build of `mobile/KokonadaHealth` is produced and signed. Since #271 (`3a5e28a`, `OPS-303`) Gradle signs no release build: `assembleRelease` yields `app-release-unsigned.apk`, which no device installs, and the one signing step is `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, run by the owner as the Windows account `kokonada-signer`, the only account (with SYSTEM) that can read the upload key. Every statement below was checked on 2026-10-27 against `main` at `0f4674f`: `mobile/KokonadaHealth/android/app/build.gradle`, the script, `.gitignore`, `.githooks/pre-commit`, `.claude/settings.json` and `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`. None of them changed between `0f4674f` and `1846fe0`. Writing it ran none of the commands; `backend/tests/releaseRunbookCustody.test.js` pins the fenced commands of sections 2 and 3, and their order, as text.
+How the production Android build of `mobile/KokonadaHealth` is produced and signed. Since #271 (`3a5e28a`, `OPS-303`) Gradle signs no release build: `assembleRelease` yields `app-release-unsigned.apk`, which no device installs, and the one signing step is `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, run by the owner as the Windows account `kokonada-signer`, the only account (with SYSTEM) that can read the upload key. Every statement below was checked on 2026-10-27 against `main` at `0f4674f`: `mobile/KokonadaHealth/android/app/build.gradle`, the script, `.gitignore`, `.githooks/pre-commit`, `.claude/settings.json` and `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`. None of them changed between `0f4674f` and `ae19937`. Writing it ran none of the commands; Windows PowerShell 5.1's parser accepted the new lines of round 7 without running them, and `backend/tests/releaseRunbookCustody.test.js` pins the fenced commands of sections 2 and 3, and their order, as text.
 
 **Not provisioned yet.** On 2026-10-27 `C:\KokonadaSigner` does not exist on the owner's machine, so the account, the vault, the tools and the upload key described here are still to be set up (section 2). Until they are, no release-signed build can be made. The old release key (`kokonada-release.keystore`, alias `kokonada`) and its plaintext `keystore.properties`, which holds both of its passwords, are still on this machine, git-ignored, in three places: the main checkout and the `.claude/worktrees/h1-evidence` and `.claude/worktrees/hx3-evidence` worktrees (`OPS-303`, checked by file name only). Until every copy is deleted, treat the old key and both passwords as exposed to every session on this machine. The denies of section 1 bind only the Read and Edit tools, and the commands `.claude/settings.json` pre-allows, `npm test *`, `npm run *` (`:10-11`) and `npx jest *` (`:17`), run code that can read both files and send them anywhere (SEC-264-8). So the rotation (`F7`, section 2) is mandatory, and nothing is signed with the old key again. CI builds the release JS bundle (`:app:createBundleReleaseJsAndAssets`, `.github/workflows/ci.yml:244`) but packages no APK and runs no `bundleRelease`, so that `assembleRelease` really yields an unsigned APK has not been checked by a build yet (RA-271-5). The older kit documents (`mobile/native-snippets/RELEASE_SIGNING.md` and `mobile/SETUP_ANDROID.md`, now Deleted rows in `docs/ARCHIVE.md`) described a generated project that no longer exists.
 
@@ -60,22 +60,47 @@ What protects the key is who owns each folder, not only who may write it: the ow
 
 **The owner rule.** Administrators (`BUILTIN\Administrators`, SID `S-1-5-32-544`) own the root, `in\`, `out\` and `bin\`, and every file under `bin\`. `kokonada-signer` owns `vault\` and `work\`. Every file in those two folders is created by `kokonada-signer` and is owned by it anyway, so the folder's owner matches its contents, and the one account each folder exists for is the only one that can change its permissions short of elevation. `security-auditor` also allowed SYSTEM as the vault's owner; one owner is chosen so that the expected listing of step 7 is exact.
 
-**The elevated window.** Steps 1 to 6 run in one elevated window, opened so that it runs no code the owner's account can write (RA-39). Press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Ctrl+Shift+Enter, which runs it as administrator. When the elevating account is the owner's daily account (`DAN-121`), a plain **Run as administrator** would run his `$PROFILE` scripts, load modules from his `Documents\WindowsPowerShell\Modules` and run the AutoRun commands of his `HKCU\Software\Microsoft\Command Processor`, all of which his normal session can write. So:
+**The provisioning administrator.** The owner ruled on 2026-10-27 that provisioning runs from a separate administrator account used for nothing else, `kokonada-admin`, and not from his daily account elevated: rounds 4 to 6 of #264 kept finding races and user code inside that elevated window (RA-39, RA-43, RA-45). His daily account stays as it is; whether it becomes a standard account is still open (`DAN-121`). No other account can write `kokonada-admin`'s profile, its module folder, its `PATH` or its cmd AutoRun without elevating, so code in the owner's session cannot plant anything that runs in its windows. Its password is typed only on Windows' secure screens, the sign-in screen and the Ctrl+Alt+Del screen, and kept like the signer's: in a password manager the owner's Windows account cannot read, on a separate device such as the phone, typed by hand and never through the clipboard. It is never typed into a User Account Control prompt, a `runas` or any other window of the owner's session: code there would then hold the administrator this account exists to keep from it.
+
+0. **The provisioning administrator.** This is the one moment the daily account elevates for this runbook. Press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Ctrl+Shift+Enter, which runs it as administrator. In this window, type no password and nothing but these four lines. Even with `-NoProfile`, the console host can load PSReadLine from the daily account's own `Documents\WindowsPowerShell\Modules` before the first line runs (RA-45), so whatever is typed here may be read by code the owner's session wrote:
+
+   ```
+   $env:PSModulePath = "$PSHOME\Modules"
+   (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa).LimitBlankPasswordUse
+   if ((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Lsa).LimitBlankPasswordUse -eq 1) { C:\Windows\System32\net.exe user kokonada-admin /add } else { 'STOP: blank passwords are not limited to console sign-in' }
+   C:\Windows\System32\net.exe localgroup Administrators kokonada-admin /add
+   ```
+
+   - The second line must print `1`. With `LimitBlankPasswordUse` at 1, Windows' default, an account whose password is empty can sign in only at the console (Microsoft's policy "Accounts: Limit local account use of blank passwords to console logon only"), so not through `runas` or a network sign-in. That is what keeps the new account out of reach of the owner's session for the minute it has no password. How far that holds against code calling Windows' sign-in functions directly in the owner's session is NOT VERIFIED on this machine, and neither is the value itself until the line prints it. If the line prints anything else, the third line creates nothing: stop, and record the value on `OPS-304`.
+   - `C:\Windows\System32\net.exe user kokonada-admin /add` with no password creates the account with an empty one and asks for nothing. If a local password policy requires a minimum length it refuses, and provisioning stops there.
+   - Close the window. At once, lock the screen, choose **Switch user** and sign in as `kokonada-admin` on the Windows sign-in screen, with the empty password; Windows creates its profile. Then press Ctrl+Alt+Del and choose **Change a password**: leave the old password empty and type the new one twice. It is a new password that a password manager the owner's Windows account cannot read, the phone's, generates and keeps; type it by hand, never through the clipboard.
+   - From here on, the daily account does not elevate for this runbook, and each later step that needs an administrator runs in `kokonada-admin`'s own session.
+
+**The elevated window.** Steps 1 to 6 run in `kokonada-admin`'s own session, in one elevated window. Lock the screen, choose **Switch user** and sign in as `kokonada-admin`. Press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Ctrl+Shift+Enter; an administrator's consent prompt asks for no password. Since no other account can write that profile, the guards below are defence in depth: they keep whatever might ever land in it out of this window (RA-39, RA-45).
 
 - `-NoProfile` skips the profile scripts.
 - The window's first line, below, limits module loading to Windows' own folder (`C:\Windows\System32\WindowsPowerShell\v1.0\Modules`), where `Get-FileHash`, `Expand-Archive` and `Get-Acl` live. It is a plain string, so no cmdlet loads before the path is fixed.
-- Every `cmd` runs as `cmd /d /c`: `/d` skips the AutoRun commands.
-- No `git` command runs in this window: git reads a checkout's `.git/config` and hooks, which every session can write. Step 4 runs git in the owner's normal window.
+- The second line prints where PSReadLine came from: the console host loads it before the first line runs, from the module path it started with. It must print nothing, or a path that starts with `C:\Program Files\WindowsPowerShell\Modules\` or with `$PSHOME` (`C:\Windows\System32\WindowsPowerShell\v1.0\`). A path under a `Documents` folder means a profile's module ran in this window: close it and find out why.
+- Every Windows program outside PowerShell runs by its full path in `C:\Windows\System32`, never by a bare name that `PATH` resolves (RA-45): icacls, net, cmd and curl.
+- Every `cmd` runs as `C:\Windows\System32\cmd.exe /d /c`: `/d` skips the AutoRun commands.
+- No `git` command runs in this window: git reads a checkout's `.git/config` and hooks, which every session of the owner's can write. Step 4 runs git in the owner's normal window.
 - Leave the window in its own folder (`C:\Windows\System32`): `cmd` runs a program from its current folder before `PATH`, and a checkout is a folder every session can write.
 
 ```
 $env:PSModulePath = "$PSHOME\Modules"
+(Get-Module PSReadLine).Path
 ```
 
-In the commands, `<owner>` is the owner's own account as `whoami` prints it in his normal window, and `<PC>` is this computer's name.
+In the commands, `<owner>` is the owner's own daily account as `whoami` prints it in his normal window, and `<PC>` is this computer's name.
 
-1. **The account.** `net user kokonada-signer * /add` creates a standard account (a member of Users only, never of Administrators) and asks for its Windows password at the prompt. That password is typed in two places only: this prompt (or `net user kokonada-signer *` in this elevated window, to change it) and the Windows sign-in screen. Keep it in a password manager the owner's Windows account cannot read: one on a separate device, such as the phone, or one never unlocked under that account. Type it by hand, never through the clipboard. Code in the owner's session can read his clipboard, the keys he types in his own windows and any password manager unlocked under his account. With this password it could start a process as `kokonada-signer`, plant code in that account's profile, and read the key and `ks.pass` at the next run (SEC-264-12). So it is never typed into a `runas` prompt or any other window of the owner's session. Sign in to the account once (Switch user) so Windows creates its profile, then sign out.
-2. **The folders, their owners and their permissions.** If `C:\KokonadaSigner` exists already, stop: something else made it. Remove it with `cmd /d /c rmdir /s /q C:\KokonadaSigner`, which deletes a link inside it without following it, and start again.
+1. **The account.** In the elevated window:
+
+   ```
+   C:\Windows\System32\net.exe user kokonada-signer /add
+   ```
+
+   This creates a standard account (a member of Users only, never of Administrators) with an empty password, as step 0 does, resting on the same `LimitBlankPasswordUse` check. Its Windows password is then set, and from then on typed, only on Windows' secure screens: lock the screen, choose **Switch user** and sign in as `kokonada-signer` on the Windows sign-in screen with the empty password, so Windows creates its profile; press Ctrl+Alt+Del, choose **Change a password**, leave the old one empty and type the new one twice; then sign out, and switch back to `kokonada-admin`. Keep it in a password manager the owner's Windows account cannot read: one on a separate device, such as the phone, or one never unlocked under that account. Type it by hand, never through the clipboard. Code in the owner's session can read his clipboard, the keys he types in his own windows and any password manager unlocked under his account. With this password it could start a process as `kokonada-signer`, plant code in that account's profile, and read the key and `ks.pass` at the next run (SEC-264-12). So it is never typed into a `runas` prompt or any console window, the owner's or `kokonada-admin`'s. Back in the elevated window, `C:\Windows\System32\net.exe localgroup Administrators` must not list `kokonada-signer`.
+2. **The folders, their owners and their permissions.** If `C:\KokonadaSigner` exists already, stop: something else made it. Remove it with `C:\Windows\System32\cmd.exe /d /c rmdir /s /q C:\KokonadaSigner`, which deletes a link inside it without following it, and start again.
 
    | Folder | Owner | Permissions, and nothing else (inheritance removed) | What it holds |
    |---|---|---|---|
@@ -86,40 +111,49 @@ In the commands, `<owner>` is the owner's own account as `whoami` prints it in h
    | `bin\` | Administrators | Administrators and SYSTEM Full Control; `kokonada-signer` and the owner's account Read & execute | the tools and the script |
    | `vault\` | `kokonada-signer` | `kokonada-signer` Modify; SYSTEM Full Control | the key and `ks.pass` |
 
-   First the root alone, closed before anything is created in it (SEC-264-13, RA-32). Until its inheritance is removed, a new folder under `C:\` inherits Authenticated Users Modify, so code in the owner's session could create `bin\jdk\` inside it first. The real JDK would then be moved one level below the planted one, and step 5 would pin the planted `java.exe`. Administrators own the root, Administrators and SYSTEM get Full Control on it and everything below it, and its inheritance from `C:\` is removed:
+   First the root alone, made in one call that carries its final security descriptor, before anything can be created in it (RA-43, SEC-264-13, RA-32). A root made by `New-Item` and closed afterwards with `icacls` inherits `C:\`'s Authenticated Users Modify, delete included, until its inheritance is removed. In that window code in the owner's session could delete the empty root and put a junction to a folder of its own in its place: every later command would follow it and build the vault inside that folder, and the code could swap the tree after the checks. Or it could create `bin\jdk\` inside the real root first, so the real JDK would be moved one level below the planted one and step 5 would pin the planted `java.exe`. `CreateDirectory` with a security descriptor makes the folder already owned by Administrators, with Full Control for Administrators and SYSTEM on it and everything below it, and nothing inherited from `C:\`. It does nothing to a path that exists, so the line refuses one first:
 
    ```
-   New-Item -ItemType Directory -Path C:\KokonadaSigner
-   icacls C:\KokonadaSigner /setowner *S-1-5-32-544
-   icacls C:\KokonadaSigner /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F'
-   icacls C:\KokonadaSigner /inheritance:r
+   $sd = New-Object System.Security.AccessControl.DirectorySecurity
+   $sd.SetOwner([System.Security.Principal.SecurityIdentifier]'S-1-5-32-544')
+   $sd.SetAccessRuleProtection($true, $false)
+   $sd.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'S-1-5-32-544', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+   $sd.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule([System.Security.Principal.SecurityIdentifier]'S-1-5-18', 'FullControl', 'ContainerInherit, ObjectInherit', 'None', 'Allow')))
+   if (Test-Path C:\KokonadaSigner) { 'STOP: C:\KokonadaSigner exists' } else { [void][System.IO.Directory]::CreateDirectory('C:\KokonadaSigner', $sd) }
+   (Get-Item C:\KokonadaSigner -Force).Attributes
+   (Get-Acl C:\KokonadaSigner).Owner
    Get-ChildItem C:\KokonadaSigner -Recurse -Force
    ```
 
-   The last line must print nothing. If it prints anything, something wrote into the root before it was closed: remove the root as above and start again.
+   - If the create line printed `STOP`, a path is already there: remove it as above and start again.
+   - `(Get-Item C:\KokonadaSigner -Force).Attributes` must print `Directory`. Anything else, `ReparsePoint` above all, means the path is a link or not the folder this line made. `Test-Path` follows a link and may answer `False` for one whose target is missing, and `CreateDirectory` may then leave that link in place (neither checked on this machine); this line catches it either way.
+   - `(Get-Acl C:\KokonadaSigner).Owner` must print `BUILTIN\Administrators`. A folder that code in the owner's session made between `Test-Path` and `CreateDirectory` would belong to his account, and `CreateDirectory` would have returned it untouched; this line catches that.
+   - The last line must print nothing.
 
-   Then the five folders, in this order: the owners first, then the grants while the root's inherited Full Control still lets the elevated window in, then the removal of each folder's inheritance, and last the root's own grants, made this-folder-only again:
+   If any of the three checks fails, sign nothing: remove the root as above, start again, and find out why if it fails twice. Nothing below runs before all three pass.
+
+   Then the five folders, in this order: the owners first, then one grant per folder while the root's inherited Full Control still lets the elevated window in, then the removal of each folder's inheritance, and last the root's own grants, made this-folder-only:
 
    ```
    New-Item -ItemType Directory -Path C:\KokonadaSigner\in, C:\KokonadaSigner\work, C:\KokonadaSigner\out, C:\KokonadaSigner\bin, C:\KokonadaSigner\vault
-   icacls C:\KokonadaSigner /setowner *S-1-5-32-544 /T /C
-   icacls C:\KokonadaSigner\work /setowner kokonada-signer
-   icacls C:\KokonadaSigner\vault /setowner kokonada-signer
-   icacls C:\KokonadaSigner\in /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '<owner>:(OI)(CI)M' 'kokonada-signer:(OI)(CI)RX'
-   icacls C:\KokonadaSigner\work /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
-   icacls C:\KokonadaSigner\out /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M' '<owner>:(OI)(CI)RX'
-   icacls C:\KokonadaSigner\bin /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)RX' '<owner>:(OI)(CI)RX'
-   icacls C:\KokonadaSigner\vault /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
-   icacls C:\KokonadaSigner\in /inheritance:r
-   icacls C:\KokonadaSigner\work /inheritance:r
-   icacls C:\KokonadaSigner\out /inheritance:r
-   icacls C:\KokonadaSigner\bin /inheritance:r
-   icacls C:\KokonadaSigner\vault /inheritance:r
-   icacls C:\KokonadaSigner /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' '<owner>:RX' 'kokonada-signer:RX'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner /setowner *S-1-5-32-544 /T /C
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\work /setowner kokonada-signer
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\vault /setowner kokonada-signer
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\in /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' '<owner>:(OI)(CI)M' 'kokonada-signer:(OI)(CI)RX'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\work /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\out /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M' '<owner>:(OI)(CI)RX'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)RX' '<owner>:(OI)(CI)RX'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\vault /grant:r '*S-1-5-18:(OI)(CI)F' 'kokonada-signer:(OI)(CI)M'
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\in /inheritance:r
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\work /inheritance:r
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\out /inheritance:r
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin /inheritance:r
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\vault /inheritance:r
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' '<owner>:RX' 'kokonada-signer:RX'
    ```
 
    The quotes matter: unquoted, PowerShell reads `(OI)` as an expression and `<` as a redirection. From here on the elevated window has no access to `work\` and `vault\`: neither grants Administrators anything. A JVM crash log `hs_err_*.log` can land in `work\` (`:140`); the script never removes it. After reading one, delete it from the signer session (RA-271-R2-4).
-3. **The tools.** First prove that files this window creates belong to Administrators (RA-42). If they belonged to the owner's account instead, his normal session could rewrite their permissions and swap an archive between its hash check and its unpacking:
+3. **The tools.** First prove that files this window creates belong to Administrators (RA-42). If they belonged to an account the owner's session can act as, that session could rewrite their permissions and swap an archive between its hash check and its unpacking:
 
    ```
    New-Item -ItemType File -Path C:\KokonadaSigner\bin\probe
@@ -127,7 +161,7 @@ In the commands, `<owner>` is the owner's own account as `whoami` prints it in h
    Remove-Item C:\KokonadaSigner\bin\probe
    ```
 
-   The second line must print `BUILTIN\Administrators`. If it prints the owner's account, stop and provision from a separate administrator account (`DAN-121`). Whether Windows' default gives Administrators here has not been checked on this machine.
+   The second line must print `BUILTIN\Administrators`. If it prints `<PC>\kokonada-admin`, go on: no other session can act as that account, and the `/setowner` lines below and in step 5 give every file under `bin\` to Administrators. If it prints anything else, stop. Whether Windows' default gives Administrators here has not been checked on this machine.
 
    Both archives are downloaded into `C:\KokonadaSigner\bin\stage`, which inherits `bin\`'s permissions, so only administrators can write it, and are hashed and unpacked there in the same elevated window. Nothing is hashed in one folder and unpacked from another that the owner's account can write (RA-33).
    - **Android build-tools 37.0.0**, `build-tools_r37_windows.zip`, from `https://dl.google.com/android/repository/build-tools_r37_windows.zip`. Google's SDK repository manifest, `https://dl.google.com/android/repository/repository2-3.xml`, lists it under `build-tools;37.0.0` for `windows`, size `61077164`, SHA-1 `e9c97e26b5b5678002e9d3fed632c841ae62d99f`; the manifest gives SHA-1 only. A download of 2026-10-27 whose size and SHA-1 matched the manifest has SHA-256 `68075aa319ed8a01cf1a565ed1e61a3c1a801dd49191c35851248dc293c33b1a`. Re-read the manifest's entry in a browser before downloading; the guard below compares both values before unpacking. Downloading the archive directly skips `sdkmanager`'s licence prompt; the Android SDK License Agreement (`developer.android.com/studio/terms`) binds by use all the same. Its `lib\apksigner.jar` is Java 8 bytecode and runs on the JDK below. The whole folder goes into `bin\build-tools\`, not three files: `zipalign.exe` and `aapt2.exe` load the DLLs beside them, and the script's header leaves the rest of the build-tools to `bin\`'s permissions (`:43-44`). The script needs build-tools 35 or newer (`:127-129`). The archive's top folder is moved by what it holds, not by a name written here, since build-tools 35's archive unpacked to `android-15` (SEC-264-15).
@@ -151,47 +185,61 @@ In the commands, `<owner>` is the owner's own account as `whoami` prints it in h
    $jdk = @(Get-ChildItem C:\KokonadaSigner\bin\stage\jdk -Directory); if ($jdk.Count -eq 1 -and -not (Test-Path C:\KokonadaSigner\bin\jdk)) { Move-Item $jdk[0].FullName C:\KokonadaSigner\bin\jdk } else { 'STOP: bin\jdk exists, or the archive did not unpack to one folder' }
    ```
 
-   If any line printed `STOP`, sign nothing: remove `bin\` with `cmd /d /c rmdir /s /q C:\KokonadaSigner\bin` and find out why first. `Move-Item` onto a folder that exists would put the real tree one level below it, which is why each move first checks that its target does not exist. Otherwise:
+   If any line printed `STOP`, sign nothing: remove `bin\` with `C:\Windows\System32\cmd.exe /d /c rmdir /s /q C:\KokonadaSigner\bin` and find out why first. `Move-Item` onto a folder that exists would put the real tree one level below it, which is why each move first checks that its target does not exist. Otherwise:
 
    ```
    Remove-Item C:\KokonadaSigner\bin\stage -Recurse -Force
-   icacls C:\KokonadaSigner\bin /setowner *S-1-5-32-544 /T /C
-   icacls C:\KokonadaSigner\bin\build-tools /reset /T /C
-   icacls C:\KokonadaSigner\bin\jdk /reset /T /C
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin /setowner *S-1-5-32-544 /T /C
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin\build-tools /reset /T /C
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin\jdk /reset /T /C
    ```
 
    Moving to a later build-tools or Temurin 17 build is a change to this runbook in its own PR, with its own hashes.
-4. **The script.** Copy its LF bytes, as they are on `main`, into `C:\KokonadaSigner\bin\sign-release.ps1`. Git runs in the owner's normal window, never in the elevated one; the elevated window only copies the file into `bin\` and hashes it there, and the pin read on github.com decides whether the content is right.
-   - In the owner's normal window, in a checkout (`<checkout>` below), with `<temp>` the folder `cmd /d /c echo %TEMP%` prints there:
+4. **The script.** Copy its LF bytes, as they are on `main`, into `C:\KokonadaSigner\bin\sign-release.ps1`. Git runs in the owner's normal window, in his own session, never in `kokonada-admin`'s; the elevated window only copies the file into `bin\` and hashes it there, and the pin read on github.com decides whether the content is right.
+   - Switch user to the owner's own session (`kokonada-admin`'s stays signed in, locked). In his normal window, in a checkout (`<checkout>` below), with `<temp>` the folder `C:\Windows\System32\cmd.exe /d /c echo %TEMP%` prints there:
 
      ```
      git -C <checkout> fetch origin
-     cmd /d /c "git -C <checkout> show origin/main:mobile/KokonadaHealth/scripts/release/sign-release.ps1 > %TEMP%\sign-release.ps1"
+     C:\Windows\System32\cmd.exe /d /c "git -C <checkout> show origin/main:mobile/KokonadaHealth/scripts/release/sign-release.ps1 > %TEMP%\sign-release.ps1"
      ```
 
      `cmd`'s `>` writes git's bytes unchanged. Windows PowerShell 5.1's own `>` re-encodes them as UTF-16, and that copy never matches.
-   - In the elevated window:
+   - Switch user back to `kokonada-admin`. In the elevated window (`<temp>` is in the owner's profile, which Administrators can read):
 
      ```
-     cmd /d /c copy /b <temp>\sign-release.ps1 C:\KokonadaSigner\bin\sign-release.ps1
+     C:\Windows\System32\cmd.exe /d /c copy /b <temp>\sign-release.ps1 C:\KokonadaSigner\bin\sign-release.ps1
      Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256
      ```
 
-   - The hash must equal `e5e738923aa03af15473261ca7c7abe859ef17031aed248cb9c466cd0e9d2606`: the copy on `main`, landed in #271 (`3a5e28a`) and unchanged at `1846fe0`. Read that value from this runbook on github.com, `https://github.com/DanielMalede/Kokonada/blob/main/docs/runbooks/android-release-signing.md`, not from a checkout, which every session on this machine can write. A copy that differs: delete it and stop.
+   - The hash must equal `e5e738923aa03af15473261ca7c7abe859ef17031aed248cb9c466cd0e9d2606`: the copy on `main`, landed in #271 (`3a5e28a`) and unchanged at `ae19937`. Read that value from this runbook on github.com, `https://github.com/DanielMalede/Kokonada/blob/main/docs/runbooks/android-release-signing.md`, on a second device, the phone: not from a checkout, which every session on this machine can write, and not in a browser on this machine, whose page code in the owner's session can change (`security-auditor`'s S3 note at `66058cb`). A copy that differs: delete it and stop.
    - Any change to the script on `main` changes this line in the same PR.
-5. **The four tool pins.** Run `Get-FileHash C:\KokonadaSigner\bin\build-tools\zipalign.exe, C:\KokonadaSigner\bin\build-tools\aapt2.exe, C:\KokonadaSigner\bin\build-tools\lib\apksigner.jar, C:\KokonadaSigner\bin\jdk\bin\java.exe -Algorithm SHA256`. Write the lower-case values into the four lines `$ZipalignSha256`, `$Aapt2Sha256`, `$ApksignerSha256` and `$JavaSha256` of the copy in `C:\KokonadaSigner\bin` (`:134-137`), with Notepad started from the elevated window, since only administrators can write `bin\`. Change nothing else. After saving and closing Notepad, give every file under `bin\` back to Administrators, since a saved file may belong to whoever saved it (RA-42):
+5. **The four tool pins.** Write the four tools' SHA-256 values, in lower case, into the four lines `$ZipalignSha256`, `$Aapt2Sha256`, `$ApksignerSha256` and `$JavaSha256` of the copy in `C:\KokonadaSigner\bin` (`:134-137`), from the elevated window, since only administrators can write `bin\`. No editor is used: Windows 11's Notepad is a packaged app that may not start elevated, an editor may change the line ends, and a hash typed by hand can be mistyped (`security-auditor`'s S3 note at `66058cb`). Each `Replace` line below swaps exactly one placeholder line for the value `Get-FileHash` computes, and nothing else changes. `[System.IO.File]` reads and writes the text as it is, so the LF line ends stay: `WriteAllText` writes UTF-8 without a byte-order mark, which for this ASCII file is the same bytes, where Windows PowerShell 5.1's `Set-Content` would write CRLF and the system code page. After the write, every file under `bin\` goes back to Administrators, since a written file may belong to whoever wrote it (RA-42):
 
    ```
-   C:\Windows\System32\notepad.exe C:\KokonadaSigner\bin\sign-release.ps1
-   icacls C:\KokonadaSigner\bin /setowner *S-1-5-32-544 /T /C
+   $f = 'C:\KokonadaSigner\bin\sign-release.ps1'
+   $t = [System.IO.File]::ReadAllText($f)
+   $t = $t.Replace('$ZipalignSha256 = ''<pin after provisioning>''', '$ZipalignSha256 = ''' + (Get-FileHash C:\KokonadaSigner\bin\build-tools\zipalign.exe -Algorithm SHA256).Hash.ToLowerInvariant() + '''')
+   $t = $t.Replace('$Aapt2Sha256 = ''<pin after provisioning>''', '$Aapt2Sha256 = ''' + (Get-FileHash C:\KokonadaSigner\bin\build-tools\aapt2.exe -Algorithm SHA256).Hash.ToLowerInvariant() + '''')
+   $t = $t.Replace('$ApksignerSha256 = ''<pin after provisioning>''', '$ApksignerSha256 = ''' + (Get-FileHash C:\KokonadaSigner\bin\build-tools\lib\apksigner.jar -Algorithm SHA256).Hash.ToLowerInvariant() + '''')
+   $t = $t.Replace('$JavaSha256 = ''<pin after provisioning>''', '$JavaSha256 = ''' + (Get-FileHash C:\KokonadaSigner\bin\jdk\bin\java.exe -Algorithm SHA256).Hash.ToLowerInvariant() + '''')
+   [System.IO.File]::WriteAllText($f, $t)
+   Select-String -LiteralPath $f -CaseSensitive -Pattern '^\$(Zipalign|Aapt2|Apksigner|Java)Sha256 = ''[0-9a-f]{64}''$'
+   [System.IO.File]::ReadAllText($f).Contains("`r")
+   C:\Windows\System32\icacls.exe C:\KokonadaSigner\bin /setowner *S-1-5-32-544 /T /C
    ```
+
+   - `Select-String` must print exactly four lines, numbered 134 to 137, each with a 64-character lower-case value. Fewer means a placeholder was not found: delete the copy, copy it again by step 4 and repeat.
+   - The `Contains` line must print `False`: no carriage return entered the file, so its line ends are still LF.
 
    Only that copy changes: the repository copy keeps the placeholders `<pin after provisioning>`. Until all four are filled, every run is refused by design (`:174-177`).
-6. **The edited copy's hash.** Run `Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256` and keep the edited copy's SHA-256 in the password manager of step 1, beside the key's password, never in a file: every file the owner's account can write, a session can change. Compare it before every run (section 3, step 2). A copy that differs must not run. Close the elevated window.
+6. **The edited copy's hash.** Run `Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256` and keep the edited copy's SHA-256 in the password manager of step 1, beside the key's password, never in a file: every file the owner's account can write, a session can change. Compare it before every run (section 3, step 2). A copy that differs must not run. Close the elevated window and sign out of `kokonada-admin`.
 7. **The permission check.** It runs in `kokonada-signer`'s own session, now and before every run (section 3, step 2): that account can read the permissions of all six folders, while the elevated window can no longer open `work\` or `vault\`. Lock the screen, choose **Switch user** and sign in as `kokonada-signer`. Press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Enter (not elevated). Then run:
 
    ```
    $env:PSModulePath = "$PSHOME\Modules"
+   (Get-Module PSReadLine).Path
+   (Get-Item C:\KokonadaSigner -Force).Attributes
+   Get-ChildItem C:\KokonadaSigner -Recurse -Force -Attributes ReparsePoint
    Get-Acl -Path C:\KokonadaSigner, C:\KokonadaSigner\in, C:\KokonadaSigner\work, C:\KokonadaSigner\out, C:\KokonadaSigner\bin, C:\KokonadaSigner\vault | Format-List Path,Owner,AreAccessRulesProtected,AccessToString
    Get-ChildItem C:\KokonadaSigner\bin -Recurse -Force | Get-Acl | Where-Object { $_.Owner -ne 'BUILTIN\Administrators' -or $_.AreAccessRulesProtected -or @($_.Access | Where-Object { -not $_.IsInherited }).Count -gt 0 } | Format-List Path,Owner
    (Get-ChildItem C:\KokonadaSigner -Force).Name
@@ -199,7 +247,7 @@ In the commands, `<owner>` is the owner's own account as `whoami` prints it in h
    Get-ChildItem C:\KokonadaSigner\in, C:\KokonadaSigner\work, C:\KokonadaSigner\out, C:\KokonadaSigner\vault -Recurse -Force | Get-Acl | Format-List Path,Owner,AreAccessRulesProtected,AccessToString
    ```
 
-   The expected listing of the first command, entry by entry (the order of the lines inside `AccessToString` may differ):
+   The expected listing of the `Get-Acl -Path` command, entry by entry (the order of the lines inside `AccessToString` may differ):
 
    ```
    Path                    : Microsoft.PowerShell.Core\FileSystem::C:\KokonadaSigner
@@ -248,12 +296,14 @@ In the commands, `<owner>` is the owner's own account as `whoami` prints it in h
    ```
 
    **Pass criterion.** The check passes only when all of these hold; otherwise sign nothing, and find out why first.
-   - The first command lists six entries, and each `Owner` is the one the table names. No `Owner` is the owner's account.
+   - `(Get-Module PSReadLine).Path` prints nothing or a path that starts with `C:\Program Files\WindowsPowerShell\Modules\` or with `$PSHOME` (`C:\Windows\System32\WindowsPowerShell\v1.0\`), never one under the account's own `Documents` (RA-45).
+   - `(Get-Item C:\KokonadaSigner -Force).Attributes` prints `Directory`, and the `ReparsePoint` sweep prints nothing: the root is the folder provisioning made, and no reparse point (a junction, a symbolic link or a mount point) sits anywhere under it (RA-43). These two run before the listings because `Get-Acl` and `Get-ChildItem` follow a link and would list its target as if it were the vault.
+   - The `Get-Acl -Path` command lists six entries, and each `Owner` is the one the table names. No `Owner` is the owner's account.
    - `AreAccessRulesProtected` is `True` on all six.
    - Each `AccessToString` holds exactly its lines above and no other. No line names Everyone, `BUILTIN\Users`, `NT AUTHORITY\Authenticated Users` or `CREATOR OWNER`, and the owner's account holds Modify on `in\` alone.
-   - The second command prints nothing: every file under `bin\` is owned by Administrators and carries only the permissions it inherits from `bin\`.
-   - The third prints exactly `bin`, `in`, `out`, `vault` and `work`, and the fourth exactly `build-tools`, `jdk` and `sign-release.ps1` (in any order): no `stage`, no `probe`, nothing else.
-   - The fifth lists every entry below `in\`, `work\`, `out\` and `vault\`. `work\` holds nothing. `in\` and `out\` hold only `.apk` files and no folder. At provisioning, before step 8, `vault\` holds nothing. From step 8 on, and before every run, `vault\` holds exactly `kokonada-upload.p12` and `ks.pass`: each `Owner` is `<PC>\kokonada-signer`, `AreAccessRulesProtected` is `False`, and `AccessToString` holds exactly `vault\`'s two lines above, so neither file carries a rule of its own.
+   - The `bin\` owner sweep (`Get-ChildItem C:\KokonadaSigner\bin -Recurse -Force | Get-Acl | Where-Object …`) prints nothing: every file under `bin\` is owned by Administrators and carries only the permissions it inherits from `bin\`.
+   - The root's name listing prints exactly `bin`, `in`, `out`, `vault` and `work`, and `bin\`'s exactly `build-tools`, `jdk` and `sign-release.ps1` (in any order): no `stage`, no `probe`, nothing else.
+   - The last command lists every entry below `in\`, `work\`, `out\` and `vault\`. `work\` holds nothing. `in\` and `out\` hold only `.apk` files and no folder. At provisioning, before step 8, `vault\` holds nothing. From step 8 on, and before every run, `vault\` holds exactly `kokonada-upload.p12` and `ks.pass`: each `Owner` is `<PC>\kokonada-signer`, `AreAccessRulesProtected` is `False`, and `AccessToString` holds exactly `vault\`'s two lines above, so neither file carries a rule of its own.
 
    Record the provisioning output with the build record on `OPS-304` (RA-271-R2-3). The script refuses a link on these folders but never reads their permissions (`MB-140` (6)), so this check is the only one that does.
 8. **The key and its password.** In the same `kokonada-signer` window as step 7:
@@ -294,23 +344,25 @@ The output is `app/build/outputs/apk/release/app-release-unsigned.apk`. The JS b
 
 1. First, in the owner's own session: close every agent session and terminal it opened, and the IDE, run `./gradlew --stop` in `mobile/KokonadaHealth/android`, stop Metro, and check that the sentinel's scheduled run is not due during the signing. This is hygiene, not a control: it removes what you forgot to close, never code that hides, and the custody of the key rests on the signer account and the checks below.
 2. Lock the screen, choose **Switch user**, and sign in as `kokonada-signer` on the Windows sign-in screen.
-3. Open a Windows PowerShell window in that session first, as provisioning step 7 does: press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Enter. The script started straight from the Run dialog or a shortcut would close its console with the three hashes still unread (RA-271-R2-6). `-NoProfile` and the first line below keep the account's profile scripts and its own module folder out of the checks that follow (`MB-140` (12) does the same inside the script).
-4. Check the custody, before every run. Both checks must pass; if either fails, sign nothing and sign out.
+3. Open a Windows PowerShell window in that session first, as provisioning step 7 does: press Win+R, type `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile` and press Enter. The script started straight from the Run dialog or a shortcut would close its console with the three hashes still unread (RA-271-R2-6). `-NoProfile` and the first line below keep the account's profile scripts and its own module folder out of the checks that follow (`MB-140` (12) does the same inside the script), and the second prints where PSReadLine came from, as in provisioning step 7.
+4. Check the custody, before every run. All three checks must pass; if any fails, sign nothing and sign out.
 
    ```
    $env:PSModulePath = "$PSHOME\Modules"
+   (Get-Module PSReadLine).Path
    Get-FileHash C:\KokonadaSigner\bin\sign-release.ps1 -Algorithm SHA256
    ```
 
+   - `(Get-Module PSReadLine).Path` prints nothing or a path that starts with `C:\Program Files\WindowsPowerShell\Modules\` or with `$PSHOME`.
    - The hash equals the edited copy's SHA-256 kept in the password manager (provisioning step 6).
-   - The commands of provisioning step 7, run in this window, meet its pass criterion, with `vault\` holding exactly its two files and `work\` nothing.
+   - The commands of provisioning step 7, run in this window, meet its pass criterion, with the root a plain `Directory`, no reparse point under it, `vault\` holding exactly its two files and `work\` nothing.
 5. Run the full-path command:
 
    ```
    C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\KokonadaSigner\bin\sign-release.ps1 -In <name>.apk -Out <name>.apk
    ```
 
-6. Read the result. The script moves the signed APK out of `work\` (`:299`), and a move keeps `work\`'s permissions, so the owner's account cannot read the file yet (RA-34). Run `icacls C:\KokonadaSigner\out\<name>.apk /reset`, which gives it `out\`'s permissions. `MB-140` (8) moves this step into the script.
+6. Read the result. The script moves the signed APK out of `work\` (`:299`), and a move keeps `work\`'s permissions, so the owner's account cannot read the file yet (RA-34). Run `C:\Windows\System32\icacls.exe C:\KokonadaSigner\out\<name>.apk /reset`, which gives it `out\`'s permissions. `MB-140` (8) moves this step into the script.
 7. Choose **Sign out**, not Switch user.
 
 Never start the script from the owner's session: never `runas`, never `/savecred`, never `-NoExit` (`:15-19`). The script refuses a session whose interactive user is not the account it runs as (WTSQuerySessionInformation, WTSUserName; `:106-119`), which is exactly what `runas` gives. There is no exception: `runas` would type the signer's Windows password into the owner's session (SEC-264-12), so the refusal branch at `:118` is not captured by this runbook and stays open on `MB-139`.
@@ -329,7 +381,7 @@ What the script does, in order, stopping at the first failure (`:33-66`):
 **Residuals the design accepts:**
 
 - **The C# compile.** The script's one `Add-Type` (`:98-105`) compiles its P/Invoke declarations with the .NET Framework's `csc.exe` into the signer's `%TEMP%`, before the session check (SEC-271-R2-1). Only the `bin\` and profile permissions and the precondition below protect that step.
-- **No elevation.** The design holds only against code that does not elevate (`:21-22`). An administrator can read any account's files and memory. Microsoft does not treat User Account Control as a security boundary, so when the owner's daily account is an administrator, code in his session may reach elevation without a prompt he notices; the design is strongest when that account is a standard one (`DAN-121`).
+- **No elevation.** The design holds only against code that does not elevate (`:21-22`). An administrator can read any account's files and memory. Microsoft does not treat User Account Control as a security boundary, so when the owner's daily account is an administrator, code in his session may reach elevation without a prompt he notices; the design is strongest when that account is a standard one (`DAN-121`). Provisioning from `kokonada-admin` (step 0, the owner's ruling of 2026-10-27) takes the elevated provisioning window out of his session, and step 0's four lines are the only ones his daily account runs elevated; it does not stop code that elevates in his session from reaching `bin\` or the vault later.
 - **The password in the heap.** The script zeroes and frees the password's BSTR, but the managed string that fills the child's environment stays in the script's process heap until the garbage collector reclaims it (`:56-58`). Only `kokonada-signer`, SYSTEM and an administrator can read that process's memory, and the process ends with the run; sign out after every run.
 - **ELF alignment.** `zipalign -c -P 16` checks the 16 KB zip alignment only. The ELF LOAD-segment 16 KB alignment of every native library is checked separately, on a real release build, before the first upload (`:61-63`, C271-4).
 - **No bundle signing yet.** There is no App Bundle signing step (SEC-271-5). Play takes an `.aab`, `bundleRelease` yields an unsigned one and the script signs APKs only (`:4-7`). The `jarsigner` step, run under the same account and the same rules, is its own row. Until it exists, nothing is uploaded to Play.
