@@ -460,9 +460,9 @@ describe('console lines never become breadcrumbs', () => {
 // The structural scrub above knows where credentials SIT (headers, cookies, query strings); a secret
 // can also be quoted in a message, an exception value, a breadcrumb, extra, contexts, tags or a
 // stack frame's variables. Every string in the event is passed through the one definition of a
-// secret, services/wearable/garminPersonal/redact.js.
+// secret, utils/redact.js.
 describe('sentry scrubber — secret values anywhere in the event (Garmin personal lane)', () => {
-  const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/garminPersonal/sentinels');
+  const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/redactSentinels');
   const JWT = makeJwt({ exp: 1793000000 });
 
   it('redacts the key, an ApiKey value, a Bearer token and a bare JWT from every string of an error event', () => {

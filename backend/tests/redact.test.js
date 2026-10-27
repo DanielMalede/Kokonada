@@ -6,8 +6,8 @@
 // is the one definition of what a secret looks like, used by the Sentry scrubber and by any caller
 // that logs.
 
-const { redactString, redactSecrets, redactSecretsInPlace } = require('../app/services/wearable/garminPersonal/redact');
-const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/garminPersonal/sentinels');
+const { redactString, redactSecrets, redactSecretsInPlace } = require('../app/utils/redact');
+const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/redactSentinels');
 const { blockRealConnections } = require('./fixtures/garminPersonal/blockEgress');
 
 // The sweep below drives the real client: no agent but the fake Garmin's may connect (RA-5).

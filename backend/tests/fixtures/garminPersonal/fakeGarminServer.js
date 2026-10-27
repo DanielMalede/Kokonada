@@ -19,7 +19,7 @@
 const http = require('http');
 const https = require('https');
 const net = require('net');
-const { makeJwt } = require('./sentinels');
+const { makeJwt } = require('../redactSentinels');
 
 const HOST = 'personal.connectapi.garmin.com';
 const TOKEN_PATH = '/personalapitoken-service/personal-api/personal-api-key/token';

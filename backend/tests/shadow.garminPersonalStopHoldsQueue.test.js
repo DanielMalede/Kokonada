@@ -15,7 +15,7 @@
 const { createGarminPersonalClient } = require('../app/services/wearable/garminPersonal/client');
 const { startFakeGarmin } = require('./fixtures/garminPersonal/fakeGarminServer');
 const { fakeClock } = require('./fixtures/garminPersonal/clock');
-const { SENTINEL_KEY } = require('./fixtures/garminPersonal/sentinels');
+const { SENTINEL_KEY } = require('./fixtures/redactSentinels');
 const { blockRealConnections } = require('./fixtures/garminPersonal/blockEgress');
 
 blockRealConnections();

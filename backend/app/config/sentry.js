@@ -5,7 +5,7 @@
 // In strict mode it throws, and scrubEvent's catch drops the event instead (fail closed).
 
 const { types: { isNativeError } } = require('util');
-const { redactSecretsInPlace } = require('../services/wearable/garminPersonal/redact');
+const { redactSecretsInPlace } = require('../utils/redact');
 
 let Sentry = null;
 

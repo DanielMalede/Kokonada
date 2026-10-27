@@ -34,7 +34,7 @@ const {
 } = require('../app/services/wearable/garminPersonal/client');
 const { startFakeGarmin, HOST } = require('./fixtures/garminPersonal/fakeGarminServer');
 const { fakeClock } = require('./fixtures/garminPersonal/clock');
-const { SENTINEL_KEY, makeJwt, signatureOf, base64url } = require('./fixtures/garminPersonal/sentinels');
+const { SENTINEL_KEY, makeJwt, signatureOf, base64url } = require('./fixtures/redactSentinels');
 const { blockRealConnections } = require('./fixtures/garminPersonal/blockEgress');
 
 const START = '2026-10-26T06:00:00.000Z';
