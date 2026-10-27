@@ -97,12 +97,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M05
-- task: `DAN-092` (TASKS)
-- title: close DAN-092 on the read-only MCP evidence; DAN-112 deploy evidence of 62041da and 1a5186a
-- branch: `docs/dan092-close`
+- task: `DAN-053` (TASKS)
+- title: Close DAN-053: record items 2-4 with their evidence; add OPS-322 (release signer missing, store submission deferred)
+- branch: `docs/dan053-close`
 - paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #276
+- state: in-review · PR #277
 - started: 2026-10-27
 
 ### M06
