@@ -38,7 +38,19 @@ describe('garminIngest.ingestSummaries', () => {
       expect.objectContaining({ metric: 'heartRate', value: 60, source: 'garmin' }),
     ]));
     // Additive (T2): every earlier field keeps its meaning; the retention count is the one new field.
-    expect(res).toEqual({ accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0 });
+    // BE-205: an admitted push says so, `refused: null`; a refusal names its code.
+    expect(res).toEqual({ accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, refused: null });
+  });
+
+  // BE-205: the seam reads consent before anything else; without a current grant it returns a refusal
+  // with zero counts and never reaches the store. The real-Mongo pin is garminIngestConsentGate.integration.test.js.
+  it('refuses with zero counts and never persists when the latest row is not a current grant', async () => {
+    ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: 0 });
+    const res = await ingestSummaries('u', [
+      { type: 'dailies', summary: { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 52 } },
+    ]);
+    expect(persistMetrics).not.toHaveBeenCalled();
+    expect(res).toMatchObject({ accepted: 0, inserted: 0, droppedOutsideRetention: 0, refused: 'consent_not_current' });
   });
 
   it('skips unknown summary types (accepted=0, no metrics)', async () => {

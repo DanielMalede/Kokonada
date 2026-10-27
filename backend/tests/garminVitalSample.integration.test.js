@@ -1,7 +1,7 @@
 'use strict';
 
 // T1 — what a Garmin night writes, read back from a REAL Mongo (mongodb-memory-server) through the
-// REAL ingest seam: normaliser → consent gate → persistMetrics → VitalSample / MedicalProfile.
+// REAL ingest seam: consent gate → normaliser → version gate → persistMetrics → VitalSample / MedicalProfile.
 // Nothing on the write path is mocked; Redis is absent, so the recompute enqueue at the tail of
 // persistMetrics is a no-op.
 //

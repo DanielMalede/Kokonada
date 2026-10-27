@@ -192,6 +192,49 @@ function restViolation({ name, body }, routeCode) {
   return null;
 }
 
+// BE-205 (SEC-273-1): the Garmin ingest seam gates itself, so a caller that is not a controller (the
+// personal lane's pull job) cannot store a biometric without a current grant. Every file that calls it is
+// pinned, so a new caller is a visible diff, and inside it the consent read and the decision come before
+// the normaliser and the store.
+const SEAM_SINKS = ['normalizeGarminSummaries(', 'persistMetrics('];
+
+// The files that call `name(`, its own `function name(` definition aside.
+function callersOf(files, name) {
+  const call = new RegExp(`\\b${name}\\(`);
+  const definition = new RegExp(`function\\s+${name}\\s*\\(`, 'g');
+  return files.filter((f) => call.test(f.code.replace(definition, ''))).map((f) => f.file).sort();
+}
+
+// The body of `(async) function name(…) { … }`. The parameter list is skipped by counting parentheses,
+// so a default such as `{ now = new Date() } = {}` cannot end it early.
+function functionBody(code, name) {
+  const m = new RegExp(`function\\s+${name}\\s*\\(`).exec(code);
+  if (!m) return null;
+  let depth = 0;
+  let close = -1;
+  for (let i = m.index + m[0].length - 1; i < code.length; i += 1) {
+    if (code[i] === '(') depth += 1;
+    else if (code[i] === ')' && --depth === 0) { close = i; break; }
+  }
+  if (close < 0) return null;
+  const open = code.indexOf('{', close);
+  if (open < 0 || code.slice(close + 1, open).trim() !== '') return null;
+  const end = blockEnd(code, open);
+  return end > 0 ? code.slice(open, end) : null;
+}
+
+function seamViolation(body) {
+  if (body === null) return 'ingestSummaries: body could not be parsed';
+  const sink = firstIndex(body, SEAM_SINKS);
+  // A seam that reaches neither sink has moved them elsewhere, and this guard would read nothing.
+  if (sink === Infinity) return 'ingestSummaries: reaches neither the normaliser nor the store; follow them';
+  const read = body.indexOf('getConsentState(');
+  const decide = body.indexOf('isCurrentGrant(');
+  if (read < 0 || decide < 0) return 'ingestSummaries: reaches the normaliser or the store with no Art.9 gate';
+  if (read > sink || decide > sink) return 'ingestSummaries: the Art.9 gate comes after the normaliser or the store';
+  return null;
+}
+
 const SOCKET_FILES = walk(path.join(APP, 'sockets')).map((f) => ({ file: rel(f), code: stripComments(fs.readFileSync(f, 'utf8')) }));
 const CONTROLLER_FILES = walk(path.join(APP, 'controllers')).map((f) => ({ file: rel(f), code: stripComments(fs.readFileSync(f, 'utf8')) }));
 const ROUTES = walk(path.join(APP, 'routes')).map((f) => stripComments(fs.readFileSync(f, 'utf8'))).join('\n');
@@ -243,6 +286,33 @@ describe('the detectors are not vacuous', () => {
     expect(payloadHelpers(arrows).map(helperViolation).filter(Boolean)).toEqual(['_pick (reached from _admitOne): names bpm']);
   });
 
+  it('BE-205: the seam check flags an ungated, a late-read and a late-decided seam, and one whose sinks moved; its gated twin passes', () => {
+    const seam = (body) => `async function ingestSummaries(userId, items, { now = new Date() } = {}) {${body}}`;
+    const gate = 'const { status } = await getConsentState(userId, P); if (!isCurrentGrant(status)) return R;';
+    const sinks = 'const m = normalizeGarminSummaries(t, s); await persistMetrics(userId, m, { now });';
+    const check = (code) => seamViolation(functionBody(code, 'ingestSummaries'));
+
+    expect(check(seam(`${gate} ${sinks}`))).toBeNull();
+    expect(check(seam(sinks))).toMatch(/no Art\.9 gate/);
+    expect(check(seam(`${sinks} ${gate}`))).toMatch(/comes after/);
+    expect(check(seam(`const m = normalizeGarminSummaries(t, s); ${gate} await persistMetrics(userId, m);`))).toMatch(/comes after/);
+    expect(check(seam(`const { status } = await getConsentState(userId, P); await persistMetrics(userId, []); if (!isCurrentGrant(status)) return R;`))).toMatch(/comes after/);
+    expect(check(seam(`${gate} await store(userId, items);`))).toMatch(/reaches neither/);
+    expect(check('const ingestSummaries = 1;')).toMatch(/could not be parsed/);
+    // The default parameter's braces and parentheses do not end the parameter list or open the body.
+    expect(functionBody(seam(`${gate} ${sinks}`), 'ingestSummaries').startsWith('{const { status }')).toBe(true);
+  });
+
+  it('BE-205: the caller scan finds a new caller and does not count the definition', () => {
+    const files = [
+      { file: 'controllers/integrationsController.js', code: 'await garminIngest.ingestSummaries(user._id, items);' },
+      { file: 'services/wearable/garminIngest.js', code: 'async function ingestSummaries(userId, items) {}\nmodule.exports = { ingestSummaries };' },
+      { file: 'workers/garminPersonalPull.js', code: 'const res = await ingestSummaries(userId, admitted.items);' },
+      { file: 'services/wearable/mapper.js', code: 'const seam = garminIngest.ingestSummaries;' },
+    ];
+    expect(callersOf(files, 'ingestSummaries')).toEqual(['controllers/integrationsController.js', 'workers/garminPersonalPull.js']);
+  });
+
   it('the scan found what it guards: ≥8 socket handlers and ≥5 biometric REST controllers', () => {
     const handlers = SOCKET_FILES.flatMap((f) => socketHandlers(f.code));
     expect(handlers.length).toBeGreaterThanOrEqual(8);
@@ -281,6 +351,16 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
     const callers = ALL.filter((f) => /\bhandleBiometricReading\(/.test(f.code.replace(/function\s+handleBiometricReading\(/g, '')))
       .map((f) => f.file).sort();
     expect(callers).toEqual(['controllers/integrationsController.js', 'sockets/biometricHandler.js']);
+  });
+
+  it('BE-205: ingestSummaries is called only from the Garmin webhook controller (a pin: a new caller is a visible diff)', () => {
+    expect(callersOf(ALL, 'ingestSummaries')).toEqual(['controllers/integrationsController.js']);
+  });
+
+  it('BE-205: inside ingestSummaries the consent read and isCurrentGrant come before the normaliser and the store', () => {
+    const seam = ALL.find((f) => f.file === 'services/wearable/garminIngest.js');
+    expect(seam).toBeDefined();
+    expect(seamViolation(functionBody(seam.code, 'ingestSummaries'))).toBeNull();
   });
 
   it('one definition of a current grant: staleVersion is read only in consentState.js', () => {
