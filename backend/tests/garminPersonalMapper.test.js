@@ -107,8 +107,8 @@ describe('the shared normaliser reads the mapped summaries as the metrics they a
     ]);
   });
 
-  // When a night's metrics are stamped (its start today, its end once #273 lands) is the
-  // normaliser's to decide; the mapper's part is the start and the duration, pinned above.
+  // When a night's metrics are stamped (at its end, since #273) is the normaliser's to decide, and
+  // garminPersonalEnvelopeHop.test.js pins it; the mapper's part is the start and the duration.
   it('sleep: the deep, light and REM minutes', () => {
     expect(pick(normalised('dailySleep'), false)).toEqual([
       { metric: 'sleepDeep', value: 90, unit: 'min', source: 'garmin', tzOffsetMinutes: 180 },

@@ -57,9 +57,11 @@
  *     for the whole batch, so the caller drops stressDetails items before the envelope.
  */
 
-// A night, or a night's HRV window, is at most a day: the normaliser's own bound (adapter.js
-// MAX_WINDOW_SECONDS once PR #273 lands). A calendar day is at most 25 hours (a DST day).
-const MAX_NIGHT_SECONDS = 24 * 60 * 60;
+// A night, or a night's HRV window, is at most the normaliser's own bound, imported rather than copied
+// so the mapper, the envelope and the normaliser can never disagree on the longest night (RA-11). A
+// calendar day is at most 25 hours (a DST day): a bound of the day series, not of a night.
+const { MAX_WINDOW_SECONDS } = require('../adapter');
+
 const MAX_DAY_SECONDS = 25 * 60 * 60;
 const MAX_OFFSET_SECONDS = 14 * 60 * 60;
 const MIN_INSTANT_MS = Date.UTC(2000, 0, 1);
@@ -176,7 +178,7 @@ function setIfDefined(target, key, value) {
 
 function mapSleep(dto) {
   if (!isPlainObject(dto)) return null;
-  const window = timeWindow(dto.sleepStartTimestampGMT, dto.sleepEndTimestampGMT, MAX_NIGHT_SECONDS);
+  const window = timeWindow(dto.sleepStartTimestampGMT, dto.sleepEndTimestampGMT, MAX_WINDOW_SECONDS);
   if (!window) return null;
   const stages = [
     ['deepSleepDurationInSeconds', dto.deepSleepSeconds],
@@ -199,10 +201,10 @@ function mapHrv(chart) {
   const average = chart.hrvSummary.lastNightAvg;
   if (!isReading(average)) return null;
   // The HRV window when Garmin gives one, the sleep window when it does not.
-  let window = timeWindow(chart.startTimestampGMT, chart.endTimestampGMT, MAX_NIGHT_SECONDS);
+  let window = timeWindow(chart.startTimestampGMT, chart.endTimestampGMT, MAX_WINDOW_SECONDS);
   let [local, gmt] = [chart.startTimestampLocal, chart.startTimestampGMT];
   if (!window) {
-    window = timeWindow(chart.sleepStartTimestampGMT, chart.sleepEndTimestampGMT, MAX_NIGHT_SECONDS);
+    window = timeWindow(chart.sleepStartTimestampGMT, chart.sleepEndTimestampGMT, MAX_WINDOW_SECONDS);
     [local, gmt] = [chart.sleepStartTimestampLocal, chart.sleepStartTimestampGMT];
   }
   if (!window) return null;
