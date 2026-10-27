@@ -82,7 +82,7 @@ jest.mock('../app/services/generation/targetsBuilder', () => ({
 jest.mock('../app/services/llmClient', () => ({
   generateJson: jest.fn(), isConfigured: jest.fn().mockReturnValue(true),
 }));
-// BE-016 (R-A): a generation shaped by a heart rate (this suite's state holds one) reads consent
+// BE-016 (R-A): a generation shaped by a heart rate (the health-shaped case below holds one) reads consent
 // again once its writes settle. A fixture, as in biometricHandler.pipeline.test.js: granted, so the
 // re-check admits the run, and the real (Mongoose) consent service stays out of this Mongo-free
 // suite — reached for real, its read buffers for 10 s and answers after the test has ended.
@@ -149,7 +149,9 @@ function makeSocket(userId = 'user-123') {
 }
 function makeState(overrides = {}) {
   return {
-    stableHR: 80, pendingHR: null, latestActivity: 'resting', timer: null,
+    // A mood-only run (BE-221): no heart rate and no watch activity, so the caption request is
+    // allowed to leave at all. A health-shaped run never captions — pinned at the bottom.
+    stableHR: null, pendingHR: null, latestActivity: null, timer: null,
     consecutiveSkips: 0, lastEmotionTaps: [{ x: 0.1, y: 0.2 }], lastTextPrompt: '', lastActivity: 'resting',
     ...overrides,
   };
@@ -259,5 +261,20 @@ describe('real features→caption→receipt pipeline (M1: no hand-set fixtures)'
     expect(line).toBeUndefined();
     const byId = Object.fromEntries(readyPayload(socket).tracks.map((t) => [t.id, t]));
     expect(byId.disco1.receipt).not.toHaveProperty('caption');
+  });
+
+  // BE-221 — the owner's ruling (class c, 2026-10-27): no health information, and nothing derived
+  // from it, reaches Groq. A heart rate held when the run began shaped its targets and therefore
+  // the features of the tracks it chose, so the caption request does not leave at all.
+  it('a run shaped by a heart rate sends no caption request; the playlist still lands, uncaptioned', async () => {
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ stableHR: 80, latestActivity: 'resting' }));
+
+    expect(llmClient.generateJson).not.toHaveBeenCalled();
+    const byId = Object.fromEntries(readyPayload(socket).tracks.map((t) => [t.id, t]));
+    expect(byId.disco1).toBeDefined();
+    expect(byId.disco1.receipt).not.toHaveProperty('caption');
+    const line = warnSpy.mock.calls.map((c) => String(c[0])).find((s) => s.includes('[discovery.caption]'));
+    expect(line).toMatch(/captionedDiscovery=0\/2\b/);
   });
 });

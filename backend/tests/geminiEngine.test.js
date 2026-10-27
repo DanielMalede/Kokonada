@@ -15,7 +15,6 @@ const {
   inferArtistGenres,
   _parseAndValidate,
   _buildEmotionPrompt,
-  _buildBiometricPrompt,
   TEMPO_CATEGORIES,
 } = require('../app/services/geminiEngine');
 const { biometricBand } = require('../app/services/moodDescriptors');
@@ -337,100 +336,111 @@ describe('prompt variety', () => {
   });
 });
 
-// ── _buildBiometricPrompt ──────────────────────────────────────────────────────
+// ── adjustBiometricPlaylist — deterministic, no LLM (BE-221) ───────────────────
+// The owner's ruling (class c, 2026-10-27): no health information, and nothing derived from it,
+// reaches Groq. The heart-rate branch therefore makes NO LLM call: its params come from
+// moodDescriptors.buildBioParams on the band biometricBand resolves, then applyBiometricBands.
+// What the old prompt tests pinned (the W4-016 band chain, the kill switch) is now pinned on
+// result.params, the only place the band still lands.
 
-describe('_buildBiometricPrompt', () => {
-  const biometric = { heartRate: 155, activity: 'running' };
+// The band's own targets, after applyBiometricBands blends them onto themselves.
+const BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
+const bandTargets = (band) => ({
+  target_bpm:          Math.round(70 + BAND_ENERGY[band] * 90),
+  target_energy:       BAND_ENERGY[band],
+  target_acousticness: 1 - BAND_ENERGY[band],
+  target_valence:      0.5,
+});
+async function paramsFor(biometric, musicProfile = MUSIC_PROFILE) {
+  const fetchTracks = jest.fn().mockResolvedValue([]);
+  const { params } = await adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks });
+  expect(fetchTracks).toHaveBeenCalledWith(params);
+  return params;
+}
+function expectBand(params, band) {
+  const t = bandTargets(band);
+  expect(params.target_bpm).toBe(t.target_bpm);
+  expect(params.target_energy).toBeCloseTo(t.target_energy, 6);
+  expect(params.target_acousticness).toBeCloseTo(t.target_acousticness, 6);
+  expect(params.target_valence).toBeCloseTo(t.target_valence, 6);
+}
 
-  it('NEVER includes the numeric heart rate or resting HR (Wave-0 egress containment)', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt).not.toContain('155');                 // current HR must not leak
-    expect(prompt).not.toContain('65');                  // resting HR must not leak
-    expect(prompt).not.toMatch(/heart rate|resting/i);
+describe('adjustBiometricPlaylist — makes no LLM call (BE-221)', () => {
+  beforeEach(() => axios.post.mockReset());
+
+  it('sends no request for any heart rate, ratio, state label or activity', async () => {
+    for (const biometric of [
+      { heartRate: 155, activity: 'running' },
+      { heartRate: 50, activity: 'resting' },
+      { heartRate: 130, hrRatio: 1.6, stateLabel: 'acute-stress', activity: 'walking' },
+    ]) await paramsFor(biometric);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
-  it('carries the coarse physiological band instead of raw vitals', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt.toLowerCase()).toContain('intensity band: peak'); // 155 bpm → peak band
+  it('a provider outage cannot reach it: a rejecting transport is never called', async () => {
+    axios.post.mockRejectedValue(new Error('network timeout'));
+    const params = await paramsFor({ heartRate: 155, activity: 'running' });
+    expect(params.target_bpm).toBe(151);
+    expect(axios.post).not.toHaveBeenCalled();
+    axios.post.mockReset();
   });
 
-  it('includes the current activity', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt).toContain('running');
-  });
-
-  it('does not expose user PII', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt).not.toMatch(/userId|email/i);
-  });
-
-  it('instructs the model to return BPM, energy and acoustics parameters', () => {
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, biometric);
-    expect(prompt.toLowerCase()).toMatch(/bpm|tempo|energy/);
+  it('returns the bare param set every consumer reads', async () => {
+    const params = await paramsFor({ heartRate: 155, activity: 'running' });
+    expect(Object.keys(params).sort()).toEqual([
+      'mood_keywords', 'seed_artists', 'seed_genres', 'target_acousticness', 'target_bpm', 'target_energy', 'target_valence',
+    ]);
+    expect(params.seed_artists).toEqual([]);
+    expect(params.seed_genres).toEqual(MUSIC_PROFILE.topGenres.slice(0, 2));
+    expect(params.mood_keywords.length).toBeGreaterThan(0);
   });
 });
 
-// ── _buildBiometricPrompt — W4-016 band routed through the real state source ───
-
-describe('_buildBiometricPrompt — W4-016 band-from-state', () => {
+describe('adjustBiometricPlaylist — W4-016 band-from-state, on result.params', () => {
   afterEach(() => { delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED; });
 
-  it('two users at the SAME raw HR but different personal baselines resolve to DIFFERENT bands', () => {
+  it('two users at the SAME raw HR but different personal baselines resolve to DIFFERENT bands', async () => {
     // Raw HR 130 alone would read as "peak" for everyone. hrRatio (HR / personal resting
     // baseline) says otherwise for the first user, who is barely above their own normal.
-    const calm      = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 130, hrRatio: 1.05, activity: 'walking' });
-    const strained  = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 130, hrRatio: 1.6, activity: 'walking' });
-    expect(calm.toLowerCase()).toContain('intensity band: resting');
-    expect(strained.toLowerCase()).toContain('intensity band: peak');
+    expectBand(await paramsFor({ heartRate: 130, hrRatio: 1.05, activity: 'walking' }), 'resting');
+    expectBand(await paramsFor({ heartRate: 130, hrRatio: 1.6, activity: 'walking' }), 'peak');
   });
 
-  it('a present stateLabel wins over hrRatio, which wins over raw HR', () => {
+  it('a present stateLabel wins over hrRatio, which wins over raw HR', async () => {
     // 'deep-rest' (taxonomy band: resting) overrides a peak-implying hrRatio and raw HR.
-    const byState = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170, hrRatio: 1.8, stateLabel: 'deep-rest' });
-    expect(byState.toLowerCase()).toContain('intensity band: resting');
-
+    expectBand(await paramsFor({ heartRate: 170, hrRatio: 1.8, stateLabel: 'deep-rest' }), 'resting');
     // No stateLabel → falls to hrRatio, ignoring raw HR.
-    const byRatio = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170, hrRatio: 1.05 });
-    expect(byRatio.toLowerCase()).toContain('intensity band: resting');
-
+    expectBand(await paramsFor({ heartRate: 170, hrRatio: 1.05 }), 'resting');
     // Neither stateLabel nor hrRatio → falls to raw HR, exactly as before.
-    const byRawHr = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: 170 });
-    expect(byRawHr.toLowerCase()).toContain('intensity band: peak');
+    expectBand(await paramsFor({ heartRate: 170 }), 'peak');
   });
 
-  it('cold start (no stateLabel, no hrRatio) is byte-identical to raw-HR banding (dormancy invariant)', () => {
-    const ctx = { heartRate: 155, activity: 'running' };
-    expect(_buildBiometricPrompt(MUSIC_PROFILE, ctx)).toBe(_buildBiometricPrompt(MUSIC_PROFILE, { ...ctx }));
-    expect(_buildBiometricPrompt(MUSIC_PROFILE, ctx).toLowerCase()).toContain('intensity band: peak');
-  });
-
-  it('agrees with biometricBand — the same chain applyBiometricBands uses — on the resolved band', () => {
+  it('agrees with biometricBand — the same chain applyBiometricBands uses', async () => {
     const ctx = { heartRate: 130, hrRatio: 1.35, stateLabel: 'acute-stress', activity: 'walking' };
-    const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
-    const [, band] = prompt.match(/intensity band: (\w+)/i);
-    expect(band.toLowerCase()).toBe(biometricBand(ctx));
+    expectBand(await paramsFor(ctx), biometricBand(ctx));
   });
 
-  it('WAVE4_LLM_BAND_FROM_STATE_DISABLED restores raw-HR-only banding byte-for-byte', () => {
+  it('no usable signal at all falls to the active band, as the old prompt default did', async () => {
+    expectBand(await paramsFor({ heartRate: null, activity: 'unknown' }), 'active');
+  });
+
+  it('WAVE4_LLM_BAND_FROM_STATE_DISABLED restores raw-HR-only banding byte-for-byte', async () => {
     const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
     process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
-    const disabledPrompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
+    const disabledParams = await paramsFor(ctx);
     delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
-    const rawOnlyPrompt = _buildBiometricPrompt(MUSIC_PROFILE, { heartRate: ctx.heartRate, activity: ctx.activity });
-    expect(disabledPrompt).toBe(rawOnlyPrompt);
-    expect(disabledPrompt.toLowerCase()).toContain('intensity band: peak'); // raw 170bpm wins; state/ratio ignored
+    const rawOnlyParams = await paramsFor({ heartRate: ctx.heartRate, activity: ctx.activity });
+    expect(disabledParams).toEqual(rawOnlyParams);
+    expectBand(disabledParams, 'peak'); // raw 170bpm wins; state/ratio ignored
   });
 
   // W4-D58 — this flag used to be read as `=== 'true'`, so the one spelling an operator is most
   // likely to reach for in an incident did nothing at all, silently. Every ON spelling must work.
   it.each(['1', 'true', 'TRUE', ' 1 ', 'yes', 'on'])(
     'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p engages the kill-switch (W4-D58: not just =true)',
-    (spelling) => {
-      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+    async (spelling) => {
       process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
-      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
-      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
-      expect(prompt.toLowerCase()).toContain('intensity band: peak');
+      expectBand(await paramsFor({ heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' }), 'peak');
     },
   );
 
@@ -438,48 +448,11 @@ describe('_buildBiometricPrompt — W4-016 band-from-state', () => {
   // eleven other kill-switches used to get backwards (reading A).
   it.each(['false', 'FALSE', '0', 'off', 'no', ''])(
     'WAVE4_LLM_BAND_FROM_STATE_DISABLED=%p leaves band-from-state ON (W4-D58)',
-    (spelling) => {
-      const ctx = { heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' };
+    async (spelling) => {
       process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = spelling;
-      const prompt = _buildBiometricPrompt(MUSIC_PROFILE, ctx);
-      delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED;
-      expect(prompt.toLowerCase()).toContain('intensity band: resting');
+      expectBand(await paramsFor({ heartRate: 170, hrRatio: 1.05, stateLabel: 'deep-rest', activity: 'running' }), 'resting');
     },
   );
-});
-
-// ── adjustBiometricPlaylist — W4-016 prompt/band agreement ─────────────────────
-
-describe('adjustBiometricPlaylist — W4-016 band agreement', () => {
-  const fetch = jest.fn().mockResolvedValue([]);
-  beforeEach(() => { fetch.mockClear(); axios.post.mockClear(); });
-  afterEach(() => { delete process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED; });
-
-  it('the prompt band and the applyBiometricBands band agree for the same session', async () => {
-    makeGeminiResponse(VALID_AI_PARAMS);
-    const biometric = { heartRate: 130, hrRatio: 1.35, stateLabel: 'acute-stress', activity: 'walking' };
-    const expectedBand = biometricBand(biometric); // 'resting' — same chain applyBiometricBands uses
-    const result = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
-    const promptSent = axios.post.mock.calls[0][1].messages[0].content;
-    const [, promptBand] = promptSent.match(/intensity band: (\w+)/i);
-    expect(promptBand.toLowerCase()).toBe(expectedBand);
-    const BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
-    const expectedEnergy = 0.5 * VALID_AI_PARAMS.target_energy + 0.5 * BAND_ENERGY[expectedBand];
-    expect(result.params.target_energy).toBeCloseTo(expectedEnergy, 6);
-  });
-
-  it('kill switch: bands on raw HR only, ignoring stateLabel/hrRatio, in both the prompt and applyBiometricBands', async () => {
-    process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
-    makeGeminiResponse(VALID_AI_PARAMS);
-    // raw HR 60 → 'resting'; hrRatio/stateLabel both imply 'peak' and must be ignored.
-    const biometric = { heartRate: 60, hrRatio: 1.8, stateLabel: 'peak-effort', activity: 'resting' };
-    const result = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
-    const promptSent = axios.post.mock.calls[0][1].messages[0].content;
-    expect(promptSent.toLowerCase()).toContain('intensity band: resting');
-    const BAND_ENERGY = { resting: 0.2, active: 0.6, peak: 0.9 };
-    const expectedEnergy = 0.5 * VALID_AI_PARAMS.target_energy + 0.5 * BAND_ENERGY.resting;
-    expect(result.params.target_energy).toBeCloseTo(expectedEnergy, 6);
-  });
 });
 
 // ── buildEmotionPlaylist — Spotify provider ────────────────────────────────────
@@ -584,22 +557,19 @@ describe('buildEmotionPlaylist — strict mood fallback', () => {
   });
 });
 
-// ── adjustBiometricPlaylist — empty-genre robustness ───────────────────────────
+// ── adjustBiometricPlaylist — genre seeds ──────────────────────────────────────
 
-describe('adjustBiometricPlaylist — empty seed_genres robustness', () => {
+describe('adjustBiometricPlaylist — seed_genres', () => {
   const biometric = { heartRate: 150, activity: 'running' };
-  const fetch = jest.fn().mockResolvedValue([]);
 
-  beforeEach(() => {
-    fetch.mockClear();
-    axios.post.mockClear();
+  it('seeds from the user top genres, so the heart-rate branch always has something to search', async () => {
+    const params = await paramsFor(biometric);
+    expect(params.seed_genres).toEqual(['electronic', 'indie']);
   });
 
-  it('backfills seed_genres from the user top genres when the LLM returns none', async () => {
-    makeGeminiResponse({ ...VALID_AI_PARAMS, seed_genres: [] });
-    const res = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: fetch });
-    expect(res.params.seed_genres.length).toBeGreaterThan(0);
-    res.params.seed_genres.forEach((g) => expect(MUSIC_PROFILE.topGenres).toContain(g));
+  it('a profile with no top genres yields an empty seed, never a throw', async () => {
+    const params = await paramsFor(biometric, { ...MUSIC_PROFILE, topGenres: undefined });
+    expect(params.seed_genres).toEqual([]);
   });
 });
 
@@ -642,49 +612,33 @@ describe('adjustBiometricPlaylist (Spotify provider)', () => {
 
   beforeEach(() => {
     spotifyFetch.mockClear();
-    axios.post.mockClear();
+    axios.post.mockReset();
   });
 
-  it('applies the deterministic HR band to the params fed to search (no raw HR to the LLM)', async () => {
-    makeGeminiResponse(VALID_AI_PARAMS);
+  it('feeds search the deterministic peak-band params (155 bpm → peak), with no LLM call', async () => {
     await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch });
     const passed = spotifyFetch.mock.calls[0][0];
-    // 155 bpm → peak band → target_bpm blended up from the LLM's 128 (deterministic).
-    expect(passed.target_bpm).toBe(140);
-    expect(passed.target_energy).toBeCloseTo(0.875, 5);
+    expect(passed.target_bpm).toBe(151);
+    expect(passed.target_energy).toBeCloseTo(0.9, 5);
     expect(passed.seed_genres.length).toBeGreaterThan(0);
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('returns banded params and tracks', async () => {
-    makeGeminiResponse(VALID_AI_PARAMS);
     const result = await adjustBiometricPlaylist({
       musicProfile: MUSIC_PROFILE,
       biometric,
       fetchTracks: spotifyFetch,
     });
-    expect(result.params.target_bpm).toBe(140);
+    expect(result.params.target_bpm).toBe(151);
     expect(result.tracks).toEqual(spotifyTracks);
   });
 
-  it('propagates Gemini errors', async () => {
-    axios.post.mockRejectedValueOnce(new Error('network timeout'));
+  it('propagates a fetchTracks failure to the caller (its deterministic fallback)', async () => {
+    spotifyFetch.mockRejectedValueOnce(new Error('discovery down'));
     await expect(
       adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
-    ).rejects.toThrow('LLM request failed (openai/gpt-oss-20b): status=- code=Error'); // code, never the raw text
-  });
-
-  it('throws when the model response is missing required fields', async () => {
-    axios.post.mockResolvedValueOnce({ data: { choices: [{ message: { content: JSON.stringify({ target_bpm: 128, target_energy: 0.9 }) } }] } });
-    await expect(
-      adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
-    ).rejects.toThrow('missing required field');
-  });
-
-  it('throws when Gemini returns out-of-range energy', async () => {
-    makeGeminiResponse({ ...VALID_AI_PARAMS, target_energy: 1.5 });
-    await expect(
-      adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: spotifyFetch })
-    ).rejects.toThrow('target_energy');
+    ).rejects.toThrow('discovery down');
   });
 });
 
@@ -701,16 +655,14 @@ describe('adjustBiometricPlaylist (YouTube Music provider)', () => {
   });
 
   it('applies the deterministic HR band to the YouTube params (60 bpm → resting band)', async () => {
-    makeGeminiResponse(VALID_AI_PARAMS);
     await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric, fetchTracks: youtubeFetch });
     const passed = youtubeFetch.mock.calls[0][0];
-    // 60 bpm → resting band → target_bpm blended down from the LLM's 128 (deterministic).
-    expect(passed.target_bpm).toBe(108);
+    // 60 bpm → resting band → the band's own tempo (deterministic, no LLM).
+    expect(passed.target_bpm).toBe(88);
     expect(passed.seed_genres.length).toBeGreaterThan(0);
   });
 
   it('returns YouTube tracks in the result', async () => {
-    makeGeminiResponse(VALID_AI_PARAMS);
     const result = await adjustBiometricPlaylist({
       musicProfile: MUSIC_PROFILE,
       biometric,

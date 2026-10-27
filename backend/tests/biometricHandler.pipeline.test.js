@@ -703,6 +703,10 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
     });
   }
 
+  // BE-221: captions only ever run on a mood-only session — no heart rate, no watch activity, no
+  // stored health profile, no band-aware targets. MOOD_ONLY is that state.
+  const MOOD_ONLY = { lastEmotionTaps: [{ x: 0.1, y: 0.95 }], stableHR: null, latestActivity: null };
+
   it('FLAG ON: attaches captions to the discovery tracks in the emitted payload; familiar tracks get none', async () => {
     process.env.DISCOVERY_CAPTION_LLM = 'true';
     mockPlaylistWithDiscovery();
@@ -712,7 +716,7 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
     ]));
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    await generateAndEmitPlaylist(socket, 'emotion', makeState(MOOD_ONLY));
 
     expect(captionService.captionDiscovery).toHaveBeenCalledTimes(1);
     const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
@@ -722,27 +726,86 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
     expect(byId['lib-1'].receipt).not.toHaveProperty('caption');
   });
 
-  it('FLAG ON: passes ONLY features + first-party session context to the caption service', async () => {
+  it('FLAG ON: passes ONLY features + the chosen mood, taps and chip to the caption service', async () => {
     process.env.DISCOVERY_CAPTION_LLM = 'true';
     mockPlaylistWithDiscovery();
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }], stableHR: 150, latestActivity: 'running' }));
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ ...MOOD_ONLY, lastActivity: 'running' }));
 
     const [tracksArg, ctxArg] = captionService.captionDiscovery.mock.calls[0];
     expect(tracksArg.every(t => t.features && t.recordingKey)).toBe(true);
-    expect(ctxArg).toEqual(expect.objectContaining({
-      moodKey: expect.any(String),
-      hrBand:  expect.any(String),
-      activity: 'running',
-    }));
+    // BE-221: exactly the allow-list — no hrBand, no targets (bpmCenter), and the activity is the
+    // chip the user chose, never the one a watch detected.
+    expect(Object.keys(ctxArg).sort()).toEqual(['activity', 'emotionTaps', 'moodKey']);
+    expect(ctxArg.activity).toBe('running');
+    expect(ctxArg.moodKey).toEqual(expect.any(String));
+    expect(ctxArg.moodKey.startsWith('bio:')).toBe(false);
+  });
+
+  it('FLAG ON: a chip wins over the watch, and the watch activity never reaches the caption service', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    mockPlaylistWithDiscovery();
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ ...MOOD_ONLY, lastActivity: 'walking', latestActivity: 'cycling' }));
+
+    const [, ctxArg] = captionService.captionDiscovery.mock.calls[0];
+    expect(ctxArg.activity).toBe('walking');
+    expect(JSON.stringify(ctxArg)).not.toContain('cycling');
+  });
+
+  // BE-221 — a run that health data shaped never captions: its targets, and therefore the features
+  // of the tracks it chose, carry the reading. Each case is the guard's own trigger, one at a time.
+  it.each([
+    ['a heart rate held when the run began (mood branch)', 'emotion', { stableHR: 150, latestActivity: 'running' }],
+    ['a heart rate on the heart branch', 'biometric', { stableHR: 150, latestActivity: 'running', lastEmotionTaps: [] }],
+    ['a watch-detected activity with no chip', 'emotion', { latestActivity: 'cycling' }],
+  ])('FLAG ON: %s → the caption service is never called', async (_name, trigger, overrides) => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    mockPlaylistWithDiscovery();
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, trigger, makeState({ ...MOOD_ONLY, ...overrides }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(captionService.captionDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('FLAG ON: a stored health profile shaping the mood run → the caption service is never called', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    MedicalProfile.findOne.mockResolvedValue({ restingHeartRate: 62, hrv: 45, bodyBattery: 40 });
+    mockPlaylistWithDiscovery();
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState(MOOD_ONLY));
+
+    expect(geminiEngine.buildEmotionPlaylist.mock.calls.at(-1)[0].biometricContext).not.toBeNull();
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(captionService.captionDiscovery).not.toHaveBeenCalled();
+  });
+
+  it('FLAG ON: band-aware targets on the mood run → the caption service is never called', async () => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    process.env.DISCOVERY_BAND_AWARE = 'true';
+    orchestrator.buildTargets.mockResolvedValue({ bpmCenter: 100, bpmWidth: 20, stateId: 'exertion' });
+    mockPlaylistWithDiscovery();
+    try {
+      const socket = makeSocket();
+      await generateAndEmitPlaylist(socket, 'emotion', makeState(MOOD_ONLY));
+
+      expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+      expect(captionService.captionDiscovery).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.DISCOVERY_BAND_AWARE;
+    }
   });
 
   it('FLAG OFF (default dark launch): never calls the caption service and emits no captions', async () => {
     mockPlaylistWithDiscovery();
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    await generateAndEmitPlaylist(socket, 'emotion', makeState(MOOD_ONLY));
 
     expect(captionService.captionDiscovery).not.toHaveBeenCalled();
     const call = socket.emit.mock.calls.find(c => c[0] === 'playlist_ready');
@@ -755,7 +818,9 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
     captionService.captionDiscovery.mockRejectedValueOnce(new Error('caption boom'));
 
     const socket = makeSocket();
-    await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    await generateAndEmitPlaylist(socket, 'emotion', makeState(MOOD_ONLY));
+
+    expect(captionService.captionDiscovery).toHaveBeenCalledTimes(1); // the failure really happened
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
     expect(socket.emit).not.toHaveBeenCalledWith('playlist_error', expect.anything());
