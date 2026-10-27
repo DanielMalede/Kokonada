@@ -12,7 +12,9 @@ const MedicalProfile = require('../../models/MedicalProfile');
 const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
 const { enqueue } = require('../../queues/queue');
 const { insertManyAccounted, NO_REJECTS } = require('./insertAccounted');
-const { consentV2Enabled, sanitizeTzOffset, MAX_FUTURE_SKEW_MS } = require('./adapter');
+const {
+  consentV2Enabled, sanitizeTzOffset, TZ_MIN_MINUTES, TZ_MAX_MINUTES, MAX_FUTURE_SKEW_MS,
+} = require('./adapter');
 const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 
@@ -43,16 +45,26 @@ const METRIC_FIELD_PATHS = {
 
 // A Garmin HRV is one value a night, stamped where its window ends (adapter.js). Garmin can revise a
 // window's length on a later sync or pull, which moves that end, so for this one series the time is not
-// the reading's identity: the night is, filed under the UTC date of its end, the date
-// computeLastNightSleep files a night under (BE-191, RA-3). The first write of a night wins.
-const DAY_MS = 24 * 60 * 60 * 1000;
+// the reading's identity: the night is (BE-191, RA-3), filed under the LOCAL date of its end, and the first
+// write of a night wins. Under the UTC date, two different nights that end on one UTC date shared a key and
+// the second was never written: a wearer at UTC+8 who wakes at 08:10 and then at 07:50 the next morning ends
+// them at 00:10Z and 23:50Z (RA-1 of #275). The local date is the UTC date of recordedAt + tzOffsetMinutes.
+// The Garmin normaliser takes that offset from startTimeOffsetInSeconds, which is local minus UTC, so it is
+// east-positive (UTC+8 is +480) and is ADDED, as the baseline engine's localDayIndex adds it. A row with no
+// offset is filed under its UTC date.
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 const isGarminNightlyHrv = (d) => d.metric === 'hrv' && d.source === 'garmin';
-const vitalIdentity = (d) => {
-  const at = new Date(d.recordedAt);
-  return isGarminNightlyHrv(d)
-    ? `${d.metric}@${d.source}@${at.toISOString().slice(0, 10)}`
-    : `${d.metric}@${d.source}@${at.getTime()}`;
+const localDateOf = (d) => {
+  const offsetMs = (sanitizeTzOffset(d.tzOffsetMinutes) ?? 0) * MINUTE_MS;
+  return new Date(new Date(d.recordedAt).getTime() + offsetMs).toISOString().slice(0, 10);
 };
+const vitalIdentity = (d) => (isGarminNightlyHrv(d)
+  ? `${d.metric}@${d.source}@${localDateOf(d)}`
+  : `${d.metric}@${d.source}@${new Date(d.recordedAt).getTime()}`);
+// Two rows of one local date are less than a day apart in local time, and their offsets differ by at most the
+// width of the offset band, so in UTC they are less than a day plus that width apart.
+const NIGHT_REACH_MS = DAY_MS + (TZ_MAX_MINUTES - TZ_MIN_MINUTES) * MINUTE_MS;
 
 /**
  * Per-metric physiological rows → VitalSample. Same idempotence contract as the heartRate path:
@@ -85,9 +97,9 @@ async function persistVitalSamples(userId, metrics) {
   if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
 
   try {
-    // A night's row can sit anywhere on the UTC date of the night's end, so a Garmin HRV widens the
-    // read by a day on each side: every time with the same UTC date is less than a day away.
-    const reach = (d) => (isGarminNightlyHrv(d) ? DAY_MS : 0);
+    // A night's row can sit anywhere on the local date of the night's end, under any offset, so a Garmin
+    // HRV widens the read on each side by NIGHT_REACH_MS, and the read takes each row's offset with it.
+    const reach = (d) => (isGarminNightlyHrv(d) ? NIGHT_REACH_MS : 0);
     const from = docs.map((d) => d.recordedAt.getTime() - reach(d));
     const to = docs.map((d) => d.recordedAt.getTime() + reach(d));
     const existing = await VitalSample
@@ -96,7 +108,7 @@ async function persistVitalSamples(userId, metrics) {
         metric: { $in: [...new Set(docs.map((d) => d.metric))] },
         recordedAt: { $gte: new Date(Math.min(...from)), $lte: new Date(Math.max(...to)) },
       })
-      .select('metric source recordedAt')
+      .select('metric source recordedAt tzOffsetMinutes')
       .lean();
 
     const seen = new Set((existing || []).map(vitalIdentity));

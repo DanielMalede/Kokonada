@@ -415,8 +415,9 @@ function normalizeGarminSummaries(type, s) {
 
 module.exports = {
   normalize, normalizeHealthStoreSamples, normalizeGarminSummaries,
-  // shared with metricStore so the capability gate has ONE definition, not two that drift
-  consentV2Enabled, sanitizeTzOffset,
+  // shared with metricStore so the capability gate has ONE definition, not two that drift; the offset band
+  // also sets how far the store reads around a Garmin night (RA-1 of #275)
+  consentV2Enabled, sanitizeTzOffset, TZ_MIN_MINUTES, TZ_MAX_MINUTES,
   // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on,
   // and refuses exactly the nights this file could only stamp at their start
   MAX_WINDOW_SECONDS, GARMIN_NIGHT_TYPES, garminNightEndSec,
