@@ -1338,18 +1338,23 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
 
     // Discovery captions (Step 2, dark-launched behind DISCOVERY_CAPTION_LLM): ONE batched Groq
     // call writes a short witty "why this discovery" line per discovery track from its audio
-    // FEATURES + the session context the USER chose — the preset mood, the emotion taps and the
+    // FEATURES + the session context the USER chose — a preset mood, the emotion taps and the
     // activity chip — never a title/artist/genre (§II), and never anything health data shaped
     // (BE-221, the owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no activity
     // a watch detected. A run that health data shaped is not captioned at all: its targets, and so
-    // the features of the very tracks it chose, carry the reading. That is a run that began with a
-    // heart rate, one whose stored health profile shaped the targets, one whose band-aware
-    // targets were built (they read the stored profile), a heart-branch bio:* key, or a run whose
-    // activity came from the watch rather than a chip.
+    // the features of the very tracks it chose, carry the reading. The guard fails CLOSED on the
+    // targets the selection actually used: they say whether any health input reached them
+    // (`targets.healthInputs`, set by targetsBuilder.buildTargets — a cached baseline, a stored
+    // profile, a stored night, an affect state or a live heart rate), and targets that do not say
+    // `false` count as shaped (BE-227). The terms before it are what this run itself knows: a heart
+    // rate when it began, the stored-profile context of the mood branch, band-aware targets, and
+    // an activity from the watch rather than a chip. The bio:* key term is defence in depth: a bio
+    // key needs a heart rate, which hrAtStart already covers.
     // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
     // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
     const healthShapedCaption = hrAtStart || profileShaped || bandTargets != null || _isBioKey(moodKey)
-      || (effectiveActivity != null && effectiveActivity !== state.lastActivity);
+      || (effectiveActivity != null && effectiveActivity !== state.lastActivity)
+      || playlist?.targets?.healthInputs !== false;
     if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
       const allDiscovery = playlist.merged.filter((t) => t?.isDiscovery);
       // A track can only be captioned once selection ATTACHED its features (pipeline.js:95);
