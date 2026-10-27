@@ -193,16 +193,24 @@ function restViolation({ name, body }, routeCode) {
 }
 
 // BE-205 (SEC-273-1): the Garmin ingest seam gates itself, so a caller that is not a controller (the
-// personal lane's pull job) cannot store a biometric without a current grant. Every file that calls it is
-// pinned, so a new caller is a visible diff, and inside it the consent read and the decision come before
+// personal lane's pull job) cannot store a biometric without a current grant. Every file that references it
+// is pinned, so a new caller is a visible diff, and inside it the consent read and the decision come before
 // the normaliser and the store.
 const SEAM_SINKS = ['normalizeGarminSummaries(', 'persistMetrics('];
 
-// The files that call `name(`, its own `function name(` definition aside.
+// The files that name `name` at all. Every reference counts, not only `name(`: an alias
+// (`const ingest = garminIngest.ingestSummaries; ingest(u, i)`), a renamed import or a re-export calls it, or
+// hands it on, under another name (RA-6 of #275). Only the defining file's own `function name(` definition and
+// its `module.exports = { … }` object are set aside; anywhere else an export object counts like any reference.
 function callersOf(files, name) {
-  const call = new RegExp(`\\b${name}\\(`);
+  const reference = new RegExp(`\\b${name}\\b`);
   const definition = new RegExp(`function\\s+${name}\\s*\\(`, 'g');
-  return files.filter((f) => call.test(f.code.replace(definition, ''))).map((f) => f.file).sort();
+  const exportObject = /module\.exports\s*=\s*\{[^}]*\}/g;
+  const outsideOwn = (code) => {
+    const rest = code.replace(definition, '');
+    return rest === code ? code : rest.replace(exportObject, '');
+  };
+  return files.filter((f) => reference.test(outsideOwn(f.code))).map((f) => f.file).sort();
 }
 
 // The body of `(async) function name(…) { … }`. The parameter list is skipped by counting parentheses,
@@ -358,7 +366,7 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
     expect(callers).toEqual(['controllers/integrationsController.js', 'sockets/biometricHandler.js']);
   });
 
-  it('BE-205: ingestSummaries is called only from the Garmin webhook controller (a pin: a new caller is a visible diff)', () => {
+  it('BE-205: ingestSummaries is referenced only from the Garmin webhook controller (a pin: a new caller or alias is a visible diff)', () => {
     expect(callersOf(ALL, 'ingestSummaries')).toEqual(['controllers/integrationsController.js']);
   });
 
