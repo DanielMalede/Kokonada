@@ -8,6 +8,10 @@
 
 const { redactString, redactSecrets, redactSecretsInPlace } = require('../app/services/wearable/garminPersonal/redact');
 const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/garminPersonal/sentinels');
+const { blockRealConnections } = require('./fixtures/garminPersonal/blockEgress');
+
+// The sweep below drives the real client: no agent but the fake Garmin's may connect (RA-5).
+blockRealConnections();
 
 const JWT = makeJwt({ exp: 1793000000 });
 

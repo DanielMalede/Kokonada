@@ -6,8 +6,9 @@
 // real HTTP server, reached through an https.Agent whose sockets connect to it, so axios's native
 // https transport, real headers, real streamed bodies and real timeouts are all in play for
 // https://personal.connectapi.garmin.com. The rate policy runs on a fake clock that sleeping moves,
-// so a six-hour backoff costs nothing. No byte leaves the machine: the global agents are blocked for
-// the whole file, so a request that bypassed the fake would fail loudly instead of reaching Garmin.
+// so a six-hour backoff costs nothing. No byte leaves the machine: every agent's createConnection,
+// the prototypes' included, is blocked for the whole file (fixtures/garminPersonal/blockEgress.js),
+// so a request that bypassed the fake would fail loudly instead of reaching Garmin.
 
 const fs = require('fs');
 const http = require('http');
@@ -34,21 +35,13 @@ const {
 const { startFakeGarmin, HOST } = require('./fixtures/garminPersonal/fakeGarminServer');
 const { fakeClock } = require('./fixtures/garminPersonal/clock');
 const { SENTINEL_KEY, makeJwt, signatureOf, base64url } = require('./fixtures/garminPersonal/sentinels');
+const { blockRealConnections } = require('./fixtures/garminPersonal/blockEgress');
 
 const START = '2026-10-26T06:00:00.000Z';
 const HOUR = 60 * 60 * 1000;
 const hrvPath = (date) => `/hrv-service/hrv/${date}`;
 
-const blocked = [];
-beforeAll(() => {
-  for (const agent of [http.globalAgent, https.globalAgent]) {
-    blocked.push([agent, agent.createConnection]);
-    agent.createConnection = () => { throw new Error('a real network connection was attempted in a test'); };
-  }
-});
-afterAll(() => {
-  for (const [agent, original] of blocked) agent.createConnection = original;
-});
+const egress = blockRealConnections();
 
 const servers = [];
 afterEach(async () => {
@@ -73,12 +66,58 @@ async function setup({ fixtures, timeoutMs = 5000, getApiKey } = {}) {
 
 const gaps = (requests) => requests.slice(1).map((r, i) => r.at - requests[i].at);
 
+// RA-5. A client built with no httpsAgent makes an agent of its own, so a block on the global agents
+// alone left that path open. The probe aims at a closed port on this machine, so even an open block
+// makes no outside connection.
+describe('the egress block covers every agent, not just the global ones', () => {
+  it.each([['https', https], ['http', http]])('an %s agent made after the block cannot open a connection', (_label, mod) => {
+    const agent = new mod.Agent();
+    const before = egress.length;
+    let socket;
+    try {
+      expect(() => { socket = agent.createConnection({ host: '127.0.0.1', port: 9, servername: 'probe.invalid' }); })
+        .toThrow('a real network connection was attempted in a test');
+      expect(egress.slice(before)).toEqual([expect.objectContaining({ host: '127.0.0.1', port: 9, servername: 'probe.invalid' })]);
+    } finally {
+      if (socket) { socket.on('error', () => {}); socket.destroy(); }
+      agent.destroy();
+    }
+  });
+
+  it('a client built with no httpsAgent is stopped too: garmin_personal_network, every attempt blocked before a socket existed', async () => {
+    const clock = fakeClock(START);
+    const before = egress.length;
+    const client = createGarminPersonalClient({
+      getApiKey: () => SENTINEL_KEY, now: clock.now, sleep: clock.sleep, random: () => 0.5, timeoutMs: 5000,
+    });
+
+    const err = await client.get('hrv', { date: '2026-10-25' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(GarminPersonalError);
+    expect(err).toMatchObject({ code: 'garmin_personal_network' });
+    // The exchange's five transient attempts: each went for Garmin itself, and none got a socket.
+    const attempts = egress.slice(before);
+    expect(attempts).toHaveLength(5);
+    for (const attempt of attempts) expect(attempt).toMatchObject({ host: HOST, port: 443, servername: HOST });
+  });
+
+  it('the fake Garmin\'s own agent still connects: its own createConnection wins over the blocked prototype', async () => {
+    const { client, garmin } = await setup();
+    const before = egress.length;
+
+    await expect(client.get('hrv', { date: '2026-10-25' })).resolves.toEqual({ ok: true, path: hrvPath('2026-10-25') });
+
+    expect(egress.length).toBe(before);
+    expect(garmin.state.connections.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('the fake Garmin behaves like the service (self-test)', () => {
   it('issues a token only for the right ApiKey and echoes the Authorization header in an error body', async () => {
     const { garmin } = await setup();
     const call = (headers, method = 'POST') => new Promise((resolve, reject) => {
-      // agent: false — a fresh agent for this one call; the global ones are blocked for the file.
-      const req = http.request({ host: '127.0.0.1', port: garmin.port, path: TOKEN_PATH, method, headers, agent: false }, (res) => {
+      // The fake's own agent, the way the client reaches it: every other agent is blocked for the file.
+      const req = https.request({ host: HOST, path: TOKEN_PATH, method, headers, agent: garmin.agent }, (res) => {
         let body = '';
         res.on('data', (c) => { body += c; });
         res.on('end', () => resolve({ status: res.statusCode, body }));
@@ -223,7 +262,9 @@ describe('the JWT stays inside the client', () => {
 });
 
 describe('only https://personal.connectapi.garmin.com, with a timeout and a size cap', () => {
-  it('connects only to the Garmin host on port 443 over TLS (SNI) and sends that Host header', async () => {
+  // What this proves is what the agent is ASKED for: the fake's socket is plain TCP, so the TLS
+  // handshake itself is not exercised here (the agent's TLS options are pinned separately).
+  it('asks its agent only for the Garmin host on port 443, naming it as the SNI server name, and sends it as the Host header', async () => {
     const { client, garmin } = await setup();
 
     await client.get('hrv', { date: '2026-10-25' });
