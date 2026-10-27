@@ -1,9 +1,10 @@
 'use strict';
 
 const { isPhysiologicalHR } = require('./hrRange');
+// The one allowance every ingest boundary gives a fast device clock (BE-206): defined in adapter.js.
+const { MAX_FUTURE_SKEW_MS } = require('./adapter');
 
 const MAX_BATCH = 2000;
-const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ISO_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const PLATFORMS = new Set(['healthkit', 'health_connect']);

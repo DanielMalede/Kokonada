@@ -25,15 +25,15 @@
 
 const { z } = require('zod');
 // A night, or a night's HRV window, longer than a day is not a night: the normaliser's own bound, so
-// the envelope admits exactly the windows the normaliser can end a night on.
-const { MAX_WINDOW_SECONDS } = require('./adapter');
+// the envelope admits exactly the windows the normaliser can end a night on. The future allowance is the
+// one the Health Connect batch contract and the store's future cap use (BE-206).
+const { MAX_WINDOW_SECONDS, MAX_FUTURE_SKEW_MS } = require('./adapter');
 
 const GARMIN_PERSONAL_ENVELOPE_VERSION = 1;
 // Stress and Body Battery join behind their consent gate (T11); nothing else is in Phase 1's scope.
 const GARMIN_PERSONAL_TYPES = Object.freeze(['dailies', 'sleeps', 'hrv']);
 const MAX_ITEMS = 50;
 const MAX_ENTRIES = 6000;
-const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000; // the same five minutes the Health Connect batch contract allows
 
 const ENVELOPE_ERROR_CODES = Object.freeze([
   'invalid_garmin_envelope',

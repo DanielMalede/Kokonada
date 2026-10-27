@@ -41,6 +41,12 @@ function sanitizeTzOffset(value) {
   return Math.round(n);
 }
 
+// How far past the server's clock a reading may be stamped: a device clock a little fast, never a
+// reading from the future. ONE definition (BE-206, architect R5) for every boundary that checks it: the
+// Health Connect batch contract, the Garmin personal-lane envelope, and the store's future cap that the
+// Garmin seam asks for (metricStore.persistMetrics `dropInFuture`).
+const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
 const ACTIVITY_MAP = {
   // Garmin activity type IDs
   garmin: {
@@ -399,4 +405,6 @@ module.exports = {
   consentV2Enabled, sanitizeTzOffset,
   // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on
   MAX_WINDOW_SECONDS,
+  // shared with the Health Connect contract, the personal-lane envelope and the store's future cap
+  MAX_FUTURE_SKEW_MS,
 };

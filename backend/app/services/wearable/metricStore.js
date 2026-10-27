@@ -12,7 +12,7 @@ const MedicalProfile = require('../../models/MedicalProfile');
 const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
 const { enqueue } = require('../../queues/queue');
 const { insertManyAccounted, NO_REJECTS } = require('./insertAccounted');
-const { consentV2Enabled, sanitizeTzOffset } = require('./adapter');
+const { consentV2Enabled, sanitizeTzOffset, MAX_FUTURE_SKEW_MS } = require('./adapter');
 const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 
@@ -141,21 +141,45 @@ function withinRetention(metrics, now = Date.now()) {
   return { kept, dropped };
 }
 
+// ── Future cap (BE-206) ─────────────────────────────────────────────────────────────────────────────
+//
+// A reading stamped past the clock is not a reading yet. Written, a far-future night wins
+// MedicalProfile.lastNightSleep for good (the night-date guard below keeps the LATEST night) and its rows
+// outlive their TTL, which counts from recordedAt. The Health Connect contract and the personal-lane
+// envelope refuse such stamps at their door; the Garmin webhook lane has no door of its own, so the
+// Garmin seam asks the store to drop them, with the same allowance (adapter.js MAX_FUTURE_SKEW_MS).
+function notInFuture(metrics, now) {
+  const latestMs = now + MAX_FUTURE_SKEW_MS;
+  const kept = [];
+  let dropped = 0;
+  for (const m of metrics) {
+    const at = m?.recordedAt instanceof Date ? m.recordedAt.getTime() : NaN;
+    if (at > latestMs) { dropped += 1; continue; }
+    kept.push(m);
+  }
+  return { kept, dropped };
+}
+
 /**
  * @param {string} userId
  * @param {Array<{metric,value,unit,recordedAt,source}>} metrics  canonical records
- * @param {{dropOutsideRetention?: boolean}} [options]  drop, before any write, every metric older
- *   than its store keeps (withinRetention above). Off by default; only the Garmin lane opts in.
- * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number}>}
+ * @param {{dropOutsideRetention?: boolean, dropInFuture?: boolean, now?: Date}} [options]
+ *   `dropOutsideRetention` drops, before any write, every metric older than its store keeps
+ *   (withinRetention above); `dropInFuture` drops every metric stamped past `now` + MAX_FUTURE_SKEW_MS
+ *   (notInFuture above). Both are off by default; only the Garmin seam opts in. `now` is the clock both
+ *   measure against, injectable so a test can stand on a boundary.
+ * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number}>}
  *   `inserted` is what Mongo actually took — NOT the attempted count (W4-D08).
  */
-async function persistMetrics(userId, metrics, { dropOutsideRetention = false } = {}) {
+async function persistMetrics(userId, metrics, { dropOutsideRetention = false, dropInFuture = false, now = new Date() } = {}) {
   let inserted = 0;
   let rejected = NO_REJECTS;
 
   let batch = metrics || [];
   let droppedOutsideRetention = 0;
-  if (dropOutsideRetention) ({ kept: batch, dropped: droppedOutsideRetention } = withinRetention(batch));
+  let droppedInFuture = 0;
+  if (dropOutsideRetention) ({ kept: batch, dropped: droppedOutsideRetention } = withinRetention(batch, now.getTime()));
+  if (dropInFuture) ({ kept: batch, dropped: droppedInFuture } = notInFuture(batch, now.getTime()));
 
   // heartRate → encrypted time-series rows, idempotent (skip already-stored
   // (source,recordedAt); collapse duplicate timestamps within the batch). App-level
@@ -245,7 +269,7 @@ async function persistMetrics(userId, metrics, { dropOutsideRetention = false } 
     }
   }
 
-  return { inserted, rejected, vitals, profileMetrics, droppedOutsideRetention };
+  return { inserted, rejected, vitals, profileMetrics, droppedOutsideRetention, droppedInFuture };
 }
 
 module.exports = { persistMetrics, persistVitalSamples, VITAL_METRICS_PERSISTED };
