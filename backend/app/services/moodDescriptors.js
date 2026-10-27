@@ -345,8 +345,11 @@ const _BIO_BAND_KEYWORDS = Object.freeze({
 });
 
 function buildBioParams(ctx, musicProfile = {}) {
-  // No usable signal: the active band, the default the old prompt fell back to.
-  const band = biometricBand(ctx) || 'active';
+  // No usable signal: the active band, the default the old prompt fell back to. An own-key check,
+  // not truthiness: a state label naming an Object.prototype key ("constructor") would otherwise
+  // resolve through the lookup to a function and yield NaN targets (RA-7 on #279).
+  const b = biometricBand(ctx);
+  const band = Object.hasOwn(_BIO_BAND_ENERGY, b) ? b : 'active';
   const e = _BIO_BAND_ENERGY[band];
   return {
     target_bpm:          _clampBpm(70 + e * 90),
