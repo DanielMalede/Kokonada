@@ -222,4 +222,55 @@ describe('VitalSample — schema contract', () => {
     expect(ttl[0]).toEqual({ recordedAt: 1 });
     expect(ttl[1].expireAfterSeconds).toBe(90 * 24 * 3600);
   });
+
+  it('keeps legacy HRV rows valid without inventing an HRV method', async () => {
+    const row = await VitalSample.create({
+      userId: uid(), metric: 'hrv', value: 60, recordedAt: new Date(), source: 'garmin',
+    });
+    expect(row.hrvMethod).toBeNull();
+    expect(row.healthSampleKey).toBeUndefined();
+  });
+
+  it('requires an explicit method for linked HRV and rejects it for other linked vitals', async () => {
+    const userId = uid();
+    const healthSampleKey = 'a'.repeat(64);
+
+    await expect(VitalSample.create({
+      userId,
+      metric: 'hrv',
+      value: 60,
+      recordedAt: new Date(),
+      source: 'apple_health',
+      healthSampleKey,
+    })).rejects.toThrow(/hrvMethod/);
+
+    await expect(VitalSample.create({
+      userId,
+      metric: 'restingHeartRate',
+      value: 60,
+      recordedAt: new Date(),
+      source: 'apple_health',
+      healthSampleKey,
+      hrvMethod: 'sdnn',
+    })).rejects.toThrow(/hrvMethod/);
+  });
+
+  it('accepts sdnn for linked Apple HRV and declares a sparse unique sample link', async () => {
+    const row = await VitalSample.create({
+      userId: uid(),
+      metric: 'hrv',
+      value: 60,
+      recordedAt: new Date(),
+      source: 'apple_health',
+      healthSampleKey: 'b'.repeat(64),
+      hrvMethod: 'sdnn',
+    });
+    expect(row.hrvMethod).toBe('sdnn');
+
+    const index = VitalSample.schema.indexes().find(
+      ([keys]) => Object.keys(keys).length === 1 && keys.healthSampleKey === 1,
+    );
+    expect(index).toBeDefined();
+    expect(index[1]).toEqual(expect.objectContaining({ unique: true, sparse: true }));
+  });
 });

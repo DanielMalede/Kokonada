@@ -35,6 +35,7 @@ describe('queues/definitions', () => {
     expect(QUEUES.FEATURE_HYDRATION).toBe('feature-hydration');
     expect(QUEUES.EMBEDDING_BUILD).toBe('embedding-build');
     expect(QUEUES.STATE_VECTOR_RECOMPUTE).toBe('state-vector-recompute');
+    expect(QUEUES.HEALTH_SAMPLE_RECONCILE).toBe('health-sample-reconcile');
   });
 });
 
@@ -90,6 +91,13 @@ describe('queues/queue seam', () => {
     expect(result).toEqual({ scheduled: true });
     const [, , opts] = Queue.instances[0].add.mock.calls[0];
     expect(opts.repeat).toEqual({ pattern: '0 4 * * *' });
+  });
+
+  it('registers the global health repair processor', () => {
+    const { QUEUES } = require('../app/queues/definitions');
+    const { DEFAULT_PROCESSORS } = require('../app/workers');
+
+    expect(DEFAULT_PROCESSORS[QUEUES.HEALTH_SAMPLE_RECONCILE]).toEqual(expect.any(Function));
   });
 
   it('scheduleRepeatable degrades to a no-op without REDIS_URL', async () => {

@@ -1,0 +1,33 @@
+{
+  "userProfilePK": 999000111,
+  "calendarDate": { "date": "2026-10-24T21:00:00.0", "localDate": "2026-10-25" },
+  "startTimestampGMT": { "date": "2026-10-24T21:00:00.0", "localDate": "2026-10-25" },
+  "endTimestampGMT": { "date": "2026-10-25T22:00:00.0", "localDate": "2026-10-26" },
+  "startTimestampLocal": { "date": "2026-10-25T00:00:00.0", "localDate": "2026-10-25" },
+  "endTimestampLocal": { "date": "2026-10-26T00:00:00.0", "localDate": "2026-10-26" },
+  "maxHeartRate": 142,
+  "minHeartRate": 47,
+  "restingHeartRate": 51,
+  "lastSevenDaysAvgRestingHeartRate": 52,
+  "abnormalHrThresholdValue": 171,
+  "lowAbnormalHrThresholdValue": 40,
+  "abnormalHRValuesArray": [[1792876200000, 172]],
+  "heartRateValueDescriptors": [
+    { "index": 0, "key": "timestamp" },
+    { "index": 1, "key": "heartrate" }
+  ],
+  "heartRateValues": [
+    [1792875600000, 58],
+    [1792875720000, 57],
+    [1792875840000, null],
+    [1792875960000, 56, 12.3456789],
+    [1792875480000, 60],
+    [1792965600000, 61],
+    [1792875720000, 99],
+    ["not a time", 70],
+    [1792876080000, "75"],
+    [1792876200000, 55]
+  ],
+  "startLatitude": 12.3456789,
+  "geoPolyline": "SENTINEL_POLYLINE"
+}

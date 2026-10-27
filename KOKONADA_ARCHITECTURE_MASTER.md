@@ -16,7 +16,7 @@
 > Supersedes the 2026-07-07 state below for everything backend/intelligence. That block is **kept as
 > history** and is still correct about what shipped through PR #78 — it is simply ~340 commits stale.
 > Authoritative measured facts: `docs/GROUND_TRUTH_2026-09-02.md`. Closeout package:
-> `docs/plans/WAVE4_REPORT.md`. Live run state: `docs/plans/WAVE4_STATE.md`.
+> `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)`. Live run state: `docs/plans/WAVE4_STATE.md`.
 
 **Wave 4 (Runtime Intelligence) is complete and merged.** PRs #179 (`44fd951`) and #180 (`0e19ad8`) are
 in `main`. It rebuilt both intelligence engines against twenty confirmed ground-truth defects (D1–D20),
@@ -47,7 +47,7 @@ a workout no longer reads as maximal stress; scoring totals are normalised and b
 affects fit; one measured dimension can no longer fake a perfect score; playlists are ordered along an
 arc instead of by score; taste decays with a ~90-day time constant; recalibration triggers on taxonomy
 state rather than bpm deltas; live readings are filtered and persisted. Full before/after list with
-evidence: `WAVE4_REPORT.md` §4.
+evidence: `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` §4.
 
 **Every serving-path change has an env kill-switch** that restores the prior behaviour with no revert and
 no deploy (`WAVE4_*_DISABLED`, parsed by `backend/app/utils/envFlag.js`, pinned by
@@ -56,7 +56,7 @@ no deploy (`WAVE4_*_DISABLED`, parsed by `backend/app/utils/envFlag.js`, pinned 
 **What is still open:** the embedding-v2 read cutover (needs an Atlas index + a `DISCOVERY_MIN_COSINE`
 retune), the user-facing taxonomy vocabulary (compliance review), consent v2 metrics (built and dormant),
 and every mobile-side follow-up — `tzOffsetMinutes` emission, `playback_event` emission, and rendering
-the Pulse/MorningState superset. See `WAVE4_REPORT.md` §8 and §10.
+the Pulse/MorningState superset. See `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` §8 and §10.
 
 ---
 
@@ -96,7 +96,7 @@ the Pulse/MorningState superset. See `WAVE4_REPORT.md` §8 and §10.
 **Test baselines (both green):** backend **91 suites / 1126 tests** (1125 pass + 1 todo);
 mobile **48 suites / 416 tests**. Backend: `cd backend && npm test`. Mobile:
 `./node_modules/.bin/jest` from `mobile/KokonadaHealth` (mobile is NOT in CI — run locally).
-Ground truth for this update: `docs/GROUND_TRUTH_2026-07-07.md`; execution plan:
+Ground truth for this update: `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)`; execution plan:
 `docs/MASTER_BLUEPRINT_2026-07-07.md`.
 
 ### Operating model — the Agent Squad
@@ -168,7 +168,7 @@ Cleared the dual token-plane debt:
   the A11 features that are unit-green but not yet device-verified.
 
 ### ⏭️ IMMEDIATE NEXT ACTION (updated 2026-07-06)
-**Execute the Unified Variance Architecture** (spec: `docs/superpowers/specs/2026-07-06-unified-pool-dualpath-shadowbuffer-design.md`), which SUPERSEDES the Squad-6-first ordering. Root cause of "same playlist" was proven (prod Mongo read) to be the `SELECTION_POOL_MAX=500` cap + the L4 mood-strip — NOT empty features (the library is 64% measured-hydrated; the 2026-07-05 "empty features" diagnosis is retired). Order: **Part 1** (pool uncap to 10 000 + un-relaxable hard biosonic band, backend) → **Part 2** (manual/live dual-path + reanimated UI-thread analysis loader, mobile) → **Part 3** (shadow-worker biometric buffer, background). Squad 6 (On-Device Verification) + Squad 3 (A12) follow.
+**Execute the Unified Variance Architecture** (spec: `2026-07-06-unified-pool-dualpath-shadowbuffer-design.md (deleted; see docs/ARCHIVE.md)`), which SUPERSEDES the Squad-6-first ordering. Root cause of "same playlist" was proven (prod Mongo read) to be the `SELECTION_POOL_MAX=500` cap + the L4 mood-strip — NOT empty features (the library is 64% measured-hydrated; the 2026-07-05 "empty features" diagnosis is retired). Order: **Part 1** (pool uncap to 10 000 + un-relaxable hard biosonic band, backend) → **Part 2** (manual/live dual-path + reanimated UI-thread analysis loader, mobile) → **Part 3** (shadow-worker biometric buffer, background). Squad 6 (On-Device Verification) + Squad 3 (A12) follow.
 
 ---
 

@@ -1,0 +1,95 @@
+{
+  "dailySleep": {
+    "items": [
+      {
+        "type": "sleeps",
+        "summary": {
+          "calendarDate": "2026-10-25",
+          "startTimeInSeconds": 1792872720,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 30540,
+          "deepSleepDurationInSeconds": 5400,
+          "lightSleepDurationInSeconds": 16200,
+          "remSleepInSeconds": 6600,
+          "awakeDurationInSeconds": 2340
+        }
+      }
+    ],
+    "skipped": 0
+  },
+  "dailySleepSummaries": {
+    "items": [
+      {
+        "type": "sleeps",
+        "summary": {
+          "calendarDate": "2026-10-23",
+          "startTimeInSeconds": 1792699500,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 27900,
+          "deepSleepDurationInSeconds": 4800,
+          "lightSleepDurationInSeconds": 15000,
+          "remSleepInSeconds": 6300,
+          "awakeDurationInSeconds": 1800
+        }
+      },
+      {
+        "type": "sleeps",
+        "summary": {
+          "calendarDate": "2026-10-24",
+          "startTimeInSeconds": 1792784400,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 27000,
+          "deepSleepDurationInSeconds": 5100,
+          "lightSleepDurationInSeconds": 14400,
+          "remSleepInSeconds": 6000,
+          "awakeDurationInSeconds": 1500
+        }
+      }
+    ],
+    "skipped": 2
+  },
+  "hrv": {
+    "items": [
+      {
+        "type": "hrv",
+        "summary": {
+          "startTimeInSeconds": 1792872720,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 30540,
+          "lastNightAvg": 52
+        }
+      }
+    ],
+    "skipped": 0
+  },
+  "dailyHeartRate": {
+    "items": [
+      {
+        "type": "dailies",
+        "summary": {
+          "startTimeInSeconds": 1792875600,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 90000,
+          "restingHeartRateInBeatsPerMinute": 51,
+          "timeOffsetHeartRateSamples": { "0": 58, "120": 57, "360": 56, "600": 55 }
+        }
+      }
+    ],
+    "skipped": 0
+  },
+  "bodyBattery": {
+    "items": [
+      {
+        "type": "stressDetails",
+        "summary": {
+          "calendarDate": "2026-10-25",
+          "startTimeInSeconds": 1792875600,
+          "startTimeOffsetInSeconds": 10800,
+          "durationInSeconds": 90000,
+          "timeOffsetBodyBatteryValues": { "0": 62, "180": 61, "540": 60 }
+        }
+      }
+    ],
+    "skipped": 1
+  }
+}
