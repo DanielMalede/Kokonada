@@ -10,10 +10,13 @@ const { MOODS, normalizeActivity } = require('../moodDescriptors');
 // track's audio FEATURES (tempo/energy/valence/danceability/acousticness) + an ALLOW-LIST of the
 // session context the user chose: a preset mood, the emotion taps and the activity chip. It NEVER
 // carries a track title, artist, or genre — those are Spotify Content and feeding them to an AI
-// model at inference violates Policy §II. Nor anything derived from health data (BE-221, the
-// owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no synthetic heart-branch
-// mood key — whatever a caller passes, only the allow-list is read. captionService.test.js and
-// llmHealthEgress.test.js assert the prompt is clean. Captions map back to tracks by INDEX (never
+// model at inference violates Policy §II. Nor any context field derived from health data (BE-221,
+// the owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no synthetic heart-branch
+// mood key — whatever a caller passes, only the allow-list is read. This service cannot tell
+// whether health data chose the TRACKS whose features it sends; that is the caller's guard, which
+// does not call it for such a run (biometricHandler.js `healthShapedCaption`, failing closed on
+// `targets.healthInputs`). captionService.test.js and llmHealthEgress.test.js assert the prompt is
+// clean. Captions map back to tracks by INDEX (never
 // a title echo the model could invent).
 //
 // Dark-launched behind DISCOVERY_CAPTION_LLM (read at call time). The whole call is wrapped
