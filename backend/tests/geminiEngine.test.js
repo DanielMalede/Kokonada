@@ -339,7 +339,7 @@ describe('prompt variety', () => {
 // ── adjustBiometricPlaylist — deterministic, no LLM (BE-221) ───────────────────
 // The owner's ruling (class c, 2026-10-27): no health information, and nothing derived from it,
 // reaches Groq. The heart-rate branch therefore makes NO LLM call: its params come from
-// moodDescriptors.buildBioParams on the band biometricBand resolves, then applyBiometricBands.
+// moodDescriptors.buildBioParams on the band biometricBand resolves.
 // What the old prompt tests pinned (the W4-016 band chain, the kill switch) is now pinned on
 // result.params, the only place the band still lands.
 
@@ -418,6 +418,11 @@ describe('adjustBiometricPlaylist — W4-016 band-from-state, on result.params',
   it('agrees with biometricBand — the same chain applyBiometricBands uses', async () => {
     const ctx = { heartRate: 130, hrRatio: 1.35, stateLabel: 'acute-stress', activity: 'walking' };
     expectBand(await paramsFor(ctx), biometricBand(ctx));
+  });
+
+  // RA-6/RA-7 on #279: a state label naming an Object.prototype key must not reach any band lookup.
+  it('a prototype-key state label yields the active band, with finite targets', async () => {
+    expectBand(await paramsFor({ heartRate: null, stateLabel: 'constructor' }), 'active');
   });
 
   it('no usable signal at all falls to the active band, as the old prompt default did', async () => {
