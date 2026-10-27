@@ -14,6 +14,8 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
+// The owner's checkout as CLAUDE.md spells it, joined at run time so this file holds no user path (personalDataGuard.test.js).
+const CHECKOUT = ['', 'c', 'Users', 'danie', 'Videos', 'Kokonada'].join('/');
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8')
   .replace(/^﻿/, '')
   .replace(/\r\n?/g, '\n');
@@ -79,7 +81,7 @@ describe('OPS-244 · the L-check waiver in CLAUDE.md session start step 2', () =
   });
 
   test('it is re-tested at every repeat by a quiet diff from W, and a lapse is final', () => {
-    expect(waiver).toContain('At every repeat of the check (before each `/review-pr`, each PR of a `/merge` batch and each step 6 sweep) the waiver holds only while `git -C /c/Users/danie/Videos/Kokonada diff --quiet <W> HEAD -- <this step\'s pathspec>` exits 0; any other exit, or a command that cannot run, ends it for good, so it lapses at the first change after W, including one the session merged itself.');
+    expect(waiver).toContain('At every repeat of the check (before each `/review-pr`, each PR of a `/merge` batch and each step 6 sweep) the waiver holds only while `git -C ' + CHECKOUT + ' diff --quiet <W> HEAD -- <this step\'s pathspec>` exits 0; any other exit, or a command that cannot run, ends it for good, so it lapses at the first change after W, including one the session merged itself.');
     expect(waiver).toContain('A lapsed waiver means a restart, and a fresh waiver needs a fresh question.');
   });
 

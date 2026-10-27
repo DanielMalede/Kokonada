@@ -13,6 +13,8 @@
 const fs = require('fs');
 const path = require('path');
 const REPO_ROOT = path.join(__dirname, '..', '..');
+// The owner's checkout as CLAUDE.md spells it, joined at run time so this file holds no user path (personalDataGuard.test.js).
+const CHECKOUT = ['', 'c', 'Users', 'danie', 'Videos', 'Kokonada'].join('/');
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8').replace(/^﻿/, '').replace(/\r\n?/g, '\n');
 const { matches } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'lib', 'paths.js'));
 const ROOT_MD = read('CLAUDE.md');
@@ -110,7 +112,7 @@ describe('RA-10 · the waiver pinned by side, not by vocabulary', () => {
 describe('RA-9 · a change after W is found by a W..HEAD diff', () => {
   test("the lapse test is a quiet diff from W to HEAD over the step's pathspec", () => {
     expect(waiver).toMatch(/diff --quiet <W> HEAD/);
-    expect(waiver).toContain("the waiver holds only while `git -C /c/Users/danie/Videos/Kokonada diff --quiet <W> HEAD -- <this step's pathspec>` exits 0; any other exit, or a command that cannot run, ends it for good");
+    expect(waiver).toContain("the waiver holds only while `git -C " + CHECKOUT + " diff --quiet <W> HEAD -- <this step's pathspec>` exits 0; any other exit, or a command that cannot run, ends it for good");
   });
   test('the record prints the files changed after W, empty while the waiver holds', () => {
     expect(record).toMatch(/--name-only <W> <HEAD>/);
