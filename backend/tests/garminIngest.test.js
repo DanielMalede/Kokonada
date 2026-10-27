@@ -23,7 +23,7 @@ describe('garminIngest.ingestSummaries', () => {
   });
 
   it('flattens mixed summaries to canonical metrics and persists them', async () => {
-    persistMetrics.mockResolvedValue({ inserted: 1, profileMetrics: { sleepDeep: 60 } });
+    persistMetrics.mockResolvedValue({ inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0 });
 
     const res = await ingestSummaries('user-1', [
       { type: 'sleeps', summary: { startTimeInSeconds: START, deepSleepDurationInSeconds: 3600 } },
@@ -37,13 +37,27 @@ describe('garminIngest.ingestSummaries', () => {
       expect.objectContaining({ metric: 'sleepDeep', value: 60, source: 'garmin' }),
       expect.objectContaining({ metric: 'heartRate', value: 60, source: 'garmin' }),
     ]));
-    expect(res).toEqual({ accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 } });
+    // Additive (T2): every earlier field keeps its meaning; the retention count is the one new field.
+    expect(res).toEqual({ accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0 });
   });
 
   it('skips unknown summary types (accepted=0, no metrics)', async () => {
-    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {} });
+    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {}, droppedOutsideRetention: 0 });
     const res = await ingestSummaries('u', [{ type: 'userMetrics', summary: { startTimeInSeconds: START } }]);
-    expect(persistMetrics).toHaveBeenCalledWith('u', []);
+    expect(persistMetrics).toHaveBeenCalledWith('u', [], { dropOutsideRetention: true });
     expect(res.accepted).toBe(0);
+  });
+
+  // T2: Garmin hands this lane history (a 182-day backfill, the personal lane's first pull), so it is
+  // the one caller that asks the store to drop what its TTL would reap, and it passes the count on.
+  // The drop itself runs on a real Mongo in garminRetentionFilter.integration.test.js.
+  it('asks the store to drop what is past retention, and reports the count it gets back', async () => {
+    persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {}, droppedOutsideRetention: 4 });
+    const res = await ingestSummaries('u', [
+      { type: 'dailies', summary: { startTimeInSeconds: START, restingHeartRateInBeatsPerMinute: 52, timeOffsetHeartRateSamples: { 0: 60, 60: 61, 120: 62 } } },
+    ]);
+    expect(persistMetrics.mock.calls[0][2]).toEqual({ dropOutsideRetention: true });
+    expect(res.accepted).toBe(4);
+    expect(res.droppedOutsideRetention).toBe(4);
   });
 });
