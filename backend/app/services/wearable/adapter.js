@@ -310,6 +310,22 @@ function lastSleepLevelEndSec(startSec, levels) {
   return last;
 }
 
+// The summary types this file stamps where they END: a night, and a night's HRV.
+const GARMIN_NIGHT_TYPES = Object.freeze(['sleeps', 'hrv']);
+
+// Where a night-type summary ends, or null when it carries no end: a sleeps summary by its duration, else
+// by its sleep timeline; an hrv summary by its duration. ONE definition for both readers: the normaliser
+// below stamps a night there (and at its start when this is null, the webhook lane's fallback), and the
+// personal-lane envelope refuses a night for which this is null (BE-190), so the two cannot disagree about
+// what an end is.
+function garminNightEndSec(type, s) {
+  const start = s?.startTimeInSeconds;
+  if (!Number.isFinite(start)) return null;
+  if (type === 'sleeps') return windowEndSec(start, s.durationInSeconds) ?? lastSleepLevelEndSec(start, s.sleepLevelsMap);
+  if (type === 'hrv') return windowEndSec(start, s.durationInSeconds);
+  return null;
+}
+
 // Garmin computes HRV as RMSSD; `lastNightAvg` is the night's mean of its 5-minute RMSSD values.
 // VitalSample keeps the method so it is never pooled with Apple's SDNN.
 const GARMIN_HRV_METHOD = 'rmssd';
@@ -343,9 +359,7 @@ function normalizeGarminSummaries(type, s) {
       // A night belongs to the moment it ENDS: computeLastNightSleep files nights under the UTC
       // date of recordedAt, and the Health Connect lane already stamps sleep at endDate. Stamped
       // at its start, a night that began before UTC midnight was filed under the day before.
-      const end = SECONDS(windowEndSec(start, s.durationInSeconds)
-        ?? lastSleepLevelEndSec(start, s.sleepLevelsMap)
-        ?? start);
+      const end = SECONDS(garminNightEndSec('sleeps', s) ?? start);
       const push = (metric, secs) => {
         const m = Math.round(Number(secs) / 60);
         if (isPos(m)) add(metric, m, 'min', { recordedAt: end });
@@ -371,7 +385,7 @@ function normalizeGarminSummaries(type, s) {
       // The night's HRV, stamped where its window ends (as the night itself is) and named by the
       // statistic Garmin computes.
       const v = Number(s.lastNightAvg);
-      const end = SECONDS(windowEndSec(start, s.durationInSeconds) ?? start);
+      const end = SECONDS(garminNightEndSec('hrv', s) ?? start);
       if (isPos(v)) add('hrv', v, 'ms', { recordedAt: end, hrvMethod: GARMIN_HRV_METHOD });
       break;
     }
@@ -403,8 +417,9 @@ module.exports = {
   normalize, normalizeHealthStoreSamples, normalizeGarminSummaries,
   // shared with metricStore so the capability gate has ONE definition, not two that drift
   consentV2Enabled, sanitizeTzOffset,
-  // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on
-  MAX_WINDOW_SECONDS,
+  // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on,
+  // and refuses exactly the nights this file could only stamp at their start
+  MAX_WINDOW_SECONDS, GARMIN_NIGHT_TYPES, garminNightEndSec,
   // shared with the Health Connect contract, the personal-lane envelope and the store's future cap
   MAX_FUTURE_SKEW_MS,
 };
