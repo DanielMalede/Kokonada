@@ -500,6 +500,59 @@ describe('only https://personal.connectapi.garmin.com, with a timeout and a size
   });
 });
 
+// RA-10. The token endpoint goes through the same retry policy as the data endpoints; nothing else
+// pinned that, or that two calls caught by one revocation share a single re-exchange.
+describe('the token endpoint fails, and recovers, the way the data endpoints do', () => {
+  it('a 503 at the token endpoint, then a token: one 45 s backoff, then the data', async () => {
+    const { client, garmin } = await setup();
+    garmin.script(TOKEN_PATH, { status: 503 });
+
+    await expect(client.get('hrv', { date: '2026-10-25' })).resolves.toEqual({ ok: true, path: hrvPath('2026-10-25') });
+
+    expect(garmin.tokenRequests()).toHaveLength(2);
+    expect(gaps(garmin.tokenRequests())).toEqual([45000]);
+    expect(garmin.dataRequests().map((r) => r.authorization)).toEqual([`Bearer ${garmin.state.issuedTokens[0]}`]);
+  });
+
+  it('five timeouts at the token endpoint: garmin_personal_timeout after 5 token requests, and no data request', async () => {
+    const { client, garmin } = await setup({ timeoutMs: 200 });
+    garmin.script(TOKEN_PATH, ...Array.from({ length: 5 }, () => ({ hang: true })));
+
+    const err = await client.get('hrv', { date: '2026-10-25' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(GarminPersonalError);
+    expect(err).toMatchObject({ code: 'garmin_personal_timeout' });
+    expect(err).not.toHaveProperty('status');
+    expect(garmin.tokenRequests()).toHaveLength(5);
+    expect(gaps(garmin.tokenRequests())).toEqual([45000, 90000, 180000, 360000]);
+    expect(garmin.dataRequests()).toHaveLength(0);
+  });
+
+  it('five 5xx at the token endpoint: garmin_personal_unavailable with the last status, and no data request', async () => {
+    const { client, garmin } = await setup();
+    garmin.script(TOKEN_PATH, { status: 500 }, { status: 502 }, { status: 503 }, { status: 500 }, { status: 504 });
+
+    await expect(client.get('hrv', { date: '2026-10-25' })).rejects.toMatchObject({ code: 'garmin_personal_unavailable', status: 504 });
+    expect(garmin.tokenRequests()).toHaveLength(5);
+    expect(garmin.dataRequests()).toHaveLength(0);
+  });
+
+  it('two concurrent calls on a revoked token: both succeed on 2 exchanges in total', async () => {
+    const { client, garmin } = await setup();
+    await client.get('hrv', { date: '2026-10-25' });
+    garmin.revokeAll();
+
+    const results = await Promise.all([client.get('hrv', { date: '2026-10-24' }), client.get('hrv', { date: '2026-10-23' })]);
+
+    expect(results).toEqual([{ ok: true, path: hrvPath('2026-10-24') }, { ok: true, path: hrvPath('2026-10-23') }]);
+    expect(garmin.tokenRequests()).toHaveLength(2);
+    const [first, second] = garmin.state.issuedTokens;
+    expect(garmin.dataRequests().map((r) => r.authorization)).toEqual([
+      `Bearer ${first}`, `Bearer ${first}`, `Bearer ${first}`, `Bearer ${second}`, `Bearer ${second}`,
+    ]);
+  });
+});
+
 describe('401: one re-exchange, then stop', () => {
   it('re-exchanges once when a token stops working, and the request succeeds with the new token', async () => {
     const { client, garmin } = await setup();
