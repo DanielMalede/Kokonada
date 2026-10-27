@@ -1,16 +1,20 @@
 'use strict';
 
 const llmClient = require('../llmClient');
+const { MOODS, normalizeActivity } = require('../moodDescriptors');
 
 // Discovery caption service (Step 2). ONE batched Groq call writes a short, witty
 // "why this discovery" one-liner per selected discovery track.
 //
 // COMPLIANCE-LOCKED (auditor option ii, 2026-07-14): the prompt is built ONLY from each
-// track's audio FEATURES (tempo/energy/valence/danceability/acousticness) + the shared
-// first-party session context (mood/emotion quadrant, activity, HR band). It NEVER carries
-// a track title, artist, or genre — those are Spotify Content and feeding them to an AI
-// model at inference violates Policy §II. captionService.test.js asserts the prompt is
-// clean. Captions map back to tracks by INDEX (never a title echo the model could invent).
+// track's audio FEATURES (tempo/energy/valence/danceability/acousticness) + an ALLOW-LIST of the
+// session context the user chose: a preset mood, the emotion taps and the activity chip. It NEVER
+// carries a track title, artist, or genre — those are Spotify Content and feeding them to an AI
+// model at inference violates Policy §II. Nor anything derived from health data (BE-221, the
+// owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no synthetic heart-branch
+// mood key — whatever a caller passes, only the allow-list is read. captionService.test.js and
+// llmHealthEgress.test.js assert the prompt is clean. Captions map back to tracks by INDEX (never
+// a title echo the model could invent).
 //
 // Dark-launched behind DISCOVERY_CAPTION_LLM (read at call time). The whole call is wrapped
 // in a hard budget timeout (DISCOVERY_CAPTION_BUDGET_MS); any timeout / HTTP error / parse
@@ -46,25 +50,26 @@ function _featureLine(i, features) {
     + `danceability=${_round(f.danceability)} acousticness=${_round(f.acousticness)}`;
 }
 
-// First-party session context — mood/emotion/activity/HR band. No Spotify Content.
+// The session context the user chose, read through an allow-list: a PRESET mood key (never a
+// synthetic heart-branch key, which is built from a reading), the last emotion tap, and the
+// activity chip validated to the preset enum. Any other field a caller passes is ignored.
+const PRESET_MOODS = new Set(MOODS.map((m) => m.key));
 function _sessionLine(ctx = {}) {
   const parts = [];
-  if (ctx.moodKey) parts.push(`mood=${ctx.moodKey}`);
+  if (PRESET_MOODS.has(ctx.moodKey)) parts.push(`mood=${ctx.moodKey}`);
   if (Array.isArray(ctx.emotionTaps) && ctx.emotionTaps.length) {
     const last = ctx.emotionTaps[ctx.emotionTaps.length - 1] || {};
     if (Number.isFinite(Number(last.x)) && Number.isFinite(Number(last.y))) {
       parts.push(`emotion=(valence ${_round(last.x)}, energy ${_round(last.y)})`);
     }
   }
-  if (ctx.activity) parts.push(`activity=${ctx.activity}`);
-  if (ctx.hrBand) parts.push(`heart-rate band=${ctx.hrBand}`);
-  const t = ctx.targets || {};
-  if (Number.isFinite(Number(t.bpmCenter))) parts.push(`target tempo about ${Math.round(Number(t.bpmCenter))}bpm`);
+  const activity = normalizeActivity(ctx.activity);
+  if (activity) parts.push(`activity=${activity}`);
   return parts.length ? parts.join(', ') : 'no specific mood signal';
 }
 
 // L3 (ACCEPTED, audit): §II governs the INPUT and it is clean — no title/artist/genre is ever
-// sent to the model (only audio features + first-party mood context; captionService.test.js
+// sent to the model (only audio features + the allow-listed session context; captionService.test.js
 // pins this). The OUTPUT is constrained by the prompt below, which forbids the model from
 // naming or inventing a song/artist/genre. A server-side proper-noun strip on the output is
 // intentionally NOT added (disproportionate for a witty one-liner); revisit if brand-safety requires.
