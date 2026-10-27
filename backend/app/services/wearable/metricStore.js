@@ -176,13 +176,18 @@ function withinRetention(metrics, now = Date.now()) {
 // outlive their TTL, which counts from recordedAt. The Health Connect contract and the personal-lane
 // envelope refuse such stamps at their door; the Garmin webhook lane has no door of its own, so the
 // Garmin seam asks the store to drop them, with the same allowance (adapter.js MAX_FUTURE_SKEW_MS).
+//
+// A metric is kept only when its time is provably at or before that moment. A time a Date cannot hold is NaN,
+// and NaN fails every comparison, so `at > latestMs` used to keep it: the heart-rate read then cast it and
+// threw, and the webhook answered 500 for the whole push (RA-2 of #275). It is dropped, and counted in
+// droppedInFuture with the future-stamped: the cap is the one filter that admits no time it cannot place.
 function notInFuture(metrics, now) {
   const latestMs = now + MAX_FUTURE_SKEW_MS;
   const kept = [];
   let dropped = 0;
   for (const m of metrics) {
     const at = m?.recordedAt instanceof Date ? m.recordedAt.getTime() : NaN;
-    if (at > latestMs) { dropped += 1; continue; }
+    if (!(at <= latestMs)) { dropped += 1; continue; }
     kept.push(m);
   }
   return { kept, dropped };
@@ -193,9 +198,9 @@ function notInFuture(metrics, now) {
  * @param {Array<{metric,value,unit,recordedAt,source}>} metrics  canonical records
  * @param {{dropOutsideRetention?: boolean, dropInFuture?: boolean, now?: Date}} [options]
  *   `dropOutsideRetention` drops, before any write, every metric older than its store keeps
- *   (withinRetention above); `dropInFuture` drops every metric stamped past `now` + MAX_FUTURE_SKEW_MS
- *   (notInFuture above). Both are off by default; only the Garmin seam opts in. `now` is the clock both
- *   measure against, injectable so a test can stand on a boundary.
+ *   (withinRetention above); `dropInFuture` drops every metric stamped past `now` + MAX_FUTURE_SKEW_MS, or
+ *   at a time a Date cannot hold (notInFuture above). Both are off by default; only the Garmin seam opts
+ *   in. `now` is the clock both measure against, injectable so a test can stand on a boundary.
  * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number}>}
  *   `inserted` is what Mongo actually took — NOT the attempted count (W4-D08).
  */
