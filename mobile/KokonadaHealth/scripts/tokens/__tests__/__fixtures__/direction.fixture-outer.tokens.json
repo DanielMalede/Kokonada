@@ -996,11 +996,11 @@
       },
       "centreAlpha": {
         "$type": "number",
-        "$value": 1
+        "$value": 0
       },
       "centreBeta": {
         "$type": "number",
-        "$value": 0
+        "$value": 1.12
       },
       "neutralLobe": {
         "$type": "number",
@@ -1040,7 +1040,7 @@
     "graph": {
       "restIntenseRoute": {
         "$type": "string",
-        "$value": "straight"
+        "$value": "waypoint"
       }
     },
     "drift": {

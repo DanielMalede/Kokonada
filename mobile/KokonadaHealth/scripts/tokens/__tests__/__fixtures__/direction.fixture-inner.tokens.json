@@ -1012,12 +1012,8 @@
         "com.kokonada": {
           "lobes": [
             [
-              -0.35,
-              -0.3
-            ],
-            [
-              0.4,
-              0.35
+              0,
+              0
             ]
           ]
         }
@@ -1040,7 +1036,7 @@
     "graph": {
       "restIntenseRoute": {
         "$type": "string",
-        "$value": "straight"
+        "$value": "waypoint"
       }
     },
     "drift": {

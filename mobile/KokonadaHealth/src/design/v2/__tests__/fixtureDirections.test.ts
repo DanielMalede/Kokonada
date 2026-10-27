@@ -10,44 +10,44 @@ import { FIXTURE_IDS, OVERRIDES, fixtureModel, fixtureSchemaErrors, fixtureSourc
 const APP = path.resolve(__dirname, '../../../..');
 const rel = (f: string) => path.relative(APP, f).split(path.sep).join('/');
 
-/** Every leaf token of a token tree, by path. */
-function leaves(node: unknown, prefix = '', out = new Map<string, string>()): Map<string, string> {
+/**
+ * Every leaf token of a token tree by its path, and every group's own metadata ($extensions,
+ * $description) by `<path>.<$key>` (`$root.<$key>` at the top).
+ */
+function entries(node: unknown, prefix = '', out = new Map<string, string>()): Map<string, string> {
   if (node !== null && typeof node === 'object' && !Array.isArray(node)) {
     const o = node as Record<string, unknown>;
     if ('$value' in o) {
       out.set(prefix, JSON.stringify(o));
       return out;
     }
-    for (const [k, v] of Object.entries(o)) if (!k.startsWith('$')) leaves(v, prefix ? `${prefix}.${k}` : k, out);
+    for (const [k, v] of Object.entries(o)) {
+      if (k.startsWith('$')) out.set(`${prefix || '$root'}.${k}`, JSON.stringify(v));
+      else entries(v, prefix ? `${prefix}.${k}` : k, out);
+    }
   }
   return out;
 }
 const differing = (a: unknown, b: unknown) => {
-  const [la, lb] = [leaves(a), leaves(b)];
-  return [...new Set([...la.keys(), ...lb.keys()])].filter((k) => la.get(k) !== lb.get(k)).sort();
+  const [ea, eb] = [entries(a), entries(b)];
+  return [...new Set([...ea.keys(), ...eb.keys()])].filter((k) => ea.get(k) !== eb.get(k)).sort();
 };
-/** Everything but the leaf tokens ($extensions, $description, groups' metadata), as one string. */
-const metadata = (node: unknown): unknown =>
-  node !== null && typeof node === 'object' && !Array.isArray(node)
-    ? '$value' in (node as object)
-      ? null
-      : Object.fromEntries(Object.entries(node as Record<string, unknown>).map(([k, v]) => [k, k.startsWith('$') ? v : metadata(v)]))
-    : node;
 
 describe('the fixture directions are Abyss plus their declared overrides, and nothing else', () => {
   const sources = fixtureSources();
   const abyss = sources.find((s) => s.name === 'direction.abyss.tokens.json')!.json;
 
-  it.each(FIXTURE_IDS.map((id) => [id]))('%s: the leaf tokens that differ from Abyss are exactly its OVERRIDES', (id) => {
+  it.each(FIXTURE_IDS.map((id) => [id]))('%s: the tokens and group metadata that differ from Abyss are exactly its OVERRIDES', (id) => {
     const fixture = sources.find((s) => s.name === `direction.${id}.tokens.json`)!.json;
     expect(differing(abyss, fixture)).toEqual([...OVERRIDES[id]].sort());
-    expect(metadata(fixture)).toEqual(metadata(abyss));
   });
 
-  it('bites: a planted extra change, or a declared override set back to Abyss’s value, is seen', () => {
+  it('bites: a planted extra change to a token or to a group’s metadata, or a declared override set back to Abyss’s value, is seen', () => {
     const fixture = structuredClone(sources.find((s) => s.name === 'direction.fixture-outer.tokens.json')!.json) as Record<string, any>;
     fixture.field.pivot.$value += 0.01;
     expect(differing(abyss, fixture)).toContain('field.pivot');
+    fixture.field.rest.$extensions['com.kokonada'].lobes = [[0, 0]];
+    expect(differing(abyss, fixture)).toContain('field.rest.$extensions');
     const back = structuredClone(sources.find((s) => s.name === 'direction.fixture-outer.tokens.json')!.json) as Record<string, any>;
     back.plate.depth.$value = (abyss as Record<string, any>).plate.depth.$value;
     expect(differing(abyss, back)).not.toContain('plate.depth');

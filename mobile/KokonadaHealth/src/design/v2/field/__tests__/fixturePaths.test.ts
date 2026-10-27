@@ -126,6 +126,38 @@ describe('the builder takes each fixture path from the tokens', () => {
   });
 });
 
+describe('the builder: lobe centring, the rest–intense route and the rest-lobe table come from the tokens', () => {
+  // Full tension and t = 0: no extra drift, and lobe 0's drift is (sin 0, cos 0)·A_d, none along x.
+  const still: Partial<FieldState> = { tMs: 0, stress: 1, placements: [{ x: 0.5, y: -0.3, fade: 1 }] };
+  const driftY = (id: DirectionId) => DIRECTIONS[id].field.drift.A0 * (1 - BASE.field.stress.speed);
+
+  it('centring: fixture-outer centres a lobe 1.12R out along its bead’s angle (centreBeta); Abyss at the bead', () => {
+    const abyss = frameOf(ABYSS, 'dark', still);
+    expect(abyss.nodes[0].centre[0]).toBeCloseTo(abyss.nodes[0].bead![0], 12);
+    const outer = frameOf(FIXTURE_OUTER, 'dark', still);
+    const angle = Math.atan2(-0.3, 0.5);
+    expect(DIRECTIONS[FIXTURE_OUTER].field.lobe.centreBeta).toBe(1.12);
+    expect(outer.nodes[0].centre[0]).toBeCloseTo(1.12 * Math.cos(angle), 9);
+    expect(outer.nodes[0].centre[1]).toBeCloseTo(1.12 * Math.sin(angle) + driftY(FIXTURE_OUTER), 9);
+  });
+
+  it('route: both fixtures route rest–intense through N (waypoint); Abyss draws it straight', () => {
+    expect([FIXTURE_OUTER, FIXTURE_INNER, ABYSS].map((id) => frameOf(id, 'dark').restIntenseWaypoint)).toEqual([true, true, false]);
+  });
+
+  it('rest lobes: fixture-inner draws its one rest lobe at the centre, from the token table; Abyss its two', () => {
+    const empty: Partial<FieldState> = { tMs: 0, stress: 1, placements: [], restFade: 1 };
+    const rest = (id: DirectionId) => frameOf(id, 'dark', empty).nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0);
+    expect(statics(FIXTURE_INNER).restLobes).toEqual([[0, 0]]);
+    const inner = rest(FIXTURE_INNER);
+    expect(inner).toHaveLength(1);
+    expect(inner[0].centre[0]).toBeCloseTo(0, 12);
+    expect(inner[0].centre[1]).toBeCloseTo(driftY(FIXTURE_INNER), 9);
+    expect(rest(ABYSS)).toHaveLength(2);
+    expect([stormDeps(FIXTURE_INNER, statics(FIXTURE_INNER)).config.restLobes, stormDeps(ABYSS, statics(ABYSS)).config.restLobes]).toEqual([1, 2]);
+  });
+});
+
 describe('the law on the fixture paths, exactly as ruled', () => {
   /** The ruled shadow factor, by hand, in plate units. */
   const expected = (f: FieldFrame, qx: number, qy: number) => {

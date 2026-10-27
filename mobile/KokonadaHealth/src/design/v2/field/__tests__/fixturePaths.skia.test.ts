@@ -190,6 +190,21 @@ describe('the quiet step path on fixture-inner draws the law, pixel for pixel (�
   });
 });
 
+// The scene SC2 guards (restToIntense: a rest lobe fading beside an intense bead), on the fixtures,
+// which route rest–intense through N: the builder's frame draws the law, and the route shows.
+describe('the rest–intense waypoint route on the fixtures: the builder’s frame draws the law (±1 LSB)', () => {
+  it.each(FIXTURE_IDS.flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const)))('%s, %s face: a rest lobe beside an intense bead', (id, face) => {
+    const frame = buildFieldFrame(
+      { direction: id, face, placements: [{ x: -0.15, y: 0.8, fade: 1 }], restFade: 0.6, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' },
+      { centrePx: [31.3, 32.7], radiusPx: 24, pxPerDp: 24 / 150, fontScale: 1 },
+      staticsFor(id, EXTENSIONS as never),
+    );
+    expect(frame.restIntenseWaypoint).toBe(true);
+    expect(worstDisagreement(frame)).toBeLessThanOrEqual(1);
+    differs(frame, { ...frame, restIntenseWaypoint: false });
+  });
+});
+
 describe('neutral placements with no lobe (fixture-outer): the builder’s frame draws the law (±1 LSB)', () => {
   it.each(['dark', 'light'] as Face[])('fixture-outer, %s face: only neutral placements, the rest lobes lit at fade 1', (face) => {
     const frame = buildFieldFrame(

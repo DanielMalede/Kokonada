@@ -10,12 +10,15 @@ import type { DirectionId } from '../../tokens/tokens.generated.ts';
 // quiet zones and gives neutral placements a lobe, so after the close-out no shipped direction reaches
 // the law's other paths. These two do, so each path keeps a positive control:
 //   · fixture-outer: an outer plate shadow (plate.depth > 0, plate.shadow and plate.shadow2 on the light
-//     face), a zero-extent face (field.mask.face 0) and neutral placements with no lobe (neutralLobe 0);
+//     face), a zero-extent face (field.mask.face 0), neutral placements with no lobe (neutralLobe 0), a
+//     lobe centred out along its bead's angle (centreAlpha 0, centreBeta 1.12) and the rest–intense
+//     waypoint route;
 //   · fixture-inner: inner shadows (plate.depth < 0) on both faces with a lift (a negative strength in
-//     plate.shadow2 on the light face), a zero-extent ground (field.mask.outside 0) and the quiet zones'
-//     step path (field.mask.quietFeather 0).
-// Each file is direction.abyss.tokens.json with only the $value of the leaf tokens in OVERRIDES
-// replaced, the values copied from the two retired direction files at 440423c. Grounds and colours stay
+//     plate.shadow2 on the light face), a zero-extent ground (field.mask.outside 0), the quiet zones'
+//     step path (field.mask.quietFeather 0), the waypoint route and one rest lobe, at the centre
+//     (field.rest's lobes extension).
+// Each file is direction.abyss.tokens.json with only the entries in OVERRIDES replaced (leaf $values,
+// and field.rest's lobes), the values copied from the two retired direction files at 440423c. Grounds and colours stay
 // Abyss's. The ids carry a hyphen, not a dot: the generator's direction id is [a-z][a-z0-9-]*.
 //
 // They go through the real generator and schema (scripts/tokens/lib), never hand-built values, and
@@ -28,7 +31,7 @@ export const FIXTURE_OUTER = 'fixture-outer' as DirectionId;
 export const FIXTURE_INNER = 'fixture-inner' as DirectionId;
 export const FIXTURE_IDS: readonly DirectionId[] = [FIXTURE_OUTER, FIXTURE_INNER];
 
-/** Per fixture, exactly the leaf tokens whose $value differs from Abyss's. */
+/** Per fixture, exactly the leaf tokens and group metadata ($extensions) that differ from Abyss's. */
 export const OVERRIDES: Readonly<Record<string, readonly string[]>> = {
   'fixture-outer': [
     'plate.depth',
@@ -36,6 +39,8 @@ export const OVERRIDES: Readonly<Record<string, readonly string[]>> = {
     'plate.shadow2.light.offsetY', 'plate.shadow2.light.blur', 'plate.shadow2.light.strength',
     'field.mask.face',
     'field.lobe.neutralLobe',
+    'field.lobe.centreAlpha', 'field.lobe.centreBeta',
+    'field.graph.restIntenseRoute',
   ],
   'fixture-inner': [
     'plate.depth',
@@ -44,6 +49,8 @@ export const OVERRIDES: Readonly<Record<string, readonly string[]>> = {
     'plate.shadow2.light.offsetY', 'plate.shadow2.light.blur', 'plate.shadow2.light.strength',
     'field.mask.outside',
     'field.mask.quietFeather',
+    'field.graph.restIntenseRoute',
+    'field.rest.$extensions',
   ],
 };
 
