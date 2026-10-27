@@ -11,6 +11,9 @@ import { spawnSync } from 'child_process';
 //     *.sweeps.test.* only, in its own config
 //     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it. CI runs it in its own job,
 //     gated by a pinned paths filter, so a PR that cannot change a sweep result skips it.
+//   · sweeps-skia — the real-Skia checks too slow for every PR (the never-red scenes),
+//     *.sweeps.skia.test.* only, in jest.sweeps.config.js beside sweeps, with the skia project's
+//     environment, setup and transforms; the skia project leaves these files out.
 // Splitting a jest config is how suites silently stop running: a narrowed pattern runs fewer files
 // and still reports green. So this asks jest itself which files each project runs, and compares the
 // union with an independent walk of the disk.
@@ -52,6 +55,8 @@ function testsOnDisk(): string[] {
 }
 
 const SKIA_TEST = /\.skia\.test\.[mc]?[jt]sx?$/;
+/** The CanvasKit sweeps (law round 2, item 8): *.sweeps.skia.test.*, run only by jest.sweeps.config.js. */
+const SWEEPS_SKIA_TEST = /\.sweeps\.skia\.test\.[mc]?[jt]sx?$/;
 
 // ci.yml, as lines, and a job's block within it (from its key to the next job's key).
 const ciLines = () => fs.readFileSync(path.resolve(APP, '../../.github/workflows/ci.yml'), 'utf8').split(/\r?\n/);
@@ -98,6 +103,9 @@ describe('the two jest projects (MB-086)', () => {
   const skia = listTests('skia');
   const sweeps = listTests('sweeps', 'jest.sweeps.config.js');
   const disk = testsOnDisk();
+  // Lazily, so a missing project fails its own tests rather than the whole file.
+  let sweepsSkiaList: string[] | null = null;
+  const sweepsSkia = () => (sweepsSkiaList ??= listTests('sweeps-skia', 'jest.sweeps.config.js'));
 
   it('the walk sees the real suite (a list that finds nothing must fail, not pass)', () => {
     expect(disk.length).toBeGreaterThan(180);
@@ -105,9 +113,14 @@ describe('the two jest projects (MB-086)', () => {
     expect(unit).toContain('scripts/jest/__tests__/jestProjects.test.ts');
   });
 
-  it('the skia project runs every *.skia.test.* file, and only those', () => {
-    expect(skia).toEqual(disk.filter((f) => SKIA_TEST.test(f)));
+  it('the skia project runs every *.skia.test.* file but the CanvasKit sweeps, and only those', () => {
+    expect(skia).toEqual(disk.filter((f) => SKIA_TEST.test(f) && !SWEEPS_SKIA_TEST.test(f)));
     expect(skia.length).toBeGreaterThan(0);
+  });
+
+  it('the sweeps-skia project runs every *.sweeps.skia.test.* file, and only those', () => {
+    expect(sweepsSkia()).toEqual(disk.filter((f) => SWEEPS_SKIA_TEST.test(f)));
+    expect(sweepsSkia()).toContain('src/design/v2/field/__tests__/fieldScenes.sweeps.skia.test.ts');
   });
 
   it('the sweeps project runs every *.sweeps.test.* file, and only those (UI-073)', () => {
@@ -119,17 +132,27 @@ describe('the two jest projects (MB-086)', () => {
     expect(unit).toEqual(disk.filter((f) => !SKIA_TEST.test(f) && !SWEEPS_TEST.test(f)));
   });
 
-  it('no suite is lost or run twice: unit, skia and sweeps together are exactly the tests on disk', () => {
-    expect(unit.filter((f) => skia.includes(f) || sweeps.includes(f))).toEqual([]);
-    expect(skia.filter((f) => sweeps.includes(f))).toEqual([]);
-    expect([...unit, ...skia, ...sweeps].sort()).toEqual(disk);
+  it('no suite is lost or run twice: unit, skia, sweeps and sweeps-skia together are exactly the tests on disk', () => {
+    const all = [unit, skia, sweeps, sweepsSkia()];
+    for (const [i, a] of all.entries()) for (const b of all.slice(i + 1)) expect(a.filter((f) => b.includes(f))).toEqual([]);
+    expect(all.flat().sort()).toEqual(disk);
   });
 
   it('the default config has no sweeps project, so `jest` and `jest --ci` keep the coarse grids', () => {
     const config = require('../../../jest.config.js') as { projects: Array<{ displayName: string }> };
     expect(config.projects.map((p) => p.displayName)).toEqual(['unit', 'skia']);
     const sweepsConfig = require('../../../jest.sweeps.config.js') as { projects: Array<{ displayName: string }> };
-    expect(sweepsConfig.projects.map((p) => p.displayName)).toEqual(['sweeps']);
+    expect(sweepsConfig.projects.map((p) => p.displayName)).toEqual(['sweeps', 'sweeps-skia']);
+  });
+
+  it('the sweeps-skia project is the skia project’s environment, setup and transforms, by reference', () => {
+    const config = require('../../../jest.config.js') as { projects: Array<Record<string, unknown>> };
+    const sweepsConfig = require('../../../jest.sweeps.config.js') as { projects: Array<Record<string, unknown>> };
+    const skiaProject = config.projects.find((p) => p.displayName === 'skia')!;
+    const derived = sweepsConfig.projects.find((p) => p.displayName === 'sweeps-skia')!;
+    expect(derived).toBeDefined();
+    for (const key of ['testEnvironment', 'setupFiles', 'transform', 'transformIgnorePatterns', 'preset']) expect([key, derived[key]]).toEqual([key, skiaProject[key]]);
+    expect(derived.setupFiles).not.toContain('<rootDir>/jest.setup.js');
   });
 
   it('the skia project does not load the global stubs, and the unit project does', () => {
@@ -180,12 +203,13 @@ describe('the two jest projects (MB-086)', () => {
     const matches = matchesAny(filterGlobs(jobBlock(ciLines(), 'sweeps-changes'), 'sweeps'));
     const { importClosure } = require('../../lab/importGraph.mjs') as { importClosure(entry: string): string[] };
     const repoRel = (f: string) => path.relative(path.resolve(APP, '../..'), f).split(path.sep).join('/');
-    const sweepsFiles = testsOnDisk().filter((f) => SWEEPS_TEST.test(f));
+    const sweepsFiles = testsOnDisk().filter((f) => SWEEPS_TEST.test(f) || SWEEPS_SKIA_TEST.test(f));
     expect(sweepsFiles.length).toBeGreaterThan(0);
     const loaded = [...new Set(sweepsFiles.flatMap((f) => importClosure(path.join(APP, f)).map(repoRel)))].sort();
     expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/tokens/neverRedSweeps.ts');
     expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/color/blendSpace.ts');
     expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/field/placementLedger.ts');
+    expect(loaded).toContain('mobile/KokonadaHealth/src/design/v2/field/fieldScenes.ts');
     const tokens = fs.readdirSync(path.resolve(APP, '../../design-tokens')).map((f) => `design-tokens/${f}`);
     expect(tokens.length).toBeGreaterThan(0);
     const inputs = [...loaded, ...tokens, 'mobile/KokonadaHealth/jest.config.js', 'mobile/KokonadaHealth/jest.sweeps.config.js',

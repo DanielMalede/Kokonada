@@ -16,6 +16,11 @@ const SKIA_TESTS = '\\.skia\\.test\\.[jt]sx?$';
 // serial step; the default run keeps the coarse grids. Name such a test *.sweeps.test.ts.
 const SWEEPS_TESTS = '\\.sweeps\\.test\\.[jt]sx?$';
 
+// The CanvasKit sweeps (law round 2, item 8): real-Skia checks too slow for every PR, named
+// *.sweeps.skia.test.ts. They run only in jest.sweeps.config.js (project sweeps-skia), so the skia
+// project here leaves them out.
+const SWEEPS_SKIA_TESTS = '\\.sweeps\\.skia\\.test\\.[jt]sx?$';
+
 // Two projects, one run: `jest` (and CI's `jest --ci`) runs both. jestProjects.test.ts checks that
 // together they run exactly the tests on disk, so a split can never silently drop a suite.
 module.exports = {
@@ -46,6 +51,7 @@ module.exports = {
       testEnvironment: '@shopify/react-native-skia/jestEnv.js',
       setupFiles: ['@shopify/react-native-skia/jestSetup.js'],
       testMatch: ['**/*.skia.test.[jt]s?(x)'],
+      testPathIgnorePatterns: ['/node_modules/', SWEEPS_SKIA_TESTS],
       transform,
       // Skia's environment, setup and module build are ES modules, so they go through babel too.
       transformIgnorePatterns: [

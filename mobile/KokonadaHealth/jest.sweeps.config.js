@@ -4,11 +4,16 @@
 // `jest --ci --config jest.sweeps.config.js --maxWorkers=2`.
 //
 // It reuses the unit project's transforms in a plain node environment, with no global stubs: the
-// sweeps touch no React Native. Name such a test *.sweeps.test.ts; jestProjects.test.ts checks that
-// the three projects together run exactly the tests on disk.
+// sweeps touch no React Native. Name such a test *.sweeps.test.ts.
+//
+// sweeps-skia (law round 2, item 8): the real-Skia checks too slow for every PR (the never-red
+// scenes), in the skia project's CanvasKit environment, setup and transforms, taken from it by
+// reference. Name such a test *.sweeps.skia.test.ts. jestProjects.test.ts checks that the four projects
+// of both configs together run exactly the tests on disk.
 const { projects } = require('./jest.config.js');
 
 const unit = projects.find((p) => p.displayName === 'unit');
+const skia = projects.find((p) => p.displayName === 'skia');
 
 module.exports = {
   projects: [
@@ -19,6 +24,12 @@ module.exports = {
       testMatch: ['**/*.sweeps.test.[jt]s?(x)'],
       transform: unit.transform,
       transformIgnorePatterns: unit.transformIgnorePatterns,
+    },
+    {
+      ...skia,
+      displayName: 'sweeps-skia',
+      testMatch: ['**/*.sweeps.skia.test.[jt]s?(x)'],
+      testPathIgnorePatterns: ['/node_modules/'],
     },
   ],
 };
