@@ -691,7 +691,9 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
   // A selection result whose discovery tracks carry the fields the caption path needs
   // (isDiscovery + recordingKey + features) and playable spotify: URIs (so the crossPlatform
   // pass-through preserves the same objects and the caption survives to the payload).
-  function mockPlaylistWithDiscovery() {
+  // `healthInputs: false` — the targets say no health input reached them (BE-227), so the run's
+  // own state is what each test varies. Pass a different targets object to vary that term instead.
+  function mockPlaylistWithDiscovery(targets = { bpmCenter: 100, healthInputs: false }) {
     const familiar  = [{ id: 'lib-1', uri: 'spotify:track:lib-1' }];
     const discovery = [
       { id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, recordingKey: 'youtube:d1', features: { bpm: 92, energy: 0.4, valence: 0.3 } },
@@ -699,7 +701,7 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
     ];
     orchestrator.generateV2.mockResolvedValueOnce({
       familiar, discovery, merged: [...familiar, ...discovery],
-      telemetry: { stageMs: {} }, targets: { bpmCenter: 100 },
+      telemetry: { stageMs: {} }, targets,
     });
   }
 
@@ -758,8 +760,12 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
   // BE-221 — a run that health data shaped never captions: its targets, and therefore the features
   // of the tracks it chose, carry the reading. Each case is the guard's own trigger, one at a time.
   it.each([
-    ['a heart rate held when the run began (mood branch)', 'emotion', { stableHR: 150, latestActivity: 'running' }],
-    ['a heart rate on the heart branch', 'biometric', { stableHR: 150, latestActivity: 'running', lastEmotionTaps: [] }],
+    // Each case trips ONE term of the guard (RA-5 on #279): a chip is set, so the watch-activity term
+    // stays false; the targets say healthInputs:false.
+    ['a heart rate held when the run began (mood branch)', 'emotion', { stableHR: 150, latestActivity: 'running', lastActivity: 'running' }],
+    // The heart branch always carries its bio:* key with its heart rate; the bio-key term is defence in
+    // depth behind hrAtStart and cannot be tripped alone. No watch activity, so that term stays false.
+    ['a heart rate on the heart branch', 'biometric', { stableHR: 150, latestActivity: null, lastEmotionTaps: [] }],
     ['a watch-detected activity with no chip', 'emotion', { latestActivity: 'cycling' }],
   ])('FLAG ON: %s → the caption service is never called', async (_name, trigger, overrides) => {
     process.env.DISCOVERY_CAPTION_LLM = 'true';
@@ -767,6 +773,24 @@ describe('generateAndEmitPlaylist — discovery captions wiring', () => {
 
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, trigger, makeState({ ...MOOD_ONLY, ...overrides }));
+
+    expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
+    expect(captionService.captionDiscovery).not.toHaveBeenCalled();
+  });
+
+  // BE-227 (RA-1 on #279): the guard fails closed on the targets the selection used.
+  it.each([
+    ['say a health input reached them', { bpmCenter: 100, healthInputs: true }],
+    ['do not say (no healthInputs field)', { bpmCenter: 100 }],
+    ['are missing', undefined],
+  ])('FLAG ON: a mood-only run whose targets %s → the caption service is never called', async (_name, targets) => {
+    process.env.DISCOVERY_CAPTION_LLM = 'true';
+    const familiar  = [{ id: 'lib-1', uri: 'spotify:track:lib-1' }];
+    const discovery = [{ id: 'd1', uri: 'spotify:track:d1', isDiscovery: true, recordingKey: 'youtube:d1', features: { bpm: 92, energy: 0.4, valence: 0.3 } }];
+    orchestrator.generateV2.mockResolvedValueOnce({ familiar, discovery, merged: [...familiar, ...discovery], telemetry: { stageMs: {} }, targets });
+
+    const socket = makeSocket();
+    await generateAndEmitPlaylist(socket, 'emotion', makeState({ ...MOOD_ONLY, lastActivity: 'running' }));
 
     expect(socket.emit).toHaveBeenCalledWith('playlist_ready', expect.anything());
     expect(captionService.captionDiscovery).not.toHaveBeenCalled();

@@ -75,8 +75,9 @@ jest.mock('../app/services/vector/vectorIndex', () => ({
 }));
 // The ONLY biosonic model I/O — mocked to a permissive band so the crafted tracks survive the
 // (un-relaxable) band; the pipeline's feature ATTACH + caption filter are exercised for real.
+// `healthInputs: false`: no health input reached these targets, so a mood-only run may caption (BE-227).
 jest.mock('../app/services/generation/targetsBuilder', () => ({
-  buildTargets: jest.fn().mockResolvedValue({}),
+  buildTargets: jest.fn().mockResolvedValue({ healthInputs: false }),
 }));
 // The ONE Groq call the REAL captionService makes.
 jest.mock('../app/services/llmClient', () => ({

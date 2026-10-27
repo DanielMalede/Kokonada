@@ -66,8 +66,22 @@ jest.mock('../app/services/vector/vectorIndex', () => ({
   getMany: jest.fn().mockResolvedValue(new Map()), upsertMany: jest.fn().mockResolvedValue(undefined),
   queryNear: jest.fn(), use: jest.fn(),
 }));
-jest.mock('../app/services/generation/targetsBuilder', () => ({ buildTargets: jest.fn().mockResolvedValue({}) }));
+// targetsBuilder stays REAL (RA-3 on #279): what it reads is exactly what the caption guard must see.
+// Only its leaves are faked — the cached baselines, the night history, the affect layer and
+// translate, which returns a neutral window so the discovery track stays selectable and the guard,
+// not a band, decides. (MedicalProfile is mocked above.)
 jest.mock('../app/services/biosonic/baselines', () => ({ peekBaselines: jest.fn().mockResolvedValue(null) }));
+jest.mock('../app/repositories/sleepHistoryRepo', () => ({ readNightHistory: jest.fn(async () => []) }));
+jest.mock('../app/services/biosonic/affectService', () => {
+  const actual = jest.requireActual('../app/services/biosonic/affectService');
+  actual.resolveAffect = jest.fn(async () => null);
+  return actual;
+});
+jest.mock('../app/services/biosonic/translate', () => {
+  const actual = jest.requireActual('../app/services/biosonic/translate');
+  actual.translate = jest.fn(() => ({}));
+  return actual;
+});
 jest.mock('../app/services/privacy/consent', () => ({
   getConsentStatus:       jest.fn().mockResolvedValue({ granted: true, currentVersion: 1, staleVersion: false }),
   HEALTH_CONSENT_PURPOSE: 'health_biometric_processing',
@@ -80,8 +94,10 @@ const BiometricLog   = require('../app/models/BiometricLog');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const spotify        = require('../app/services/spotify');
 const featureRepo    = require('../app/repositories/audioFeatureRepo');
-const targetsBuilder = require('../app/services/generation/targetsBuilder');
 const baselines      = require('../app/services/biosonic/baselines');
+const sleepHistory   = require('../app/repositories/sleepHistoryRepo');
+const affectService  = require('../app/services/biosonic/affectService');
+const biosonic       = require('../app/services/biosonic/translate');
 const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
 
 const { buildEmotionPlaylist, adjustBiometricPlaylist, inferArtistGenres } = require('../app/services/geminiEngine');
@@ -302,8 +318,10 @@ describe('generateAndEmitPlaylist — the requests the real generate path sends'
     spotify.getValidToken.mockResolvedValue('spotify-access-token');
     vectorDiscoveryFetch.mockImplementation(async () => [{ ...DISCO }]);
     featureRepo.getMany.mockResolvedValue(new Map([['youtube:disco1', { bpm: 96, energy: 0.4, valence: 0.3, acousticness: 0.6, danceability: 0.5 }]]));
-    targetsBuilder.buildTargets.mockResolvedValue({});
+    biosonic.translate.mockReturnValue({});
     baselines.peekBaselines.mockResolvedValue(null);
+    sleepHistory.readNightHistory.mockResolvedValue([]);
+    affectService.resolveAffect.mockResolvedValue(null);
     process.env.DISCOVERY_CAPTION_LLM = 'true';
     process.env.VECTOR_DISCOVERY = 'true';
     delete process.env.DISCOVERY_BAND_AWARE;
@@ -360,7 +378,22 @@ describe('generateAndEmitPlaylist — the requests the real generate path sends'
     // A window wide enough to admit the discovery track, so the guard — not the band — is what
     // keeps the caption request from leaving (a narrow band would empty the captionable set and
     // pass for the wrong reason).
-    targetsBuilder.buildTargets.mockResolvedValue({ bpmCenter: 96, bpmWidth: 60, energyFloor: 0, energyCeiling: 1, valenceTarget: 0.3, stateId: 'exertion', confidence: 0.9 });
+    biosonic.translate.mockReturnValue({ bpmCenter: 96, bpmWidth: 60, energyFloor: 0, energyCeiling: 1, valenceTarget: 0.3, stateId: 'exertion', confidence: 0.9 });
+    const body = await run('emotion', state());
+    expect(captionRequests()).toHaveLength(0);
+    expect(body).toBe(emotionOnly);
+  });
+
+  // BE-227 (RA-1 on #279): generateV2 builds its own targets when band-aware discovery is off, and
+  // those read stored health inputs the handler never sees. Each one alone stops the caption request.
+  it.each([
+    ['cached baselines', () => baselines.peekBaselines.mockResolvedValue({ rhrMedian: 52, hrvMedian: 61 })],
+    ['a stored night', () => sleepHistory.readNightHistory.mockResolvedValue([{ date: '2026-10-26', totalMin: 290 }])],
+    ['an affect state', () => affectService.resolveAffect.mockResolvedValue({ label: 'calm', confidence: 0.2, axes: {} })],
+  ])('targets generateV2 built from %s alone: no caption request, and the emotion request is unchanged', async (_name, arrange) => {
+    const emotionOnly = (await run('emotion', state())).split('\n---\n')[0];
+    expect(captionRequests()).toHaveLength(1); // the control captioned: the instrument is live
+    arrange();
     const body = await run('emotion', state());
     expect(captionRequests()).toHaveLength(0);
     expect(body).toBe(emotionOnly);
@@ -370,7 +403,7 @@ describe('generateAndEmitPlaylist — the requests the real generate path sends'
     process.env.DISCOVERY_BAND_AWARE = 'true';
     for (const [hr, rhr, stateId, activity] of [[50, 60, null, 'resting'], [180, 55, 'exertion', 'running'], [120, null, 'stress', 'cycling']]) {
       baselines.peekBaselines.mockResolvedValue(rhr ? { rhrMedian: rhr } : null);
-      targetsBuilder.buildTargets.mockResolvedValue(stateId ? { stateId, bpmCenter: 140 } : {});
+      biosonic.translate.mockReturnValue(stateId ? { stateId, bpmCenter: 140 } : {});
       const body = await run('biometric', state({ stableHR: hr, latestActivity: activity, lastEmotionTaps: [], lastActivity: null }));
       expect(body).toBe('');
     }
