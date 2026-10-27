@@ -20,11 +20,12 @@
  *   · ALLOWLIST. A caller names an endpoint id, never a path, and five ids exist: sleep (one day, or
  *     a range of up to 31 days), HRV (one day, the only HRV endpoint that carries the night's
  *     window), daily heart rate (resting HR and the day's series) and Body Battery reports (mapped
- *     for Phase 1c; the lane does not pull them before its consent gate). Activities and their FIT
- *     download (which carries GPS), women's health, nutrition, weight, hydration, goals, fitness age,
- *     the user profile, steps, stress aggregates, SpO2 and the user summaries are unreachable: no id
- *     builds them, and assertAllowedRequest refuses every URL that is not one of the five (or the
- *     token POST) on the transport, before a byte is sent.
+ *     for Phase 1c, and refused, on the transport too, unless the client is built with
+ *     allowBodyBattery: true, which nothing does before its consent gate, T10 and T11). Activities and
+ *     their FIT download (which carries GPS), women's health, nutrition, weight, hydration, goals,
+ *     fitness age, the user profile, steps, stress aggregates, SpO2 and the user summaries are
+ *     unreachable: no id builds them, and assertAllowedRequest refuses every URL that is not one of
+ *     the enabled endpoints (or the token POST) on the transport, before a byte is sent.
  *   · THE KEY is read (GARMIN_PERSONAL_API_KEY by default) only at the moment of an exchange. It is
  *     never stored by this module, never returned and never part of an error.
  *   · THE JWT lives in this module's memory only: a closure no caller can reach, never returned,
@@ -163,15 +164,26 @@ const ENDPOINTS = Object.freeze({
 });
 
 const GARMIN_PERSONAL_ENDPOINT_IDS = Object.freeze(Object.keys(ENDPOINTS));
-const DATA_PATTERNS = Object.freeze(Object.values(ENDPOINTS).map((endpoint) => endpoint.pattern));
+// Behind a consent gate (Body Battery: T10, T11), so unreachable unless a client is built to fetch it.
+const CONSENT_GATED_ENDPOINT_IDS = Object.freeze(['bodyBattery']);
+
+const isEnabled = (endpointId, allowBodyBattery) => allowBodyBattery === true || !CONSENT_GATED_ENDPOINT_IDS.includes(endpointId);
+const dataPatterns = (allowBodyBattery) => Object.freeze(
+  Object.entries(ENDPOINTS).filter(([id]) => isEnabled(id, allowBodyBattery)).map(([, endpoint]) => endpoint.pattern),
+);
+const OPEN_DATA_PATTERNS = dataPatterns(false);
+const ALL_DATA_PATTERNS = dataPatterns(true);
 
 /**
  * The transport's own check, run on every URL before it is sent: https, the Garmin host on the
  * default port, no credentials or fragment, already canonical (nothing for a URL parser to resolve),
- * and either POST to the token path or GET of one of the five allowlisted paths.
+ * and either POST to the token path or GET of one of the allowlisted paths, the Body Battery path
+ * only when `allowBodyBattery` is exactly true.
+ * @param {{allowBodyBattery?: boolean}} [options]
  * @throws {GarminPersonalError} garmin_personal_endpoint_not_allowed
  */
-function assertAllowedRequest(method, url) {
+function assertAllowedRequest(method, url, { allowBodyBattery = false } = {}) {
+  const patterns = allowBodyBattery === true ? ALL_DATA_PATTERNS : OPEN_DATA_PATTERNS;
   let parsed = null;
   try {
     parsed = new URL(url);
@@ -187,7 +199,7 @@ function assertAllowedRequest(method, url) {
     && parsed.username === ''
     && parsed.password === ''
     && parsed.hash === ''
-    && (method === 'POST' ? target === TOKEN_PATH : method === 'GET' && DATA_PATTERNS.some((pattern) => pattern.test(target)));
+    && (method === 'POST' ? target === TOKEN_PATH : method === 'GET' && patterns.some((pattern) => pattern.test(target)));
   if (!allowed) throw new GarminPersonalError('garmin_personal_endpoint_not_allowed');
 }
 
@@ -233,10 +245,10 @@ function headerValue(headers, name) {
  * side knows (did the deadline end it?), never by reading the axios error, which carries the request
  * it failed on, headers included, and is dropped here.
  */
-function createTransport({ httpsAgent, timeoutMs }) {
+function createTransport({ httpsAgent, timeoutMs, allowBodyBattery }) {
   return async function send(method, path, headers, maxBytes) {
     const url = `${BASE_URL}${path}`;
-    assertAllowedRequest(method, url);
+    assertAllowedRequest(method, url, { allowBodyBattery });
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), timeoutMs);
     if (typeof deadline.unref === 'function') deadline.unref();
@@ -330,6 +342,8 @@ function readKey(getApiKey) {
  * @param {() => number} [options.random]  the backoff jitter, in [0, 1)
  * @param {number} [options.timeoutMs]
  * @param {number} [options.maxResponseBytes]
+ * @param {boolean} [options.allowBodyBattery]  exactly true to reach Body Battery, which waits for
+ *   its consent gate (T10, T11); off by default
  */
 function createGarminPersonalClient({
   getApiKey = () => process.env.GARMIN_PERSONAL_API_KEY,
@@ -339,9 +353,11 @@ function createGarminPersonalClient({
   random = Math.random,
   timeoutMs = TIMEOUT_MS,
   maxResponseBytes = MAX_RESPONSE_BYTES,
+  allowBodyBattery = false,
 } = {}) {
+  const bodyBattery = allowBodyBattery === true;
   const policy = createRatePolicy(sleep ? { now, sleep } : { now });
-  const send = createTransport({ httpsAgent, timeoutMs });
+  const send = createTransport({ httpsAgent, timeoutMs, allowBodyBattery: bodyBattery });
   let token = null; // { value, refreshAt, generation }: never leaves this closure
   let generation = 0;
   let pendingExchange = null;
@@ -445,7 +461,7 @@ function createGarminPersonalClient({
   }
 
   async function getJson(endpointId, params) {
-    if (typeof endpointId !== 'string' || !Object.hasOwn(ENDPOINTS, endpointId)) {
+    if (typeof endpointId !== 'string' || !Object.hasOwn(ENDPOINTS, endpointId) || !isEnabled(endpointId, bodyBattery)) {
       throw fail('garmin_personal_endpoint_not_allowed');
     }
     const path = ENDPOINTS[endpointId].build(params);

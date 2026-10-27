@@ -48,7 +48,7 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((garmin) => garmin.close()));
 });
 
-async function setup({ fixtures, timeoutMs = 5000, getApiKey } = {}) {
+async function setup({ fixtures, timeoutMs = 5000, getApiKey, ...options } = {}) {
   const clock = fakeClock(START);
   const garmin = await startFakeGarmin({ apiKey: SENTINEL_KEY, now: clock.now, fixtures });
   servers.push(garmin);
@@ -60,6 +60,7 @@ async function setup({ fixtures, timeoutMs = 5000, getApiKey } = {}) {
     sleep: clock.sleep,
     random: () => 0.5,
     timeoutMs,
+    ...options,
   });
   return { client, garmin, clock, keyReads };
 }
@@ -693,7 +694,7 @@ describe('the endpoint allowlist: five in-scope endpoints, nothing else reachabl
     ['dailyHeartRate', { date: '2026-10-25' }, '/wellness-service/wellness/dailyHeartRate?date=2026-10-25'],
     ['bodyBattery', { startDate: '2026-10-01', endDate: '2026-10-25' }, '/wellness-service/wellness/bodyBattery/reports/daily?startDate=2026-10-01&endDate=2026-10-25'],
   ])('%s requests %s', async (endpoint, params, expectedPath) => {
-    const { client, garmin } = await setup();
+    const { client, garmin } = await setup({ allowBodyBattery: true });
 
     await client.get(endpoint, params);
 
@@ -768,7 +769,6 @@ describe('the endpoint allowlist: five in-scope endpoints, nothing else reachabl
     ['GET', `${BASE_URL}/sleep-service/sleep/dailySleepSummariesByDate?startDate=2026-10-01&endDate=2026-10-25`],
     ['GET', `${BASE_URL}/hrv-service/hrv/2026-10-25`],
     ['GET', `${BASE_URL}/wellness-service/wellness/dailyHeartRate?date=2026-10-25`],
-    ['GET', `${BASE_URL}/wellness-service/wellness/bodyBattery/reports/daily?startDate=2026-10-01&endDate=2026-10-25`],
   ])('the transport guard admits %s %s', (method, url) => {
     expect(() => assertAllowedRequest(method, url)).not.toThrow();
   });
@@ -786,7 +786,7 @@ describe('the endpoint allowlist: five in-scope endpoints, nothing else reachabl
     ['bodyBattery', { startDate: '2026-09-24', endDate: '2026-10-25' }],
     ['bodyBattery', { startDate: '2026-10-01' }],
   ])('%s with %p is garmin_personal_invalid_params, and nothing is sent', async (endpoint, params) => {
-    const { client, garmin } = await setup();
+    const { client, garmin } = await setup({ allowBodyBattery: true });
 
     await expect(client.get(endpoint, params)).rejects.toMatchObject({ code: 'garmin_personal_invalid_params' });
     expect(garmin.state.requests).toHaveLength(0);
@@ -798,6 +798,41 @@ describe('the endpoint allowlist: five in-scope endpoints, nothing else reachabl
     await client.get('dailySleepSummaries', { startDate: '2026-09-25', endDate: '2026-10-25' });
 
     expect(garmin.dataRequests()).toHaveLength(1);
+  });
+});
+
+// RA-9. Body Battery is mapped for Phase 1c, and no Body Battery reading may be pulled before its
+// consent gate (T10, T11). It is off unless the client is built with allowBodyBattery: true.
+describe('Body Battery stays behind its consent gate until a client is built to fetch it', () => {
+  const BODY_BATTERY = { startDate: '2026-10-01', endDate: '2026-10-25' };
+  const BODY_BATTERY_URL = `${BASE_URL}/wellness-service/wellness/bodyBattery/reports/daily?startDate=2026-10-01&endDate=2026-10-25`;
+
+  it('bodyBattery is refused unless enabled: garmin_personal_endpoint_not_allowed, nothing sent, the key not read', async () => {
+    const { client, garmin, keyReads } = await setup();
+
+    await expect(client.get('bodyBattery', BODY_BATTERY)).rejects.toMatchObject({ code: 'garmin_personal_endpoint_not_allowed' });
+    expect(garmin.state.requests).toHaveLength(0);
+    expect(keyReads.count).toBe(0);
+  });
+
+  it.each([undefined, false, 'true', 1, {}])('allowBodyBattery %p does not open it: only true does', async (allowBodyBattery) => {
+    const { client, garmin } = await setup({ allowBodyBattery });
+
+    await expect(client.get('bodyBattery', BODY_BATTERY)).rejects.toMatchObject({ code: 'garmin_personal_endpoint_not_allowed' });
+    expect(garmin.state.requests).toHaveLength(0);
+  });
+
+  it('with allowBodyBattery: true it is fetched like the others', async () => {
+    const { client, garmin } = await setup({ allowBodyBattery: true });
+
+    await expect(client.get('bodyBattery', BODY_BATTERY)).resolves.toEqual({ ok: true, path: '/wellness-service/wellness/bodyBattery/reports/daily' });
+    expect(garmin.dataRequests().map((r) => `${BASE_URL}${r.path}`)).toEqual([BODY_BATTERY_URL]);
+  });
+
+  it('the transport guard refuses the Body Battery path unless told the client may fetch it', () => {
+    expect(() => assertAllowedRequest('GET', BODY_BATTERY_URL)).toThrow(expect.objectContaining({ code: 'garmin_personal_endpoint_not_allowed' }));
+    expect(() => assertAllowedRequest('GET', BODY_BATTERY_URL, { allowBodyBattery: 'true' })).toThrow(expect.objectContaining({ code: 'garmin_personal_endpoint_not_allowed' }));
+    expect(() => assertAllowedRequest('GET', BODY_BATTERY_URL, { allowBodyBattery: true })).not.toThrow();
   });
 });
 
