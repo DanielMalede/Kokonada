@@ -203,6 +203,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
   _resetDebounceState();
   delete process.env.VECTOR_DISCOVERY;
+  delete process.env.GENERATION_AI_BUDGET_MS;
 });
 
 const TOKENS = (tag) => ({ accessToken: `${tag}-access`, refreshToken: `${tag}-refresh`, expiresAt: Date.now() + 3_600_000 });
@@ -265,8 +266,18 @@ const discoverySeeds = () => [
 async function run(branch, { vector = false, fallback = false, user }) {
   if (vector) process.env.VECTOR_DISCOVERY = 'true';
   llmFails = fallback;
-  // BE-221: the heart branch makes no LLM call, so a failing LLM cannot force its fallback.
-  spotify.__fail.discovery = fallback && branch === 'heart';
+  // BE-221: the heart branch makes no LLM call, so a failing LLM cannot force its fallback. Without
+  // vector discovery a Spotify discovery failure forces it; with vector discovery (which never
+  // throws) a stalled corpus query overruns the AI budget instead (RA-8 on #279).
+  spotify.__fail.discovery = fallback && branch === 'heart' && !vector;
+  if (fallback && branch === 'heart' && vector) {
+    process.env.GENERATION_AI_BUDGET_MS = '25';
+    const stalled = vectorDiscoveryFetch.getMockImplementation();
+    vectorDiscoveryFetch.mockImplementationOnce(async (...args) => {
+      await new Promise((r) => setTimeout(r, 250));
+      return stalled(...args);
+    });
+  }
   const socket = makeSocket(user);
   await generateAndEmitPlaylist(socket, branch, makeState(branch));
   return socket.emit.mock.calls;
@@ -339,18 +350,24 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
     });
   });
 
-  // BE-221: the heart branch's forced fallback moved from VECTOR_DISCOVERY=true to false: it is now
-  // forced by Spotify's discovery failing, and vector discovery never throws.
+  // BE-221: the heart branch makes no LLM call, so its forced fallback is a Spotify discovery
+  // failure (VECTOR_DISCOVERY=false) or a vector query that overruns the AI budget (=true, RA-8).
   it.each([
     ['emotion', false],
     ['heart', false],
+    ['heart', true],
   ])('a forced fallback on the %s branch (VECTOR_DISCOVERY=%s): the library-only ladder sees no YouTube row', async (branch, vector) => {
     const user = await account(`fallback-${branch}`);
     const emitted = await run(branch, { vector, fallback: true, user });
 
     expect(buildDeterministicFallback).toHaveBeenCalled();
     if (branch === 'heart') {
-      expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(true); // discovery was tried, and failed
+      if (vector) {
+        expect(vectorDiscoveryFetch).toHaveBeenCalled(); // the corpus was queried, and stalled past the budget
+        expect(spotify.markDiscoveryUnavailable).toHaveBeenCalled(); // the gen_budget path, not another error
+      } else {
+        expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(true); // discovery was tried, and failed
+      }
       expect(http.some((h) => h.url === LLM_URL)).toBe(false); // and no LLM was ever asked
     } else {
       expect(http.some((h) => h.url === LLM_URL)).toBe(true); // the LLM was tried, and failed
