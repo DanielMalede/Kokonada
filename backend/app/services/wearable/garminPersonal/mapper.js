@@ -245,7 +245,12 @@ function mapBodyBatteryReport(report) {
 
 // ── Location, at any depth ───────────────────────────────────────────────────────────────────────
 
-const LOCATION_WORDS = new Set(['lat', 'lon', 'lng', 'latitude', 'longitude', 'polyline', 'gps', 'route', 'location', 'coordinates', 'geo']);
+// A coordinate pair written as one word ("latlng") is ONE word to keyWords, so the pairs, the geohash
+// and the singular coordinate are listed as words of their own (RA-6).
+const LOCATION_WORDS = new Set([
+  'lat', 'lon', 'lng', 'latitude', 'longitude', 'latlng', 'latlon', 'lnglat',
+  'polyline', 'gps', 'route', 'location', 'coordinate', 'coordinates', 'geo', 'geohash',
+]);
 
 // A key's words, from camelCase, PascalCase, snake_case or kebab-case: "startLatitude" holds
 // "latitude", "latestValue" does not hold "lat".

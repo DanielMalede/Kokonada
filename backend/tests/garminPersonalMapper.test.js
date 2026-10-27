@@ -133,7 +133,7 @@ describe('the shared normaliser reads the mapped summaries as the metrics they a
 });
 
 describe('no location and nothing outside the allowlist comes out', () => {
-  const LOCATION_WORD = /(?:^|[^a-z])(?:lat|lon|lng|latitude|longitude|polyline|gps|route|location|coordinates|geo)(?:[^a-z]|$)/i;
+  const LOCATION_WORD = /(?:^|[^a-z])(?:lat|lon|lng|latitude|longitude|latlng|latlon|lnglat|polyline|gps|route|location|coordinates?|geo|geohash)(?:[^a-z]|$)/i;
   const keysOf = (value, out = []) => {
     if (Array.isArray(value)) value.forEach((v) => keysOf(v, out));
     else if (value && typeof value === 'object') for (const [k, v] of Object.entries(value)) { out.push(k); keysOf(v, out); }
@@ -173,6 +173,23 @@ describe('no location and nothing outside the allowlist comes out', () => {
       nested: { deeper: [{ keepMe: true }] },
     });
     expect(input.lat).toBe(9); // the input is untouched
+  });
+
+  // RA-6. A pair written as one word ("latlng") is one word to keyWords, so it never matched "lat".
+  it('stripLocationKeys removes latlng, latlon, lnglat, geohash and coordinate, alone or inside a compound key, in any case', () => {
+    const input = {
+      keep: 1,
+      coordinator: 2, // a word that only contains one of them is not a location
+      coordination: 3,
+      latlng: [1, 2], startLatlng: [1, 2], LATLNG: 'x',
+      latlon: [1, 2], end_latlon: 'x', LatLon: 'x',
+      lnglat: [2, 1], startLnglat: [2, 1],
+      geohash: 'x', startGeohash: 'x', GEOHASH: 'x', 'geohash-6': 'x',
+      coordinate: {}, startCoordinate: { x: 1 }, 'end-coordinate': 1, COORDINATE: 1,
+      nested: [{ deeper: { latlng: 1, kept: true, polylineCoordinate: [] } }],
+    };
+
+    expect(stripLocationKeys(input)).toEqual({ keep: 1, coordinator: 2, coordination: 3, nested: [{ deeper: { kept: true } }] });
   });
 });
 
