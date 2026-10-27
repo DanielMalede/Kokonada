@@ -111,7 +111,7 @@ _free_
 - branch: `feat/garmin-personal-client`
 - paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`
 - resources: none
-- state: claimed
+- state: in-review · PR #274
 - started: 2026-10-26
 
 ### M07
