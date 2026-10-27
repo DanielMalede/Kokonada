@@ -102,7 +102,7 @@ _free_
 - branch: `docs/dan092-close`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #276
 - started: 2026-10-27
 
 ### M06
