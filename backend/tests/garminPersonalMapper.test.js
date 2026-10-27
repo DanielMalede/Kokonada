@@ -218,7 +218,10 @@ describe('timestamps', () => {
     expect(utc.mapped).toEqual(newYork.mapped);
   });
 
-  it('a night across the end of summer time: its length is real time, its offset is its start\'s', () => {
+  // startTimeOffsetInSeconds is the offset AT THE START, which is all the Health API field means. It is
+  // not the night's offset: this night ends at UTC+2, and nothing here carries the end's offset yet, so
+  // a row stamped at the night's end keeps the start's +3 (BE-195, open; RA-4 of the #274 audit).
+  it('a night across the end of summer time: its length is real time, and startTimeOffsetInSeconds is the offset at its start, not at its end', () => {
     const [{ summary }] = mapPersonalResponse('dailySleep', fixture('dailySleep')).items;
 
     // 23:12 at UTC+3 to 06:41 at UTC+2 is 7 h 29 min on the clock and 8 h 29 min of night.
