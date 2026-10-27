@@ -34,6 +34,7 @@ backend/wave1_seed_dump.ndjson
 
 # Local git worktrees cut alongside the repo
 .worktree-*/
+.claude/worktrees/
 
 # Android signing keystores (never commit — even the debug one)
 **/debug.keystore
