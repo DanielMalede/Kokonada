@@ -1211,8 +1211,9 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     let aiResult;
     try {
       if (useEmotion) {
-        // 24h health snapshot (sleep/HRV/body battery/readiness + current HR) so the
-        // LLM weighs physical state against the chosen mood + activity. Best-effort.
+        // 24h health snapshot (sleep/HRV/body battery/readiness + current HR). It never reaches
+        // the LLM (BE-221): buildEmotionPlaylist applies it to the audio targets deterministically,
+        // after the model has answered from the mood, the chip and the note's tags. Best-effort.
         const biometricContext = await resolveBiometricContext(userId, state.stableHR);
         // BE-016 (R-A): stored vitals now pull this run's targets toward a physiological band.
         profileShaped = !!biometricContext;
@@ -1225,16 +1226,17 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
           fetchTracks,
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
-        // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
-        // (adjustBiometricPlaylist → applyBiometricBands). W4-016: that band now routes
-        // through biometricBand's real preference chain — stateLabel (the taxonomy state this
-        // wave maintains, from bandTargets.stateId when band-aware discovery has resolved a
-        // confident one) then hrRatio (this user's HR relative to THEIR OWN resting baseline,
-        // W4-004's peekBaselines) then raw HR — instead of the fixed population ladder that
-        // scored an athlete and a sedentary user identically at the same raw HR. Both reads
+        // The HR branch maps the CURRENT heart rate to a coarse band server-side and builds its
+        // params from that band with NO LLM call (adjustBiometricPlaylist → buildBioParams;
+        // BE-221: nothing derived from health data reaches Groq). W4-016:
+        // the band routes through biometricBand's real preference chain — stateLabel (the
+        // taxonomy state this wave maintains, from bandTargets.stateId when band-aware discovery
+        // has resolved a confident one) then hrRatio (this user's HR relative to THEIR OWN resting
+        // baseline, W4-004's peekBaselines) then raw HR — instead of the fixed population ladder
+        // that scored an athlete and a sedentary user identically at the same raw HR. Both reads
         // are best-effort and gated by the same kill switch geminiEngine.js honours, so a
         // cold-start user (no baseline, no resolved state) or a disabled flag degrades this
-        // object to exactly {heartRate, activity} — today's behaviour byte-for-byte.
+        // object to exactly {heartRate, activity}.
         let stateLabel = null;
         let hrRatio = null;
         if (!disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED)) {
@@ -1336,14 +1338,28 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
 
     // Discovery captions (Step 2, dark-launched behind DISCOVERY_CAPTION_LLM): ONE batched Groq
     // call writes a short witty "why this discovery" line per discovery track from its audio
-    // FEATURES + this session's mood/activity/HR context ONLY — never a title/artist/genre (§II).
+    // FEATURES + the session context the USER chose — a preset mood, the emotion taps and the
+    // activity chip — never a title/artist/genre (§II), and never anything health data shaped
+    // (BE-221, the owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no activity
+    // a watch detected. A run that health data shaped is not captioned at all: its targets, and so
+    // the features of the very tracks it chose, carry the reading. The guard fails CLOSED on the
+    // targets the selection actually used: they say whether any health input reached them
+    // (`targets.healthInputs`, set by targetsBuilder.buildTargets — a cached baseline, a stored
+    // profile, a stored night, an affect state or a live heart rate), and targets that do not say
+    // `false` count as shaped (BE-227). The terms before it are what this run itself knows: a heart
+    // rate when it began, the stored-profile context of the mood branch, band-aware targets, and
+    // an activity from the watch rather than a chip. The bio:* key term is defence in depth: a bio
+    // key needs a heart rate, which hrAtStart already covers.
     // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
     // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
+    const healthShapedCaption = hrAtStart || profileShaped || bandTargets != null || _isBioKey(moodKey)
+      || (effectiveActivity != null && effectiveActivity !== state.lastActivity)
+      || playlist?.targets?.healthInputs !== false;
     if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
       const allDiscovery = playlist.merged.filter((t) => t?.isDiscovery);
       // A track can only be captioned once selection ATTACHED its features (pipeline.js:95);
       // a featureless catalog entry (no AudioFeature doc) is skipped, not sent to the model.
-      const captionable = allDiscovery.filter((t) => t.recordingKey && t.features);
+      const captionable = healthShapedCaption ? [] : allDiscovery.filter((t) => t.recordingKey && t.features);
       let captioned = 0;
       if (captionable.length) {
         try {
@@ -1353,9 +1369,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
           const captions = await captionService.captionDiscovery(captionable, {
             moodKey,
             emotionTaps: state.lastEmotionTaps,
-            activity:    effectiveActivity,
-            hrBand:      bandFromHeartRate(state.stableHR),
-            targets:     playlist.targets,
+            activity:    useEmotion ? state.lastActivity : null,
           });
           for (const t of captionable) {
             const cap = captions?.get?.(t.recordingKey);

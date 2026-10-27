@@ -68,7 +68,7 @@ const musicProfileSchema = new mongoose.Schema({
   // Biometric baselines DELETED (T3.3): restingHeartRate + hrZones were plaintext
   // special-category health data. They live encrypted on MedicalProfile — the single
   // source of truth — and were never even written here. Readers now source resting HR
-  // from MedicalProfile (see sockets/biometricHandler.js, services/geminiEngine.js).
+  // from MedicalProfile (see sockets/biometricHandler.js).
 
   lastAnalyzed: { type: Date, default: null },
 }, {
