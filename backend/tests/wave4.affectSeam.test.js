@@ -470,8 +470,9 @@ describe('hour-of-day comes from the user\'s habitual timezone when it is known 
     // rather than on the behaviour this test exists to guard. Re-pinned as a superset with the
     // hour asserted explicitly, which is strictly stronger than the original: every
     // translate-owned key is still byte-identical AND the published hour is proven to be the
-    // server's on the no-tz-data path.
-    expect(t).toEqual({ ...expected, hourOfDay: new Date(NOW).getHours() });
+    // server's on the no-tz-data path. BE-227 (#279) publishes one more additive key, the same way:
+    // `healthInputs`, true here because a baseline, a profile and a live heart rate were all read.
+    expect(t).toEqual({ ...expected, hourOfDay: new Date(NOW).getHours(), healthInputs: true });
   });
 });
 
