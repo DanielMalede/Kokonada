@@ -11,21 +11,41 @@
 
 const { normalizeGarminSummaries } = require('./adapter');
 const { persistMetrics } = require('./metricStore');
+const { NO_REJECTS } = require('./insertAccounted');
 const { GARMIN_SPECIAL_CATEGORY_METRICS } = require('./specialCategoryMetrics');
 const {
   HEALTH_CONSENT_PURPOSE,
   garminSpecialCategoryAllowed,
-  getGrantedConsentVersion,
+  getConsentState,
 } = require('../privacy/consent');
+const { isCurrentGrant } = require('../privacy/consentState');
+
+// What the seam returns when the user holds no current Art. 9 grant: nothing was read past the consent
+// row, so every count is zero.
+const refusal = (code) => ({
+  accepted: 0, inserted: 0, rejected: NO_REJECTS, profileMetrics: {}, droppedOutsideRetention: 0, droppedInFuture: 0, refused: code,
+});
 
 /**
  * @param {string} userId
  * @param {Array<{type:string, summary:object}>} items
- * @returns {Promise<{accepted:number, inserted:number, rejected:object, profileMetrics:object, droppedOutsideRetention:number}>}
+ * @param {{now?: Date}} [options]  the clock the retention window and the future cap are measured against
+ * @returns {Promise<{accepted:number, inserted:number, rejected:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number, refused:null|'consent_not_current'}>}
  *   `accepted` counts the metrics that cleared the normaliser and the consent gate;
- *   `droppedOutsideRetention` counts those of them older than their store keeps, never written.
+ *   `droppedOutsideRetention` counts those of them older than their store keeps, never written;
+ *   `droppedInFuture` counts those stamped past `now` + MAX_FUTURE_SKEW_MS, never written;
+ *   `refused` is null when the push was admitted, else the code it was refused with (every count 0).
+ * @throws when the consent read fails: nothing has been written, and the webhook answers 500 so Garmin retries
  */
-async function ingestSummaries(userId, items) {
+async function ingestSummaries(userId, items, { now = new Date() } = {}) {
+  // The Art. 9 gate, FIRST (BE-205, SEC-273-1). This seam used to trust its caller: only the webhook
+  // controller read consent, so any other caller (the personal lane's pull job) would have stored heart
+  // rate, HRV and sleep with no record, after a withdrawal or on a stale version. It now decides for
+  // itself, from the latest consent row and the one definition of a current grant, before a summary is
+  // normalised or a store is touched. A read error is not caught.
+  const { status, latest } = await getConsentState(userId, HEALTH_CONSENT_PURPOSE);
+  if (!isCurrentGrant(status)) return refusal('consent_not_current');
+
   const metrics = [];
   for (const { type, summary } of items || []) {
     for (const m of normalizeGarminSummaries(type, summary)) metrics.push(m);
@@ -36,8 +56,8 @@ async function ingestSummaries(userId, items) {
   // consent version is >= GARMIN_CONSENT_MIN_VERSION. Inert while the lane is dormant (everyone is
   // at v1 < min), so they are dropped here; when the lane goes live and CURRENT_CONSENT_VERSION is
   // bumped to the min, only re-consented users clear the gate. The HC-lane metrics are unaffected.
-  const grantedVersion = await getGrantedConsentVersion(userId, HEALTH_CONSENT_PURPOSE);
-  const gated = garminSpecialCategoryAllowed(grantedVersion)
+  // The version is read off the same row the grant was decided from, so the two cannot disagree.
+  const gated = garminSpecialCategoryAllowed(latest.consentVersion)
     ? metrics
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
 
@@ -46,9 +66,12 @@ async function ingestSummaries(userId, items) {
   // while BiometricLog and VitalSample keep 90 days by default. The part older than that used to be
   // written, folded into MedicalProfile, and reaped on arrival; the store now drops it before any
   // write and reports how many metrics it dropped.
-  const { inserted, rejected, profileMetrics, droppedOutsideRetention } =
-    await persistMetrics(userId, gated, { dropOutsideRetention: true });
-  return { accepted: gated.length, inserted, rejected, profileMetrics, droppedOutsideRetention };
+  // Future cap (BE-206). The webhook lane has no contract in front of it, so a summary stamped past the
+  // clock would be written, and a far-future night would hold MedicalProfile.lastNightSleep for good. The
+  // store drops those too, with the one allowance the other ingest doors use, and counts them.
+  const { inserted, rejected, profileMetrics, droppedOutsideRetention, droppedInFuture } =
+    await persistMetrics(userId, gated, { dropOutsideRetention: true, dropInFuture: true, now });
+  return { accepted: gated.length, inserted, rejected, profileMetrics, droppedOutsideRetention, droppedInFuture, refused: null };
 }
 
 module.exports = { ingestSummaries, GARMIN_SPECIAL_CATEGORY_METRICS };

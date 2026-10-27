@@ -20,20 +20,28 @@
  *
  * The wrapper is ours and strict: an envelope has exactly `schemaVersion` and `items`, an item has
  * exactly `type` and `summary`, and an extra key there is a bug upstream, so it is refused. A
- * summary's extra keys are Garmin's, and they are dropped.
+ * summary's extra keys are Garmin's, and they are dropped, and a field Garmin sends as null is absent
+ * (BE-189). A night, or a night's HRV, must say where it ends (BE-190).
+ *
+ * ALL OR NOTHING. One refused item refuses the whole envelope. A caller that must keep a good item when
+ * its sibling is bad (the personal pull job, T4) wraps ONE item per envelope and reports a refusal by the
+ * item's index (BE-189; pinned in tests/shadow.garminEnvelope.boundaries.test.js).
  */
 
 const { z } = require('zod');
 // A night, or a night's HRV window, longer than a day is not a night: the normaliser's own bound, so
-// the envelope admits exactly the windows the normaliser can end a night on.
-const { MAX_WINDOW_SECONDS } = require('./adapter');
+// the envelope admits exactly the windows the normaliser can end a night on, and where a night ends is
+// the normaliser's own definition (BE-190). The future allowance is the one the Health Connect batch
+// contract and the store's future cap use (BE-206).
+const {
+  MAX_WINDOW_SECONDS, MAX_FUTURE_SKEW_MS, GARMIN_NIGHT_TYPES, garminNightEndSec,
+} = require('./adapter');
 
 const GARMIN_PERSONAL_ENVELOPE_VERSION = 1;
 // Stress and Body Battery join behind their consent gate (T11); nothing else is in Phase 1's scope.
 const GARMIN_PERSONAL_TYPES = Object.freeze(['dailies', 'sleeps', 'hrv']);
 const MAX_ITEMS = 50;
 const MAX_ENTRIES = 6000;
-const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000; // the same five minutes the Health Connect batch contract allows
 
 const ENVELOPE_ERROR_CODES = Object.freeze([
   'invalid_garmin_envelope',
@@ -134,15 +142,34 @@ function latestSecond(summary) {
   return latest;
 }
 
+// BE-189 (RA-1): Garmin sends an optional field it has no value for as null, and zod's .optional() admits
+// only a missing key, so one null refused the item and, with it, the envelope. A null FIELD is an absent
+// one: dropped from the summary and from its sleep-level map, the two places whose keys are optional
+// fields. A null inside an offset map or a segment is a value, and stays refused. Builds a copy.
+function withoutNulls(object) {
+  return Object.fromEntries(Object.entries(object).filter(([, value]) => value !== null));
+}
+
+function withoutNullFields(summary) {
+  const out = withoutNulls(summary);
+  if (isPlainObject(out.sleepLevelsMap)) out.sleepLevelsMap = withoutNulls(out.sleepLevelsMap);
+  return out;
+}
+
 function parseItem(raw, nowMs) {
   const item = ItemSchema.safeParse(raw);
   if (!item.success) throw envelopeError('invalid_garmin_envelope');
   const { type, summary } = item.data;
   if (!GARMIN_PERSONAL_TYPES.includes(type)) throw envelopeError('unknown_garmin_summary_type');
   if (entryCounts(type, summary).some((n) => n > MAX_ENTRIES)) throw envelopeError('garmin_summary_too_large');
-  const parsed = SUMMARY_SCHEMAS[type].safeParse(summary);
+  const parsed = SUMMARY_SCHEMAS[type].safeParse(withoutNullFields(summary));
   if (!parsed.success) throw envelopeError('invalid_garmin_summary');
   if (latestSecond(parsed.data) * 1000 > nowMs + MAX_FUTURE_SKEW_MS) throw envelopeError('garmin_summary_in_future');
+  // BE-190 (RA-2): a night is filed where it ENDS. One that cannot say where it ends would be stamped at
+  // its start by the normaliser's fallback, the mis-dating #273 fixed, so this lane refuses it.
+  if (GARMIN_NIGHT_TYPES.includes(type) && garminNightEndSec(type, parsed.data) === null) {
+    throw envelopeError('invalid_garmin_summary');
+  }
   return { type, summary: parsed.data };
 }
 
