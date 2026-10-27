@@ -18,6 +18,11 @@
  * read-only property THROWS here instead of failing silently, so a caller such as the Sentry
  * scrubber can drop the event rather than send it with the secret still on it.
  *
+ * LINEAR TIME. The Sentry scrubber runs this over every string of every event, synchronously, and a
+ * request's URL and headers are the caller's to fill, so no pattern may cost more than one pass over
+ * its input. The first three are linear as written: each try either fails within a few characters or
+ * consumes a run that no other try reads again. The bare JWT is not matched by a regex (see below).
+ *
  * No dependencies, so app/config/sentry.js can require this file without a cycle.
  */
 
@@ -25,8 +30,33 @@ const PATTERNS = Object.freeze([
   [/(ApiKey)\s+[^\s"'`]+/gi, (_match, scheme) => `${scheme} [REDACTED]`],
   [/(Bearer)\s+[A-Za-z0-9\-._~+/]+=*/gi, (_match, scheme) => `${scheme} [REDACTED]`],
   [/GCDC_[A-Za-z0-9._-]+/gi, () => '[REDACTED]'],
-  [/eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g, () => '[REDACTED]'],
 ]);
+
+// The bare JWT. The regex /eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/g tried a match at every
+// `eyJ` and each try scanned to the next dot, so a run of `eyJeyJ…` with no dot cost time quadratic in
+// its length (RA-1: 64 KB held the event loop for 2.3 s). Every character such a match can hold is in
+// [A-Za-z0-9_.-], so each maximal run of those is read ONCE and split on its dots: segment i holds a
+// JWT when it contains `eyJ`, segment i+1 is not empty, and a segment i+2 exists. The match runs from
+// segment i's first `eyJ` to the end of segment i+2, which is exactly what the regex matched, so the
+// text before the `eyJ` stays (`%20eyJ…`, a URL-encoded Bearer, keeps its `20` and loses the token).
+const JWT_RUN = /[A-Za-z0-9_.-]+/g;
+const JWT_START = 'eyJ';
+
+function redactJwtsInRun(run) {
+  if (!run.includes(JWT_START)) return run;
+  const segments = run.split('.');
+  const out = [];
+  for (let i = 0; i < segments.length; i += 1) {
+    const at = segments[i].indexOf(JWT_START);
+    if (at !== -1 && i + 2 < segments.length && segments[i + 1] !== '') {
+      out.push(`${segments[i].slice(0, at)}[REDACTED]`);
+      i += 2;
+    } else {
+      out.push(segments[i]);
+    }
+  }
+  return out.join('.');
+}
 
 // Deeper than any event or log record this backend builds; past it, a copy is truncated and an
 // in-place walk throws, so nothing deeper can slip through unread.
@@ -36,7 +66,8 @@ const MAX_DEPTH = 64;
 function redactString(text) {
   let out = text;
   for (const [pattern, replace] of PATTERNS) out = out.replace(pattern, replace);
-  return out;
+  // A JWT's first segment always begins `eyJ`: a string without one holds no JWT and is not walked.
+  return out.includes(JWT_START) ? out.replace(JWT_RUN, redactJwtsInRun) : out;
 }
 
 const isPlainObject = (value) => {
