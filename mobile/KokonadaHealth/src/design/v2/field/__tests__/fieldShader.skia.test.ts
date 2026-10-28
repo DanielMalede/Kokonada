@@ -422,11 +422,16 @@ describe('what the shader’s pixels show', () => {
     const joy = anchor('joy', 'dark');
     const calm = anchor('calm', 'dark');
     const mid = mixOklab(joy, calm, 0.5);
+    // Re-authored at UI-125 (the bound is unchanged): L5′ squares the weights, so across a two-node
+    // bisector t moves twice as fast (t ≈ ½ − ε, was ½ − ε/2) and pixel (31, 32), whose centre sat 0.2 px
+    // off the bisector, drew 2 LSB from the midpoint (the law's own value there; parity held). The lobes
+    // are shifted by δ so the bisector runs through that pixel's centre, as the claim needs.
+    const delta = (31.5 - 31.3) / 24;
     const frame = frameFor('abyss', 'dark', [
-      { id: NODE.J, fade: 1, centre: [-0.5, 0], radius: 0.6, field: joy, halo: joy, bead: null },
-      { id: NODE.C, fade: 1, centre: [0.5, 0], radius: 0.6, field: calm, halo: calm, bead: null },
+      { id: NODE.J, fade: 1, centre: [-0.5 + delta, 0], radius: 0.6, field: joy, halo: joy, bead: null },
+      { id: NODE.C, fade: 1, centre: [0.5 + delta, 0], radius: 0.6, field: calm, halo: calm, bead: null },
     ], { grounds: { outside: mid, face: mid, ring: mid }, vignette: 0, centreLift: 0, grain: { inside: 0, ground: 0 }, dither: 0, shimmer: { cos: 1, sin: 0 }, warp: { amount: 0, orbit: 0, cos: 1, sin: 0, octaves: 3 } });
-    // The plate centre (31.3, 32.7) sits on the bisector; pixel (31, 32) is 0.3 px from it.
+    // The plate centre is (31.3, 32.7); the bisector is at x = 31.5, through pixel (31, 32)'s centre.
     const pixels = render(frame);
     const drawn = rgbAt(pixels, 31, 32);
     const okMid = oklabToSrgb(mid).map((v) => Math.round(v * 255));
