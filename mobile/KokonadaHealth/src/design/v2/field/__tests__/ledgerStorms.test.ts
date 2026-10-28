@@ -57,7 +57,9 @@ describe('E3’s planted controls: each guard is shown to bite, through the harn
   const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
 
   it('a ledger whose node limit can never fit a swap stalls: a frame ends idle with a change waiting past the spacing', () => {
-    const tight: Admission = { ...ADMISSION, nodes: 2 };
+    // One below a toggle's smallest swap, one placement and every rest lobe beside it (2 before law
+    // round 2, item 6 left Abyss one rest lobe), so it holds whatever the rest table.
+    const tight: Admission = { ...ADMISSION, nodes: deps('abyss').config.restLobes };
     const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss'), tight));
     expect(has(failures, 'a frame ended idle with a change waiting past the spacing')).toBe(true);
   });

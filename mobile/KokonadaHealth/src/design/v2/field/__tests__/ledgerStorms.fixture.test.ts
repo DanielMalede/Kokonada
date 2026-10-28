@@ -43,8 +43,11 @@ describe('E3 on fixture-outer, the coarse grid: every mode × storm, taps every 
 
 describe('E3’s planted controls that bind on neutral placements with no lobe, through the harness’s own clauses', () => {
   it('a ledger that admits three swaps makes fixture-outer’s neutral3 overflow: the builder throws, and the demand passes NODE_SLOTS', () => {
+    // The three new taps land in one frame, so one start admits all three swaps: 3 entering, 3 leaving
+    // and every rest lobe, at least 7. Taps 100 ms apart start one swap at the first tap and two after
+    // the spacing, 5 + the rest lobes, which overflowed only while the table had two (law round 2, item 6).
     const three: Admission = { ...ADMISSION, entering: 3, leaving: 3, nodes: 99 };
-    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm(FIXTURE_OUTER, 'settle', 'neutral3', 100, 3000, deps(FIXTURE_OUTER), three));
+    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm(FIXTURE_OUTER, 'settle', 'neutral3', 0, 3000, deps(FIXTURE_OUTER), three));
     expect([has(failures, 'the builder threw'), has(failures, 'demand above NODE_SLOTS')]).toEqual([true, true]);
   });
 
