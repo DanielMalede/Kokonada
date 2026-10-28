@@ -251,11 +251,18 @@ function seamOptionViolations(files, name) {
       const after = m.index + m[0].length;
       const open = code.slice(after).search(/\S/) + after;
       if (code[open] !== '(') { violations.push(`${f.file}: ${name} is referenced without a direct call`); continue; }
+      // A parenthesis inside a string literal ('…', "…", `…`) is not the call's own (RA-6 of #280).
       let depth = 0;
       let close = -1;
+      let quote = null;
       for (let i = open; i < code.length; i += 1) {
-        if (code[i] === '(') depth += 1;
-        else if (code[i] === ')' && --depth === 0) { close = i; break; }
+        const ch = code[i];
+        if (quote) {
+          if (ch === '\\') i += 1;
+          else if (ch === quote) quote = null;
+        } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+        else if (ch === '(') depth += 1;
+        else if (ch === ')' && --depth === 0) { close = i; break; }
       }
       if (close < 0) { violations.push(`${f.file}: a call of ${name} could not be parsed`); continue; }
       const args = splitTopLevel(code.slice(open + 1, close));
@@ -394,6 +401,7 @@ describe('the detectors are not vacuous', () => {
     expect(scan('const seam = garminIngest.ingestSummaries;\nawait seam(u, i, { now });'))
       .toEqual(['x.js: ingestSummaries is referenced without a direct call']);
     expect(scan('await ingestSummaries(u, i')).toEqual(['x.js: a call of ingestSummaries could not be parsed']);
+    expect(scan("await ingestSummaries(u, ')', { now });")).toHaveLength(1);
     // The defining file's own definition, with its `{ now = new Date() }` default, and its export are not calls.
     const own = 'async function ingestSummaries(userId, items, { now = new Date() } = {}) {}\nmodule.exports = { ingestSummaries };';
     expect(seamOptionViolations([{ file: 'garminIngest.js', code: own }], 'ingestSummaries')).toEqual([]);
