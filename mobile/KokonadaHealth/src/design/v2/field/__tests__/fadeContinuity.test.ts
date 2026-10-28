@@ -12,8 +12,9 @@ import { staticsFor } from '../statics.ts';
 //   L1  the lobe has a core: ρ_i = r_i²/(|q′ − c_i|² + κ·r_i²), f_i = fade_i·ρ_i, κ = field.lobe.core;
 //   L2  the halos add, up to the peak: H = min(haloPeak, Σ h_i);
 //   L3  the selection weight is linear in the fade: e_i = fade_i·(extent·ρ_i + λ·η_i), λ = 1/κ.
-// B3: at a fade φ the pixel is within 2φ of the pixel at fade 0, in Y and in OKLab ΔE (float, before
-// the encode), exactly at the lobe's centre, 1e-4 R from it, and at every E4 sample.
+// B3: at a fade φ the pixel is within Kφ of the pixel at fade 0, K = 0.32/κ (8 at κ 0.04; designer,
+// UI-120), in Y and in OKLab ΔE separately (float, before the encode), exactly at the lobe's centre,
+// 1e-4 R from it, and at every E4 sample.
 
 const R_DP = BASE.plate.maxDiameter / 2;
 const C_PX = 1.5 * R_DP;
@@ -135,37 +136,83 @@ describe('fade 0 is the inert slot, bit for bit (designer: “exactly zero at fa
   });
 });
 
-describe('B3: no win at a tiny fade, |Y(φ) − Y(0)| ≤ 2φ and ΔE_OK(φ, 0) ≤ 2φ', () => {
-  it.each(FACES)('%s face: every fading node, at its centre, 1e-4 R from it and at every E4 sample, for φ from 1e-6 to 0.05', (face) => {
-    const { frame, of } = base(face);
-    const points = samplePoints('cycle4');
-    const over: string[] = [];
-    let worst = 0;
-    let checked = 0;
-    for (const c of CASES) {
-      const others = c.others.map(([k, dist, deg]) => at(of[k], away(c.centre, dist, deg)));
-      const zero = withNodes(frame, [at(of[c.fading], c.centre, 0), ...others]);
-      const where: Array<readonly [string, readonly [number, number]]> = [
-        ['centre', c.centre],
-        ['1e-4 R off', [c.centre[0] + 1e-4, c.centre[1]]],
-        ...points.map((p) => [`E4 (${p[0].toFixed(3)}, ${p[1].toFixed(3)})`, p] as const),
-      ];
-      for (const phi of PHIS) {
-        const lit = withNodes(frame, [at(of[c.fading], c.centre, phi), ...others]);
-        for (const [name, p] of where) {
-          const a = pixelAt(lit, p);
-          const b = pixelAt(zero, p);
-          const dy = Math.abs(relY(a) - relY(b));
-          const de = deltaE(a, b);
-          checked++;
-          worst = Math.max(worst, dy / phi, de / phi);
-          if (!(dy <= 2 * phi && de <= 2 * phi)) over.push(`${c.label}, φ ${phi}, ${name}: ΔY ${dy.toExponential(3)}, ΔE ${de.toExponential(3)} (${(Math.max(dy, de) / phi).toFixed(2)}φ)`);
-        }
+/**
+ * B3 (the designer's ruling, UI-120): |Y(φ) − Y(0)| ≤ Kφ and ΔE_OK(φ, 0) ≤ Kφ, checked separately, with
+ * K = 0.32/κ from the token field.lobe.core (8 at κ 0.04). A lobe at fade φ weighs up to φ/κ at its core,
+ * so the constant follows κ; the 0.32 is the designer's, never loosened to fit a measurement.
+ */
+const B3_K = 0.32 / BASE.field.lobe.core;
+
+interface B3Measure { readonly worstY: number; readonly worstE: number; readonly worstYAt: string; readonly worstEAt: string; readonly over: string[]; readonly checked: number }
+
+/** Every case, φ and point on one face, with the frame's κ replaced by `kappa` (only the lobe core). */
+function measureB3(face: Face, kappa: number, bound: number): B3Measure {
+  const { frame: built, of } = base(face);
+  const frame = { ...built, lobeCore: kappa };
+  const points = samplePoints('cycle4');
+  const over: string[] = [];
+  let worstY = 0;
+  let worstE = 0;
+  let worstYAt = '';
+  let worstEAt = '';
+  let checked = 0;
+  for (const c of CASES) {
+    const others = c.others.map(([k, dist, deg]) => at(of[k], away(c.centre, dist, deg)));
+    const zero = withNodes(frame, [at(of[c.fading], c.centre, 0), ...others]);
+    const where: Array<readonly [string, readonly [number, number]]> = [
+      ['centre', c.centre],
+      ['1e-4 R off', [c.centre[0] + 1e-4, c.centre[1]]],
+      ...points.map((p) => [`E4 (${p[0].toFixed(3)}, ${p[1].toFixed(3)})`, p] as const),
+    ];
+    for (const phi of PHIS) {
+      const lit = withNodes(frame, [at(of[c.fading], c.centre, phi), ...others]);
+      for (const [name, p] of where) {
+        const a = pixelAt(lit, p);
+        const b = pixelAt(zero, p);
+        const y = Math.abs(relY(a) - relY(b)) / phi;
+        const e = deltaE(a, b) / phi;
+        const label = `${c.label}, φ ${phi}, ${name}`;
+        checked++;
+        // A non-finite measurement (κ 0 at a lobe's exact centre) is a failure, never a pass.
+        if (!Number.isFinite(y) || y > worstY) [worstY, worstYAt] = [Number.isFinite(y) ? y : Infinity, label];
+        if (!Number.isFinite(e) || e > worstE) [worstE, worstEAt] = [Number.isFinite(e) ? e : Infinity, label];
+        if (!(y <= bound) || !(e <= bound)) over.push(`${label}: ΔY ${y.toFixed(3)}φ, ΔE ${e.toFixed(3)}φ`);
       }
     }
-    expect({ over: over.slice(0, 12), count: over.length }).toEqual({ over: [], count: 0 });
-    expect(checked).toBe(CASES.length * PHIS.length * (points.length + 2));
-    // Not vacuous: the fading node does move the pixels, in proportion to φ.
-    expect(worst).toBeGreaterThan(0.05);
+  }
+  return { worstY, worstE, worstYAt, worstEAt, over, checked };
+}
+
+describe('B3: no win at a tiny fade, |ΔY| ≤ Kφ and ΔE_OK ≤ Kφ with K = 0.32/κ (designer, UI-120)', () => {
+  it('K comes from the token: κ (field.lobe.core) is pinned at 0.04, so K is 8', () => {
+    expect(BASE.field.lobe.core).toBe(0.04);
+    expect(B3_K).toBeCloseTo(8, 12);
+  });
+
+  it.each(FACES)('%s face: every fading node, at its centre, 1e-4 R from it and at every E4 sample, for φ from 1e-6 to 0.05, Y and ΔE each within Kφ', (face) => {
+    const m = measureB3(face, BASE.field.lobe.core, B3_K);
+    // The measured constants, for the record (UI-120 asks for the ΔE worst, not only Y).
+    console.info(`B3 ${face} κ ${BASE.field.lobe.core} K ${B3_K}: worst ΔY ${m.worstY.toFixed(3)}φ at ${m.worstYAt}; worst ΔE ${m.worstE.toFixed(3)}φ at ${m.worstEAt}`);
+    expect({ over: m.over.slice(0, 12), count: m.over.length }).toEqual({ over: [], count: 0 });
+    expect(m.checked).toBe(CASES.length * PHIS.length * (samplePoints('cycle4').length + 2));
+    // Not vacuous: the fading node does move the pixels, in proportion to φ, in Y and in ΔE.
+    expect(m.worstY).toBeGreaterThan(0.05);
+    expect(m.worstE).toBeGreaterThan(0.05);
+  });
+
+  // Planted controls: a sharper core (smaller κ) lets a lobe at fade φ win the pixel, and the token's K
+  // must catch it. Only the lobe core is planted; λ stays the token's. The bound is one statement over
+  // both faces, so a plant fails it when any face goes over (κ 0.01 goes over on dark only).
+  it.each([0, 0.004, 0.01])('planted κ %s fails the token’s bound K = 0.32/0.04 on the two faces', (kappa) => {
+    let over = 0;
+    let worst = 0;
+    for (const face of FACES) {
+      const m = measureB3(face, kappa, B3_K);
+      console.info(`B3 plant ${face} κ ${kappa}: worst ΔY ${m.worstY.toFixed(3)}φ at ${m.worstYAt}; worst ΔE ${m.worstE.toFixed(3)}φ at ${m.worstEAt}; ${m.over.length} of ${m.checked} over ${B3_K}φ`);
+      over += m.over.length;
+      worst = Math.max(worst, m.worstY, m.worstE);
+    }
+    expect(over).toBeGreaterThan(0);
+    expect(worst).toBeGreaterThan(B3_K);
   });
 });
