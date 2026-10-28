@@ -1,5 +1,40 @@
 # OPS-107: one false positive, ignored by its exact fingerprint (commit:file:rule:line).
 # A public Spotify track ID used as a test fixture in the deleted web frontend matches gitleaks'
 # generic-api-key rule. It is not a secret. Never ignore by rule or by path.
-# backend/tests/secretScanGates.test.js keeps this file to this one entry.
+# backend/tests/secretScanGates.test.js keeps this file to exactly the entries below.
 3459263a3431e29accccf3d674774be43d1f608f:frontend/src/__tests__/SpotifyAttribution.test.tsx:generic-api-key:33
+
+# UI-104: 29 false positives in PR #234's pushed history, ignored by their exact fingerprints.
+# The token generator wrote the sha256 digest of each design-token source file under a key holding
+# its file name ('base.tokens.json': '<64 hex>'), which generic-api-key reads as a leak. They are
+# digests, not secrets. Fixed in mobile/KokonadaHealth/scripts/tokens/lib/emit.mjs (keyed by the
+# file stem); scripts/tokens/__tests__/secretScanShape.test.ts keeps new lines clear of the rule.
+150ce498bfda37dc7faff9766325b183d0b1d447:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:7
+150ce498bfda37dc7faff9766325b183d0b1d447:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+29caae40cf283309d813c37f90e5d0e5bb6a92c0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+2ae3b2b26f1973db9f8778ad97a4a0b5fe887b66:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+82610f2ef12642df384571760389c60eb4650e8a:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+82610f2ef12642df384571760389c60eb4650e8a:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:7
+82610f2ef12642df384571760389c60eb4650e8a:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:8
+82610f2ef12642df384571760389c60eb4650e8a:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:9
+8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:7
+8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:8
+8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:9
+8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:10
+98f6627311ba5232fc51506940d624ef00381826:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+9af1027eebb6d992be3dc29070a3f935eacdacf0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+9af1027eebb6d992be3dc29070a3f935eacdacf0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:7
+9af1027eebb6d992be3dc29070a3f935eacdacf0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:8
+9af1027eebb6d992be3dc29070a3f935eacdacf0:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:9
+bdac81e8b5166c1cae923bc4d9fdd5e7d4f60451:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+c8b53361e358490a53c0c55c9c146c796e36055b:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:9
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:7
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:8
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:9
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:10
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:7
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:8
+d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:9
+fd37b063aa300130c0831fdbfabcf4cc1e3bc26b:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:7
+fd37b063aa300130c0831fdbfabcf4cc1e3bc26b:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6

@@ -11,8 +11,18 @@
 // `.gitleaksignore` skips that one finding by its fingerprint, `commit:file:rule:line`, so it can
 // match nothing else: not another commit, file, line or rule. Allow-listing by rule or by path
 // would blind the scan to every future match of the same kind, so neither is used. The pin keeps
-// the file to that one line: any new entry has to be a reviewed change to this test, never a
+// the file to its listed entries: any new entry has to be a reviewed change to this test, never a
 // quiet edit to the ignore file.
+//
+// UI-104 adds 29 more, from PR #234's pushed history, which is never rewritten. The token generator
+// (mobile/KokonadaHealth/scripts/tokens/lib/emit.mjs) wrote the sha256 digest of each token source
+// file under a key holding the file name, `'base.tokens.json': '<64 hex>',`, and generic-api-key
+// reads the keyword "token", a colon and a high-entropy value as a leak. They are digests of
+// committed files, not secrets. The generator now keys them by the file's stem, `base: '<64 hex>',`,
+// and mobile/KokonadaHealth/scripts/tokens/__tests__/secretScanShape.test.ts keeps every generated
+// line clear of the rule, so no new finding of this kind can appear; these fingerprints cover only
+// the commits already pushed. Each names its commit, one of the two generated token modules, the
+// rule and the line, so it can match nothing else either.
 //
 // THE PR AND PUSH GATE (ci.yml, job `secret-scan`). gitleaks-action built a PR's range from the
 // PR's commit list, GET /pulls/:number/commits, and read only the first page of it: 30 commits.
@@ -68,6 +78,47 @@ const CI_WORKFLOW = path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
 
 const OPS_107_FINGERPRINT =
   '3459263a3431e29accccf3d674774be43d1f608f:frontend/src/__tests__/SpotifyAttribution.test.tsx:generic-api-key:33';
+
+// UI-104: the source-hash lines of the generated token modules, by commit, file and line, as CI's
+// gitleaks 8.24.3 run on PR #234 reported them. Each line held `'<name>.tokens.json': '<sha256>',`.
+const TOKENS = 'mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts';
+const EXTENSIONS = 'mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts';
+const UI_104_FINGERPRINTS = [
+  ['150ce498bfda37dc7faff9766325b183d0b1d447', EXTENSIONS, 7],
+  ['150ce498bfda37dc7faff9766325b183d0b1d447', TOKENS, 6],
+  ['29caae40cf283309d813c37f90e5d0e5bb6a92c0', TOKENS, 6],
+  ['2ae3b2b26f1973db9f8778ad97a4a0b5fe887b66', TOKENS, 6],
+  ['82610f2ef12642df384571760389c60eb4650e8a', TOKENS, 6],
+  ['82610f2ef12642df384571760389c60eb4650e8a', TOKENS, 7],
+  ['82610f2ef12642df384571760389c60eb4650e8a', TOKENS, 8],
+  ['82610f2ef12642df384571760389c60eb4650e8a', TOKENS, 9],
+  ['8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0', EXTENSIONS, 7],
+  ['8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0', EXTENSIONS, 8],
+  ['8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0', EXTENSIONS, 9],
+  ['8f2bacb2fe23a95411449e0fb98aa0d2f16a1be0', EXTENSIONS, 10],
+  ['98f6627311ba5232fc51506940d624ef00381826', TOKENS, 6],
+  ['9af1027eebb6d992be3dc29070a3f935eacdacf0', TOKENS, 6],
+  ['9af1027eebb6d992be3dc29070a3f935eacdacf0', TOKENS, 7],
+  ['9af1027eebb6d992be3dc29070a3f935eacdacf0', TOKENS, 8],
+  ['9af1027eebb6d992be3dc29070a3f935eacdacf0', TOKENS, 9],
+  ['bdac81e8b5166c1cae923bc4d9fdd5e7d4f60451', TOKENS, 6],
+  ['c8b53361e358490a53c0c55c9c146c796e36055b', TOKENS, 9],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', EXTENSIONS, 7],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', EXTENSIONS, 8],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', EXTENSIONS, 9],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', EXTENSIONS, 10],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', TOKENS, 6],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', TOKENS, 7],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', TOKENS, 8],
+  ['d351ad70d3681c8c28e85ea0032c7b7c568ad5ac', TOKENS, 9],
+  ['fd37b063aa300130c0831fdbfabcf4cc1e3bc26b', EXTENSIONS, 7],
+  ['fd37b063aa300130c0831fdbfabcf4cc1e3bc26b', TOKENS, 6],
+].map(([commit, file, line]) => `${commit}:${file}:generic-api-key:${line}`);
+
+// The one shape a UI-104 entry may take: a full commit SHA, one of the two generated token modules,
+// generic-api-key, a line number. Never a rule or a path alone.
+const UI_104_SHAPE =
+  /^[0-9a-f]{40}:mobile\/KokonadaHealth\/src\/design\/v2\/tokens\/tokens(\.extensions)?\.generated\.ts:generic-api-key:[1-9][0-9]*$/;
 
 const GITLEAKS_VERSION = '8.24.3';
 // gitleaks_8.24.3_linux_x64.tar.gz, as listed in the release's gitleaks_8.24.3_checksums.txt.
@@ -221,19 +272,36 @@ function secretScanJob() {
 const commandsOf = (script) => script.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
 const stepNamed = (job, name) => (job ? job.steps.find((s) => s.name === name && typeof s.run === 'string') : undefined);
 
-describe('.gitleaksignore (OPS-107)', () => {
+describe('.gitleaksignore (OPS-107, UI-104)', () => {
   it('exists at the repository root, where gitleaks reads it', () => {
     expect(fs.existsSync(GITLEAKSIGNORE)).toBe(true);
   });
 
-  it('holds only the one OPS-107 fingerprint, plus comment lines', () => {
-    // gitleaks trims each line and skips blank ones and those starting with `#`; every other line
-    // is an entry. Read the same way here, so what the pin counts is what gitleaks ignores.
-    const entries = fs.readFileSync(GITLEAKSIGNORE, 'utf8')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line !== '' && !line.startsWith('#'));
-    expect(entries).toEqual([OPS_107_FINGERPRINT]);
+  // gitleaks trims each line and skips blank ones and those starting with `#`; every other line
+  // is an entry. Read the same way here, so what the pin counts is what gitleaks ignores.
+  const entries = () => fs.readFileSync(GITLEAKSIGNORE, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !line.startsWith('#'));
+
+  it('holds exactly the OPS-107 fingerprint and the 29 UI-104 fingerprints, in that order, plus comment lines', () => {
+    expect(entries()).toEqual([OPS_107_FINGERPRINT, ...UI_104_FINGERPRINTS]);
+  });
+
+  it('lists 29 distinct UI-104 entries, each a full fingerprint of a generated token module line', () => {
+    expect(new Set(UI_104_FINGERPRINTS).size).toBe(29);
+    expect(UI_104_FINGERPRINTS.filter((f) => !UI_104_SHAPE.test(f))).toEqual([]);
+    // The shape bites: a path-only line, another rule, another file or a short SHA does not pass.
+    const sha = '150ce498bfda37dc7faff9766325b183d0b1d447';
+    expect([
+      TOKENS,
+      `${sha}:${TOKENS}`,
+      `${sha}:${TOKENS}:generic-api-key`,
+      `${sha}:${TOKENS}:github-pat:6`,
+      `${sha}:mobile/KokonadaHealth/src/design/v2/tokens/tokens.ts:generic-api-key:6`,
+      `150ce49:${TOKENS}:generic-api-key:6`,
+      `${sha}:${EXTENSIONS}:generic-api-key:6`,
+    ].filter((f) => UI_104_SHAPE.test(f))).toEqual([`${sha}:${EXTENSIONS}:generic-api-key:6`]);
   });
 });
 
