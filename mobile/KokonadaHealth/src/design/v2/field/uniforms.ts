@@ -37,7 +37,7 @@ export const FIELD_UNIFORMS: readonly FieldUniform[] = [
   { name: 'uWarp', floats: 4 }, // W(s), orbit, cos 2πt/T, sin 2πt/T
   { name: 'uOctaves', floats: 1 },
   { name: 'uShimmer', floats: 2 }, // cos φ, sin φ
-  { name: 'uSelect', floats: 2 }, // λ, R0–I is a waypoint edge (0 or 1)
+  { name: 'uSelect', floats: 4 }, // λ, R0–I is a waypoint edge (0 or 1), κ the lobe's core, θ the triple fade
   { name: 'uNoise', floats: 3 }, // grain inside the face, grain elsewhere, dither
   // Quiet zones (designer r3 §1): each rect's centre and half-size in render px; unused slots are
   // inert through the count only.
@@ -84,7 +84,7 @@ export function packFrame(frame: FieldFrame): number[] {
     frame.warp.amount, frame.warp.orbit, frame.warp.cos, frame.warp.sin,
     frame.warp.octaves,
     frame.shimmer.cos, frame.shimmer.sin,
-    frame.lambda, frame.restIntenseWaypoint ? 1 : 0,
+    frame.lambda, frame.restIntenseWaypoint ? 1 : 0, frame.lobeCore, frame.tripleFade,
     frame.grain.inside, frame.grain.ground, frame.dither,
     ...rects,
     frame.quiet.grow, frame.quiet.feather, frame.quiet.rects.length,

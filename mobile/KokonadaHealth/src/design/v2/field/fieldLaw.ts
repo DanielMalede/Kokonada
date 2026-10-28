@@ -7,14 +7,17 @@
 //   q          the pixel in plate units: R = 1 at the rim, y up;
 //   region     face (inside the label ring), ring, moat (field-free) or outside;
 //   warp       q' = q + W·(fbm(1.4q + orbit·(cos θ, sin θ)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin θ, cos θ)) − 0.5);
-//   lobes      f_i = fade_i·r_i²/|q' − c_i|², m = smoothstep(0.55, 1.6, Σ f_i);
-//   halos      h_i = fade_i·peak·(1 − smoothstep(r_bead, r_halo, |q − b_i|)), inside the rim only;
-//   k_field    kField·m·extent; H = max h_i; k = min(max(k_field, H), max(cap, peak));
+//   lobes      ρ_i = r_i²/(|q' − c_i|² + κ·r_i²), the lobe with a core (κ = field.lobe.core), f_i = fade_i·ρ_i,
+//              m = smoothstep(0.55, 1.6, Σ f_i) (law round 2, designer L1);
+//   halos      η_i = 1 − smoothstep(r_bead, r_halo, |q − b_i|) inside the rim only, h_i = fade_i·peak·η_i;
+//   k_field    kField·m·extent; H = min(peak, Σ h_i) (L2); k = min(max(k_field, H), max(cap, peak));
 //   a node     a bead node: (1 − w_i)·turned field colour + w_i·steady halo colour,
 //              w_i = smoothstep(−0.05, 0, h_i − k_field); a rest lobe: its turned field colour
 //              (designer 2.1, with the critic's exact mix: where w_i = 1 it is the halo bit for bit);
-//   selection  topTwoSoft over e_i = extent·f_i + λ·h_i: (e1·a1 + max(0, e2 − e3)·a2)/(e1 + max(0, e2 − e3)),
-//              through N = (mid L, 0, 0) on a waypoint edge (J–I, and R0–I where the direction says);
+//   selection  topTwoSoft over e_i = fade_i·(extent·ρ_i + λ·η_i), linear in the fade (L3; λ = 1/κ):
+//              w1 = e1 − e3, w2 = e2 − e3, t = w2/(w1 + w2) (0 where w1 = 0); c1→c2 by t, or c1→N by 2t on
+//              a waypoint edge (J–I, and R0–I where the direction says), N = (mid L, 0, 0); the pair fades
+//              to N̄ = (Σ e_i·L_i / Σ e_i, 0, 0) by β = smoothstep(0, θ, w1/e1) near a third node (L4–L6);
 //   quiet      extent = regionExtent · Π over the quiet rects of smoothstep(0, F, sd) (a step where F = 0),
 //              sd the signed distance to the rect grown by g, rounded (designer r3 §1);
 //   shadows    G.L ← G.L·(1 − Σ strength·smoothstep(−blur, blur, u)): outer u = R − |q − o| outside the
@@ -127,8 +130,12 @@ export interface FieldFrame {
   readonly warp: { readonly amount: number; readonly orbit: number; readonly cos: number; readonly sin: number; readonly octaves: number };
   /** cos and sin of the common-mode hue turn φ. */
   readonly shimmer: { readonly cos: number; readonly sin: number };
-  /** λ in e_i = f_i + λ·h_i. */
+  /** λ in e_i = fade_i·(extent·ρ_i + λ·η_i) (field.graph.lambda, 1/κ). */
   readonly lambda: number;
+  /** κ, the lobe's core: ρ_i = r_i²/(|q′ − c_i|² + κ·r_i²) is at most 1/κ (field.lobe.core). */
+  readonly lobeCore: number;
+  /** θ, the fade near the triple point: β = smoothstep(0, θ, w1/e1) (field.graph.tripleFade). */
+  readonly tripleFade: number;
   /** Is R0–I a waypoint edge in this direction? */
   readonly restIntenseWaypoint: boolean;
   /** Grain amplitudes on L: inside the face, and everywhere else. */
@@ -237,9 +244,23 @@ export function shadowFactor(frame: FieldFrame, region: Region, qx: number, qy: 
   return 1 - sum;
 }
 
+/** The halo's shape η at a distance from its bead's centre: 1 inside the bead, 0 at the halo radius. */
+export function haloShape(distance: number, frame: FieldFrame): number {
+  return 1 - smoothstep(frame.beadRadius, frame.haloRadius, distance);
+}
+
 /** The halo at a distance from its bead's centre: the peak inside the bead, 0 at the halo radius. */
 export function haloWeight(distance: number, frame: FieldFrame): number {
-  return frame.haloPeak * (1 - smoothstep(frame.beadRadius, frame.haloRadius, distance));
+  return frame.haloPeak * haloShape(distance, frame);
+}
+
+/**
+ * The lobe with a core (designer L1): ρ = r²/(d² + κ·r²), at most 1/κ at the centre, so a lobe at fade φ
+ * weighs at most φ/κ there. A lobe of radius 0 is nothing (0, never 0/0).
+ */
+export function lobeShape(dx: number, dy: number, radius: number, core: number): number {
+  const r2 = radius * radius;
+  return r2 > 0 ? r2 / (dx * dx + dy * dy + core * r2) : 0;
 }
 
 /**
@@ -259,11 +280,15 @@ export function isWaypoint(a: number, b: number, routed: boolean): boolean {
 }
 
 /**
- * topTwoSoft: the two strongest nodes, the second weighted by how far it leads the third.
- * Ties go to the lower slot. A waypoint pair mixes along a→N, N = (mid L, 0, 0); the second never
- * outweighs the first, so the mix never passes N.
+ * topTwoSoft (law round 2, designer L4–L6): the two strongest nodes, each weighted by how far it leads
+ * the third, w1 = e1 − e3 and w2 = e2 − e3, so t = w2/(w1 + w2) is ½ where the first two swap and 0
+ * where the second and third do; ties go to the lower slot, and the colour does not depend on them. A
+ * waypoint pair mixes along c1→N, N = (mid L, 0, 0), by 2t ≤ 1, so the mix never passes N. Near the
+ * triple point (w1/e1 below θ) the pair fades to N̄, the e-weighted mean lightness of all the slots: N̄
+ * is symmetric in the nodes, so the colour is continuous there too. With no third node (e3 = 0) β is 1
+ * and the colour is the old law's, bit for bit. Called only where some e_i > 0 (fieldOklab).
  */
-export function selectColour(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean): Oklab {
+export function selectColour(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean, tripleFade: number): Oklab {
   let i1 = 0;
   for (let i = 1; i < e.length; i++) if (e[i] > e[i1]) i1 = i;
   let i2 = i1 === 0 ? 1 : 0;
@@ -272,14 +297,28 @@ export function selectColour(e: readonly number[], colours: readonly Oklab[], id
   for (let i = 0; i < e.length; i++) if (i !== i1 && i !== i2 && e[i] > e3) e3 = e[i];
   const c1 = colours[i1];
   const c2 = colours[i2];
-  const w2 = Math.max(0, e[i2] - e3);
-  const t = w2 / (e[i1] + w2);
+  const w1 = e[i1] - e3;
+  const w2 = e[i2] - e3;
+  // The guard: at an exact triple tie w1 = w2 = 0, and 0/0 would be NaN.
+  const t = w1 > 0 ? w2 / (w1 + w2) : 0;
+  let pair: Oklab;
   if (isWaypoint(ids[i1], ids[i2], restIntenseWaypoint)) {
     const s = 2 * t;
     const nL = (c1.L + c2.L) / 2;
-    return { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
+    pair = { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
+  } else {
+    pair = { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
   }
-  return { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
+  const beta = smoothstep(0, tripleFade, w1 / e[i1]);
+  let eSum = 0;
+  let eL = 0;
+  for (let i = 0; i < e.length; i++) {
+    eSum += e[i];
+    eL += e[i] * colours[i].L;
+  }
+  const neutralL = eL / eSum;
+  // Written P·β + N̄·(1 − β), so at β = 1 the colour is the pair bit for bit.
+  return { L: pair.L * beta + neutralL * (1 - beta), a: beta * pair.a, b: beta * pair.b };
 }
 
 /**
@@ -310,37 +349,45 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
   const wx = qx + w.amount * (fbm(1.4 * qx + w.orbit * w.cos, 1.4 * qy + w.orbit * w.sin, w.octaves) - 0.5);
   const wy = qy + w.amount * (fbm(1.4 * qx + 5.2 + w.orbit * w.sin, 1.4 * qy + 1.3 + w.orbit * w.cos, w.octaves) - 0.5);
 
+  // A slot at fade 0 is skipped, as the shader's uniform branch skips it: every term it adds is 0, so
+  // the frame equals the frame with that slot inert, bit for bit.
   const n = frame.nodes.length;
-  const f: number[] = new Array(n);
+  const rho: number[] = new Array(n);
+  const eta: number[] = new Array(n);
   const h: number[] = new Array(n);
   let fSum = 0;
-  let H = 0;
+  let hSum = 0;
   for (let i = 0; i < n; i++) {
     const node = frame.nodes[i];
-    const dx = wx - node.centre[0];
-    const dy = wy - node.centre[1];
-    f[i] = (node.fade * node.radius * node.radius) / Math.max(dx * dx + dy * dy, 1e-6);
-    fSum += f[i];
-    if (node.bead !== null && d <= 1) {
-      const bx = qx - node.bead[0];
-      const by = qy - node.bead[1];
-      h[i] = node.fade * haloWeight(Math.sqrt(bx * bx + by * by), frame);
-    } else {
-      h[i] = 0;
+    rho[i] = 0;
+    eta[i] = 0;
+    h[i] = 0;
+    if (node.fade > 0) {
+      rho[i] = lobeShape(wx - node.centre[0], wy - node.centre[1], node.radius, frame.lobeCore);
+      if (node.bead !== null && d <= 1) {
+        const bx = qx - node.bead[0];
+        const by = qy - node.bead[1];
+        eta[i] = haloShape(Math.sqrt(bx * bx + by * by), frame);
+      }
+      h[i] = node.fade * (frame.haloPeak * eta[i]);
     }
-    H = Math.max(H, h[i]);
+    fSum += node.fade * rho[i];
+    hSum += h[i];
   }
+  // The halos add, up to the peak (designer L2): two halves of one halo draw the whole halo.
+  const H = Math.min(frame.haloPeak, hSum);
   const regionExtent = extentAt(region, d, frame);
   const extent = regionExtent > 0 ? regionExtent * quietFactor(frame, x, y) : 0;
   const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
 
   let colour = ground;
-  // Selection is gated by the extent: where the field is absent, only the halos compete.
-  const e = f.map((fi, i) => extent * fi + frame.lambda * h[i]);
+  // Selection is gated by the extent (where the field is absent, only the halos compete) and linear in
+  // each node's fade (designer L3), so a fading node hands its colour over across its fade.
+  const e = frame.nodes.map((node, i) => node.fade * (extent * rho[i] + frame.lambda * eta[i]));
   if (Math.max(...e) > 0) {
     const colours = frame.nodes.map((node, i) => nodeColour(node, h[i], kFieldHere, frame.shimmer));
-    colour = selectColour(e, colours, frame.nodes.map((node) => node.id), frame.restIntenseWaypoint);
+    colour = selectColour(e, colours, frame.nodes.map((node) => node.id), frame.restIntenseWaypoint, frame.tripleFade);
   }
 
   const share = (1 - k) * (frame.kp > 0 ? 1 - smoothstep(0, frame.kp, k) : 1);

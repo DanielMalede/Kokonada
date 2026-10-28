@@ -91,6 +91,8 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     warp: { amount: d.field.warp.W0, orbit: d.field.warp.orbit, cos: Math.cos(1.1), sin: Math.sin(1.1), octaves: 3 },
     shimmer: { cos: Math.cos((d.field.shimmer.deg * Math.PI) / 180), sin: Math.sin((d.field.shimmer.deg * Math.PI) / 180) },
     lambda: BASE.field.graph.lambda,
+    lobeCore: BASE.field.lobe.core,
+    tripleFade: BASE.field.graph.tripleFade,
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,

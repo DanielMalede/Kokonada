@@ -70,15 +70,19 @@ float fbm(float2 p) {
   return sum / (1.0 + 0.5 + w2);
 }
 
+// The lobe with a core (law round 2, designer L1): rho = r^2/(d^2 + kappa r^2), at most 1/kappa; a lobe
+// of radius 0 is nothing.
 float lobe(float4 node, float2 qw) {
   float2 dv = qw - node.xy;
-  return (node.w * node.z * node.z) / max(dv.x * dv.x + dv.y * dv.y, 1e-6);
+  float r2 = node.z * node.z;
+  return r2 > 0.0 ? r2 / (dv.x * dv.x + dv.y * dv.y + uSelect.z * r2) : 0.0;
 }
 
-float halo(float4 bead, float fade, float2 q, float d) {
+// The halo's shape eta: 1 inside the bead, 0 at the halo radius, and 0 beyond the rim or for a rest lobe.
+float haloShape(float4 bead, float2 q, float d) {
   if (bead.z < 0.5 || d > 1.0) return 0.0;
   float2 dv = q - bead.xy;
-  return fade * (uWeight.z * (1.0 - sstep(uGeom2.z, uGeom2.w, sqrt(dv.x * dv.x + dv.y * dv.y))));
+  return 1.0 - sstep(uGeom2.z, uGeom2.w, sqrt(dv.x * dv.x + dv.y * dv.y));
 }
 
 // A node's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
@@ -150,16 +154,18 @@ half4 main(float2 p) {
     q.x + uWarp.x * (fbm(float2(1.4 * q.x + uWarp.y * uWarp.z, 1.4 * q.y + uWarp.y * uWarp.w)) - 0.5),
     q.y + uWarp.x * (fbm(float2(1.4 * q.x + 5.2 + uWarp.y * uWarp.w, 1.4 * q.y + 1.3 + uWarp.y * uWarp.z)) - 0.5));
 
-${nodes.map((k) => `  float f${k} = 0.0;\n  float h${k} = 0.0;\n  if (uNode${k}.w > 0.0) {\n    f${k} = lobe(uNode${k}, qw);\n    h${k} = halo(uNode${k}Bead, uNode${k}.w, q, d);\n  }`).join('\n')}
-  float fSum = ${nodes.map((k) => `f${k}`).join(' + ')};
-  float H = max(0.0, h0);
-${nodes.slice(1).map((k) => `  H = max(H, h${k});`).join('\n')}
+  // A slot at fade 0 is skipped by a uniform branch: every term it adds is 0.
+${nodes.map((k) => `  float rho${k} = 0.0;\n  float eta${k} = 0.0;\n  float h${k} = 0.0;\n  if (uNode${k}.w > 0.0) {\n    rho${k} = lobe(uNode${k}, qw);\n    eta${k} = haloShape(uNode${k}Bead, q, d);\n    h${k} = uNode${k}.w * (uWeight.z * eta${k});\n  }`).join('\n')}
+  float fSum = ${nodes.map((k) => `uNode${k}.w * rho${k}`).join(' + ')};
+  // The halos add, up to the peak (designer L2).
+  float H = min(uWeight.z, ${nodes.map((k) => `h${k}`).join(' + ')});
   float kField = uWeight.x * sstep(0.55, 1.6, fSum) * extent;
   float k = min(max(kField, H), uWeight.y);
 
   float3 colour = ground;
   float e[${NODE_SLOTS}];
-${nodes.map((k) => `  e[${k}] = extent * f${k} + uSelect.x * h${k};`).join('\n')}
+  // The selection weight, linear in each node's fade (designer L3).
+${nodes.map((k) => `  e[${k}] = uNode${k}.w * (extent * rho${k} + uSelect.x * eta${k});`).join('\n')}
   float eMax = e[0];
   for (int i = 1; i < ${NODE_SLOTS}; i++) { eMax = max(eMax, e[i]); }
   if (eMax > 0.0) {
@@ -184,15 +190,26 @@ ${nodes.map((k) => `    c[${k}] = nodeColour(uNode${k}Field, uNode${k}Halo, uNod
       if (i == i1) { c1 = c[i]; id1 = ids[i]; }
       if (i == i2) { c2 = c[i]; id2 = ids[i]; }
     }
-    float w2 = max(0.0, e2 - e3);
-    float t = w2 / (e1 + w2);
+    // The seam (law round 2, designer L5): each of the two weighted by its lead over the third; the
+    // guard keeps an exact triple tie finite.
+    float w1 = e1 - e3;
+    float w2 = e2 - e3;
+    float t = w1 > 0.0 ? w2 / (w1 + w2) : 0.0;
+    float3 pair = c1;
     if (isWaypoint(id1, id2)) {
       float s = 2.0 * t;
       float nL = (c1.x + c2.x) / 2.0;
-      colour = float3(c1.x + (nL - c1.x) * s, c1.y * (1.0 - s), c1.z * (1.0 - s));
+      pair = float3(c1.x + (nL - c1.x) * s, c1.y * (1.0 - s), c1.z * (1.0 - s));
     } else {
-      colour = float3(c1.x + (c2.x - c1.x) * t, c1.y + (c2.y - c1.y) * t, c1.z + (c2.z - c1.z) * t);
+      pair = float3(c1.x + (c2.x - c1.x) * t, c1.y + (c2.y - c1.y) * t, c1.z + (c2.z - c1.z) * t);
     }
+    // Near the triple point the pair fades to the e-weighted neutral over every slot (L6).
+    float beta = sstep(0.0, uSelect.w, w1 / e1);
+    float eSum = 0.0;
+    float eL = 0.0;
+    for (int i = 0; i < ${NODE_SLOTS}; i++) { eSum += e[i]; eL += e[i] * c[i].x; }
+    float neutralL = eL / eSum;
+    colour = float3(pair.x * beta + neutralL * (1.0 - beta), beta * pair.y, beta * pair.z);
   }
 
   float share = (1.0 - k) * (uWeight.w > 0.0 ? 1.0 - sstep(0.0, uWeight.w, k) : 1.0);

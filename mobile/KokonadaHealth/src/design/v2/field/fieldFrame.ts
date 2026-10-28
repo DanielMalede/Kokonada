@@ -326,6 +326,8 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     },
     shimmer: phi === 0 ? { cos: 1, sin: 0 } : { cos: Math.cos(phi), sin: Math.sin(phi) },
     lambda: BASE.field.graph.lambda,
+    lobeCore: BASE.field.lobe.core,
+    tripleFade: BASE.field.graph.tripleFade,
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,

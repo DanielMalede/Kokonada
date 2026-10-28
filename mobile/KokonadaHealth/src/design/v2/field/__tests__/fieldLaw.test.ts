@@ -14,7 +14,7 @@ import {
   haloWeight,
   hash289,
   regionOf,
-  selectColour,
+  selectColour as select,
   valueNoise,
   type FieldFrame,
   type FieldNodeFrame,
@@ -58,7 +58,9 @@ function frame(overrides: Partial<FieldFrame> = {}): FieldFrame {
     kp: 0,
     warp: { amount: 0, orbit: 0.6, cos: 1, sin: 0, octaves: 3 },
     shimmer: { cos: 1, sin: 0 },
-    lambda: 1000,
+    lambda: 25,
+    lobeCore: 0.04,
+    tripleFade: 0.15,
     restIntenseWaypoint: false,
     grain: { inside: 0, ground: 0 },
     dither: 0,
@@ -124,8 +126,11 @@ describe('the hash and the value noise: exact in float32, so the shader agrees',
   });
 });
 
-describe('topTwoSoft: e1 ≥ e2 ≥ e3, colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3))', () => {
+// Law round 2 (designer L4–L6): w1 = e1 − e3, w2 = e2 − e3, t = w2/(w1 + w2), the pair fading to the
+// e-weighted neutral N̄ by β = smoothstep(0, θ, w1/e1); the properties are in seamContinuity.test.ts.
+describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)/(e1 + e2 − 2e3), faded to N̄ near a third', () => {
   const ids = [NODE.J, NODE.C, NODE.R, NODE.I, NODE.R0];
+  const selectColour = (e: readonly number[], colours: readonly Oklab[], order: readonly number[], routed: boolean) => select(e, colours, order, routed, 0.15);
 
   it('one node gives its own colour', () => {
     expect(selectColour([2, 0, 0, 0, 0], [J, C, C, I, C], ids, false)).toEqual(J);
@@ -139,10 +144,15 @@ describe('topTwoSoft: e1 ≥ e2 ≥ e3, colour = (e1·a1 + max(0, e2 − e3)·a2
     expect(out.b).toBeCloseTo(mid.b, 12);
   });
 
-  it('a third node takes weight from the second only', () => {
+  it('a third node takes weight from both: t = (2 − 1)/((3 − 1) + (2 − 1)), and far from the triple point the pair is not faded', () => {
     const out = selectColour([3, 2, 1, 0, 0], [J, C, I, I, C], ids, false);
-    const expected = mixOklab(J, C, 1 / 4); // (3·J + (2 − 1)·C) / 4
-    expect(out.a).toBeCloseTo(expected.a, 12);
+    const expected = mixOklab(J, C, 1 / 3); // β = smoothstep(0, 0.15, 2/3) = 1
+    expectLab(out, expected);
+  });
+
+  it('at an exact triple tie the colour is the e-weighted neutral N̄ = (Σ e·L / Σ e, 0, 0)', () => {
+    const out = selectColour([1, 1, 1, 0.5, 0], [J, C, I, I, C], ids, false);
+    expectLab(out, { L: (J.L + C.L + I.L + 0.5 * I.L) / 3.5, a: 0, b: 0 });
   });
 
   it('joy and intense route through the neutral N = (mid L, 0, 0): never the straight chord', () => {

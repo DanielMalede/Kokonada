@@ -101,6 +101,8 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     warp: { amount: d.field.warp.W0, orbit: d.field.warp.orbit, cos: Math.cos(1.1), sin: Math.sin(1.1), octaves: 3 },
     shimmer: { cos: Math.cos((d.field.shimmer.deg * Math.PI) / 180), sin: Math.sin((d.field.shimmer.deg * Math.PI) / 180) },
     lambda: BASE.field.graph.lambda,
+    lobeCore: BASE.field.lobe.core,
+    tripleFade: BASE.field.graph.tripleFade,
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
@@ -257,6 +259,49 @@ describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)',
       ],
       { warp: { amount: DIRECTIONS[id].field.warp.W0, orbit: DIRECTIONS[id].field.warp.orbit, cos: 0.3, sin: -0.95, octaves: 2 } },
     );
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+});
+
+// Law round 2, D3 (resilience B5): the new kernel and seam held to the law where they differ most from
+// the old: a rest lobe at fade 1e-3 with a pixel exactly at its centre (unwarped), three lobes with
+// their triple point in view, and a same-spot swap at u = 0.5 (fades 1 − u² and u, ids apart).
+describe('law round 2 (B5): the lobe core, the triple point and the same-spot swap, pixel for pixel (±1 LSB)', () => {
+  const faces: Face[] = ['dark', 'light'];
+  const flat = { warp: { amount: 0, orbit: 0, cos: 1, sin: 0, octaves: 3 } };
+
+  it.each(faces)('abyss, %s face: a rest lobe at fade 1e-3, a pixel at its centre, beside a calm bead', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const R0 = lab(DIRECTIONS.abyss.color[face].field.restGlow);
+    // The pixel (36, 29) centre, in plate units of frameFor's geometry: the lobe sits exactly on it.
+    const c: [number, number] = [(36.5 - 31.3) / 24, -(29.5 - 32.7) / 24];
+    const frame = frameFor('abyss', face, [
+      { id: NODE.R0, fade: 1e-3, centre: c, radius: r, field: R0, halo: R0, bead: null },
+      bead(NODE.C, 'calm', face, [c[0] + 0.45, c[1] - 0.2], r),
+    ], flat);
+    const pixels = render(frame);
+    expect(worstDisagreement(frame, pixels).delta).toBeLessThanOrEqual(1);
+    // Not vacuous: at the centre the fading lobe is not the whole colour (the old law gave it all).
+    const alone = frameFor('abyss', face, [bead(NODE.C, 'calm', face, [c[0] + 0.45, c[1] - 0.2], r)], flat);
+    expect(Math.max(...rgbAt(pixels, 36, 29).map((v, ch) => Math.abs(v - rgbAt(render(alone), 36, 29)[ch])))).toBeLessThanOrEqual(2);
+  });
+
+  it.each(faces)('abyss, %s face: three lobes with their triple point in view, warped and grained', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const frame = frameFor('abyss', face, [
+      bead(NODE.J, 'joy', face, [0.45, 0.3], r),
+      bead(NODE.C, 'calm', face, [0.45, -0.3], r),
+      bead(NODE.R, 'reflective', face, [-0.5, 0], r),
+    ]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(faces)('abyss, %s face: a same-spot swap at u = 0.5, beside a third bead', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const u = 0.5;
+    const out = { ...bead(NODE.C, 'calm', face, [0.3, -0.3], r), fade: 1 - u * u };
+    const into = { ...bead(NODE.C, 'calm', face, [0.3, -0.3], r), fade: u };
+    const frame = frameFor('abyss', face, [out, bead(NODE.I, 'intense', face, [-0.4, 0.4], r), into]);
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
   });
 });

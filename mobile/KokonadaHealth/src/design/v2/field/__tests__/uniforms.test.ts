@@ -34,7 +34,9 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
   kp: 0.2,
   warp: { amount: 0.3, orbit: 0.6, cos: 0.8, sin: 0.6, octaves: 3 },
   shimmer: { cos: 0.99, sin: 0.1 },
-  lambda: 1000,
+  lambda: 25,
+  lobeCore: 0.04,
+  tripleFade: 0.15,
   restIntenseWaypoint: true,
   grain: { inside: 0.012, ground: 0.02 },
   dither: 1 / 255,
@@ -48,15 +50,15 @@ describe('the field uniform layout', () => {
   // Architect re-rule §2 and the designer's final ruling (1): one pool of six node slots, with no
   // fixed live/shared split; each slot is 14 floats in 4 declarations.
   // With the quiet zones (six rects and their parameters) and the two plate shadows (architect
-  // re-rule §2): 157 floats in 46 declarations.
-  it('has one pool of six node slots, no live/shared split, six quiet rects and two shadows: 157 floats in 46 declarations', () => {
+  // re-rule §2): 157 floats in 46 declarations; law round 2 (D3) adds κ and θ to uSelect (159).
+  it('has one pool of six node slots, no live/shared split, six quiet rects and two shadows: 159 floats in 46 declarations', () => {
     expect(NODE_SLOTS).toBe(6);
     expect([QUIET_SLOTS, SHADOW_SLOTS]).toEqual([6, 2]);
     expect(Object.keys(law).filter((k) => /LIVE_SLOTS|SHARED_SLOTS/.test(k))).toEqual([]);
     expect(FIELD_UNIFORMS).toHaveLength(13 + QUIET_SLOTS + 1 + SHADOW_SLOTS + 4 * NODE_SLOTS);
     expect(FIELD_UNIFORMS.length).toBe(46);
-    expect(FIELD_UNIFORM_FLOATS).toBe(38 + 4 * QUIET_SLOTS + 3 + 4 * SHADOW_SLOTS + 14 * NODE_SLOTS);
-    expect(FIELD_UNIFORM_FLOATS).toBe(157);
+    expect(FIELD_UNIFORM_FLOATS).toBe(40 + 4 * QUIET_SLOTS + 3 + 4 * SHADOW_SLOTS + 14 * NODE_SLOTS);
+    expect(FIELD_UNIFORM_FLOATS).toBe(159);
     expect(FIELD_UNIFORMS.slice(-4).map((u) => u.name)).toEqual(['uNode5', 'uNode5Bead', 'uNode5Field', 'uNode5Halo']);
   });
 
@@ -98,7 +100,7 @@ describe('the field uniform layout', () => {
     expect(at('uWeight')).toEqual([0.6, 0.85, 0.45, 0.2]);
     expect(at('uWarp')).toEqual([0.3, 0.6, 0.8, 0.6]);
     expect(at('uOctaves')).toEqual([3]);
-    expect(at('uSelect')).toEqual([1000, 1]);
+    expect(at('uSelect')).toEqual([25, 1, 0.04, 0.15]); // λ, R0–I routed, κ, θ
     expect(at('uNode0')).toEqual([0.1, 0.2, 0.3, 1]);
     expect(at('uNode0Bead')).toEqual([0.5, 0.6, 1, NODE.J]);
     expect(at('uNode2Bead')).toEqual([0, 0, 0, NODE.I]); // a rest lobe: no halo

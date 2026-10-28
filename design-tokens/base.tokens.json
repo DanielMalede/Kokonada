@@ -95,7 +95,8 @@
       },
       "maxNodesPerPixel": {"$type":"number","$value":2},
       "selection": {"$type":"string","$value":"topTwoSoft"},
-      "lambda": {"$type":"number","$value":1000},
+      "lambda": {"$type":"number","$value":25},
+      "tripleFade": {"$type":"number","$value":0.15},
       "sameNode": {"$type":"string","$value":"straight"}
     },
     "clock": {
@@ -127,6 +128,7 @@
       "breathAmp": {"$type":"number","$value":0.5}
     },
     "metaball": {"low":{"$type":"number","$value":0.55},"high":{"$type":"number","$value":1.6}},
+    "lobe": {"core":{"$type":"number","$value":0.04}},
     "halo": {
       "diameter": {"$type":"dimension","$value":{"value":44,"unit":"px"}},
       "peakDark": {"$type":"number","$value":0.45},
