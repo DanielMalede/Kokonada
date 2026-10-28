@@ -208,6 +208,82 @@ describe('buildEmotionPlaylist — the request ignores every health input', () =
   });
 });
 
+// ── 1b · A note about sleep (BE-229) ──────────────────────────────────────────────────────────
+// The owner's ruling of 2026-10-28: "זה אכן נחשב מידע רפואי אז נטפל בזה" — a sleep intent the user
+// writes is medical information, so nothing a note about sleep produces may reach Groq: not the
+// `Current activity` line, not the activity directive, not a keyword. Its effect on the music is
+// applied after the model returns. Every word and phrase of the lexicon's sleep row is swept, with
+// no chip, under the calm mood (whose genre lists name no sleep genre; the mask runs anyway).
+
+describe('buildEmotionPlaylist — a note about sleep sends nothing about sleep (BE-229)', () => {
+  const CALM = [{ x: 0.45, y: -0.55 }];
+  // The lexicon's sleep row (moodDescriptors._ACTIVITY_LEXICON): its words, its phrases, and notes
+  // that reach it through them; plus an insomnia note that the lexicon does not map at all.
+  const SLEEP_NOTES = [
+    'sleep', 'sleeping', 'bedtime', 'bed', 'wind down', 'winding down', 'before bed',
+    "can't sleep", 'music before bed', 'getting ready for bed', 'help me sleep tonight', 'insomnia again',
+  ];
+  const SLEEP_VOCAB = /sleep|\bbed|insomn|wind(?:ing)?[\s-]?down|getting ready|current activity/i;
+
+  async function run(textPrompt, activity = null) {
+    axios.post.mockClear();
+    const result = await buildEmotionPlaylist({
+      musicProfile: MUSIC_PROFILE, emotionTaps: CALM, textPrompt, activity,
+      biometricContext: null, fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    expect(axios.post).toHaveBeenCalledTimes(1); // the request left: an empty body is not a pass
+    return { body: outbound(), params: result.params };
+  }
+
+  it.each(SLEEP_NOTES)('note %p, no chip: the body names no sleep token and no activity', async (note) => {
+    const { body } = await run(note);
+    expect(withoutGenres(body)).not.toMatch(SLEEP_VOCAB);
+    expect(withoutGenres(body)).not.toMatch(HEALTH_VOCAB);
+  });
+
+  it('the body for "music before bed" is byte-identical to the body for an empty note', async () => {
+    const { body: empty } = await run('');
+    const { body: beforeBed } = await run('music before bed');
+    expect(empty).not.toBe('');
+    expect(beforeBed).toBe(empty);
+  });
+
+  it.each(SLEEP_NOTES)('note %p is byte-identical to an empty note', async (note) => {
+    const { body: empty } = await run('');
+    const { body } = await run(note);
+    expect(body).toBe(empty);
+  });
+
+  it('only the sleep part of a note is withheld: "calm music before bed" sends what "calm music" sends', async () => {
+    const { body: calm } = await run('calm music');
+    const { body: calmBeforeBed } = await run('calm music before bed');
+    expect(calm).toContain('Derived listener intent');
+    expect(calmBeforeBed).toBe(calm);
+  });
+
+  it('"before bed" still yields calm, resting-tempo music, applied after the model returns', async () => {
+    const { params: plain } = await run('');
+    const { params: beforeBed } = await run('music before bed');
+    // The fake model answers both prompts alike (they are byte-identical), so every difference
+    // below is the deterministic post-return step: the targets blend half-way toward the resting
+    // band (bpm 88, energy 0.2, acousticness 0.8), and the tempo band is resting.
+    expect(plain.target_bpm).toBe(PARAMS.target_bpm);
+    expect(beforeBed.tempo_category).toBe('resting');
+    expect(beforeBed.target_bpm).toBe(Math.round(0.5 * PARAMS.target_bpm + 0.5 * 88));
+    expect(beforeBed.target_energy).toBeCloseTo(0.5 * PARAMS.target_energy + 0.5 * 0.2, 10);
+    expect(beforeBed.target_acousticness).toBeCloseTo(0.5 * PARAMS.target_acousticness + 0.5 * 0.8, 10);
+    expect(beforeBed.target_bpm).toBeLessThan(plain.target_bpm);
+    expect(beforeBed.target_energy).toBeLessThan(plain.target_energy);
+  });
+
+  it('a chip the user picked is unaffected: it is sent, and the note does not change the body', async () => {
+    const { body: chipOnly } = await run('', 'running');
+    const { body: chipAndNote } = await run('music before bed', 'running');
+    expect(chipOnly).toContain('Current activity: running');
+    expect(chipAndNote).toBe(chipOnly);
+  });
+});
+
 // ── 2 · The heart-rate branch makes no LLM call at all ────────────────────────────────────────
 
 describe('adjustBiometricPlaylist — no request leaves the process', () => {

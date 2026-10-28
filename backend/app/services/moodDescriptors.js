@@ -317,6 +317,10 @@ const _clampBpm = (v) => Math.max(30, Math.min(250, Math.round(v)));
 function applyBiometricBands(params, ctx) {
   const band = biometricBand(ctx);
   if (!band) return params;
+  return _blendTowardBand(params, band);
+}
+
+function _blendTowardBand(params, band) {
   const bandEnergy = _BIO_BAND_ENERGY[band];        // resting .2 / active .6 / peak .9
   const bandBpm    = 70 + bandEnergy * 90;          // ~88 / 124 / 151 (mirrors _descriptorTargets)
   const out = { ...params };
@@ -416,6 +420,24 @@ const _VIBE_LEXICON = {
   bright: 'bright', hopeful: 'hopeful', driving: 'driving',
 };
 
+// BE-229 — the owner's ruling of 2026-10-28: a sleep intent the user writes in a note is medical
+// information, so it never reaches the LLM. promptSafeActivity is the only way the prompt builder
+// may read a note's intent activity; it withholds the sleep class and passes every other tag
+// through (the ruling names sleep only). The withheld intent's music effect is applied after the
+// model returns (applyIntentBand on its tempo band), the way its tempoCategory already was.
+const _PROMPT_WITHHELD_ACTIVITIES = Object.freeze(['sleep']);
+function promptSafeActivity(activity) {
+  return _PROMPT_WITHHELD_ACTIVITIES.includes(activity) ? null : activity;
+}
+
+// Deterministic post-return blend toward a closed tempo band ('resting' | 'active' | 'peak'), the
+// same blend applyBiometricBands makes for a body in that band. Anything else (null, an unknown
+// name, an Object.prototype key) returns the params untouched. Never mutates the input.
+function applyIntentBand(params, band) {
+  if (!Object.hasOwn(_BIO_BAND_ENERGY, band)) return params;
+  return _blendTowardBand(params, band);
+}
+
 function extractIntent(text) {
   const out = { keywords: [], activity: null, tempoCategory: null };
   if (typeof text !== 'string' || !text.trim()) return out;
@@ -456,6 +478,8 @@ module.exports = {
   buildBioParams,
   extractIntent,
   normalizeActivity,
+  promptSafeActivity,
+  applyIntentBand,
 };
 
 // Exported additively for the W4-006 taxonomy, which is now the SOURCE of this projection rather
