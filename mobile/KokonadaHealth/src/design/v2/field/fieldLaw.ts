@@ -11,13 +11,18 @@
 //              m = smoothstep(0.55, 1.6, Σ f_i) (law round 2, designer L1);
 //   halos      η_i = 1 − smoothstep(r_bead, r_halo, |q − b_i|) inside the rim only, h_i = fade_i·peak·η_i;
 //   k_field    kField·m·extent; H = min(peak, Σ h_i) (L2); k = min(max(k_field, H), max(cap, peak));
-//   a node     a bead node: (1 − w_i)·turned field colour + w_i·steady halo colour,
-//              w_i = smoothstep(−0.05, 0, h_i − k_field); a rest lobe: its turned field colour
-//              (designer 2.1, with the critic's exact mix: where w_i = 1 it is the halo bit for bit);
-//   selection  topTwoSoft over e_i = fade_i·(extent·ρ_i + λ·η_i), linear in the fade (L3; λ = 1/κ):
-//              w1 = e1 − e3, w2 = e2 − e3, t = w2/(w1 + w2) (0 where w1 = 0); c1→c2 by t, or c1→N by 2t on
+//   nodes      five bins, one per NODE id (L4 amended at D5b): each slot with fade > 0 belongs to its id's
+//              bin; H_n = min(peak, Σ h_i over the slots of n);
+//   a slot     a bead slot: (1 − w_n)·turned field colour + w_n·steady halo colour,
+//              w_n = smoothstep(−0.05, 0, H_n − k_field) (UI-129); a rest lobe: its turned field colour
+//              (designer 2.1, with the critic's exact mix: where w_n = 1 it is the halo bit for bit);
+//   selection  topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), linear in the fade
+//              (L3; λ = 1/κ); E_n = Σ e_i over the slots of n, C_n their e-weighted mean colour (a guarded
+//              running mean in slot order); E1 ≥ E2 ≥ E3 over the bins, ties to the lower id;
+//              w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2) (0 where w1 = 0); C1→C2 by t, or C1→N by 2t on
 //              a waypoint edge (J–I, and R0–I where the direction says), N = (mid L, 0, 0); the pair fades
-//              to N̄ = (Σ e_i·L_i / Σ e_i, 0, 0) by β = smoothstep(0, θ, w1/e1) near a third node (L4–L6);
+//              to N̄ = (Σ e_i·L_i / Σ e_i over the slots, 0, 0) by β = smoothstep(0, θ, w1/E1) near a third
+//              node (L4–L6);
 //   quiet      extent = regionExtent · Π over the quiet rects of smoothstep(0, F, sd) (a step where F = 0),
 //              sd the signed distance to the rect grown by g, rounded (designer r3 §1);
 //   shadows    G.L ← G.L·(1 − Σ strength·smoothstep(−blur, blur, u)): outer u = R − |q − o| outside the
@@ -33,6 +38,12 @@ import { blueNoiseValue } from './blueNoise.ts';
 
 /** Node ids: the four quadrants and the rest glow. */
 export const NODE = { J: 0, C: 1, R: 2, I: 3, R0: 4 } as const;
+/**
+ * The node bins (law round 2, D5b, the designer's amended L4): one per NODE id, so every NODE value is a
+ * whole number below NODE_BINS. The selection pools the slots of each id into its bin, and the shader's
+ * pooling loops are bound by this constant (fieldShader.ts).
+ */
+export const NODE_BINS = 5;
 /**
  * Node slots (designer final ruling (1), on the architect's counter): one pool of six stable per-node
  * slots, at most three of them live (the ledger's bound), with no fixed live/shared split. A node
@@ -280,36 +291,35 @@ export function isWaypoint(a: number, b: number, routed: boolean): boolean {
 }
 
 /**
- * topTwoSoft (law round 2, designer L4–L6): the two strongest nodes, each weighted by how far it leads
- * the third, w1 = e1 − e3 and w2 = e2 − e3, so t = w2/(w1 + w2) is ½ where the first two swap and 0
- * where the second and third do; ties go to the lower slot, and the colour does not depend on them. A
- * waypoint pair mixes along c1→N, N = (mid L, 0, 0), by 2t ≤ 1, so the mix never passes N. Near the
- * triple point (w1/e1 below θ) the pair fades to N̄, the e-weighted mean lightness of all the slots: N̄
- * is symmetric in the nodes, so the colour is continuous there too. With no third node (e3 = 0) β is 1
- * and the colour is the old law's, bit for bit. Called only where some e_i > 0 (fieldOklab).
+ * topTwoSoft over nodes, not slots (law round 2, designer L4–L6, L4 amended at D5b): each node pools its
+ * slots (pooledNodes: E_n = Σ e_i, C_n the e-weighted mean of its slots' colours), so a mood placed more
+ * than once never competes with itself. The two strongest nodes are each weighted by how far they lead
+ * the third, w1 = E1 − E3 and w2 = E2 − E3, so t = w2/(w1 + w2) is ½ where the first two swap and 0 where
+ * the second and third do; ties go to the lower id, and the colour does not depend on them. A waypoint
+ * pair mixes along C1→N, N = (mid L, 0, 0), by 2t ≤ 1, so the mix never passes N. Near the triple point
+ * (w1/E1 below θ) the pair fades to N̄, the e-weighted mean lightness, summed over the slots (equal to the
+ * node sum; the shader sums in the same order): N̄ is symmetric in the nodes, so the colour is continuous
+ * there too. With no third node (E3 = 0) β is 1 and the colour is the pair, bit for bit; where each id
+ * has one slot it is the slot law's, bit for bit. Called only where some e_i > 0 (fieldOklab).
  */
 export function selectColour(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean, tripleFade: number): Oklab {
-  let i1 = 0;
-  for (let i = 1; i < e.length; i++) if (e[i] > e[i1]) i1 = i;
-  let i2 = i1 === 0 ? 1 : 0;
-  for (let i = 0; i < e.length; i++) if (i !== i1 && e[i] > e[i2]) i2 = i;
-  let e3 = 0;
-  for (let i = 0; i < e.length; i++) if (i !== i1 && i !== i2 && e[i] > e3) e3 = e[i];
-  const c1 = colours[i1];
-  const c2 = colours[i2];
-  const w1 = e[i1] - e3;
-  const w2 = e[i2] - e3;
+  const { E, C } = pooledNodes(e, colours, ids);
+  const [i1, i2, e3] = rankNodes(E);
+  const c1 = C[i1];
+  const c2 = C[i2];
+  const w1 = E[i1] - e3;
+  const w2 = E[i2] - e3;
   // The guard: at an exact triple tie w1 = w2 = 0, and 0/0 would be NaN.
   const t = w1 > 0 ? w2 / (w1 + w2) : 0;
   let pair: Oklab;
-  if (isWaypoint(ids[i1], ids[i2], restIntenseWaypoint)) {
+  if (isWaypoint(i1, i2, restIntenseWaypoint)) {
     const s = 2 * t;
     const nL = (c1.L + c2.L) / 2;
     pair = { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
   } else {
     pair = { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
   }
-  const beta = smoothstep(0, tripleFade, w1 / e[i1]);
+  const beta = smoothstep(0, tripleFade, w1 / E[i1]);
   let eSum = 0;
   let eL = 0;
   for (let i = 0; i < e.length; i++) {
@@ -322,10 +332,11 @@ export function selectColour(e: readonly number[], colours: readonly Oklab[], id
 }
 
 /**
- * A node's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
- * steady halo colour where its halo reaches the field's weight, w = smoothstep(−0.05, 0, h − kField);
- * a rest lobe is its turned field colour. Written (1 − w)·turned + w·halo, so where w = 1 the node is
- * the halo bit for bit, in the law and in the shader (marks never shimmer, never feel s, c or t).
+ * A slot's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
+ * steady halo colour where its node's halo reaches the field's weight, w = smoothstep(−0.05, 0, H − kField),
+ * H the node's pooled halo H_n (L4 amended, UI-129: slotColours passes it); a rest lobe is its turned
+ * field colour. Written (1 − w)·turned + w·halo, so where w = 1 the node is the halo bit for bit, in the
+ * law and in the shader (marks never shimmer, never feel s, c or t).
  */
 export function nodeColour(node: FieldNodeFrame, h: number, kField: number, shimmer: { readonly cos: number; readonly sin: number }): Oklab {
   const turned = { L: node.field.L, a: node.field.a * shimmer.cos - node.field.b * shimmer.sin, b: node.field.a * shimmer.sin + node.field.b * shimmer.cos };
@@ -336,8 +347,82 @@ export function nodeColour(node: FieldNodeFrame, h: number, kField: number, shim
 
 // ---------------------------------------------------------------------------------- the pixel
 
-/** The pixel's OKLab colour, grain and dither included, before encoding. (x, y) in pixels. */
-export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
+/**
+ * What a pixel's selection reads: its region, its (shadowed) ground, the field weight k_field there and
+ * the composite weight k, and per slot the selection weight e_i and the halo h_i; per node bin, the pooled
+ * halo H_n = min(peak, Σ h_i over the slots of n) (L4 amended). Exported for the tests and their twins
+ * (lawTwins.ts), which recompose the pixel from these pieces.
+ */
+export interface PixelTerms {
+  readonly region: Region;
+  readonly ground: Oklab;
+  readonly kField: number;
+  readonly k: number;
+  readonly e: readonly number[];
+  readonly h: readonly number[];
+  readonly halos: readonly number[];
+}
+
+/** H_n per node bin: min(peak, Σ h_i over the slots of id n, in ascending slot order). */
+export function pooledHalos(h: readonly number[], ids: readonly number[], haloPeak: number): number[] {
+  const out: number[] = new Array(NODE_BINS);
+  for (let n = 0; n < NODE_BINS; n++) {
+    let sum = 0;
+    for (let i = 0; i < h.length; i++) if (ids[i] === n) sum += h[i];
+    out[n] = Math.min(haloPeak, sum);
+  }
+  return out;
+}
+
+/**
+ * Each node's weight and colour (L4 amended): E_n = Σ e_i over the slots of n, and C_n the guarded running
+ * mean over its slots with e_i > 0, in ascending slot order: W′ = W + e_i; C_n = W > 0 ? C_n + (c_i −
+ * C_n)·(e_i/W′) : c_i; W = W′. An empty bin is (0, 0, 0): finite, never read with a non-zero weight. A
+ * slot at e = 0 is skipped, so it is bit for bit an inert slot.
+ */
+export function pooledNodes(e: readonly number[], colours: readonly Oklab[], ids: readonly number[]): { E: number[]; C: Oklab[] } {
+  const E: number[] = new Array(NODE_BINS);
+  const C: Oklab[] = new Array(NODE_BINS);
+  for (let n = 0; n < NODE_BINS; n++) {
+    let W = 0;
+    let L = 0;
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < e.length; i++) {
+      if (ids[i] !== n || !(e[i] > 0)) continue;
+      const c = colours[i];
+      const W2 = W + e[i];
+      if (W > 0) {
+        const s = e[i] / W2;
+        L += (c.L - L) * s;
+        a += (c.a - a) * s;
+        b += (c.b - b) * s;
+      } else {
+        L = c.L;
+        a = c.a;
+        b = c.b;
+      }
+      W = W2;
+    }
+    E[n] = W;
+    C[n] = { L, a, b };
+  }
+  return { E, C };
+}
+
+/** The ranking over the bins: E1 ≥ E2 ≥ E3, ties to the lower id. Returns [i1, i2, E3]. */
+export function rankNodes(E: readonly number[]): [number, number, number] {
+  let i1 = 0;
+  for (let i = 1; i < E.length; i++) if (E[i] > E[i1]) i1 = i;
+  let i2 = i1 === 0 ? 1 : 0;
+  for (let i = 0; i < E.length; i++) if (i !== i1 && E[i] > E[i2]) i2 = i;
+  let e3 = 0;
+  for (let i = 0; i < E.length; i++) if (i !== i1 && i !== i2 && E[i] > e3) e3 = E[i];
+  return [i1, i2, e3];
+}
+
+/** The pixel's selection terms at (x, y), in pixels. */
+export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms {
   const qx = (x - frame.centrePx[0]) / frame.radiusPx;
   const qy = -(y - frame.centrePx[1]) / frame.radiusPx;
   const d = Math.sqrt(qx * qx + qy * qy);
@@ -381,24 +466,43 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
   const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
 
-  let colour = ground;
   // Selection is gated by the extent (where the field is absent, only the halos compete) and linear in
   // each node's fade (designer L3), so a fading node hands its colour over across its fade.
   const e = frame.nodes.map((node, i) => node.fade * (extent * rho[i] + frame.lambda * eta[i]));
-  if (Math.max(...e) > 0) {
-    const colours = frame.nodes.map((node, i) => nodeColour(node, h[i], kFieldHere, frame.shimmer));
-    colour = selectColour(e, colours, frame.nodes.map((node) => node.id), frame.restIntenseWaypoint, frame.tripleFade);
-  }
+  const halos = pooledHalos(h, frame.nodes.map((node) => node.id), frame.haloPeak);
+  return { region, ground, kField: kFieldHere, k, e, h, halos };
+}
 
+/**
+ * Each slot's colour at the pixel (designer 2.1, L4 amended, UI-129): nodeColour with its node's pooled
+ * halo H_n, so the mark weight w_n is the node's, and two halves of a swap draw one steady mark.
+ */
+export function slotColours(frame: FieldFrame, terms: PixelTerms): Oklab[] {
+  return frame.nodes.map((node) => nodeColour(node, terms.halos[node.id], terms.kField, frame.shimmer));
+}
+
+/** The pixel from its terms and its selected colour: route R4's composite, then grain and dither on L. */
+export function compositePixel(frame: FieldFrame, terms: PixelTerms, colour: Oklab, x: number, y: number): Oklab {
+  const { ground, k } = terms;
   const share = (1 - k) * (frame.kp > 0 ? 1 - smoothstep(0, frame.kp, k) : 1);
   const px = Math.floor(x);
   const py = Math.floor(y);
-  const grain = region === 'face' ? frame.grain.inside : frame.grain.ground;
+  const grain = terms.region === 'face' ? frame.grain.inside : frame.grain.ground;
   return {
     L: ground.L + (colour.L - ground.L) * k + grain * blueNoiseValue('grain', px, py) + frame.dither * blueNoiseValue('dither', px, py),
     a: k * colour.a + share * ground.a,
     b: k * colour.b + share * ground.b,
   };
+}
+
+/** The pixel's OKLab colour, grain and dither included, before encoding. (x, y) in pixels. */
+export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
+  const terms = pixelTerms(frame, x, y);
+  let colour = terms.ground;
+  if (Math.max(...terms.e) > 0) {
+    colour = selectColour(terms.e, slotColours(frame, terms), frame.nodes.map((node) => node.id), frame.restIntenseWaypoint, frame.tripleFade);
+  }
+  return compositePixel(frame, terms, colour, x, y);
 }
 
 /** OKLab to 8-bit sRGB: clamped to the gamut, rounded. */

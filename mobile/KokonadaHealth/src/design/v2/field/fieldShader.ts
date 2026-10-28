@@ -10,7 +10,7 @@
 // once here in float64), clamped, then the sRGB transfer function.
 
 import { LMS_TO_XYZ, XYZ_TO_LINEAR_SRGB, OKLAB_TO_LMS, type Matrix } from '../color/oklab.ts';
-import { NODE_SLOTS, QUIET_SLOTS, ROUTED_EDGES, SHADOW_SLOTS, WAYPOINT_EDGES } from './fieldLaw.ts';
+import { NODE_BINS, NODE_SLOTS, QUIET_SLOTS, ROUTED_EDGES, SHADOW_SLOTS, WAYPOINT_EDGES } from './fieldLaw.ts';
 import { FIELD_UNIFORMS } from './uniforms.ts';
 
 const compose = (a: Matrix, b: Matrix): number[][] =>
@@ -85,9 +85,10 @@ float haloShape(float4 bead, float2 q, float d) {
   return 1.0 - sstep(uGeom2.z, uGeom2.w, sqrt(dv.x * dv.x + dv.y * dv.y));
 }
 
-// A node's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
-// steady halo colour where its halo reaches the field's weight; a rest lobe is its turned field
-// colour. Written (1 − w)·turned + w·halo, so where w = 1 it is the halo bit for bit.
+// A slot's colour (designer 2.1): a bead node's field colour turned by the shimmer gives way to its
+// steady halo colour where its node's pooled halo H_n reaches the field's weight (h is H_n, UI-129); a
+// rest lobe is its turned field colour. Written (1 − w)·turned + w·halo, so where w = 1 it is the halo
+// bit for bit.
 float3 nodeColour(float3 field, float3 haloColour, float hasHalo, float h, float kField) {
   float3 turned = float3(field.x, field.y * uShimmer.x - field.z * uShimmer.y, field.y * uShimmer.y + field.z * uShimmer.x);
   float w = hasHalo > 0.5 ? sstep(-0.05, 0.0, h - kField) : 0.0;
@@ -169,27 +170,56 @@ ${nodes.map((k) => `  e[${k}] = uNode${k}.w * (extent * rho${k} + uSelect.x * et
   float eMax = e[0];
   for (int i = 1; i < ${NODE_SLOTS}; i++) { eMax = max(eMax, e[i]); }
   if (eMax > 0.0) {
-    float3 c[${NODE_SLOTS}];
     float ids[${NODE_SLOTS}];
-${nodes.map((k) => `    c[${k}] = nodeColour(uNode${k}Field, uNode${k}Halo, uNode${k}Bead.z, h${k}, kField);\n    ids[${k}] = uNode${k}Bead.w;`).join('\n')}
-    // topTwoSoft: the strongest node, then the next, then the third; ties go to the lower slot.
+    float hs[${NODE_SLOTS}];
+${nodes.map((k) => `    ids[${k}] = uNode${k}Bead.w;\n    hs[${k}] = h${k};`).join('\n')}
+    // Rank nodes, not slots (law round 2, D5b, L4 amended): every slot belongs to the bin of its node id.
+    // The loops are bound by constants and test ids[i] against the bin, never index by a computed value.
+    // Each node's pooled halo, H_n = min(peak, the sum of its slots' halos), in slot order (UI-129).
+    float Hn[${NODE_BINS}];
+    for (int n = 0; n < ${NODE_BINS}; n++) {
+      float s = 0.0;
+      for (int i = 0; i < ${NODE_SLOTS}; i++) { if (ids[i] == float(n)) { s += hs[i]; } }
+      Hn[n] = min(uWeight.z, s);
+    }
+    // Each slot's colour, its mark weight w read from its node's H_n.
+    float3 c[${NODE_SLOTS}];
+${nodes.map((k) => `    float hn${k} = 0.0;\n    for (int n = 0; n < ${NODE_BINS}; n++) { if (ids[${k}] == float(n)) { hn${k} = Hn[n]; } }\n    c[${k}] = nodeColour(uNode${k}Field, uNode${k}Halo, uNode${k}Bead.z, hn${k}, kField);`).join('\n')}
+    // Each node's weight E_n = the sum of its slots' e, and its colour, the guarded running mean of its
+    // slots with e > 0, in ascending slot order; an empty bin is (0, 0, 0).
+    float E[${NODE_BINS}];
+    float3 C[${NODE_BINS}];
+    for (int n = 0; n < ${NODE_BINS}; n++) {
+      float W = 0.0;
+      float3 m = float3(0.0);
+      for (int i = 0; i < ${NODE_SLOTS}; i++) {
+        if (ids[i] == float(n) && e[i] > 0.0) {
+          float W2 = W + e[i];
+          if (W > 0.0) { m = m + (c[i] - m) * (e[i] / W2); } else { m = c[i]; }
+          W = W2;
+        }
+      }
+      E[n] = W;
+      C[n] = m;
+    }
+    // topTwoSoft over the nodes: the strongest, then the next, then the third; ties go to the lower id.
     int i1 = 0;
-    float e1 = e[0];
-    for (int i = 1; i < ${NODE_SLOTS}; i++) { if (e[i] > e1) { e1 = e[i]; i1 = i; } }
+    float e1 = E[0];
+    for (int i = 1; i < ${NODE_BINS}; i++) { if (E[i] > e1) { e1 = E[i]; i1 = i; } }
     int i2 = i1 == 0 ? 1 : 0;
     float e2 = 0.0;
-    for (int i = 0; i < ${NODE_SLOTS}; i++) { if (i == i2) { e2 = e[i]; } }
-    for (int i = 0; i < ${NODE_SLOTS}; i++) { if (i != i1 && e[i] > e2) { e2 = e[i]; i2 = i; } }
+    for (int i = 0; i < ${NODE_BINS}; i++) { if (i == i2) { e2 = E[i]; } }
+    for (int i = 0; i < ${NODE_BINS}; i++) { if (i != i1 && E[i] > e2) { e2 = E[i]; i2 = i; } }
     float e3 = 0.0;
-    for (int i = 0; i < ${NODE_SLOTS}; i++) { if (i != i1 && i != i2 && e[i] > e3) { e3 = e[i]; } }
-    float3 c1 = c[0];
-    float3 c2 = c[0];
-    float id1 = 0.0;
-    float id2 = 0.0;
-    for (int i = 0; i < ${NODE_SLOTS}; i++) {
-      if (i == i1) { c1 = c[i]; id1 = ids[i]; }
-      if (i == i2) { c2 = c[i]; id2 = ids[i]; }
+    for (int i = 0; i < ${NODE_BINS}; i++) { if (i != i1 && i != i2 && E[i] > e3) { e3 = E[i]; } }
+    float3 c1 = C[0];
+    float3 c2 = C[0];
+    for (int i = 0; i < ${NODE_BINS}; i++) {
+      if (i == i1) { c1 = C[i]; }
+      if (i == i2) { c2 = C[i]; }
     }
+    float id1 = float(i1);
+    float id2 = float(i2);
     // The seam (law round 2, designer L5): each of the two weighted by its lead over the third; the
     // guard keeps an exact triple tie finite.
     float w1 = e1 - e3;
@@ -205,6 +235,7 @@ ${nodes.map((k) => `    c[${k}] = nodeColour(uNode${k}Field, uNode${k}Halo, uNod
     }
     // Near the triple point the pair fades to the e-weighted neutral over every slot (L6).
     float beta = sstep(0.0, uSelect.w, w1 / e1);
+    // N̄ is summed over the slots, in the law's order (equal to the node sum).
     float eSum = 0.0;
     float eL = 0.0;
     for (int i = 0; i < ${NODE_SLOTS}; i++) { eSum += e[i]; eL += e[i] * c[i].x; }
