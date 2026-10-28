@@ -60,7 +60,7 @@ describe('E4: the rendered flash count, at most 2 a second at every sample point
   });
 
   // Resilience B1: a 5×5 lattice at ±0.05 R around every rest-lobe centre and every placement-lobe
-  // centre at the storm's first frame (a placement's drift is its ordinal's, mod the three tables).
+  // centre at the storm's first frame (a placement's drift is its drift key's, mod the three tables).
   it('the lobe-centre lattices: 25 points around each rest lobe and each tap’s lobe at ordinals 0–2, centred on the builder’s centres', () => {
     const toggle = lobeLattices({ id: 'abyss', face: 'dark', mode: 'settle', kind: 'toggle', every: 50 }, deps('abyss', 'dark'));
     expect(toggle.centres).toHaveLength(1 + 1 * 3);

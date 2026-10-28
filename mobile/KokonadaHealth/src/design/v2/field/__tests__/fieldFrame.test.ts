@@ -161,7 +161,7 @@ describe('the frame for a moment', () => {
 // split. The builder draws every placement it is given, live or leaving, at its fade, plus the rest
 // lobes, each in the slot the ledger gives it (or, for a scene, the lowest free slot: placements by
 // ordinal, then rest lobes by index); more than NODE_SLOTS nodes throws, and nothing is ever cut. A
-// lobe's drift belongs to its placement's ordinal, mod the drift tables, for its whole life.
+// lobe's drift belongs to its placement's drift key (the ordinal by default; UI-134), mod the drift tables, for its whole life.
 describe('six node slots, one pool, and the ordinal', () => {
   const at = (x: number, y: number, more: Record<string, unknown> = {}) => ({ x, y, ...more });
 

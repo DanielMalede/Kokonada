@@ -17,8 +17,8 @@
 // Law round 2 (resilience B1, adopted in the reconciliation): "New samples: a 5×5 lattice at ±0.05 R
 // around every rest-lobe centre and every placement-lobe centre at the storm's first frame. Rest-lobe
 // centres are statics.restLobes plus drift; placement-lobe centres are centreAlpha·bead + centreBeta·unit
-// + drift." A placement's drift is its ordinal's, mod the three drift tables, so each tap's lobe is taken
-// at ordinals 0, 1 and 2. And (designer item 2 (iii)): E4 runs under the old Abyss rest table too
+// + drift." A placement's drift is its drift key's (its ordinal, or a donor's, UI-134), mod the three drift tables, so each tap's lobe is taken
+// at keys 0, 1 and 2. And (designer item 2 (iii)): E4 runs under the old Abyss rest table too
 // (ABYSS_DARK_REST_BEFORE_ITEM_6, in the sweeps test), so the law's fix is proven on its own merits.
 // The close-out (Abyss only, 2026-10-27) keeps Abyss's rows, and runs neutral3 on Abyss's dark and
 // light faces in place of the retired direction's: no other Abyss storm places only neutral beads.
