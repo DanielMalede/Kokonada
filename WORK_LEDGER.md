@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:garmin-access-domain` (own)
-- title: the owner's Garmin access request decisions of 2026-10-25 — the domain kokonada.com, the submitter, the free model (DAN-009, DAN-007, DAN-015)
-- branch: `docs/garmin-access-domain`
-- paths: `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-044.md`, `docs/design-v2/decisions/DEC-116.md`, `docs/design-v2/decisions/DEC-186.md`, `docs/design-v2/decisions/DEC-187.md`, `docs/design-v2/decisions/DEC-188.md`, `docs/design-v2/decisions/DEC-189.md`
+- task: `BE-222` (TASKS)
+- title: Remove the dormant Garmin personal lane; move redact.js to backend/app/utils
+- branch: `chore/be222-remove-garmin-personal-lane`
+- paths: `backend/app/services/wearable/garminPersonal/**`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/utils/redact.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/tests/fixtures/garminPersonal/blockEgress.js`, `backend/tests/fixtures/garminPersonal/bodyBattery.json`, `backend/tests/fixtures/garminPersonal/clock.js`, `backend/tests/fixtures/garminPersonal/dailyHeartRate.json`, `backend/tests/fixtures/garminPersonal/dailySleep.json`, `backend/tests/fixtures/garminPersonal/dailySleepSummaries.json`, `backend/tests/fixtures/garminPersonal/fakeGarminServer.js`, `backend/tests/fixtures/garminPersonal/healthApi.expected.json`, `backend/tests/fixtures/garminPersonal/hrv.json`, `backend/tests/fixtures/garminPersonal/sentinels.js`, `backend/tests/fixtures/redactSentinels.js`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/shadow.garminEnvelope.boundaries.test.js`, `backend/tests/redact.test.js`, `backend/tests/shadow.redactLinear.test.js`, `backend/tests/sentryScrub.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `TASKS.md`, `backend/tests/shadow.garminNightEndBounds.test.js`
 - resources: none
 - state: claimed
-- started: 2026-10-25
+- started: 2026-10-27
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
