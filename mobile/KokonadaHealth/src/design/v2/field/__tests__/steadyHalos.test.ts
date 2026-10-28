@@ -21,7 +21,7 @@ type Bead = { node: string; x: number; y: number };
 const roots = EXTENSIONS as unknown as Record<string, { $root: { neverRedScenes?: Array<{ id: string; beads?: Bead[] }>; hardest?: Array<{ id: string; face?: string; node?: string; x?: number; y?: number }> } }>;
 const three = (EXTENSIONS.base.$root.hero.scenes.three.placements as readonly Bead[]).filter((b) => b.node === 'C' || b.node === 'R');
 
-/** The ringHalo scene's bead I (−0.02, r_b): from the direction's never-red scene, or its word.top placement where a direction names none (the fixture directions). */
+/** The ringHalo scene's bead I (−0.02, r_b): from the direction's never-red scene, or its word.top placement where a direction names none. */
 function ringBead(id: DirectionId): Bead {
   const scene = roots[id].$root.neverRedScenes?.find((s) => s.id === 'ringHalo');
   if (scene?.beads) return scene.beads[0];
