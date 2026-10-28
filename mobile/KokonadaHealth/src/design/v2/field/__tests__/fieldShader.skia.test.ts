@@ -306,6 +306,43 @@ describe('law round 2 (B5): the lobe core, the triple point and the same-spot sw
   });
 });
 
+// Law round 2, D5b (TASKS UI-122, UI-129; the architect's plan): the shader pools its slots by node id
+// in constant-bound loops (E_n, H_n and the node's e-weighted mean colour), held to the law where pooling
+// matters: one id in two slots at different spots, its halos overlapping, beside a node mid-swap and a
+// neighbour; one id in three slots; and every slot one id.
+describe('law round 2 (D5b): nodes ranked, not slots, pixel for pixel (±1 LSB)', () => {
+  const faces: Face[] = ['dark', 'light'];
+
+  it.each(faces)('abyss, %s face: J in two slots at different spots, C mid-swap (u = 0.5) beside them, and I', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const u = 0.5;
+    const J1 = bead(NODE.J, 'joy', face, [0.35, 0.45], r);
+    const J2 = { ...bead(NODE.J, 'joy', face, [0.5, 0.3], r), field: scale(anchor('joy', face), 0.7) };
+    const out = { ...bead(NODE.C, 'calm', face, [0.45, -0.2], r), fade: 1 - u };
+    const into = { ...bead(NODE.C, 'calm', face, [0.45, -0.2], r), fade: u };
+    const frame = frameFor('abyss', face, [J1, out, J2, bead(NODE.I, 'intense', face, [-0.4, 0.4], r), into]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(faces)('abyss, %s face: J in three slots (one fading), beside C, warped and grained', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const frame = frameFor('abyss', face, [
+      bead(NODE.J, 'joy', face, [0.2, 0.5], r),
+      bead(NODE.C, 'calm', face, [0.4, -0.4], r),
+      { ...bead(NODE.J, 'joy', face, [-0.2, 0.55], r), fade: 0.4 },
+      { ...bead(NODE.J, 'joy', face, [0.05, 0.2], r), field: scale(anchor('joy', face), 0.6) },
+    ]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(faces)('abyss, %s face: all six slots one id (I), at different spots and fades', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const spots: Array<[number, number]> = [[-0.5, 0.4], [-0.3, 0.6], [-0.6, 0.1], [-0.1, 0.3], [-0.4, -0.1], [-0.2, 0.85]];
+    const frame = frameFor('abyss', face, spots.map((at, i) => ({ ...bead(NODE.I, 'intense', face, at, r), fade: 0.3 + 0.12 * i })));
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+});
+
 // Item 9 (designer 2.9, r3 §1): quiet zones and plate shadows, held to the law on synthetic geometry.
 describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)', () => {
   // A lobe over the whole canvas, so the field is present wherever a zone is not.

@@ -3,17 +3,21 @@ import { oklchToOklab, type Oklab } from '../../color/oklab.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, type Face } from '../../tokens/tokens.generated.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
-import { NODE, fieldOklab, isWaypoint, selectColour, smoothstep, type FieldFrame } from '../fieldLaw.ts';
+import { NODE, fieldOklab, isWaypoint, pooledNodes, rankNodes, selectColour, smoothstep, type FieldFrame } from '../fieldLaw.ts';
 import { staticsFor } from '../statics.ts';
 
 // Law round 2, item 3 (DSN-049; designer L4–L6, architect §3, resilience B4): the seam.
-//   L4  e1 ≥ e2 ≥ e3 (ties to the lower slot);
-//   L5  w1 = e1 − e3, w2 = e2 − e3, t = w2/(w1 + w2) where w1 > 0, else 0; straight edges mix c1→c2 by t,
-//       waypoint edges c1→N12 by 2t, N12 = ((c1.L + c2.L)/2, 0, 0);
-//   L6  the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0, θ, w1/e1),
+//   L4  (amended at D5b, TASKS UI-122) rank nodes, not slots: each node pools its slots, E_n = Σ e_i and
+//       C_n the e-weighted mean of its slots' colours; E1 ≥ E2 ≥ E3 over the five bins (ties to the lower id);
+//   L5  w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2) where w1 > 0, else 0; straight edges mix C1→C2 by t,
+//       waypoint edges C1→N12 by 2t, N12 = ((C1.L + C2.L)/2, 0, 0);
+//   L6  the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0, θ, w1/E1),
 //       θ = field.graph.tripleFade.
 // Each property is run on planted twins too (the old law, the bare pair without the fade, the
-// unguarded division), and each twin must fail it: a property that passes every twin is blind.
+// unguarded division), and each twin must fail it: a property that passes every twin is blind. The
+// trials draw node ids at random, duplicates included, so since D5b every twin pools and ranks nodes as
+// the law does (a deliberate re-authoring of the pin, not a loosening: the slot-ranked twins are in
+// lawTwins.ts, and nodeRanking.test.ts and sameSpotSwap.test.ts watch them fail the node properties).
 
 const THETA = BASE.field.graph.tripleFade;
 const IDS = [NODE.J, NODE.C, NODE.R, NODE.I, NODE.R0];
@@ -21,15 +25,11 @@ const deltaE = (p: Oklab, q: Oklab) => Math.hypot(p.L - q.L, p.a - q.a, p.b - q.
 type Select = (e: readonly number[], colours: readonly Oklab[], ids: readonly number[], routed: boolean) => Oklab;
 const law: Select = (e, colours, ids, routed) => selectColour(e, colours, ids, routed, THETA);
 
-/** The two strongest and the third, ties to the lower slot (L4), as the law ranks them. */
-function rank(e: readonly number[]): [number, number, number] {
-  let i1 = 0;
-  for (let i = 1; i < e.length; i++) if (e[i] > e[i1]) i1 = i;
-  let i2 = i1 === 0 ? 1 : 0;
-  for (let i = 0; i < e.length; i++) if (i !== i1 && e[i] > e[i2]) i2 = i;
-  let e3 = 0;
-  for (let i = 0; i < e.length; i++) if (i !== i1 && i !== i2 && e[i] > e3) e3 = e[i];
-  return [i1, i2, e3];
+/** The pooled nodes, the two strongest and the third, ties to the lower id (L4 amended), as the law ranks them. */
+function rank(e: readonly number[], colours: readonly Oklab[], ids: readonly number[]): { E: number[]; C: Oklab[]; i1: number; i2: number; e3: number } {
+  const { E, C } = pooledNodes(e, colours, ids);
+  const [i1, i2, e3] = rankNodes(E);
+  return { E, C, i1, i2, e3 };
 }
 const pairAt = (c1: Oklab, c2: Oklab, t: number, waypoint: boolean): Oklab => {
   if (waypoint) {
@@ -39,26 +39,26 @@ const pairAt = (c1: Oklab, c2: Oklab, t: number, waypoint: boolean): Oklab => {
   }
   return { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
 };
-/** The law before round 2: t = max(0, e2 − e3)/(e1 + max(0, e2 − e3)), no fade to N̄. */
+/** The law before round 2 (on nodes): t = max(0, E2 − E3)/(E1 + max(0, E2 − E3)), no fade to N̄. */
 const legacy: Select = (e, colours, ids, routed) => {
-  const [i1, i2, e3] = rank(e);
-  const w2 = Math.max(0, e[i2] - e3);
-  return pairAt(colours[i1], colours[i2], w2 / (e[i1] + w2), isWaypoint(ids[i1], ids[i2], routed));
+  const { E, C, i1, i2, e3 } = rank(e, colours, ids);
+  const w2 = Math.max(0, E[i2] - e3);
+  return pairAt(C[i1], C[i2], w2 / (E[i1] + w2), isWaypoint(i1, i2, routed));
 };
 /** The bare candidate: L5's pair without L6's fade to N̄. */
 const bare: Select = (e, colours, ids, routed) => {
-  const [i1, i2, e3] = rank(e);
-  const w1 = e[i1] - e3;
-  const w2 = e[i2] - e3;
-  return pairAt(colours[i1], colours[i2], w1 > 0 ? w2 / (w1 + w2) : 0, isWaypoint(ids[i1], ids[i2], routed));
+  const { E, C, i1, i2, e3 } = rank(e, colours, ids);
+  const w1 = E[i1] - e3;
+  const w2 = E[i2] - e3;
+  return pairAt(C[i1], C[i2], w1 > 0 ? w2 / (w1 + w2) : 0, isWaypoint(i1, i2, routed));
 };
 /** L5 and L6 with the guard on t removed: 0/0 at an exact triple tie. */
 const unguarded: Select = (e, colours, ids, routed) => {
-  const [i1, i2, e3] = rank(e);
-  const w1 = e[i1] - e3;
-  const w2 = e[i2] - e3;
-  const P = pairAt(colours[i1], colours[i2], w2 / (w1 + w2), isWaypoint(ids[i1], ids[i2], routed));
-  const beta = smoothstep(0, THETA, w1 / e[i1]);
+  const { E, C, i1, i2, e3 } = rank(e, colours, ids);
+  const w1 = E[i1] - e3;
+  const w2 = E[i2] - e3;
+  const P = pairAt(C[i1], C[i2], w2 / (w1 + w2), isWaypoint(i1, i2, routed));
+  const beta = smoothstep(0, THETA, w1 / E[i1]);
   const sum = e.reduce((s, x) => s + x, 0);
   const nL = e.reduce((s, x, i) => s + x * colours[i].L, 0) / sum;
   return { L: P.L * beta + nL * (1 - beta), a: beta * P.a, b: beta * P.b };
@@ -190,8 +190,17 @@ describe('B4 on selectColour, with each planted twin failing the property it gua
     expect(bad).toEqual([]);
     // Not vacuous: at δ = 1e-2 the three still differ.
     expect(Math.max(...spreads.map((r) => r[0]))).toBeGreaterThan(1e-3);
-    expect(triplePoint(bare).bad.length).toBeGreaterThan(30); // the pair alone keeps the ordering's colour
-    expect(triplePoint(legacy).bad.length).toBeGreaterThan(30);
+    // The twins fail at every real triple point: the three near-tied slots are three distinct nodes, and
+    // the fourth (at 0.5 in odd trials) adds to none of them. Under node ranking a trial whose near-tied
+    // slots share an id has no triple point (one node holds two of them), so no twin can fail it there.
+    const real = trials(13, 40).flatMap((t, n) => {
+      const top = [0, 1, 2].map((k) => t.ids[t.slots[k]]);
+      return new Set(top).size === 3 && (n % 2 === 0 || !top.includes(t.ids[t.slots[3]])) ? [`trial ${n}`] : [];
+    });
+    expect(real.length).toBeGreaterThan(12);
+    const failed = (select: Select) => triplePoint(select).bad.map((b) => b.split(':')[0]);
+    expect(failed(bare)).toEqual(real); // the pair alone keeps the ordering's colour
+    expect(failed(legacy)).toEqual(real);
   });
 
   it('(iv) an exact triple tie gives a finite colour', () => {
@@ -202,16 +211,18 @@ describe('B4 on selectColour, with each planted twin failing the property it gua
   it('(v) t ≤ ½: on a waypoint pair the colour never passes N (its ab is the leader’s, scaled by 0..1); on a straight pair with no third it is nearer the leader', () => {
     const bad: string[] = [];
     let waypoints = 0;
+    let pooled = 0;
     trials(15, 400).forEach((trial, n) => {
       const next = random(2000 + n);
       const values = [1, next(), next() * 0.9, next() * 0.5].sort((x, y) => y - x);
       for (const third of [true, false]) {
         const e = placed(trial, third ? values : values.slice(0, 2));
         const c = law(e, trial.colours, trial.ids, trial.routed);
-        const [i1, i2] = rank(e);
-        const c1 = trial.colours[i1];
-        const c2 = trial.colours[i2];
-        if (isWaypoint(trial.ids[i1], trial.ids[i2], trial.routed)) {
+        const { E, C, i1, i2 } = rank(e, trial.colours, trial.ids);
+        if (E.filter((x) => x > 0).length < e.filter((x) => x > 0).length) pooled++;
+        const c1 = C[i1];
+        const c2 = C[i2];
+        if (isWaypoint(i1, i2, trial.routed)) {
           waypoints++;
           const cross = c.a * c1.b - c.b * c1.a;
           const dot = c.a * c1.a + c.b * c1.b;
@@ -223,6 +234,7 @@ describe('B4 on selectColour, with each planted twin failing the property it gua
     });
     expect(bad).toEqual([]);
     expect(waypoints).toBeGreaterThan(20);
+    expect(pooled).toBeGreaterThan(50); // the trials do place one id in two slots
   });
 
   it('with no third node (e3 = 0) the law is the old law, bit for bit (the legacy twin)', () => {
@@ -246,6 +258,27 @@ describe('B4 on selectColour, with each planted twin failing the property it gua
       if (deltaE(c, p) > 1e-12) bad.push(`trial ${n}: ${deltaE(c, p).toExponential(3)}`);
     });
     expect(bad).toEqual([]);
+  });
+
+  it('(vi, D5b) shuffling one id’s slots among themselves gives the same colour (to 1e-12): a node’s mean does not depend on its slots’ order', () => {
+    const bad: string[] = [];
+    let shuffled = 0;
+    trials(18, 300).forEach((trial, n) => {
+      const next = random(5000 + n);
+      const e = [next(), next(), next(), next() * 0.5, next() * 0.3, next() * 0.2];
+      const counts = IDS.map((id) => trial.ids.filter((x) => x === id).length);
+      const id = IDS[counts.indexOf(Math.max(...counts))];
+      const mine = trial.ids.map((x, i) => (x === id ? i : -1)).filter((i) => i >= 0);
+      if (mine.length < 2) return;
+      shuffled++;
+      const turned = [...mine.slice(1), mine[0]];
+      const order = [0, 1, 2, 3, 4, 5].map((i) => (mine.includes(i) ? turned[mine.indexOf(i)] : i));
+      const c = law(e, trial.colours, trial.ids, trial.routed);
+      const p = law(order.map((i) => e[i]), order.map((i) => trial.colours[i]), order.map((i) => trial.ids[i]), trial.routed);
+      if (deltaE(c, p) > 1e-12) bad.push(`trial ${n}: ${deltaE(c, p).toExponential(3)}`);
+    });
+    expect(bad).toEqual([]);
+    expect(shuffled).toBeGreaterThan(200);
   });
 });
 
