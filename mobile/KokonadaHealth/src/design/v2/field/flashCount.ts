@@ -14,6 +14,12 @@
 //    give ≥ 3."
 // "E4 (additions): Rows also include [a retired direction's] dark and light under neutral3. Besides the 12×12 grid,
 //  sample a 5×5 lattice inside each placement's halo radius (≤ 22 dp)."
+// Law round 2 (resilience B1, adopted in the reconciliation): "New samples: a 5×5 lattice at ±0.05 R
+// around every rest-lobe centre and every placement-lobe centre at the storm's first frame. Rest-lobe
+// centres are statics.restLobes plus drift; placement-lobe centres are centreAlpha·bead + centreBeta·unit
+// + drift." A placement's drift is its ordinal's, mod the three drift tables, so each tap's lobe is taken
+// at ordinals 0, 1 and 2. And (designer item 2 (iii)): E4 runs under the old Abyss rest table too
+// (ABYSS_DARK_REST_BEFORE_ITEM_6, in the sweeps test), so the law's fix is proven on its own merits.
 // The close-out (Abyss only, 2026-10-27) keeps Abyss's rows, and runs neutral3 on Abyss's dark and
 // light faces in place of the retired direction's: no other Abyss storm places only neutral beads.
 // The property the retired rows guarded (only neutral placements, neutralLobe 0: the rest lobes stay
@@ -120,6 +126,40 @@ export function samplePoints(kind: FlashStorm): Array<[number, number]> {
   return [...grid, ...lattice];
 }
 
+/** Abyss's dark rest table before law round 2's item 6: two symmetric lobes (the light face's today). */
+export const ABYSS_DARK_REST_BEFORE_ITEM_6: ReadonlyArray<readonly [number, number]> = [[-0.35, -0.3], [0.4, 0.35]];
+
+/** A case's state at a frame time t (ms from the storm's start), the clock running from 7000 ms. */
+function stateAt(c: FlashCase, t: number, shown: { placements: Placement[]; restFade: number; restSlots?: number[] }): FieldState {
+  const tMs = 7000 + t;
+  return {
+    direction: c.id, face: c.face, placements: shown.placements, restFade: shown.restFade, restSlots: shown.restSlots,
+    stress: 0, confidence: 1, genesis: true, tMs, breathPhase: fixedFieldBreath(c.id, 0, tMs).phase, tier: c.mode === 'reduced' ? 'still' : 'full',
+  };
+}
+
+/**
+ * Resilience B1: the lobe centres at the storm's first frame, as the builder places them (each rest lobe
+ * of the deps' face, and each tap's lobe at ordinals 0–2), and a 5×5 lattice at ±0.05 R around each.
+ */
+export function lobeLattices(c: FlashCase, deps: StormDeps): { centres: Array<[number, number]>; points: Array<[number, number]> } {
+  const centres: Array<[number, number]> = [];
+  const centreOf = (placements: Placement[], restFade: number, pick: (frame: ReturnType<typeof buildFieldFrame>) => Array<[number, number]>) =>
+    pick(buildFieldFrame(stateAt(c, 0, { placements, restFade }), geometry, deps.statics)).forEach((p) => centres.push(p));
+  // The rest lobes: nothing placed, so the builder lights them all.
+  centreOf([], 1, (f) => f.nodes.filter((n) => n.fade > 0 && n.bead === null).map((n) => [n.centre[0], n.centre[1]]));
+  for (const t of tapsOf(c.kind)) {
+    for (let ordinal = 0; ordinal < 3; ordinal++) {
+      centreOf([{ x: t.x, y: t.y, fade: 1, ordinal }], 0, (f) => f.nodes.filter((n) => n.fade > 0 && n.bead !== null).map((n) => [n.centre[0], n.centre[1]]));
+    }
+  }
+  const points: Array<[number, number]> = [];
+  for (const [cx, cy] of centres) {
+    for (let i = 0; i < 5; i++) for (let j = 0; j < 5; j++) points.push([cx + (-0.05 + (0.1 * i) / 4), cy + (-0.05 + (0.1 * j) / 4)]);
+  }
+  return { centres, points };
+}
+
 /** What the field shows at a frame, from the ledger, or from a naive driver that restarts each fade on every tap. */
 type Driver = (t: number, taps: readonly Tap[], seq: number) => { placements: Placement[]; restFade: number; restSlots?: number[] };
 
@@ -169,21 +209,15 @@ export function flashReport(c: FlashCase, deps: StormDeps, driver: Driver = ledg
   const s = store(c.kind === 'neutral3' ? [neutral(1), neutral(2), neutral(3)] : []);
   const actions = schedule(c.kind, c.every, s);
   const times = [...actions.keys()].sort((a, b) => a - b);
-  const points = samplePoints(c.kind);
+  const points = [...samplePoints(c.kind), ...lobeLattices(c, deps).points];
   const traces = points.map(() => [] as number[]);
-  const tier = c.mode === 'reduced' ? 'still' : 'full';
   let done = 0;
   for (let f = 0; f < FRAMES; f++) {
     const t = f * FRAME_MS;
     while (done < times.length && times[done] <= t) { for (const act of actions.get(times[done])!) act(); done++; }
     const shown = driver(t, s.taps(), s.seq());
     // The clock runs with the frames; at tier still the builder holds the field at field.stillTime.
-    const tMs = 7000 + t;
-    const state: FieldState = {
-      direction: c.id, face: c.face, placements: shown.placements, restFade: shown.restFade, restSlots: shown.restSlots,
-      stress: 0, confidence: 1, genesis: true, tMs, breathPhase: fixedFieldBreath(c.id, 0, tMs).phase, tier,
-    };
-    const frame = { ...buildFieldFrame(state, geometry, deps.statics), grain: { inside: 0, ground: 0 }, dither: 0 };
+    const frame = { ...buildFieldFrame(stateAt(c, t, shown), geometry, deps.statics), grain: { inside: 0, ground: 0 }, dither: 0 };
     points.forEach(([qx, qy], i) => traces[i].push(relY(fieldPixel(frame, C_PX + qx * R_DP, C_PX - qy * R_DP))));
   }
   let worst = 0;
