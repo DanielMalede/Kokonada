@@ -4,9 +4,8 @@
 //
 // BiometricLog and VitalSample expire rows on `recordedAt` through a TTL index (90 days unless
 // BIOMETRIC_RETENTION_DAYS / VITAL_SAMPLE_RETENTION_DAYS say otherwise). Garmin's backfill reaches
-// back 182 days and the personal lane's first pull covers the whole window, so before this filter the
-// older half of a backfill was written, folded into MedicalProfile's medians, and then deleted by the
-// TTL monitor within a minute. Now ingestSummaries drops those metrics before any write, counts them
+// back 182 days, so before this filter the older half of a backfill was written, folded into
+// MedicalProfile's medians, and then deleted by the TTL monitor within a minute. Now ingestSummaries drops those metrics before any write, counts them
 // in `droppedOutsideRetention`, and keeps every other field of its result as it was.
 //
 // Real semantics: the REAL ingest seam on a REAL Mongo (mongodb-memory-server). The line the test

@@ -5,7 +5,7 @@
 // In strict mode it throws, and scrubEvent's catch drops the event instead (fail closed).
 
 const { types: { isNativeError } } = require('util');
-const { redactSecretsInPlace } = require('../services/wearable/garminPersonal/redact');
+const { redactSecretsInPlace } = require('../utils/redact');
 
 let Sentry = null;
 
@@ -65,9 +65,9 @@ function _scrubAttributes(data) {
 //    (`data`) and the query string go.
 //  • contexts.trace.data / spans[].data / breadcrumbs[].data: URLs lose their query, and query /
 //    client-address attributes go (see URL_ATTRIBUTES / DROPPED_ATTRIBUTES).
-//  • every string left anywhere in the event: a Garmin personal API key (GCDC_…), an `ApiKey …` or
-//    `Bearer …` value and a bare JWT are redacted wherever they are quoted — a message, an exception
-//    value, a breadcrumb, extra, contexts, tags, a stack frame's variables (redact.js, T3).
+//  • every string left anywhere in the event: a `GCDC_`-prefixed key, an `ApiKey …` or `Bearer …`
+//    value and a bare JWT are redacted wherever they are quoted — a message, an exception value, a
+//    breadcrumb, extra, contexts, tags, a stack frame's variables (utils/redact.js).
 //    sdkProcessingMetadata is never read: it is the SDK's in-process state (scopes, the client) and
 //    createEventEnvelope deletes it before anything is sent.
 // Without this an error on an authenticated route ships the caller's Bearer token and login body,

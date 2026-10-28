@@ -77,7 +77,7 @@ describe('garminIngest.ingestSummaries', () => {
     expect(res.droppedInFuture).toBe(1);
   });
 
-  // T2: Garmin hands this lane history (a 182-day backfill, the personal lane's first pull), so it is
+  // T2: Garmin hands this lane history (a 182-day backfill), so it is
   // the one caller that asks the store to drop what its TTL would reap, and it passes the count on.
   // The drop itself runs on a real Mongo in garminRetentionFilter.integration.test.js.
   it('asks the store to drop what is past retention, and reports the count it gets back', async () => {

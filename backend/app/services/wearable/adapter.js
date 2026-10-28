@@ -43,8 +43,8 @@ function sanitizeTzOffset(value) {
 
 // How far past the server's clock a reading may be stamped: a device clock a little fast, never a
 // reading from the future. ONE definition (BE-206, architect R5) for every boundary that checks it: the
-// Health Connect batch contract, the Garmin personal-lane envelope, and the store's future cap that the
-// Garmin seam asks for (metricStore.persistMetrics `dropInFuture`).
+// Health Connect batch contract, and the store's future cap that the Garmin seam asks for
+// (metricStore.persistMetrics `dropInFuture`).
 const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 
 const ACTIVITY_MAP = {
@@ -310,14 +310,9 @@ function lastSleepLevelEndSec(startSec, levels) {
   return last;
 }
 
-// The summary types this file stamps where they END: a night, and a night's HRV.
-const GARMIN_NIGHT_TYPES = Object.freeze(['sleeps', 'hrv']);
-
 // Where a night-type summary ends, or null when it carries no end: a sleeps summary by its duration, else
-// by its sleep timeline; an hrv summary by its duration. ONE definition for both readers: the normaliser
-// below stamps a night there (and at its start when this is null, the webhook lane's fallback), and the
-// personal-lane envelope refuses a night for which this is null (BE-190), so the two cannot disagree about
-// what an end is.
+// by its sleep timeline; an hrv summary by its duration. The normaliser below stamps a night there, and at
+// its start when this is null (the webhook lane's fallback, BE-217).
 function garminNightEndSec(type, s) {
   const start = s?.startTimeInSeconds;
   if (!Number.isFinite(start)) return null;
@@ -421,9 +416,8 @@ module.exports = {
   // shared with metricStore so the capability gate has ONE definition, not two that drift; the offset band
   // also sets how far the store reads around a Garmin night (RA-1 of #275)
   consentV2Enabled, sanitizeTzOffset, TZ_MIN_MINUTES, TZ_MAX_MINUTES,
-  // shared with the personal-lane envelope, so it admits exactly the windows this file can end a night on,
-  // and refuses exactly the nights this file could only stamp at their start
-  MAX_WINDOW_SECONDS, GARMIN_NIGHT_TYPES, garminNightEndSec,
-  // shared with the Health Connect contract, the personal-lane envelope and the store's future cap
+  // where a Garmin night ends, the one definition the normaliser stamps a night by
+  garminNightEndSec,
+  // shared with the Health Connect contract and the store's future cap
   MAX_FUTURE_SKEW_MS,
 };
