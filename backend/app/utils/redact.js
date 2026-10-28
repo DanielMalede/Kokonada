@@ -3,12 +3,10 @@
 /**
  * What a secret looks like, defined once (T3).
  *
- * The Garmin personal lane holds two secrets: the personal API key, which Garmin prefixes GCDC_, and
- * the 24-hour JWT the key is exchanged for. Under the Supplemental Terms §1 a key that reaches a log
- * line, an error or a Sentry event has been disclosed, and the only cure is deleting it in Garmin
- * Connect. These patterns remove, from any string:
- *   · `ApiKey <anything up to whitespace or a quote>`, the scheme the key travels in;
- *   · `Bearer <token68>`, the scheme the JWT travels in (RFC 6750 token syntax);
+ * A credential that reaches a log line, an error or a Sentry event has been disclosed. These patterns
+ * remove, from any string:
+ *   · `ApiKey <anything up to whitespace or a quote>`, an API-key scheme;
+ *   · `Bearer <token68>`, a bearer token (RFC 6750 token syntax), the scheme of the app JWT;
  *   · a bare key, `GCDC_` and what follows it;
  *   · a bare JWT, three base64url segments whose first begins `eyJ` (the encoding of `{"`).
  * The scheme names match in any case. A credential is replaced by [REDACTED]; the text around it is
