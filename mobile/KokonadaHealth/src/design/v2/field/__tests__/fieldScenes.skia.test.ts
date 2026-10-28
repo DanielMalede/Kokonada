@@ -27,15 +27,25 @@ const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as nev
 const { scenesOf, restTo, drawn } = sceneCatalogue(EXTENSIONS, deps);
 
 describe('the never-red scenes the designer named, and the two the plan adds', () => {
-  // Since the close-out, Abyss names only the seam; backlight, ringHalo, restToIntense and the deferred
-  // ctaKeyline stay drawable or listed here, but no shipped direction names them (the designer rules
-  // whether Abyss should). So the drawn kinds are exactly the named ones, and the replace dissolve.
+  // The designer's ruling (UI-100): Abyss names the seam, ringHalo and restToIntense (both faces), and
+  // ctaKeyline, deferred to B6. backlight stays drawable here, but no shipped direction names it (Abyss
+  // has no moat and no back glow). So the drawn kinds are exactly the named ones, and the replace dissolve.
   it('every token scene of every direction is drawn here or named as deferred, and exactly the named kinds are drawn', () => {
     const ids = IDS.flatMap((id) => scenesOf(id).map((scene) => scene.id));
     expect(ids.filter((s) => !FIELD_SCENES.includes(s) && !(s in DEFERRED))).toEqual([]);
     expect([...new Set(drawn.map((d) => d.scene))].sort()).toEqual([...new Set([...ids.filter((s) => FIELD_SCENES.includes(s)), 'replaceDissolve'])].sort());
-    expect([...new Set(ids)].sort()).toEqual(['seam']);
+    expect([...new Set(ids)].sort()).toEqual(['ctaKeyline', 'restToIntense', 'ringHalo', 'seam']);
     expect(restTo.map((b) => b.node)).toEqual(['I']);
+  });
+
+  it('Abyss’s ringHalo bead is its word.top I bead at r_b (font scale 1.0), and restToIntense steps through the whole settle ramp', () => {
+    const root = (EXTENSIONS as unknown as Record<string, { $root: { hardest: Array<{ id: string; node?: string; x?: number; y?: number; fontScale?: number }> } }>).abyss.$root;
+    const word = root.hardest.find((h) => h.id === 'word.top' && h.node === 'I' && h.fontScale === 1);
+    const scenes = scenesOf('abyss');
+    expect(scenes.find((s) => s.id === 'ringHalo')).toEqual({ id: 'ringHalo', faces: ['dark', 'light'], beads: [{ node: 'I', x: word?.x, y: word?.y }] });
+    expect(scenes.find((s) => s.id === 'restToIntense')).toEqual({ id: 'restToIntense', faces: ['dark', 'light'], steppedThroughMs: BASE.motion.settle.duration });
+    expect(scenes.find((s) => s.id === 'ctaKeyline')).toEqual({ id: 'ctaKeyline', faces: ['dark', 'light'], scene: 'one.intense' });
+    expect(scenes.some((s) => s.id === 'backlight')).toBe(false);
   });
 
   it('restToIntense runs through the ledger along u and 1 − u²; the replace dissolve swaps the seam’s pair in one crossfade', () => {

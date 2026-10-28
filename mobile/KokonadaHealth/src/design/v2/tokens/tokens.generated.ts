@@ -4,7 +4,7 @@
 
 export const TOKENS_SOURCE = {
   base: '4b812c6ade013ff76efa8bdbbb72b390a7f7c69b2a12c470567e8adbec9d7eee',
-  'direction.abyss': '68304fe7c114ff6675fc3c7b7bffd257b633b673128a26e4c42b27ab9c72aa16',
+  'direction.abyss': '2531dcc3a8d5c8aed8f3851ab3b1045deacef571f242912d22d8cc5fa6076b94',
 };
 
 export type DirectionId = 'abyss';

@@ -523,7 +523,10 @@
           "id": "seam",
           "faces": ["dark","light"],
           "beads": [{"node":"I","x":-0.15,"y":0.8},{"node":"J","x":0.15,"y":0.8}]
-        }
+        },
+        {"id":"ctaKeyline","faces":["dark","light"],"scene":"one.intense"},
+        {"id":"ringHalo","faces":["dark","light"],"beads":[{"node":"I","x":-0.02,"y":0.948}]},
+        {"id":"restToIntense","faces":["dark","light"],"steppedThroughMs":600}
       ]
     }
   }

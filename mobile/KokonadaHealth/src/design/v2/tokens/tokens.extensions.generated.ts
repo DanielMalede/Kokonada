@@ -5,7 +5,7 @@
 
 export const EXTENSIONS_SOURCE = {
   base: '4b812c6ade013ff76efa8bdbbb72b390a7f7c69b2a12c470567e8adbec9d7eee',
-  'direction.abyss': '68304fe7c114ff6675fc3c7b7bffd257b633b673128a26e4c42b27ab9c72aa16',
+  'direction.abyss': '2531dcc3a8d5c8aed8f3851ab3b1045deacef571f242912d22d8cc5fa6076b94',
 };
 
 export const EXTENSIONS = {
@@ -486,6 +486,9 @@ export const EXTENSIONS = {
           faces: ['dark', 'light'],
           beads: [{ node: 'I', x: -0.15, y: 0.8 }, { node: 'J', x: 0.15, y: 0.8 }],
         },
+        { id: 'ctaKeyline', faces: ['dark', 'light'], scene: 'one.intense' },
+        { id: 'ringHalo', faces: ['dark', 'light'], beads: [{ node: 'I', x: -0.02, y: 0.948 }] },
+        { id: 'restToIntense', faces: ['dark', 'light'], steppedThroughMs: 600 },
       ],
     },
     'field.rest': { lobes: [[-0.35, -0.3], [0.4, 0.35]] },
