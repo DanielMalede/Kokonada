@@ -1,13 +1,64 @@
-// Planted twins of the field law (law round 2, D5b: TASKS UI-122 and UI-129), for the tests that must
-// watch each one fail. Test-only, like ledgerStorms.ts: never imported by app code, not a worklet module.
-// Each twin is the law with one piece swapped back to what D5b replaced, built on the law's own exported
-// pieces (pixelTerms, slotColours, compositePixel), so it differs from the law in that piece alone:
-//   · slotRankedSelect: selection as it was at 42869fb: the slots ranked, not the nodes (L4 before D5b);
+// Planted twins of the field law (law round 2, D5b: TASKS UI-122 and UI-129; UI-125), for the tests that
+// must watch each one fail. Test-only, like ledgerStorms.ts: never imported by app code, not a worklet
+// module. Each twin is the law with one piece swapped back to what a change replaced, built on the law's
+// own exported pieces (pixelTerms, slotColours, compositePixel), so it differs from the law in that piece
+// alone:
+//   · slotRankedSelect: selection with the slots ranked, not the nodes (L4 before D5b);
 //   · perSlotColours: each slot's mark weight w from its own h_i, not its node's pooled H_n (UI-129);
-//   · twinPixel: the pixel with either or both swapped back; both is the law at 42869fb.
+//   · seamSelect: selection with the seam's pieces chosen (UI-125): the weights w linear (L5, as at
+//     d0f47a8) or squared (L5′), the waypoint leg linear (2t, as at d0f47a8) or eased (s(2t));
+//   · twinPixel: the pixel with any of these swapped back.
+// Every twin but seamSelect's own plants reads the law's seam (LAW_SEAM): since UI-125 the D5b twins are
+// L5′ too, so each still differs from the law in its D5b piece alone (criterion F's meaning, kept).
 
 import type { Oklab } from '../color/oklab.ts';
-import { compositePixel, isWaypoint, nodeColour, pixelTerms, selectColour, slotColours, smoothstep, type FieldFrame, type PixelTerms } from './fieldLaw.ts';
+import { compositePixel, isWaypoint, nodeColour, pixelTerms, pooledNodes, rankNodes, slotColours, smoothstep, type FieldFrame, type PixelTerms } from './fieldLaw.ts';
+
+/** The seam's two pieces (UI-125): the weights' power and the waypoint leg's ease. */
+export interface Seam {
+  /** 'linear': w_k = E_k − E3 (L5, d0f47a8); 'squared': w_k = (E_k − E3)² (L5′, the law's). */
+  readonly w: 'linear' | 'squared';
+  /** 'linear': the leg C1→N12 by 2t (d0f47a8); 'eased': by s(2t), s(x) = 1 − (1 − x)² (the law's). */
+  readonly leg: 'linear' | 'eased';
+}
+export const LAW_SEAM: Seam = { w: 'squared', leg: 'eased' };
+
+/** The pair of the two strongest, mixed by the seam's t: C1→C2 by t, or C1→N12 along the waypoint leg. */
+export function seamPair(c1: Oklab, c2: Oklab, e1: number, e2: number, e3: number, waypoint: boolean, seam: Seam): Oklab {
+  const d1 = e1 - e3;
+  const d2 = e2 - e3;
+  const w1 = seam.w === 'squared' ? d1 * d1 : d1;
+  const w2 = seam.w === 'squared' ? d2 * d2 : d2;
+  const t = w1 > 0 ? w2 / (w1 + w2) : 0;
+  if (waypoint) {
+    const x = 2 * t;
+    const s = seam.leg === 'eased' ? 1 - (1 - x) * (1 - x) : x;
+    const nL = (c1.L + c2.L) / 2;
+    return { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
+  }
+  return { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
+}
+
+/** The pair faded to N̄ = (Σ e_i·L_i / Σ e_i over the slots, 0, 0) by β = smoothstep(0, θ, (E1 − E3)/E1). */
+function fade(pair: Oklab, e: readonly number[], colours: readonly Oklab[], e1: number, e3: number, tripleFade: number): Oklab {
+  const beta = smoothstep(0, tripleFade, (e1 - e3) / e1);
+  let eSum = 0;
+  let eL = 0;
+  for (let i = 0; i < e.length; i++) {
+    eSum += e[i];
+    eL += e[i] * colours[i].L;
+  }
+  const neutralL = eL / eSum;
+  return { L: pair.L * beta + neutralL * (1 - beta), a: beta * pair.a, b: beta * pair.b };
+}
+
+/** selectColour with the nodes ranked as the law ranks them and the seam's pieces chosen (UI-125's plants). */
+export function seamSelect(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean, tripleFade: number, seam: Seam): Oklab {
+  const { E, C } = pooledNodes(e, colours, ids);
+  const [i1, i2, e3] = rankNodes(E);
+  const pair = seamPair(C[i1], C[i2], E[i1], E[i2], e3, isWaypoint(i1, i2, restIntenseWaypoint), seam);
+  return fade(pair, e, colours, E[i1], e3, tripleFade);
+}
 
 /** The slots' ranking (L4 before D5b): e1 ≥ e2 ≥ e3 over the six slots, ties to the lower slot. */
 export function rankSlots(e: readonly number[]): [number, number, number] {
@@ -20,31 +71,11 @@ export function rankSlots(e: readonly number[]): [number, number, number] {
   return [i1, i2, e3];
 }
 
-/** selectColour as it was at 42869fb, line for line: the slots ranked, N̄ over the slots. */
-export function slotRankedSelect(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean, tripleFade: number): Oklab {
+/** selectColour with the slots ranked (as at 42869fb), N̄ over the slots, and the seam (the law's by default). */
+export function slotRankedSelect(e: readonly number[], colours: readonly Oklab[], ids: readonly number[], restIntenseWaypoint: boolean, tripleFade: number, seam: Seam = LAW_SEAM): Oklab {
   const [i1, i2, e3] = rankSlots(e);
-  const c1 = colours[i1];
-  const c2 = colours[i2];
-  const w1 = e[i1] - e3;
-  const w2 = e[i2] - e3;
-  const t = w1 > 0 ? w2 / (w1 + w2) : 0;
-  let pair: Oklab;
-  if (isWaypoint(ids[i1], ids[i2], restIntenseWaypoint)) {
-    const s = 2 * t;
-    const nL = (c1.L + c2.L) / 2;
-    pair = { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
-  } else {
-    pair = { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
-  }
-  const beta = smoothstep(0, tripleFade, w1 / e[i1]);
-  let eSum = 0;
-  let eL = 0;
-  for (let i = 0; i < e.length; i++) {
-    eSum += e[i];
-    eL += e[i] * colours[i].L;
-  }
-  const neutralL = eL / eSum;
-  return { L: pair.L * beta + neutralL * (1 - beta), a: beta * pair.a, b: beta * pair.b };
+  const pair = seamPair(colours[i1], colours[i2], e[i1], e[i2], e3, isWaypoint(ids[i1], ids[i2], restIntenseWaypoint), seam);
+  return fade(pair, e, colours, e[i1], e3, tripleFade);
 }
 
 /** UI-129's plant: each slot's w from its own h_i (as at 42869fb), not from its node's pooled H_n. */
@@ -57,16 +88,21 @@ export interface Twin {
   readonly rank: 'slots' | 'nodes';
   /** 'slot': w from h_i (42869fb); 'node': w from H_n (the law's). */
   readonly w: 'slot' | 'node';
+  /** The seam's pieces (UI-125); the law's when absent. */
+  readonly seam?: Seam;
 }
 
-/** The pixel with the twin's pieces: { rank: 'nodes', w: 'node' } is fieldOklab, { 'slots', 'slot' } the law at 42869fb. */
+/** The pixel with the twin's pieces: { rank: 'nodes', w: 'node' } is fieldOklab, { 'slots', 'slot' } the law before D5b on the law's seam. */
 export function twinPixel(frame: FieldFrame, x: number, y: number, twin: Twin): Oklab {
   const terms = pixelTerms(frame, x, y);
   let colour = terms.ground;
   if (Math.max(...terms.e) > 0) {
     const colours = twin.w === 'slot' ? perSlotColours(frame, terms) : slotColours(frame, terms);
     const ids = frame.nodes.map((node) => node.id);
-    colour = (twin.rank === 'slots' ? slotRankedSelect : selectColour)(terms.e, colours, ids, frame.restIntenseWaypoint, frame.tripleFade);
+    const seam = twin.seam ?? LAW_SEAM;
+    colour = twin.rank === 'slots'
+      ? slotRankedSelect(terms.e, colours, ids, frame.restIntenseWaypoint, frame.tripleFade, seam)
+      : seamSelect(terms.e, colours, ids, frame.restIntenseWaypoint, frame.tripleFade, seam);
   }
   return compositePixel(frame, terms, colour, x, y);
 }

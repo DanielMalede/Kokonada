@@ -9,10 +9,12 @@ import { staticsFor } from '../statics.ts';
 // Law round 2, item 3 (DSN-049; designer L4–L6, architect §3, resilience B4): the seam.
 //   L4  (amended at D5b, TASKS UI-122) rank nodes, not slots: each node pools its slots, E_n = Σ e_i and
 //       C_n the e-weighted mean of its slots' colours; E1 ≥ E2 ≥ E3 over the five bins (ties to the lower id);
-//   L5  w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2) where w1 > 0, else 0; straight edges mix C1→C2 by t,
-//       waypoint edges C1→N12 by 2t, N12 = ((C1.L + C2.L)/2, 0, 0);
-//   L6  the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0, θ, w1/E1),
-//       θ = field.graph.tripleFade.
+//   L5′ (UI-125) w1 = (E1 − E3)², w2 = (E2 − E3)², t = w2/(w1 + w2) where w1 > 0, else 0; straight edges
+//       mix C1→C2 by t, waypoint edges C1→N12 by s(2t), s(x) = 1 − (1 − x)², N12 = ((C1.L + C2.L)/2, 0, 0);
+//   L6  the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0, θ,
+//       (E1 − E3)/E1), θ = field.graph.tripleFade.
+// Since UI-125 the bare and unguarded twins are built on L5′, so each still differs from the law in the
+// one piece it plants (the slope properties and their plants are in seamSlope.test.ts).
 // Each property is run on planted twins too (the old law, the bare pair without the fade, the
 // unguarded division), and each twin must fail it: a property that passes every twin is blind. The
 // trials draw node ids at random, duplicates included, so since D5b every twin pools and ranks nodes as
@@ -31,9 +33,19 @@ function rank(e: readonly number[], colours: readonly Oklab[], ids: readonly num
   const [i1, i2, e3] = rankNodes(E);
   return { E, C, i1, i2, e3 };
 }
-const pairAt = (c1: Oklab, c2: Oklab, t: number, waypoint: boolean): Oklab => {
+/** t under L5′: the squared leads over the third; 0 where w1 = 0 unless `unguarded`. */
+const seamT = (e1: number, e2: number, e3: number, unguarded = false) => {
+  const d1 = e1 - e3;
+  const d2 = e2 - e3;
+  const w1 = d1 * d1;
+  const w2 = d2 * d2;
+  return w1 > 0 || unguarded ? w2 / (w1 + w2) : 0;
+};
+/** The pair at t: C1→C2 by t, or the waypoint leg C1→N12 by s(2t) (`linearLeg`: by 2t, the old law's leg). */
+const pairAt = (c1: Oklab, c2: Oklab, t: number, waypoint: boolean, linearLeg = false): Oklab => {
   if (waypoint) {
-    const s = 2 * t;
+    const x = 2 * t;
+    const s = linearLeg ? x : 1 - (1 - x) * (1 - x);
     const nL = (c1.L + c2.L) / 2;
     return { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
   }
@@ -43,22 +55,18 @@ const pairAt = (c1: Oklab, c2: Oklab, t: number, waypoint: boolean): Oklab => {
 const legacy: Select = (e, colours, ids, routed) => {
   const { E, C, i1, i2, e3 } = rank(e, colours, ids);
   const w2 = Math.max(0, E[i2] - e3);
-  return pairAt(C[i1], C[i2], w2 / (E[i1] + w2), isWaypoint(i1, i2, routed));
+  return pairAt(C[i1], C[i2], w2 / (E[i1] + w2), isWaypoint(i1, i2, routed), true);
 };
-/** The bare candidate: L5's pair without L6's fade to N̄. */
+/** The bare candidate: L5′'s pair without L6's fade to N̄. */
 const bare: Select = (e, colours, ids, routed) => {
   const { E, C, i1, i2, e3 } = rank(e, colours, ids);
-  const w1 = E[i1] - e3;
-  const w2 = E[i2] - e3;
-  return pairAt(C[i1], C[i2], w1 > 0 ? w2 / (w1 + w2) : 0, isWaypoint(i1, i2, routed));
+  return pairAt(C[i1], C[i2], seamT(E[i1], E[i2], e3), isWaypoint(i1, i2, routed));
 };
-/** L5 and L6 with the guard on t removed: 0/0 at an exact triple tie. */
+/** L5′ and L6 with the guard on t removed: 0/0 at an exact triple tie. */
 const unguarded: Select = (e, colours, ids, routed) => {
   const { E, C, i1, i2, e3 } = rank(e, colours, ids);
-  const w1 = E[i1] - e3;
-  const w2 = E[i2] - e3;
-  const P = pairAt(C[i1], C[i2], w2 / (w1 + w2), isWaypoint(i1, i2, routed));
-  const beta = smoothstep(0, THETA, w1 / E[i1]);
+  const P = pairAt(C[i1], C[i2], seamT(E[i1], E[i2], e3, true), isWaypoint(i1, i2, routed));
+  const beta = smoothstep(0, THETA, (E[i1] - e3) / E[i1]);
   const sum = e.reduce((s, x) => s + x, 0);
   const nL = e.reduce((s, x, i) => s + x * colours[i].L, 0) / sum;
   return { L: P.L * beta + nL * (1 - beta), a: beta * P.a, b: beta * P.b };
@@ -237,14 +245,23 @@ describe('B4 on selectColour, with each planted twin failing the property it gua
     expect(pooled).toBeGreaterThan(50); // the trials do place one id in two slots
   });
 
-  it('with no third node (e3 = 0) the law is the old law, bit for bit (the legacy twin)', () => {
+  // Re-authored at UI-125. Before it, with e3 = 0 the law was the pre-round-2 law bit for bit (t = E2/(E1 +
+  // E2)); L5′ squares the weights, so two-node pixels now mix by t = E2²/(E1² + E2²): an intended change
+  // of the designer's law, measured for the owner (UI-125's report). What still holds, bit for bit, is
+  // that with no third node L6's fade is inert: β = 1 and the colour is the bare pair. The legacy twin
+  // differs there now (not vacuous: it is the old t).
+  it('with no third node (e3 = 0) β is 1: the law is the bare pair, bit for bit, and no longer the pre-round-2 law', () => {
     const off: string[] = [];
+    let moved = 0;
     trials(16, 400).forEach((trial, n) => {
       const next = random(3000 + n);
       const e = placed(trial, [1, next()]);
-      if (JSON.stringify(law(e, trial.colours, trial.ids, trial.routed)) !== JSON.stringify(legacy(e, trial.colours, trial.ids, trial.routed))) off.push(`trial ${n}`);
+      const c = law(e, trial.colours, trial.ids, trial.routed);
+      if (JSON.stringify(c) !== JSON.stringify(bare(e, trial.colours, trial.ids, trial.routed))) off.push(`trial ${n}`);
+      if (deltaE(c, legacy(e, trial.colours, trial.ids, trial.routed)) > 1e-9) moved++;
     });
     expect(off).toEqual([]);
+    expect(moved).toBeGreaterThan(200);
   });
 
   it('(vi) slot order does not matter: a permutation of the six slots gives the same colour (to 1e-12)', () => {

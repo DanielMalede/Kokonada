@@ -239,6 +239,8 @@ describe('the corners are finite (architect, UI-122)', () => {
 // swapped back (lawTwins.ts: slot ranking, w from h_i); the D5b probe holds that twin to 42869fb's own
 // fieldLaw.ts. The hero scenes with one placement per id, the rest tables of both faces, at tension 0 and
 // 1, genesis on and off, warped, grained and dithered.
+// Re-authored at UI-125 (not loosened): L5′ changes every scene's seam, so "before/after" is now D5b's two
+// pieces alone, the twin on the law's own seam (lawTwins.ts LAW_SEAM); the bound and the scenes are as they were.
 const hero = (EXTENSIONS as unknown as { base: { $root: { hero: { scenes: Record<string, { placements?: Array<{ node: string; x: number; y: number }> }> } } } }).base.$root.hero.scenes;
 const R_DP = BASE.plate.maxDiameter / 2;
 function sceneFrame(face: Face, placements: ReadonlyArray<{ x: number; y: number }>, stress = 0, genesis = true): FieldFrame {

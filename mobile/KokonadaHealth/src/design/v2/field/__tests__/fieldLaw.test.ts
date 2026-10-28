@@ -126,9 +126,12 @@ describe('the hash and the value noise: exact in float32, so the shader agrees',
   });
 });
 
-// Law round 2 (designer L4–L6): w1 = e1 − e3, w2 = e2 − e3, t = w2/(w1 + w2), the pair fading to the
-// e-weighted neutral N̄ by β = smoothstep(0, θ, w1/e1); the properties are in seamContinuity.test.ts.
-describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)/(e1 + e2 − 2e3), faded to N̄ near a third', () => {
+// Law round 2 (designer L4–L6, L5′ at UI-125): w1 = (e1 − e3)², w2 = (e2 − e3)², t = w2/(w1 + w2), the
+// waypoint leg by s(2t), s(x) = 1 − (1 − x)², the pair fading to the e-weighted neutral N̄ by
+// β = smoothstep(0, θ, (e1 − e3)/e1); the properties are in seamContinuity.test.ts and seamSlope.test.ts.
+// The two worked values below are re-authored at UI-125 (L5′ squares the weights, so t moves; not a
+// loosening: the same exact expectation, at the new law's t).
+describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)²/((e1 − e3)² + (e2 − e3)²), faded to N̄ near a third', () => {
   const ids = [NODE.J, NODE.C, NODE.R, NODE.I, NODE.R0];
   const selectColour = (e: readonly number[], colours: readonly Oklab[], order: readonly number[], routed: boolean) => select(e, colours, order, routed, 0.15);
 
@@ -144,9 +147,9 @@ describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)/(e1 + 
     expect(out.b).toBeCloseTo(mid.b, 12);
   });
 
-  it('a third node takes weight from both: t = (2 − 1)/((3 − 1) + (2 − 1)), and far from the triple point the pair is not faded', () => {
+  it('a third node takes weight from both: t = (2 − 1)²/((3 − 1)² + (2 − 1)²), and far from the triple point the pair is not faded', () => {
     const out = selectColour([3, 2, 1, 0, 0], [J, C, I, I, C], ids, false);
-    const expected = mixOklab(J, C, 1 / 3); // β = smoothstep(0, 0.15, 2/3) = 1
+    const expected = mixOklab(J, C, 1 / 5); // β = smoothstep(0, 0.15, 2/3) = 1
     expectLab(out, expected);
   });
 
@@ -161,9 +164,10 @@ describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)/(e1 + 
     expectLab(out, { L: (I.L + J.L) / 2, a: 0, b: 0 });
     const part = selectColour([3, 1, 0, 0, 0], [I, J, C, C, C], order, false);
     const N = { L: (I.L + J.L) / 2, a: 0, b: 0 };
-    const t = 1 / 4;
-    expect(part.L).toBeCloseTo(I.L + (N.L - I.L) * 2 * t, 12);
-    expect(part.a).toBeCloseTo(I.a * (1 - 2 * t), 12);
+    const t = 1 / 10; // 1²/(3² + 1²)
+    const s = 1 - (1 - 2 * t) ** 2; // the eased leg, 0.36
+    expect(part.L).toBeCloseTo(I.L + (N.L - I.L) * s, 12);
+    expect(part.a).toBeCloseTo(I.a * (1 - s), 12);
   });
 
   it('rest glow and intense: straight by default, through N where the direction routes them', () => {
