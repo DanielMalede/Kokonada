@@ -2749,8 +2749,9 @@ _(put anything you are unsure about here rather than losing it)_
   - where: `Kokonada-private/garmin/` · done when: the files exist · src: compliance-auditor re-audit, 2026-10-22 · added: 2026-10-27
   - **update 2026-10-27 (the owner's ruling of 2026-10-27 ("אני לא רוצה לעבוד על עבודה של key פרטי המטרה היא לקבל key business שלהם"): no personal-key lane; the goal is the Garmin Connect Developer Program (Starter)):** optional now. If the Supplemental Terms are still viewable, file them anyway: they may be where the reported AI clause comes from (`DAN-114`).
   - **update 2026-10-28 (#280), for information:** the personal lane's code is deleted from the repository; this row stays the owner's and stays open as it is (`custodian` CUS-280-1).
-- [ ] `DAN-130` `P2` **Check the Railway variables of every service and remove any `GARMIN_PERSONAL_*` still set: since #280 no code reads them.** Owner class (b), `res:railway-vars`; a Pause & Guide step. Read and record variable NAMES only, never a value.
+- [x] `DAN-130` `P2` **Check the Railway variables of every service and remove any `GARMIN_PERSONAL_*` still set: since #280 no code reads them.** Owner class (b), `res:railway-vars`; a Pause & Guide step. Read and record variable NAMES only, never a value.
   - where: Railway → every service → Variables · done when: the owner reports, by name only, that no `GARMIN_PERSONAL_*` variable is set on any service · src: review of #280 (`custodian` CUS-280-5, `architect` ARCH-280-6, `security-auditor` leads) · added: 2026-10-28
+  - **closed 2026-10-28, in the owner's words, after checking the Railway variables himself (names only):** "אין שם משתנה כזה וגן בradis" (no `GARMIN_PERSONAL_*` variable on kokonada-backend, nor on Redis). Nothing to remove.
 - [ ] `DAN-114` `P1` **Before accepting the Garmin Developer Program agreement shown at click-through, capture its full text (screenshots) for a clause-by-clause `compliance-auditor` check: a reported clause forbidding any AI model, AI system or machine-built knowledge base made from Garmin data (quoted on a third-party forum, not in Garmin's own text) appears in neither public variant, and it would bar Kokonada's core use (NEW-8; resolves `DEC-045`).** Pause & Guide.
   - where: the Garmin developer portal, after approval · `Kokonada-private/garmin/` · done when: the text is filed and audited, and the owner accepts (or HALTs and asks connect-support@developer.garmin.com in writing) · src: `compliance-auditor`, Garmin Developer Program gap audit against Garmin's own pages, 2026-10-27 (sources in `Kokonada-private/garmin/`) · added: 2026-10-27
 - [ ] `DAN-113` `P1` **Empty the allow lists of `.claude/settings.local.json` and `~/.claude/settings.json` on the owner's machine.** Allow rules of every scope join the project's, and only deny and ask win across scopes, so a broad local allow re-opens what #270 narrowed. Owner only (the files are untracked and personal).
@@ -3344,6 +3345,7 @@ _(put anything you are unsure about here rather than losing it)_
 
 Format: `` `ID` `done|dropped` YYYY-MM-DD — one line, and the commit or the reason. ``
 
+- `DAN-130` `done` 2026-10-28 — the owner checked Railway: no `GARMIN_PERSONAL_*` variable on any service.
 - `BE-222` `done` 2026-10-28 — the personal lane removed, `redact.js` moved to `backend/app/utils/` (#280).
 - `OPS-319` `dropped` 2026-10-28 — the envelope allowlist it named was deleted with the personal lane in #280.
 - `BE-209` `dropped` 2026-10-28 — the personal-key lane was ruled out on 2026-10-27 and deleted in #280.
