@@ -236,6 +236,23 @@ describe('six node slots, one pool, and the ordinal', () => {
     expect(centreOf([at(0.5, 0.5, { ordinal: 0 }), at(-0.5, -0.5, { ordinal: 1 }), { ...C, ordinal: 2 }], NODE.C)).toEqual(centreOf([{ ...C, ordinal: 2 }], NODE.C));
   });
 
+  // UI-134 (designer Ruling 3 after UI-125): drift is keyed by a drift key, the ordinal unless the ledger
+  // hands a re-add its donor's. The drift is a function of the key and the field clock t alone, so a
+  // placement that carries a key draws exactly the drift of any other carrying it, at every t.
+  it('a lobe’s drift is its drift key’s, the ordinal when it has none (or one that is not a whole number ≥ 0); the slots stay by ordinal', () => {
+    const frameOf = (placements: ScenePlacement[], tMs = 7000) => buildFieldFrame(state('abyss', 'dark', { placements, tMs }), geometry, statics('abyss'));
+    const centreOf = (placements: ScenePlacement[], id: number, tMs = 7000) => frameOf(placements, tMs).nodes.find((n) => n.id === id && n.fade > 0)!.centre;
+    const C = at(0.5, -0.5);
+    for (const tMs of [0, 7000, 13333]) {
+      expect(centreOf([{ ...C, ordinal: 2, driftKey: 0 }], NODE.C, tMs)).toEqual(centreOf([{ ...C, ordinal: 0 }], NODE.C, tMs));
+      expect(centreOf([{ ...C, ordinal: 2, driftKey: 0 }], NODE.C, tMs)).not.toEqual(centreOf([{ ...C, ordinal: 2 }], NODE.C, tMs));
+    }
+    for (const bad of [-1, 1.5, NaN, Infinity]) expect(centreOf([{ ...C, ordinal: 2, driftKey: bad }], NODE.C)).toEqual(centreOf([{ ...C, ordinal: 2 }], NODE.C));
+    // The slot order is the ordinal's, whatever the key: ordinal 2 (key 9) before ordinal 5 (key 0).
+    const f = frameOf([at(0.5, 0.5, { ordinal: 5, driftKey: 0 }), { ...C, ordinal: 2, driftKey: 9 }]);
+    expect(f.nodes.slice(0, 2).map((n) => n.id)).toEqual([NODE.C, NODE.J]);
+  });
+
   it('rest lobe i drifts on table i', () => {
     const rest = buildFieldFrame(state('abyss', 'light', { placements: [], tMs: 7000 }), geometry, statics('abyss'));
     const lobes = statics('abyss').restLobes.light;
