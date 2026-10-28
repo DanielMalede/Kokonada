@@ -1,5 +1,5 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import type { DirectionId } from '../../tokens/tokens.generated.ts';
+import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
 import { MODES, STORMS, STORM_GRIDS, backlogBreaks, gridReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -11,13 +11,15 @@ import { staticsFor } from '../statics.ts';
 
 const ID: DirectionId = 'abyss';
 const LONG = 15 * 60_000;
-const deps = stormDeps(ID, staticsFor(ID, EXTENSIONS as never));
+// Both faces: Abyss's rest table is per face (UI-112), one lobe on dark and two on light.
+const FACES: Face[] = ['dark', 'light'];
+const deps = (face: Face) => stormDeps(ID, staticsFor(ID, EXTENSIONS as never), face);
 
-describe.each(MODES.flatMap((mode) => STORMS.map((kind) => [mode, kind] as [Mode, Storm])))(`E3 on the full grid: ${ID}, %s, %s`, (mode, kind) => {
+describe.each(FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) => [face, mode, kind] as [Face, Mode, Storm]))))(`E3 on the full grid: ${ID}, %s face, %s, %s`, (face, mode, kind) => {
   it(
     'taps every 17, 50, 100, 143, 167 and 250 ms, for 3 s and for 10 s: every clause, and the 10 s storm no more than 600 ms after the 3 s one',
     () => {
-      const { runs, failures } = gridReport(ID, mode, kind, STORM_GRIDS.full, deps);
+      const { runs, failures } = gridReport(ID, mode, kind, STORM_GRIDS.full, deps(face));
       expect(runs).toBe(12);
       expect(failures).toEqual([]);
     },
@@ -30,7 +32,7 @@ describe.each(MODES.flatMap((mode) => STORMS.map((kind) => [mode, kind] as [Mode
 // ledger converges 1450 ms after the 3 s storm's last tap and 2850 ms after the 10 s one's.
 describe('E3’s planted controls in the sweeps project', () => {
   const raw: Admission = { ...ADMISSION, netting: false };
-  const deps2 = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
+  const deps2 = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never), 'dark');
   const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
 
   it('the one-sided backlog clause bites (the harness predicate): a raw ledger at 250 ms converges after both storms, the 10 s one more than 600 ms later', () => {

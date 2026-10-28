@@ -203,8 +203,8 @@ describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)',
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
   });
 
-  it.each(cases)('%s, %s face: the rest glow on its own rest table (field.rest.lobes), warped and grained', (id, face) => {
-    const lobes = staticsFor(id, EXTENSIONS as never).restLobes;
+  it.each(cases)('%s, %s face: the rest glow on the face’s own rest table (field.rest.lobes), warped and grained', (id, face) => {
+    const lobes = staticsFor(id, EXTENSIONS as never).restLobes[face];
     expect(lobes.length).toBeGreaterThan(0);
     const frame = frameFor(id, face, lobes.map((at) => restLobe(id, face, at)));
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
@@ -526,7 +526,7 @@ half4 main(float2 p) {
   // crossfade starts, at fade 0.
   // Under reduced motion the first ramp ends at 150 ms, so only the spacing keeps the second tap out.
   it.each((['abyss'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
-    const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
+    const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.dark.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
     // A heading above the plate and a CTA below it: quiet zones the pending tap must not reach either.
     const quietRects = [{ cx: 32, cy: 3, hx: 20, hy: 2 }, { cx: 32, cy: 61, hx: 18, hy: 2 }];
     const geometry = { centrePx: [32.3, 31.6] as [number, number], radiusPx: 24, pxPerDp: 24 / (BASE.plate.maxDiameter / 2), fontScale: 1, quietRects };

@@ -75,11 +75,14 @@ export const STORM_GRIDS: { readonly coarse: StormGrid; readonly full: StormGrid
 export interface StormDeps {
   readonly statics: FieldStatics;
   readonly config: LedgerConfig;
+  /** The face the storm's frames are built on: the ledger counts that face's rest lobes (UI-112). */
+  readonly face: Face;
 }
-/** The ledger's config for a direction, from the statics the caller holds. */
-export const stormDeps = (id: DirectionId, statics: FieldStatics): StormDeps => ({
+/** The ledger's config for a direction on one face, from the statics the caller holds. */
+export const stormDeps = (id: DirectionId, statics: FieldStatics, face: Face): StormDeps => ({
   statics,
-  config: { restLobes: statics.restLobes.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 },
+  config: { restLobes: statics.restLobes[face].length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 },
+  face,
 });
 
 export const tap = (x: number, y: number): Tap => ({ x, y });
@@ -233,7 +236,7 @@ export function storm(
     if (o.threw === null && key !== lastKey) {
       lastKey = key;
       try {
-        const frame = buildFieldFrame(frameState(id, 'dark', f), geometry, deps.statics);
+        const frame = buildFieldFrame(frameState(id, deps.face, f), geometry, deps.statics);
         packFrame(frame);
         // The ledger and the builder agree: the frame occupies no more slots than the ledger's demand.
         const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
@@ -309,8 +312,8 @@ export function gridReport(
   for (const every of grid.every) {
     const outcomes = grid.span.map((span) => storm(id, mode, kind, every, span, deps, limits, false, tail));
     runs += outcomes.length;
-    outcomes.forEach((o, i) => failures.push(...stormFailures(`${id} ${mode} ${kind} every ${every} ms for ${grid.span[i]} ms`, kind, mode, o)));
-    failures.push(...backlogBreaks(`${id} ${mode} ${kind} every ${every} ms`, grid.span, outcomes));
+    outcomes.forEach((o, i) => failures.push(...stormFailures(`${id} ${deps.face} ${mode} ${kind} every ${every} ms for ${grid.span[i]} ms`, kind, mode, o)));
+    failures.push(...backlogBreaks(`${id} ${deps.face} ${mode} ${kind} every ${every} ms`, grid.span, outcomes));
   }
   return { runs, failures };
 }

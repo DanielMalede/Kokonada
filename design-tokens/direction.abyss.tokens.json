@@ -163,7 +163,7 @@
       "centreBeta": {"$type":"number","$value":0},
       "neutralLobe": {"$type":"number","$value":1}
     },
-    "rest": {"$extensions":{"com.kokonada":{"lobes":[[-0.3,0.35]]}}},
+    "rest": {"$extensions":{"com.kokonada":{"lobes":{"dark":[[-0.3,0.35]],"light":[[-0.35,-0.3],[0.4,0.35]]}}}},
     "grain": {"ground":{"$type":"number","$value":0.012},"inside":{"$type":"number","$value":0.012}},
     "pivot": {"$type":"number","$value":0},
     "graph": {"restIntenseRoute":{"$type":"string","$value":"straight"}},

@@ -212,7 +212,7 @@ describe('neutral placements with no lobe (fixture-outer): the builder’s frame
       { centrePx: [31.3, 32.7], radiusPx: 24, pxPerDp: 24 / 150, fontScale: 1 },
       staticsFor(FIXTURE_OUTER, EXTENSIONS as never),
     );
-    expect(frame.nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual(staticsFor(FIXTURE_OUTER, EXTENSIONS as never).restLobes.map(() => 1));
+    expect(frame.nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual(staticsFor(FIXTURE_OUTER, EXTENSIONS as never).restLobes[face].map(() => 1));
     expect(worstDisagreement(frame)).toBeLessThanOrEqual(1);
   });
 });

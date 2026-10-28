@@ -90,15 +90,16 @@ const steppedFrames = (id: DirectionId, face: Face, steps: () => Array<{ ms: num
 
 /**
  * The catalogue: the token scenes of every direction (drawn here or named as deferred) and the replace
- * dissolve, from the extensions and the statics the caller holds.
+ * dissolve, from the extensions and the statics the caller holds. A stepped scene runs the ledger of
+ * its own face: the rest tables are per face (UI-112).
  */
-export function sceneCatalogue(extensions: unknown, depsOf: (id: DirectionId) => StormDeps) {
+export function sceneCatalogue(extensions: unknown, depsOf: (id: DirectionId, face: Face) => StormDeps) {
   const roots = extensions as Record<string, { $root: { neverRedScenes?: readonly NeverRedScene[]; hero?: { scenes: Record<string, { placements?: readonly Bead[] }> } } }>;
   const scenesOf = (id: DirectionId): readonly NeverRedScene[] => roots[id].$root.neverRedScenes ?? [];
   const restTo = roots.base.$root.hero?.scenes['one.intense']?.placements ?? [];
   const drawnOf = (id: DirectionId, scene: NeverRedScene, face: Face): Drawn => {
     if (scene.steppedThroughMs !== undefined) {
-      return { id, scene: scene.id, face, beads: restTo, ...steppedFrames(id, face, () => throughLedger(depsOf(id), [], tapsOf(restTo))) };
+      return { id, scene: scene.id, face, beads: restTo, ...steppedFrames(id, face, () => throughLedger(depsOf(id, face), [], tapsOf(restTo))) };
     }
     const beads = scene.beads ?? [];
     return {
@@ -108,7 +109,7 @@ export function sceneCatalogue(extensions: unknown, depsOf: (id: DirectionId) =>
     };
   };
   const replaceOf = (id: DirectionId, face: Face): Drawn => ({
-    id, scene: 'replaceDissolve', face, beads: SEAM, ...steppedFrames(id, face, () => throughLedger(depsOf(id), tapsOf([SEAM[0]]), tapsOf([SEAM[1]]))),
+    id, scene: 'replaceDissolve', face, beads: SEAM, ...steppedFrames(id, face, () => throughLedger(depsOf(id, face), tapsOf([SEAM[0]]), tapsOf([SEAM[1]]))),
   });
   const drawn: readonly Drawn[] = [
     ...IDS.flatMap((id) => scenesOf(id).filter((s) => FIELD_SCENES.includes(s.id)).flatMap((s) => s.faces.map((face) => drawnOf(id, s, face)))),

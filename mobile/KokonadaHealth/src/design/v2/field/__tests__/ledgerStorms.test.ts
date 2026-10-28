@@ -2,7 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import { BASE, DIRECTIONS, type DirectionId } from '../../tokens/tokens.generated.ts';
+import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { ADMISSION, emptyLedger, fades, reconcile, type Admission } from '../placementLedger.ts';
@@ -22,10 +22,26 @@ import { packFrame } from '../uniforms.ts';
 const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const BASE_SETTLE = BASE.motion.settle.duration;
 const LONG = 600_000;
-const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
-const config = (id: DirectionId) => deps(id).config;
+// A storm runs on one face: the ledger counts that face's rest lobes, and the builder draws them (UI-112:
+// Abyss's rest table is per face, one lobe on dark and two on light).
+const FACES: Face[] = ['dark', 'light'];
+const deps = (id: DirectionId, face: Face) => stormDeps(id, staticsFor(id, EXTENSIONS as never), face);
+const config = (id: DirectionId) => deps(id, 'dark').config;
 
-const cases = IDS.flatMap((id) => MODES.flatMap((mode) => STORMS.map((kind) => [id, mode, kind] as [DirectionId, Mode, Storm])));
+const cases = IDS.flatMap((id) => FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) => [id, face, mode, kind] as [DirectionId, Face, Mode, Storm]))));
+
+describe('a storm’s face: the ledger’s rest count and the built frame are the same face’s', () => {
+  it('stormDeps counts the face’s own rest lobes: Abyss one on dark, two on light', () => {
+    expect(FACES.map((face) => [deps('abyss', face).face, deps('abyss', face).config.restLobes])).toEqual([['dark', 1], ['light', 2]]);
+  });
+
+  it('the storm builds on the deps’ face: a ledger counting dark’s one rest lobe, built on light’s two, is caught', () => {
+    const crossed = { ...deps('abyss', 'light'), config: deps('abyss', 'dark').config };
+    const failures = stormFailures('crossed', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, crossed));
+    expect(failures.some((f) => f.includes('the demand and the built frame disagree'))).toBe(true);
+    expect(stormFailures('own', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', 'light')))).toEqual([]);
+  });
+});
 
 describe('E3 in the default run: the coarse grid, every direction × mode × storm, taps every 17, 143 and 250 ms for 3 s', () => {
   it('the grids are the ruled ones: the coarse here, the full in the sweeps project', () => {
@@ -33,9 +49,9 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
   });
 
   it.each(cases)(
-    '%s, %s, %s',
-    (id, mode, kind) => {
-      const { runs, failures } = gridReport(id, mode, kind, STORM_GRIDS.coarse, deps(id));
+    '%s, %s face, %s, %s',
+    (id, face, mode, kind) => {
+      const { runs, failures } = gridReport(id, mode, kind, STORM_GRIDS.coarse, deps(id, face));
       expect(runs).toBe(3);
       expect(failures).toEqual([]);
     },
@@ -44,8 +60,8 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
 
   it.each(MODES)('%s: reemit’s fades are bit-identical to one tap sent once, at the coarse cadences (the full set runs in the sweeps project)', (mode) => {
     for (const every of STORM_GRIDS.coarse.every) {
-      const re = storm('abyss', mode, 'reemit', every, 3000, deps('abyss'), ADMISSION, true);
-      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps('abyss'), ADMISSION, true);
+      const re = storm('abyss', mode, 'reemit', every, 3000, deps('abyss', 'dark'), ADMISSION, true);
+      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps('abyss', 'dark'), ADMISSION, true);
       expect(re.series).toEqual(once.series);
     }
   });
@@ -56,23 +72,23 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
 describe('E3’s planted controls: each guard is shown to bite, through the harness’s own clauses', () => {
   const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
 
-  it('a ledger whose node limit can never fit a swap stalls: a frame ends idle with a change waiting past the spacing', () => {
-    // One below a toggle's smallest swap, one placement and every rest lobe beside it (2 before law
-    // round 2, item 6 left Abyss one rest lobe), so it holds whatever the rest table.
-    const tight: Admission = { ...ADMISSION, nodes: deps('abyss').config.restLobes };
-    const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss'), tight));
+  it.each(FACES)('%s face: a ledger whose node limit can never fit a swap stalls: a frame ends idle with a change waiting past the spacing', (face) => {
+    // One below a toggle's smallest swap, one placement and every rest lobe beside it (one on dark, two
+    // on light, UI-112), so it holds whatever the face's rest table.
+    const tight: Admission = { ...ADMISSION, nodes: deps('abyss', face).config.restLobes };
+    const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', face), tight));
     expect(has(failures, 'a frame ended idle with a change waiting past the spacing')).toBe(true);
   });
 
   const raw: Admission = { ...ADMISSION, netting: false };
   it('a raw first-in-first-out ledger breaks the netting identity at every coarse cadence (the full set runs in the sweeps project)', () => {
-    const { runs, failures } = gridReport('abyss', 'settle', 'toggle', STORM_GRIDS.coarse, deps('abyss'), raw);
+    const { runs, failures } = gridReport('abyss', 'settle', 'toggle', STORM_GRIDS.coarse, deps('abyss', 'dark'), raw);
     expect(runs).toBe(3);
     expect(STORM_GRIDS.coarse.every.map((every) => has(failures.filter((f) => f.includes(`every ${every} ms`)), 'the netting identity broke'))).toEqual([true, true, true]);
   });
 
   it('a raw ledger at 143 ms never converges inside the window: the absolute bound fires (17 and 50 ms run in the sweeps project)', () => {
-    const o = storm('abyss', 'settle', 'toggle', 143, 3000, deps('abyss'), raw);
+    const o = storm('abyss', 'settle', 'toggle', 143, 3000, deps('abyss', 'dark'), raw);
     expect(has(stormFailures('raw 143', 'toggle', 'settle', o), 'did not converge')).toBe(true);
   });
 });
@@ -83,8 +99,8 @@ describe('E3’s clauses: each fires on its own defect, and only it', () => {
   let clean: Outcome;
   let cleanReemit: Outcome;
   beforeAll(() => {
-    clean = storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss'));
-    cleanReemit = storm('abyss', 'settle', 'reemit', 250, 3000, deps('abyss'));
+    clean = storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', 'dark'));
+    cleanReemit = storm('abyss', 'settle', 'reemit', 250, 3000, deps('abyss', 'dark'));
   });
 
   it('a real storm’s outcomes pass every clause', () => {

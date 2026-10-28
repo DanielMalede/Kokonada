@@ -23,7 +23,7 @@ it('the fixture mock: the fixture ids exist, BASE and DIRECTIONS.abyss are the s
   for (const id of FIXTURE_IDS) expect(DIRECTIONS[id]).toBeDefined();
 });
 
-const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
+const deps = (id: DirectionId, face: Face) => stormDeps(id, staticsFor(id, EXTENSIONS as never), face);
 const { scenesOf, restTo, drawn } = sceneCatalogue(EXTENSIONS, deps);
 
 describe('the never-red scenes the designer named, and the two the plan adds', () => {
@@ -49,16 +49,23 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
   });
 
   it('restToIntense runs through the ledger along u and 1 − u²; the replace dissolve swaps the seam’s pair in one crossfade', () => {
-    const rest = throughLedger(deps('abyss'), [], restTo.map((b) => ({ x: b.x, y: b.y })));
+    const rest = throughLedger(deps('abyss', 'dark'), [], restTo.map((b) => ({ x: b.x, y: b.y })));
     expect(rest.map((s) => s.ms)).toEqual(Array.from({ length: 13 }, (_, k) => k * STEP_MS));
     const mid = rest[6].shown;
     expect(mid.placements).toHaveLength(1);
     expect(mid.restFade).toBeCloseTo(1 - mid.placements[0].fade ** 2, 12);
     expect([rest[0].shown.placements[0].fade, rest[12].shown.placements[0].fade, rest[12].shown.restFade]).toEqual([0, 1, 0]);
-    const swap = throughLedger(deps('abyss'), [{ x: SEAM[0].x, y: SEAM[0].y }], [{ x: SEAM[1].x, y: SEAM[1].y }]);
+    const swap = throughLedger(deps('abyss', 'dark'), [{ x: SEAM[0].x, y: SEAM[0].y }], [{ x: SEAM[1].x, y: SEAM[1].y }]);
     const half = swap[6].shown.placements;
     expect(half.map((p) => p.role)).toEqual(['leaving', 'live']);
     expect(half[0].fade).toBeCloseTo(1 - half[1].fade ** 2, 12);
+  });
+
+  // UI-112: Abyss's rest table is per face, so each face's stepped scene runs a ledger that counts
+  // that face's rest lobes: one on dark, two on light, every one in a slot of its own.
+  it('restToIntense on each face: the ledger gives a rest slot to each of that face’s rest lobes', () => {
+    const restSlots = (face: Face) => drawn.find((d) => d.id === 'abyss' && d.scene === 'restToIntense' && d.face === face)!.frames()[0].state.restSlots;
+    expect([restSlots('dark'), restSlots('light')].map((s) => s?.length)).toEqual([1, 2]);
   });
 
   it('the planted shader differs from the real one only in the waypoint, and compiles', () => {
@@ -77,7 +84,7 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
   ] as const)(
     '%s, %s face: shadowed grounds drawn: %s',
     (id, face, expected) => {
-      const frame = frameIn(WHOLE, stateFor(id as DirectionId, face as Face, HEAVIEST, still(SEAM)), deps(id as DirectionId).statics);
+      const frame = frameIn(WHOLE, stateFor(id as DirectionId, face as Face, HEAVIEST, still(SEAM)), deps(id as DirectionId, face as Face).statics);
       const [w, h] = sizeOf(WHOLE);
       let shadowed = 0;
       for (let y = 0; y < h; y++) {

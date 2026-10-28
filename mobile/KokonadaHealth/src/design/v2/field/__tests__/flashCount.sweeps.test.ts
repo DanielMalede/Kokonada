@@ -1,5 +1,5 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import type { DirectionId } from '../../tokens/tokens.generated.ts';
+import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
 import { E4_CADENCES, E4_CASES, FRAME_MS, flashReport, naiveDriver, samplePoints, worstFlashesPerSecond } from '../flashCount.ts';
 import { stormDeps } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -9,7 +9,8 @@ import { staticsFor } from '../statics.ts';
 // general flashes in any one-second window, at every sample point, under every storm.
 
 const LONG = 15 * 60_000;
-const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
+// The ledger counts the case's face's rest lobes (UI-112: Abyss one on dark, two on light).
+const deps = (id: DirectionId, face: Face) => stormDeps(id, staticsFor(id, EXTENSIONS as never), face);
 
 describe('E4’s planted controls: the counter and the guard bite', () => {
   it('the counter on a 4 Hz square wave (Y 0.05 ↔ 0.30) returns 4; on a single step, 0', () => {
@@ -20,9 +21,13 @@ describe('E4’s planted controls: the counter and the guard bite', () => {
   });
 
   it('a naive driver that restarts in 0 / out 1 on every tap, Abyss dark, reduced, toggle every 143 ms, gives 3 or more', () => {
-    const plant = flashReport({ id: 'abyss', face: 'dark', mode: 'reduced', kind: 'toggle', every: 143 }, deps('abyss'), naiveDriver('reduced'));
+    const plant = flashReport({ id: 'abyss', face: 'dark', mode: 'reduced', kind: 'toggle', every: 143 }, deps('abyss', 'dark'), naiveDriver('reduced'));
     expect(plant.worst).toBeGreaterThanOrEqual(3);
   }, LONG);
+
+  it('a case run on deps of the other face is refused: the ledger would count the wrong face’s rest lobes', () => {
+    expect(() => flashReport({ id: 'abyss', face: 'light', mode: 'settle', kind: 'toggle', every: 143 }, deps('abyss', 'dark'))).toThrow(/face/);
+  });
 });
 
 describe('E4: the rendered flash count, at most 2 a second at every sample point', () => {
@@ -36,7 +41,7 @@ describe('E4: the rendered flash count, at most 2 a second at every sample point
   });
 
   it.each(E4_CASES.map((c) => [c.id, c.face, c.mode, c.kind, c.every, c] as const))('%s %s, %s, %s every %s ms', (id, _face, _mode, _kind, _every, c) => {
-    const report = flashReport(c, deps(id));
+    const report = flashReport(c, deps(id, c.face));
     expect({ worst: report.worst, at: report.worst > 2 ? report.at : null }).toEqual({ worst: Math.min(report.worst, 2), at: null });
   }, LONG);
 });

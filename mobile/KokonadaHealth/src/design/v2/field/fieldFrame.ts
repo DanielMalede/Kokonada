@@ -108,8 +108,8 @@ export function checkQuietRects(rects: readonly QuietRect[]): void {
 }
 
 export interface FieldStatics {
-  /** Rest-lobe centres, × R from the plate centre. */
-  readonly restLobes: ReadonlyArray<readonly [number, number]>;
+  /** Rest-lobe centres, × R from the plate centre, per face (UI-112): the builder draws the frame's face's. */
+  readonly restLobes: Readonly<Record<Face, ReadonlyArray<readonly [number, number]>>>;
   /** Per lobe slot: [kx, ky] harmonics of 1/T, and [φx, φy] phases in radians. */
   readonly drift: {
     readonly harmonics: ReadonlyArray<readonly [number, number]>;
@@ -268,7 +268,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   const anyLobe = entries.some(({ placement }) => nodeAt(finite(placement.x, 0), finite(placement.y, 0)) !== 'neutral' || d.field.lobe.neutralLobe > 0);
   const restFade = anyLobe ? clamp01(finite(state.restFade, 0)) : 1;
   if (restFade > 0) {
-    statics.restLobes.forEach(([rx, ry], i) => {
+    statics.restLobes[face].forEach(([rx, ry], i) => {
       const [ox, oy] = offset(i);
       const node = { id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy] as [number, number], radius, field: tense(restGlow), halo: restGlow, bead: null };
       items.push({ node, slot: state.restSlots === undefined ? undefined : state.restSlots[i] });

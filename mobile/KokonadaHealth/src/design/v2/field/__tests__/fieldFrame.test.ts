@@ -17,11 +17,12 @@ const T = BASE.field.clock.T;
 const geometry = { centrePx: [200, 300] as [number, number], radiusPx: 150, pxPerDp: 1, fontScale: 1 };
 const statics = (id: DirectionId) => staticsFor(id, EXTENSIONS as never);
 /**
- * Abyss's statics with two rest lobes, its table before law round 2 (item 6 left it one). The pool's
- * rest slots and the per-lobe drift tables need more than one rest lobe to be seen, so these cases
- * pass this table to the real builder; the shipped table is pinned below.
+ * Abyss's rest lobes are per face (UI-112, the owner's option (b)): one on the dark face (law round 2,
+ * item 6), two on the light face, its table before item 6. The pool's rest slots and the per-lobe drift
+ * tables need more than one rest lobe to be seen, so those cases run on the light face, with the
+ * shipped table.
  */
-const twoRest = (): FieldStatics => ({ ...statics('abyss'), restLobes: [[-0.35, -0.3], [0.4, 0.35]] });
+const ABYSS_REST: Record<Face, Array<[number, number]>> = { dark: [[-0.3, 0.35]], light: [[-0.35, -0.3], [0.4, 0.35]] };
 type ScenePlacement = Omit<Placement, 'fade'> & { readonly fade?: number };
 /**
  * A scene's state: every fade is given (fade is required on the runtime path). A scene's placements are
@@ -48,7 +49,9 @@ describe('the statics come from the extensions the caller passes in', () => {
   it.each(IDS)('%s: rest lobes and drift harmonics, as the tokens hold them', (id) => {
     const s = statics(id);
     const ext = EXTENSIONS as unknown as Record<string, Record<string, { lobes?: unknown }>>;
-    expect(s.restLobes).toEqual(ext[id]['field.rest'].lobes);
+    const table = ext[id]['field.rest'].lobes;
+    // One table for both faces, or one per face (UI-112): the statics always hold one per face.
+    expect(s.restLobes).toEqual(Array.isArray(table) ? { dark: table, light: table } : table);
     expect(s.drift.harmonics).toEqual([[2, 3], [3, 2], [1, 2]]);
     expect(s.drift.phases).toEqual([[0, 0], [1.3, 0.7], [2.1, 4]]);
   });
@@ -58,9 +61,11 @@ describe('the statics come from the extensions the caller passes in', () => {
   const DRIFT = { harmonics: [[2, 3], [3, 2], [1, 2]], phases: [[0, 0], [1.3, 0.7], [2.1, 4]] };
   const FALLBACK_STOPS = { position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1], weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0] };
   it.each([
-    // Law round 2, item 6 (designer §6): one rest lobe at the upper left (y up), the light direction of bead.highlight.
-    ['abyss', [[-0.3, 0.35]]],
-  ] as Array<[DirectionId, number[][]]>)('%s: every value of the port, pinned (rest lobes, drift, fallback stops)', (id, restLobes) => {
+    // Law round 2, item 6 (designer §6): one rest lobe at the upper left (y up), the light direction of
+    // bead.highlight, on the dark face; on the light face the two symmetric lobes of before item 6, since
+    // one lobe there read as a grey shadow (UI-112, the owner's option (b)).
+    ['abyss', ABYSS_REST],
+  ] as Array<[DirectionId, FieldStatics['restLobes']]>)('%s: every value of the port, pinned (rest lobes, drift, fallback stops)', (id, restLobes) => {
     expect(statics(id)).toEqual({ restLobes, drift: DRIFT, fallbackStops: FALLBACK_STOPS });
   });
 
@@ -108,9 +113,24 @@ describe('the frame for a moment', () => {
 
   it('shows the rest lobes in the rest glow when nothing is placed, and none once a bead is', () => {
     const rest = buildFieldFrame(state('abyss', 'dark', { placements: [] }), geometry, statics('abyss'));
-    expect(rest.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual(statics('abyss').restLobes.map(() => NODE.R0));
+    expect(rest.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual(statics('abyss').restLobes.dark.map(() => NODE.R0));
     const placed = buildFieldFrame(state('abyss', 'dark'), geometry, statics('abyss'));
     expect(placed.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual([NODE.C]);
+  });
+
+  it('draws the rest table of the frame’s face: one lobe at the upper left on dark, the two symmetric lobes on light', () => {
+    const still = { placements: [], tMs: 0, stress: 1 }; // full stress, t = 0: the drift is (A·sin φx, A·cos φy) per table
+    const d = DIRECTIONS.abyss.field.drift;
+    const A = d.A0 * (1 + (d.D - 1) * 0) * (1 - 0.4);
+    const drift = (i: number) => [A * Math.sin(statics('abyss').drift.phases[i][0]), A * Math.cos(statics('abyss').drift.phases[i][1])];
+    for (const face of ['dark', 'light'] as Face[]) {
+      const lit = buildFieldFrame(state('abyss', face, still), geometry, statics('abyss')).nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0);
+      expect(lit).toHaveLength(ABYSS_REST[face].length);
+      lit.forEach((n, i) => {
+        expect(n.centre[0]).toBeCloseTo(ABYSS_REST[face][i][0] + drift(i)[0], 12);
+        expect(n.centre[1]).toBeCloseTo(ABYSS_REST[face][i][1] + drift(i)[1], 12);
+      });
+    }
   });
 
   it('a neutral placement lights the rest glow, with a lobe only where the direction has one', () => {
@@ -147,12 +167,12 @@ describe('six node slots, one pool, and the ordinal', () => {
 
   it('a scene with no slots: placements by ordinal, live or leaving, then the rest lobes, take the lowest slots; the rest is inert', () => {
     const f = buildFieldFrame(
-      state('abyss', 'dark', {
+      state('abyss', 'light', {
         placements: [at(0.5, 0.5, { ordinal: 5 }), at(-0.5, -0.5, { ordinal: 2, role: 'leaving', fade: 0.4 }), at(0.5, -0.5, { ordinal: 3 })],
         restFade: 0.5,
       }),
       geometry,
-      twoRest(),
+      statics('abyss'),
     );
     expect(f.nodes).toHaveLength(NODE_SLOTS);
     expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([
@@ -168,13 +188,13 @@ describe('six node slots, one pool, and the ordinal', () => {
 
   it('the slots the ledger gives are kept: each node is drawn in its own slot, the rest inert', () => {
     const f = buildFieldFrame(
-      state('abyss', 'dark', {
+      state('abyss', 'light', {
         placements: [at(0.5, 0.5, { ordinal: 0, slot: 4, fade: 0.25 }), at(0.5, -0.5, { ordinal: 1, slot: 0 })],
         restFade: 0.6,
         restSlots: [5, 2],
       }),
       geometry,
-      twoRest(),
+      statics('abyss'),
     );
     expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([[NODE.C, 1], [NODE.R0, 0], [NODE.R0, 0.6], [NODE.R0, 0], [NODE.J, 0.25], [NODE.R0, 0.6]]);
     expect(f.nodes[2].centre).not.toEqual(f.nodes[5].centre); // rest lobe 1 in slot 2, rest lobe 0 in slot 5
@@ -189,7 +209,8 @@ describe('six node slots, one pool, and the ordinal', () => {
 
   it('more than NODE_SLOTS nodes, or a slot out of range or taken twice, throws a RangeError: the builder never slices', () => {
     const four = [at(0.5, 0.5), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)];
-    const build = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, twoRest());
+    // The light face's table, two rest lobes (UI-112): the cap as it stood before law round 2.
+    const build = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'light', more), geometry, statics('abyss'));
     expect(build({ placements: four, restFade: 1 })).not.toThrow(); // 4 + 2 = 6
     expect(build({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 5 + 2 = 7
     expect(build({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 0 })).not.toThrow(); // 6 + 0
@@ -197,10 +218,10 @@ describe('six node slots, one pool, and the ordinal', () => {
     expect(build({ placements: [at(0.5, 0.5, { slot: 1.5 })], restFade: 0 })).toThrow(RangeError);
     expect(build({ placements: [at(0.5, 0.5, { slot: 2 }), at(0.5, -0.5, { slot: 2 })], restFade: 0 })).toThrow(RangeError);
     expect(build({ placements: [at(0.5, 0.5, { slot: 0 })], restFade: 1, restSlots: [0, 1] })).toThrow(RangeError);
-    // Abyss's own table, one rest lobe: five placements fit beside it, six do not.
-    const shipped = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
-    expect(shipped({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).not.toThrow(); // 5 + 1 = 6
-    expect(shipped({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 6 + 1 = 7
+    // The dark face's table, one rest lobe: five placements fit beside it, six do not.
+    const dark = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
+    expect(dark({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).not.toThrow(); // 5 + 1 = 6
+    expect(dark({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 6 + 1 = 7
   });
 
   it('a lobe’s drift is its ordinal’s, mod the drift tables, wherever its slot', () => {
@@ -216,8 +237,8 @@ describe('six node slots, one pool, and the ordinal', () => {
   });
 
   it('rest lobe i drifts on table i', () => {
-    const rest = buildFieldFrame(state('abyss', 'dark', { placements: [], tMs: 7000 }), geometry, twoRest());
-    const lobes = twoRest().restLobes;
+    const rest = buildFieldFrame(state('abyss', 'light', { placements: [], tMs: 7000 }), geometry, statics('abyss'));
+    const lobes = statics('abyss').restLobes.light;
     const d = DIRECTIONS.abyss.field.drift;
     const A = d.A0 * (1 + (d.D - 1) * 1);
     const T0 = (i: number) => {
@@ -237,7 +258,7 @@ describe('six node slots, one pool, and the ordinal', () => {
   // and every survivor keeps its centre and its slot; the same ledger output packs the same uniforms.
   it('through the ledger: a fourth tap dissolves the oldest while every survivor keeps its centre and slot', () => {
     const [J, C, R, I] = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y }));
-    const config = { restLobes: statics('abyss').restLobes.length, neutralLobe: true };
+    const config = { restLobes: statics('abyss').restLobes.dark.length, neutralLobe: true };
     let l = reconcile(emptyLedger(config), { seq: 1, taps: [J, C, R] }, 0, 'settle');
     const frameOf = () => {
       const f = ledgerFades(l);

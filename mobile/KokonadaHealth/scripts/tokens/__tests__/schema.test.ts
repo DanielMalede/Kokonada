@@ -291,6 +291,37 @@ describe('the base file names only existing directions', () => {
   });
 });
 
+// UI-112 (the owner's option (b)): field.rest's lobes are one table for both faces, or one per face,
+// { dark, light }. Abyss's are per face; fixture-inner keeps the one-table form.
+describe('field.rest’s lobes: one table, or one per face', () => {
+  const lobes = (j: any) => j.field.rest.$extensions['com.kokonada'];
+  const PATH = /^direction\.abyss\.tokens\.json: field\.rest: /;
+
+  it('Abyss’s committed table is per face, and passes', () => {
+    expect(Object.keys(lobes(real().find((s) => s.name === ABYSS)!.json).lobes).sort()).toEqual(['dark', 'light']);
+    expect(errorsOf(real())).toEqual([]);
+  });
+
+  it('one table for both faces passes too', () => {
+    expect(errorsOf(planted(ABYSS, (j) => (lobes(j).lobes = [[0, 0]])))).toEqual([]);
+  });
+
+  it.each([
+    ['a per-face table missing the light face', { dark: [[0, 0]] }],
+    ['a per-face table missing the dark face', { light: [[0, 0]] }],
+    ['a per-face table holding another key', { dark: [[0, 0]], light: [[0, 0]], dim: [[0, 0]] }],
+    ['a face whose table is empty', { dark: [[0, 0]], light: [] }],
+    ['a face whose lobe is not two finite numbers', { dark: [[0, 0]], light: [[0, 'x']] }],
+    ['a lobe of three numbers', [[0, 0, 0]]],
+    ['an empty table', []],
+    ['a table that is neither a list nor a per-face object', 0.5],
+    ['no table at all', undefined],
+  ])('%s is an error naming the file and field.rest', (_, value) => {
+    const errors = errorsOf(planted(ABYSS, (j) => (lobes(j).lobes = value)));
+    expect(errors).toContainEqual(expect.stringMatching(PATH));
+  });
+});
+
 describe('the set of files', () => {
   it('needs a base file', () => {
     const errors = errorsOf(real().filter((s) => s.name !== BASE));

@@ -3,7 +3,7 @@ import { oklabToOklch, srgbToOklab } from '../../color/oklab.ts';
 import { hueInBand } from '../../color/redBand.ts';
 import { CHECK_BAND } from '../../tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
-import { BASE, type DirectionId } from '../../tokens/tokens.generated.ts';
+import { BASE, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
 import type { FieldState } from '../fieldFrame.ts';
 import { fieldPixel, type FieldFrame } from '../fieldLaw.ts';
@@ -23,7 +23,7 @@ import { packFrame } from '../uniforms.ts';
 
 const LIMIT = CHECK_BAND.chromaFloor - BASE.neverRed.margin;
 const LONG = 600_000;
-const deps = (id: DirectionId) => stormDeps(id, staticsFor(id, EXTENSIONS as never));
+const deps = (id: DirectionId, face: Face) => stormDeps(id, staticsFor(id, EXTENSIONS as never), face);
 const { drawn } = sceneCatalogue(EXTENSIONS, deps);
 const CASES = drawn.map((d) => [d.id, d.scene, d.face, d] as const);
 
@@ -83,7 +83,7 @@ function worstOfFrame(d: Drawn, state: FieldState, source: SkRuntimeEffect): Wor
   let worst: Worst = { chroma: 0, rgb: [], at: [-1, -1], view: '' };
   for (const view of viewsOf(d)) {
     const [w, h] = sizeOf(view);
-    const found = worstInBand(render(frameIn(view, state, deps(d.id).statics), w, h, source), w, h, view.name);
+    const found = worstInBand(render(frameIn(view, state, deps(d.id, d.face).statics), w, h, source), w, h, view.name);
     if (found.chroma > worst.chroma) worst = found;
   }
   return worst;
@@ -123,7 +123,7 @@ describe('the scenes agree with the TypeScript law, pixel for pixel (±1 LSB)', 
       const { state } = d.heaviest();
       for (const view of viewsOf(d)) {
         const [w, h] = sizeOf(view);
-        const frame = frameIn(view, state, deps(d.id).statics);
+        const frame = frameIn(view, state, deps(d.id, d.face).statics);
         const pixels = render(frame, w, h, effect);
         let worst = 0;
         for (let y = 0; y < h; y++) {

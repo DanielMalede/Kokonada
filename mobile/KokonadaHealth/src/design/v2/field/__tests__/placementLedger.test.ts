@@ -409,7 +409,8 @@ describe('the ledger reads the store as the builder does', () => {
     expect(DIRECTIONS.abyss).toBe(actualTokens().DIRECTIONS.abyss);
     expect(DIRECTIONS[FIXTURE_OUTER].field.lobe.neutralLobe).toBe(0);
   });
-  const outer = stormDeps(FIXTURE_OUTER, staticsFor(FIXTURE_OUTER, EXTENSIONS as never));
+  // Built on the light face, so the ledger counts the light face's rest lobes (UI-112).
+  const outer = stormDeps(FIXTURE_OUTER, staticsFor(FIXTURE_OUTER, EXTENSIONS as never), 'light');
   /** Frames at 1 ms, each built and packed: the worst occupancy over demand, and the first throw. */
   function drive(first: Tap[], later: Record<number, Tap[]>, to: number) {
     let ledger = emptyLedger(outer.config);
@@ -422,7 +423,7 @@ describe('the ledger reads the store as the builder does', () => {
       ledger = reconcile(ledger, { seq, taps }, t, 'settle');
       const f = fades(ledger);
       try {
-        const frame = buildFieldFrame(frameState(FIXTURE_OUTER, 'light', f), geometry, outer.statics);
+        const frame = buildFieldFrame(frameState(FIXTURE_OUTER, outer.face, f), geometry, outer.statics);
         packFrame(frame);
         const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
         over = Math.max(over, occupied - f.demand);

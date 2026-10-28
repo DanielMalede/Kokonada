@@ -163,6 +163,9 @@ export function naiveDriver(mode: Mode): Driver {
 
 /** One case: the worst flashes per second over every sample point, and where. */
 export function flashReport(c: FlashCase, deps: StormDeps, driver: Driver = ledgerDriver(deps, c.mode)): { points: number; worst: number; at: [number, number] } {
+  // The ledger counts its deps' face's rest lobes (UI-112): a case on the other face would draw a rest
+  // table the ledger never counted.
+  if (deps.face !== c.face) throw new Error(`E4: a ${c.face} face case needs deps of that face, got ${deps.face}`);
   const s = store(c.kind === 'neutral3' ? [neutral(1), neutral(2), neutral(3)] : []);
   const actions = schedule(c.kind, c.every, s);
   const times = [...actions.keys()].sort((a, b) => a - b);

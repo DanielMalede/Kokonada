@@ -6,7 +6,7 @@
 // Stage 0 (architect, B4 forks, 1D and 1E) replaces this with a typed module generated from the
 // tokens; fieldFrame.test.ts pins every value it returns, so the move can be checked.
 
-import type { DirectionId } from '../tokens/tokens.generated.ts';
+import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import type { FieldStatics } from './fieldFrame.ts';
 
 interface ExtensionsShape {
@@ -16,15 +16,24 @@ interface ExtensionsShape {
   };
 }
 
-/** The statics for a direction, read from the extensions object the caller holds (the lab, a test). */
+type RestTable = ReadonlyArray<readonly [number, number]>;
+
+/**
+ * The statics for a direction, read from the extensions object the caller holds (the lab, a test).
+ * field.rest's lobes are one table for both faces, or one per face (UI-112); the statics always hold
+ * one per face, and the builder takes the frame's.
+ */
 export function staticsFor(id: DirectionId, extensions: ExtensionsShape): FieldStatics {
   const drift = extensions.base['field.clock'].drift;
   const stops = extensions.base['field.fallback'].stops;
   const lobes = ['lobe0', 'lobe1', 'lobe2'];
-  const own = (extensions as unknown as Record<string, Record<string, { lobes: ReadonlyArray<readonly [number, number]> }>>)[id]['field.rest'];
+  const own = (extensions as unknown as Record<string, Record<string, { lobes: RestTable | Readonly<Record<Face, RestTable>> }>>)[id]['field.rest'];
+  const rest = own.lobes;
   return {
-    restLobes: own.lobes,
+    restLobes: isOneTable(rest) ? { dark: rest, light: rest } : { dark: rest.dark, light: rest.light },
     drift: { harmonics: lobes.map((l) => drift.harmonics[l]), phases: lobes.map((l) => drift.phases[l]) },
     fallbackStops: { position: stops.position, weight: stops.weight },
   };
 }
+
+const isOneTable = (rest: RestTable | Readonly<Record<Face, RestTable>>): rest is RestTable => Array.isArray(rest);

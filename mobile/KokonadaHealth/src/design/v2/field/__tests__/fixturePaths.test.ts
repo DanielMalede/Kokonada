@@ -110,7 +110,7 @@ describe('the builder takes each fixture path from the tokens', () => {
     it('only neutral placements: restFade is forced to 1 and every rest lobe is lit, at any restFade passed', () => {
       for (const restFade of [0, 0.3, 1]) {
         const f = frameOf(FIXTURE_OUTER, 'dark', { placements: neutrals, restFade });
-        expect(restLobes(f).map((n) => n.fade)).toEqual(statics(FIXTURE_OUTER).restLobes.map(() => 1));
+        expect(restLobes(f).map((n) => n.fade)).toEqual(statics(FIXTURE_OUTER).restLobes.dark.map(() => 1));
         expect(neutralNodes(f).map((n) => n.radius)).toEqual([0, 0]);
       }
     });
@@ -129,13 +129,12 @@ describe('the builder takes each fixture path from the tokens', () => {
     // The architect's counter, the case that proves it (mutant L13; moved here from fieldFrame.test.ts at
     // the close-out): neutral placements only, rest lobes lit. Two quick undos, or a clear's first
     // crossfade, leave 1 live, 2 leaving and 2 rest lobes: 5 nodes that fit 6 slots, but 4 of them
-    // non-live, which a 3/3 split cannot hold. Two rest lobes are needed for that, and fixture-outer
-    // carries Abyss's one-lobe table since law round 2 (item 6), so the case passes the two-lobe table
-    // (Abyss's before item 6) to the real builder with fixture-outer's tokens.
+    // non-live, which a 3/3 split cannot hold. Two rest lobes are needed for that: fixture-outer carries
+    // Abyss's per-face table (UI-112), two lobes on the light face, so the case runs there.
     it('the double undo (or a clear’s first crossfade): 1 live, 2 leaving and 2 rest lobes are all drawn, none cut', () => {
       const n = (ordinal: number, fade: number, role: 'live' | 'leaving'): Placement => ({ x: 0.03 * (ordinal + 1), y: 0.03, ordinal, fade, role });
-      const twoRest = { ...statics(FIXTURE_OUTER), restLobes: [[-0.35, -0.3], [0.4, 0.35]] as const };
-      const f = buildFieldFrame(state(FIXTURE_OUTER, 'dark', { placements: [n(0, 1, 'live'), n(1, 0.5, 'leaving'), n(2, 0.5, 'leaving')], restFade: 1 }), geometry([]), twoRest);
+      expect(statics(FIXTURE_OUTER).restLobes.light).toHaveLength(2);
+      const f = frameOf(FIXTURE_OUTER, 'light', { placements: [n(0, 1, 'live'), n(1, 0.5, 'leaving'), n(2, 0.5, 'leaving')], restFade: 1 });
       expect(f.nodes.filter((nd) => nd.fade > 0).map((nd) => [nd.id, nd.fade, nd.bead === null ? 'rest' : 'bead'])).toEqual([
         [NODE.R0, 1, 'bead'],
         [NODE.R0, 0.5, 'bead'],
@@ -156,9 +155,9 @@ describe('the builder takes each fixture path from the tokens', () => {
 
     it('the ledger agrees: through a settle, with only neutral taps, restFade stays 1 at every step on fixture-outer and falls to 0 on Abyss', () => {
       const taps = [neutral(1), neutral(2), neutral(3)];
-      const outer = throughLedger(stormDeps(FIXTURE_OUTER, statics(FIXTURE_OUTER)), [], taps);
+      const outer = throughLedger(stormDeps(FIXTURE_OUTER, statics(FIXTURE_OUTER), 'dark'), [], taps);
       expect(outer.map((s) => s.shown.restFade)).toEqual(outer.map(() => 1));
-      const abyss = throughLedger(stormDeps(ABYSS, statics(ABYSS)), [], taps);
+      const abyss = throughLedger(stormDeps(ABYSS, statics(ABYSS), 'dark'), [], taps);
       expect(abyss[abyss.length - 1].shown.restFade).toBe(0);
     });
   });
@@ -183,20 +182,31 @@ describe('the builder: lobe centring, the rest–intense route and the rest-lobe
     expect([FIXTURE_OUTER, FIXTURE_INNER, ABYSS].map((id) => frameOf(id, 'dark').restIntenseWaypoint)).toEqual([true, true, false]);
   });
 
-  it('rest lobes: fixture-inner draws its one rest lobe at the centre, from the token table; Abyss its one at the upper left', () => {
+  it('rest lobes: fixture-inner’s one table draws its one rest lobe at the centre on both faces; Abyss’s per-face table one at the upper left on dark, two on light', () => {
     const empty: Partial<FieldState> = { tMs: 0, stress: 1, placements: [], restFade: 1 };
-    const rest = (id: DirectionId) => frameOf(id, 'dark', empty).nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0);
-    expect(statics(FIXTURE_INNER).restLobes).toEqual([[0, 0]]);
-    const inner = rest(FIXTURE_INNER);
-    expect(inner).toHaveLength(1);
-    expect(inner[0].centre[0]).toBeCloseTo(0, 12);
-    expect(inner[0].centre[1]).toBeCloseTo(driftY(FIXTURE_INNER), 9);
-    expect(statics(ABYSS).restLobes).toEqual([[-0.3, 0.35]]);
-    const abyss = rest(ABYSS);
+    const rest = (id: DirectionId, face: Face) => frameOf(id, face, empty).nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0);
+    // fixture-inner keeps the one-table form of field.rest's lobes: the statics hold it for both faces.
+    expect((EXTENSIONS as unknown as Record<string, Record<string, { lobes: unknown }>>)[FIXTURE_INNER]['field.rest'].lobes).toEqual([[0, 0]]);
+    expect(statics(FIXTURE_INNER).restLobes).toEqual({ dark: [[0, 0]], light: [[0, 0]] });
+    for (const face of ['dark', 'light'] as Face[]) {
+      const inner = rest(FIXTURE_INNER, face);
+      expect(inner).toHaveLength(1);
+      expect(inner[0].centre[0]).toBeCloseTo(0, 12);
+      expect(inner[0].centre[1]).toBeCloseTo(driftY(FIXTURE_INNER), 9);
+    }
+    expect(statics(ABYSS).restLobes).toEqual({ dark: [[-0.3, 0.35]], light: [[-0.35, -0.3], [0.4, 0.35]] });
+    const abyss = rest(ABYSS, 'dark');
     expect(abyss).toHaveLength(1);
     expect(abyss[0].centre[0]).toBeCloseTo(-0.3, 12);
     expect(abyss[0].centre[1]).toBeCloseTo(0.35 + driftY(ABYSS), 9);
-    expect([stormDeps(FIXTURE_INNER, statics(FIXTURE_INNER)).config.restLobes, stormDeps(ABYSS, statics(ABYSS)).config.restLobes]).toEqual([1, 1]);
+    const light = rest(ABYSS, 'light');
+    expect(light).toHaveLength(2);
+    expect(light[0].centre[0]).toBeCloseTo(-0.35, 12);
+    expect(light[0].centre[1]).toBeCloseTo(-0.3 + driftY(ABYSS), 9);
+    // fixture-outer follows Abyss (it overrides no rest table).
+    expect(statics(FIXTURE_OUTER).restLobes).toEqual(statics(ABYSS).restLobes);
+    const count = (id: DirectionId, face: Face) => stormDeps(id, statics(id), face).config.restLobes;
+    expect([count(FIXTURE_INNER, 'dark'), count(FIXTURE_INNER, 'light'), count(ABYSS, 'dark'), count(ABYSS, 'light')]).toEqual([1, 1, 1, 2]);
   });
 });
 

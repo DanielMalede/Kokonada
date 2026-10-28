@@ -369,6 +369,36 @@ function checkDirectionRefs(file, json, ids, errors) {
   walk(json, '');
 }
 
+/**
+ * UI-112 (the owner's option (b)): field.rest's lobes are one table for both faces, or one per face,
+ * exactly { dark, light }. A table is a non-empty list of [x, y] finite centres, × R.
+ */
+const FACES = ['dark', 'light'];
+function checkRestLobes(file, json, errors) {
+  const say = (message) => errors.push(`${file}: field.rest: ${message}`);
+  const lobes = kokonada(json.field?.rest).lobes;
+  const table = (t, where) => {
+    if (!(Array.isArray(t) && t.length > 0)) {
+      return say(`${where}: the rest lobes are a non-empty list of [x, y], got ${JSON.stringify(t)}`);
+    }
+    t.forEach((lobe, i) => {
+      if (!(Array.isArray(lobe) && lobe.length === 2 && lobe.every(finite))) say(`${where}[${i}]: a rest lobe is [x, y], two finite numbers, got ${JSON.stringify(lobe)}`);
+    });
+    return undefined;
+  };
+  if (Array.isArray(lobes)) {
+    table(lobes, 'lobes');
+  } else if (isObject(lobes)) {
+    const keys = Object.keys(lobes).sort();
+    if (keys.join() !== FACES.join()) {
+      say(`lobes: a per-face table has exactly the keys ${FACES.join(' and ')}, got ${JSON.stringify(keys)}`);
+    }
+    for (const face of FACES) if (face in lobes) table(lobes[face], `lobes.${face}`);
+  } else {
+    say(`lobes: one table [[x, y], …] for both faces, or { dark, light }, got ${JSON.stringify(lobes ?? null)}`);
+  }
+}
+
 /** sources: [{ name, json }]. */
 export function validateSources(sources) {
   const errors = [];
@@ -390,6 +420,7 @@ export function validateSources(sources) {
   for (const source of sources.filter((s) => DIRECTION_FILE.test(s.name))) {
     const tokens = checkFile(source.name, source.json, errors, notes);
     checkLightShadows(source.name, tokens, errors);
+    checkRestLobes(source.name, source.json, errors);
     directions.push({ file: source.name, tokens });
   }
   if (directions.length === 0) {
