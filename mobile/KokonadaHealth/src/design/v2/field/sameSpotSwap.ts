@@ -6,9 +6,12 @@
 // A swap: `first` shown at once, the tap `at` added on frame 1, undone on frame 9 and re-added on frame
 // 15, so its leave and its re-entry pair at the next start, after the spacing, at 60 fps. The clock is
 // frozen so that only the crossfade moves (the breath and the drift held; tier full under settle, still
-// under reduced motion), grain and dither 0. `oneOrdinal` draws the pair on one drift table (the leaving
-// placement's): the two slots are identical but for the tap's identity (B2's first form, criterion A's
-// F1); otherwise the re-added placement drifts on its own ordinal's table (the ledger's own path, F2).
+// under reduced motion), grain and dither 0. `oneOrdinal` draws the pair on one ordinal and drift table
+// (the leaving placement's): the two slots are identical but for the tap's identity (B2's first form,
+// criterion A's F1); otherwise each placement keeps the ledger's ordinal and drift key (the ledger's own
+// path, F2), where the re-add takes the leaver's drift key (UI-134), so F2 draws the same lobes as F1.
+// `driftBy: 'ordinal'` is the planted control: every placement drifts on its ordinal, so the re-add
+// jumps to the next drift table, as it did before UI-134.
 
 import { BASE } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, fixedFieldBreath, type FieldGeometry, type FieldStatics } from './fieldFrame.ts';
@@ -32,6 +35,11 @@ export interface SwapOptions {
   readonly config: LedgerConfig;
   readonly statics: FieldStatics;
   readonly oneOrdinal: boolean;
+  /**
+   * What each placement drifts on: the ledger's drift key (the default; UI-134), or its ordinal, the
+   * planted control that brings back the re-add's jump to the next drift table.
+   */
+  readonly driftBy?: 'key' | 'ordinal';
   /** Shown at once, before the swap: the neighbour. */
   readonly first?: readonly Tap[];
   /** The swapped tap; QUAD[1] (calm) by default. */
@@ -69,7 +77,8 @@ export function swap(o: SwapOptions): Swap {
   const frames: FieldFrame[] = [];
   const ledgers: Ledger[] = [];
   let swapping = false;
-  let pairOrdinal = -1; // the leaving placement's: the pair's one drift table, for the whole swap
+  let pairOrdinal = -1; // the leaving placement's ordinal and drift key: the pair's one drift table, for the whole swap
+  let pairKey = -1;
   for (let frame = 0; frame < 240; frame++) {
     if (frame === 1) { taps = [...first, at]; seq++; }
     if (frame === 9) { taps = [...first]; seq++; }
@@ -79,12 +88,19 @@ export function swap(o: SwapOptions): Swap {
     if (!swapping) continue;
     const f = fades(ledger);
     const atTap = f.placements.filter((p) => p.x === at.x && p.y === at.y);
-    if (pairOrdinal < 0) pairOrdinal = Math.min(...atTap.map((p) => p.ordinal));
+    if (pairOrdinal < 0) {
+      pairOrdinal = Math.min(...atTap.map((p) => p.ordinal));
+      pairKey = atTap.find((p) => p.ordinal === pairOrdinal)!.driftKey;
+    }
+    const pairOf = (p: { x: number; y: number }) => o.oneOrdinal && p.x === at.x && p.y === at.y;
     frames.push({
       ...buildFieldFrame(
         {
           direction: 'abyss', face: o.face, stress: state.stress, confidence: state.confidence, genesis: state.genesis, tMs: SWAP_T_MS, breathPhase: fixedFieldBreath('abyss', state.stress, SWAP_T_MS).phase, tier: o.mode === 'reduced' ? 'still' : 'full',
-          placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, slot: p.slot, ordinal: o.oneOrdinal && p.x === at.x && p.y === at.y ? pairOrdinal : p.ordinal })),
+          placements: f.placements.map((p) => {
+            const ordinal = pairOf(p) ? pairOrdinal : p.ordinal;
+            return { x: p.x, y: p.y, fade: p.fade, slot: p.slot, ordinal, driftKey: o.driftBy === 'ordinal' ? ordinal : pairOf(p) ? pairKey : p.driftKey };
+          }),
           restFade: f.restFades,
           restSlots: f.restSlots,
         },

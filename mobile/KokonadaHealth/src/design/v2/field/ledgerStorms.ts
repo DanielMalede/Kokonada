@@ -120,7 +120,7 @@ export const geometry: FieldGeometry = { centrePx: [100, 100], radiusPx: 80, pxP
 export const frameState = (id: DirectionId, face: Face, f: LedgerFades): FieldState => ({
   direction: id,
   face,
-  placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })),
+  placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, driftKey: p.driftKey, slot: p.slot, role: p.role })),
   restFade: f.restFades,
   restSlots: f.restSlots,
   stress: 0,

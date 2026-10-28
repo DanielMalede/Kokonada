@@ -199,13 +199,13 @@ export function lobeLattices(c: FlashCase, deps: StormDeps): { centres: Array<[n
 /** What the field shows at a frame, from the ledger, or from a naive driver that restarts each fade on every tap. */
 type Driver = (t: number, taps: readonly Tap[], seq: number) => { placements: Placement[]; restFade: number | readonly number[]; restSlots?: number[] };
 
-function ledgerDriver(deps: StormDeps, mode: Mode): Driver {
+export function ledgerDriver(deps: StormDeps, mode: Mode): Driver {
   let ledger = emptyLedger(deps.config);
   return (t, taps, seq) => {
     ledger = reconcile(ledger, { seq, taps }, t, mode);
     const f = fades(ledger);
     return {
-      placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })),
+      placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, driftKey: p.driftKey, slot: p.slot, role: p.role })),
       restFade: [...f.restFades],
       restSlots: [...f.restSlots],
     };

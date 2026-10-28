@@ -72,7 +72,7 @@ export function throughLedger(deps: StormDeps, from: readonly Tap[], to: readonl
     ledger = reconcile(ledger, t === 0 ? { seq: 0, taps: from } : { seq: 1, taps: to }, t, 'settle');
     if (t >= 1 && (t - 1) % STEP_MS === 0) {
       const f = fades(ledger);
-      out.push({ ms: t - 1, shown: { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })), restFade: f.restFades, restSlots: f.restSlots } });
+      out.push({ ms: t - 1, shown: { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, driftKey: p.driftKey, slot: p.slot, role: p.role })), restFade: f.restFades, restSlots: f.restSlots } });
     }
   }
   return out;
