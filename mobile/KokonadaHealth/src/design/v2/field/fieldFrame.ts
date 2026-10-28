@@ -44,9 +44,16 @@ export interface Placement {
   readonly fade: number;
   /**
    * How many placements came before it (placementLedger.ts): its drift table for its whole life,
-   * its fade-out included (critic item 5). Default: its index in `placements`, a scene's order.
+   * its fade-out included (critic item 5). Default: its index in `placements`, a scene's order. The
+   * lowest free slots go by it.
    */
   readonly ordinal?: number;
+  /**
+   * Its drift table (UI-134, designer Ruling 3): the ordinal, unless the ledger hands a re-add the key of
+   * the placement it replaces in place. The drift is a function of the key and the field clock t alone,
+   * so the key carries the drift phase. Default (or not a whole number ≥ 0): the ordinal.
+   */
+  readonly driftKey?: number;
   /**
    * The ledger's role, carried for the caller: the builder draws every placement it is given, live or
    * leaving, at its fade. At most three are live; that bound is the ledger's.
@@ -132,7 +139,7 @@ const clamp01 = (v: number) => {
   'worklet';
   return Math.min(1, Math.max(0, v));
 };
-/** A placement's ordinal: the one it carries, if it is a whole number ≥ 0, or its index in the list. */
+/** A placement's ordinal (or drift key): the one it carries, if it is a whole number ≥ 0, or else the fallback. */
 const ordinalOf = (ordinal: number | undefined, index: number) => {
   'worklet';
   return ordinal !== undefined && Number.isInteger(ordinal) && ordinal >= 0 ? ordinal : index;
@@ -171,7 +178,7 @@ export function placementRamp(x: number, y: number): number {
  * A placement's lobe centre before its drift (designer 2.7; L7 measures δ between these): the tap read
  * as the builder reads it (a non-finite coordinate is 0, a tap outside the unit disc is moved onto its
  * rim), its bead pulled in by the bead radius, then centreAlpha·bead + centreBeta·unit. The builder adds
- * the ordinal's drift to it, so the ledger and the builder cannot disagree on where a lobe sits.
+ * the drift key's drift to it, so the ledger and the builder cannot disagree on where a lobe sits.
  */
 export function lobeAnchor(px: number, py: number, beadRadius: number, centreAlpha: number, centreBeta: number): [number, number] {
   'worklet';
@@ -253,7 +260,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     .map((placement, index) => ({ placement, ordinal: ordinalOf(placement.ordinal, index) }))
     .sort((p, q) => p.ordinal - q.ordinal);
 
-  // A placement's lobe and halo; its drift is its ordinal's, never its slot's.
+  // A placement's lobe and halo; its drift is its drift key's (the ordinal by default), never its slot's.
   const placed = (placement: Placement, ordinal: number): FieldNodeFrame => {
     let x = finite(placement.x, 0);
     let y = finite(placement.y, 0);
@@ -266,7 +273,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     const p = placementRamp(x, y);
     const bead: [number, number] = [x * (1 - beadRadius), y * (1 - beadRadius)];
     const [ax, ay] = lobeAnchor(placement.x, placement.y, beadRadius, d.field.lobe.centreAlpha, d.field.lobe.centreBeta);
-    const [ox, oy] = offset(ordinal);
+    const [ox, oy] = offset(ordinalOf(placement.driftKey, ordinal));
     const centre: [number, number] = [ax + ox, ay + oy];
     const fade = clamp01(finite(placement.fade, 0));
     if (node === 'neutral') {
