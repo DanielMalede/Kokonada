@@ -137,9 +137,9 @@ describe('B2: a same-spot swap changes no pixel by 0.08 Y or more (Abyss, every 
 // swapped node's out and in slots can take the top two ranks near the neighbour and push it to third:
 // a boundary pulse no mood caused. The fix (sum e per node before ranking) waits for the architect's
 // SkSL feasibility check, so this case is expected to fail until it lands (UI-122).
-// Measured at D5 (float OKLab, the neighbour's 5×5 lattice at ±0.05 R, one drift table for the pair):
-// the neighbour's ΔE rises and returns to 0, a pulse of 0.0154 (dark, settle), 0.0212 (dark, reduced),
-// 0.0047 (light, settle) and 0.0065 (light, reduced).
+// Measured at D5 (float OKLab, the neighbour's 5×5 lattice at ±0.05 R, one drift table for the pair, 60
+// fps): the neighbour's ΔE rises and returns to 0, a pulse of 0.0157 (dark, settle), 0.0206 (dark,
+// reduced), 0.0048 (light, settle) and 0.0063 (light, reduced).
 describe('UI-122 (interim): a same-node swap beside a neighbour 0.6 R away', () => {
   const BEAD = DIRECTIONS.abyss.bead.diameter / 2 / R_DP;
   // Abyss centres a lobe on its bead (centreAlpha 1, centreBeta 0): J's lobe sits 0.6 R above C's.
