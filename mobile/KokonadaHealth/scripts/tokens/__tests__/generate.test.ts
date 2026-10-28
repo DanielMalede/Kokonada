@@ -14,6 +14,16 @@ const DESIGN_TOKENS = path.resolve(__dirname, '../../../../../design-tokens');
 type Source = { name: string; bytes: Buffer; json: any };
 const real = (): Source[] => readTokenSources(DESIGN_TOKENS);
 
+/**
+ * The line a source's hash takes: keyed by the file name without .tokens.json, `base` bare and
+ * `'direction.abyss'` quoted. A key holding "token" made each line a gitleaks finding (UI-104).
+ */
+function hashLine(source: Source): string {
+  const stem = source.name.replace(/\.tokens\.json$/, '');
+  const hash = crypto.createHash('sha256').update(source.bytes).digest('hex');
+  return `  ${/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(stem) ? stem : `'${stem}'`}: '${hash}',`;
+}
+
 describe('generateTokensModule', () => {
   it('is byte-deterministic, and does not depend on the order the files are read in', () => {
     const first = generateTokensModule(real());
@@ -27,11 +37,11 @@ describe('generateTokensModule', () => {
     expect(text.endsWith('\n')).toBe(true);
   });
 
-  it('embeds the sha256 of each source file’s raw bytes', () => {
+  it('embeds the sha256 of each source file’s raw bytes, keyed by the file’s stem', () => {
     const text = generateTokensModule(real());
     for (const source of real()) {
-      const hash = crypto.createHash('sha256').update(source.bytes).digest('hex');
-      expect(text).toContain(`'${source.name}': '${hash}'`);
+      expect(text).toContain(hashLine(source));
+      expect(text).not.toContain(`'${source.name}'`);
     }
   });
 
@@ -75,7 +85,8 @@ describe('generateExtensionsModule', () => {
     expect(text.includes('\r')).toBe(false);
     expect(text).toMatch(/^export const EXTENSIONS_SOURCE = /m);
     for (const source of real()) {
-      expect(text).toContain(`'${source.name}': '${crypto.createHash('sha256').update(source.bytes).digest('hex')}'`);
+      expect(text).toContain(hashLine(source));
+      expect(text).not.toContain(`'${source.name}'`);
     }
   });
 });

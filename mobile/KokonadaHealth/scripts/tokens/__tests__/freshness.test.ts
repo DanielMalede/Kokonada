@@ -27,10 +27,16 @@ describe('tokens.generated.ts is fresh', () => {
     expect(fs.readFileSync(GENERATED_EXTENSIONS, 'utf8')).toBe(generateExtensionsModule(readTokenSources(DESIGN_TOKENS)));
   });
 
-  it('records the sha256 of each source file it was made from', () => {
+  // Keyed by the file's stem, `base` for base.tokens.json: a key holding "token" made every hash
+  // line a gitleaks generic-api-key finding (UI-104, secretScanShape.test.ts).
+  it('records the sha256 of each source file it was made from, keyed by the file name without .tokens.json', () => {
     const expected = Object.fromEntries(
-      readTokenSources(DESIGN_TOKENS).map((s: { name: string; bytes: Buffer }) => [s.name, crypto.createHash('sha256').update(s.bytes).digest('hex')]),
+      readTokenSources(DESIGN_TOKENS).map((s: { name: string; bytes: Buffer }) => [
+        s.name.replace(/\.tokens\.json$/, ''),
+        crypto.createHash('sha256').update(s.bytes).digest('hex'),
+      ]),
     );
+    expect(Object.keys(expected)).toEqual(['base', 'direction.abyss']);
     expect(committed.TOKENS_SOURCE).toEqual(expected);
   });
 

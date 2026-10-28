@@ -26,6 +26,16 @@ export function readTokenSources(dir) {
     });
 }
 
+/**
+ * The key TOKENS_SOURCE and EXTENSIONS_SOURCE file a hash under: the name without .tokens.json,
+ * `base` and `direction.abyss`. A key holding "token" beside a 64-hex value is what gitleaks'
+ * generic-api-key rule reads as a leak, so the full file name made every hash line a CI finding
+ * (UI-104, scripts/tokens/__tests__/secretScanShape.test.ts).
+ */
+export function sourceKey(name) {
+  return name.replace(/\.tokens\.json$/, '');
+}
+
 /** The hash TOKENS_SOURCE records: sha256 of the file's raw bytes (LF line endings, .gitattributes). */
 export function sha256(bytes) {
   return crypto.createHash('sha256').update(bytes).digest('hex');
