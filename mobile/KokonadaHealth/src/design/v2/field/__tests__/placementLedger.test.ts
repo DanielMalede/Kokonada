@@ -7,7 +7,7 @@ import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtur
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../tokens/tokens.generated.ts';
 import { progress, crossfade, overlapOmega } from '../crossfade.ts';
-import { buildFieldFrame, nodeAt } from '../fieldFrame.ts';
+import { buildFieldFrame, lobeAnchor, nodeAt } from '../fieldFrame.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { frameState, geometry, stormDeps } from '../ledgerStorms.ts';
 import { ADMISSION, emptyLedger, fades, ledgerConfig, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
@@ -575,5 +575,112 @@ describe('L7: the overlap crossfade, ω computed once per crossfade by the ledge
 
   it('a config whose rest count disagrees with its rest centres is refused', () => {
     expect(() => emptyLedger({ ...ABYSS, restLobes: 1 })).toThrow(RangeError);
+  });
+});
+
+// UI-134 (designer Ruling 3 after UI-125): "Drift is keyed by a drift key, equal to the ordinal except: a
+// placement with the same node id landing within ν·r_L of a placement still leaving, or that ended within
+// one crossfade duration before it, takes that placement's drift key and drift phase; its drift clock
+// carries on. Ids and ordinals stay unique, the counter still increments; E3's identity, enter/leave and
+// single-start checks unchanged." As built: at a start, each entrant (in arrival order) is matched against
+// the donors, the placements leaving in that start and those that ended at most rampDuration(mode) before
+// it, on the same node and an undrifted anchor (lobeAnchor) at most ν·r_L away; it takes the nearest
+// donor's key (ties to the lower key). A donor gives its key once, and never one that a placement staying
+// on the field already carries, so no two live placements share a key. The drift is a function of the key
+// and the field clock t alone (fieldFrame.ts offset), so the key carries the drift phase.
+describe('UI-134: the drift key, a re-add inherits it, never the ordinal or the id', () => {
+  const keys = (f: LedgerFades) => f.placements.map((p) => [p.id, p.ordinal, p.driftKey, p.role]);
+
+  it.each(['settle', 'reduced'] as const)('%s: a same-spot re-add takes the drift key of the placement still leaving, for its whole life; ids, ordinals and the counter unchanged', (mode) => {
+    const s = store();
+    const { at, ledger } = run(emptyLedger(ABYSS), s, -1, 3000, mode, { 0: () => s.add(C), 100: () => s.undo(), 200: () => s.add(C) });
+    expect(keys(at(SETTLE - 1).f)).toEqual([[0, 0, 0, 'live']]);
+    expect(keys(at(SETTLE + 10).f)).toEqual([[0, 0, 0, 'leaving'], [1, 1, 0, 'live']]);
+    expect(keys(at(3000).f)).toEqual([[1, 1, 0, 'live']]);
+    expect(ledger.next).toBe(2);
+    expect(ledger.starts).toBe(2);
+  });
+
+  it('a fresh tap, and a reset, take their ordinal as their key', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 2000, 'settle', { 0: () => s.add(J), 600: () => s.add(C) });
+    expect(keys(at(2000).f)).toEqual([[0, 0, 0, 'live'], [1, 1, 1, 'live']]);
+    const f = fades(reconcile(emptyLedger(ABYSS), { seq: 1, taps: [J, C, C] }, 0, 'settle'));
+    expect(f.placements.map((p) => p.driftKey)).toEqual([0, 1, 2]);
+  });
+
+  /** C placed, then undone at 700 (a lone leave); the ledger's clock when C ends, and when a re-add `gap` ms later starts. */
+  const reAddAfterEnd = (gap: number, mode: 'settle' | 'reduced') => {
+    const s = store();
+    const first = run(emptyLedger(ABYSS), s, -1, 2000, mode, { 0: () => s.add(C), 700: () => s.undo() });
+    const end = first.frames.find((x) => x.f.ended.includes(0))!;
+    const t2 = store();
+    const second = run(emptyLedger(ABYSS), t2, -1, end.t + gap + 1000, mode, { 0: () => t2.add(C), 700: () => t2.undo(), [end.t + gap]: () => t2.add(C) });
+    const started = second.frames.find((x) => x.ledger.starts === 3)!;
+    return { endedAt: end.ledger.clock, startedAt: started.ledger.lastStart, f: started.f };
+  };
+
+  it('settle: a re-add that starts within one crossfade duration of the leaver’s end takes its key, at both ends of the window; one ms later, a fresh key', () => {
+    const window = BASE.motion.settle.duration;
+    for (const gap of [0, window]) {
+      const r = reAddAfterEnd(gap, 'settle');
+      expect(r.startedAt - r.endedAt).toBe(gap);
+      expect(keys(r.f)).toEqual([[1, 1, 0, 'live']]);
+    }
+    const late = reAddAfterEnd(window + 1, 'settle');
+    expect(late.startedAt - late.endedAt).toBe(window + 1);
+    expect(keys(late.f)).toEqual([[1, 1, 1, 'live']]);
+  });
+
+  it('reduced: the ramp (150 ms) is shorter than the spacing (600 ms), so a re-add after a lone leave starts outside the window, and takes a fresh key', () => {
+    const r = reAddAfterEnd(0, 'reduced');
+    expect(r.startedAt - r.endedAt).toBe(SETTLE - BASE.motion.fadeReduced.duration);
+    expect(r.startedAt - r.endedAt).toBeGreaterThan(BASE.motion.fadeReduced.duration);
+    expect(keys(r.f)).toEqual([[1, 1, 1, 'live']]);
+  });
+
+  /** `from` placed, undone and replaced by `again` inside the spacing: the leave and the enter pair at one start. */
+  const replacedFrom = (from: Tap, again: Tap, config: LedgerConfig = ABYSS) => {
+    const s = store();
+    return run(emptyLedger(config), s, -1, SETTLE + 10, 'settle', { 0: () => s.add(from), 100: () => s.undo(), 200: () => s.add(again) }).at(SETTLE + 10).f;
+  };
+  // Two calm taps far apart: from near the +x axis toward the −y axis (both in C's quadrant, inside the
+  // disc), so the anchors can be put at, or just past, ν·r_L.
+  const P = tap(0.97, -0.03);
+  const Q = (d: number) => tap(P.x - d / (1 - BEAD) / Math.SQRT2, P.y - d / (1 - BEAD) / Math.SQRT2);
+  const delta = (a: Tap, b: Tap) => Math.hypot(lobe(a)[0] - lobe(b)[0], lobe(a)[1] - lobe(b)[1]);
+
+  it('a same-node re-add within ν·r_L of the leaver takes its key, up to the reach itself; past it, a fresh key', () => {
+    expect([nodeAt(P.x, P.y), nodeAt(Q(REACH * 1.01).x, Q(REACH * 1.01).y)]).toEqual(['C', 'C']);
+    expect(Math.hypot(Q(REACH * 1.01).x, Q(REACH * 1.01).y)).toBeLessThan(1);
+    expect(delta(P, Q(REACH * 0.99))).toBeCloseTo(REACH * 0.99, 12);
+    expect(keys(replacedFrom(P, Q(REACH * 0.99)))).toEqual([[0, 0, 0, 'leaving'], [1, 1, 0, 'live']]);
+    expect(keys(replacedFrom(P, Q(REACH * 1.01)))).toEqual([[0, 0, 0, 'leaving'], [1, 1, 1, 'live']]);
+    // The edge, exactly: a reach equal to the ledger's own δ inherits; the float just below it does not.
+    const [a, b] = [lobeAnchor(P.x, P.y, BEAD, 1, 0), lobeAnchor(Q(REACH).x, Q(REACH).y, BEAD, 1, 0)];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    const reaching = (reach: number): LedgerConfig => ({ ...ABYSS, overlap: { ...ABYSS.overlap, reach } });
+    expect(keys(replacedFrom(P, Q(REACH), reaching(d)))[1]).toEqual([1, 1, 0, 'live']);
+    expect(keys(replacedFrom(P, Q(REACH), reaching(d * (1 - Number.EPSILON))))[1]).toEqual([1, 1, 1, 'live']);
+  });
+
+  it('another node, however near, takes a fresh key: C replaced by a joy tap just across the axis', () => {
+    const across = tap(0.566, 0.01);
+    expect(nodeAt(across.x, across.y)).toBe('J');
+    expect(delta(C, across)).toBeLessThan(REACH);
+    expect(keys(replacedFrom(C, across))).toEqual([[0, 0, 0, 'leaving'], [1, 1, 1, 'live']]);
+  });
+
+  it('a live placement is no donor: a second tap at C beside a live C takes a fresh key', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 1400, 'settle', { 0: () => s.add(C), 600: () => s.add(C) });
+    expect(keys(at(1400).f)).toEqual([[0, 0, 0, 'live'], [1, 1, 1, 'live']]);
+  });
+
+  it('a donor gives its key once: two taps at C entering together at C’s end take its key and a fresh one', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 2200, 'settle', { 0: () => s.add(C), 700: () => s.undo(), 800: () => s.add(C), 900: () => s.add(C) });
+    expect(at(1300).ledger.starts).toBe(3);
+    expect(keys(at(2200).f)).toEqual([[1, 1, 0, 'live'], [2, 2, 2, 'live']]);
   });
 });
