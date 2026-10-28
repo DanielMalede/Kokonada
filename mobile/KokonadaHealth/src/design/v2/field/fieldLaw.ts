@@ -19,10 +19,10 @@
 //   selection  topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), linear in the fade
 //              (L3; λ = 1/κ); E_n = Σ e_i over the slots of n, C_n their e-weighted mean colour (a guarded
 //              running mean in slot order); E1 ≥ E2 ≥ E3 over the bins, ties to the lower id;
-//              w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2) (0 where w1 = 0); C1→C2 by t, or C1→N by 2t on
-//              a waypoint edge (J–I, and R0–I where the direction says), N = (mid L, 0, 0); the pair fades
-//              to N̄ = (Σ e_i·L_i / Σ e_i over the slots, 0, 0) by β = smoothstep(0, θ, w1/E1) near a third
-//              node (L4–L6);
+//              w1 = (E1 − E3)², w2 = (E2 − E3)², t = w2/(w1 + w2) (0 where w1 = 0) (L5′, UI-125); C1→C2
+//              by t, or C1→N by s(2t), s(x) = 1 − (1 − x)², on a waypoint edge (J–I, and R0–I where the
+//              direction says), N = (mid L, 0, 0); the pair fades to N̄ = (Σ e_i·L_i / Σ e_i over the
+//              slots, 0, 0) by β = smoothstep(0, θ, (E1 − E3)/E1) near a third node (L4–L6);
 //   quiet      extent = regionExtent · Π over the quiet rects of smoothstep(0, F, sd) (a step where F = 0),
 //              sd the signed distance to the rect grown by g, rounded (designer r3 §1);
 //   shadows    G.L ← G.L·(1 − Σ strength·smoothstep(−blur, blur, u)): outer u = R − |q − o| outside the
@@ -145,7 +145,7 @@ export interface FieldFrame {
   readonly lambda: number;
   /** κ, the lobe's core: ρ_i = r_i²/(|q′ − c_i|² + κ·r_i²) is at most 1/κ (field.lobe.core). */
   readonly lobeCore: number;
-  /** θ, the fade near the triple point: β = smoothstep(0, θ, w1/e1) (field.graph.tripleFade). */
+  /** θ, the fade near the triple point: β = smoothstep(0, θ, (E1 − E3)/E1) (field.graph.tripleFade). */
   readonly tripleFade: number;
   /** Is R0–I a waypoint edge in this direction? */
   readonly restIntenseWaypoint: boolean;
@@ -293,12 +293,16 @@ export function isWaypoint(a: number, b: number, routed: boolean): boolean {
 /**
  * topTwoSoft over nodes, not slots (law round 2, designer L4–L6, L4 amended at D5b): each node pools its
  * slots (pooledNodes: E_n = Σ e_i, C_n the e-weighted mean of its slots' colours), so a mood placed more
- * than once never competes with itself. The two strongest nodes are each weighted by how far they lead
- * the third, w1 = E1 − E3 and w2 = E2 − E3, so t = w2/(w1 + w2) is ½ where the first two swap and 0 where
- * the second and third do; ties go to the lower id, and the colour does not depend on them. A waypoint
- * pair mixes along C1→N, N = (mid L, 0, 0), by 2t ≤ 1, so the mix never passes N. Near the triple point
- * (w1/E1 below θ) the pair fades to N̄, the e-weighted mean lightness, summed over the slots (equal to the
- * node sum; the shader sums in the same order): N̄ is symmetric in the nodes, so the colour is continuous
+ * than once never competes with itself. The two strongest nodes are each weighted by the square of how
+ * far they lead the third (L5′, UI-125), w1 = (E1 − E3)² and w2 = (E2 − E3)², so t = w2/(w1 + w2) is ½
+ * where the first two swap and 0 where the second and third do, and there its slope is 0 from both sides
+ * (w2 and its slope vanish on E2 = E3, where E2 − E3 bends like |·|): no Mach band along that line. Ties
+ * go to the lower id, and the colour does not depend on them. A waypoint pair mixes along C1→N,
+ * N = (mid L, 0, 0), by s(2t), s(x) = 1 − (1 − x)², 2t ≤ 1, so the mix never passes N and arrives there
+ * with slope 0: with v the second's share along the pair, one curve N + (C_a − N)·(1 − 2v)² for v ≤ ½
+ * and N + (C_b − N)·(2v − 1)² for v ≥ ½. Near the triple point ((E1 − E3)/E1 below θ, on the linear
+ * ratio) the pair fades to N̄, the e-weighted mean lightness, summed over the slots (equal to the node
+ * sum; the shader sums in the same order): N̄ is symmetric in the nodes, so the colour is continuous
  * there too. With no third node (E3 = 0) β is 1 and the colour is the pair, bit for bit; where each id
  * has one slot it is the slot law's, bit for bit. Called only where some e_i > 0 (fieldOklab).
  */
@@ -307,19 +311,22 @@ export function selectColour(e: readonly number[], colours: readonly Oklab[], id
   const [i1, i2, e3] = rankNodes(E);
   const c1 = C[i1];
   const c2 = C[i2];
-  const w1 = E[i1] - e3;
-  const w2 = E[i2] - e3;
-  // The guard: at an exact triple tie w1 = w2 = 0, and 0/0 would be NaN.
+  const d1 = E[i1] - e3;
+  const d2 = E[i2] - e3;
+  const w1 = d1 * d1;
+  const w2 = d2 * d2;
+  // The guard: at an exact triple tie w1 = w2 = 0, and 0/0 would be NaN (w2 ≤ w1, so w1 = 0 is the only case).
   const t = w1 > 0 ? w2 / (w1 + w2) : 0;
   let pair: Oklab;
   if (isWaypoint(i1, i2, restIntenseWaypoint)) {
-    const s = 2 * t;
+    const x = 2 * t;
+    const s = 1 - (1 - x) * (1 - x);
     const nL = (c1.L + c2.L) / 2;
     pair = { L: c1.L + (nL - c1.L) * s, a: c1.a * (1 - s), b: c1.b * (1 - s) };
   } else {
     pair = { L: c1.L + (c2.L - c1.L) * t, a: c1.a + (c2.a - c1.a) * t, b: c1.b + (c2.b - c1.b) * t };
   }
-  const beta = smoothstep(0, tripleFade, w1 / E[i1]);
+  const beta = smoothstep(0, tripleFade, d1 / E[i1]);
   let eSum = 0;
   let eL = 0;
   for (let i = 0; i < e.length; i++) {

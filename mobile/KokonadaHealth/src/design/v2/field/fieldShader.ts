@@ -220,21 +220,25 @@ ${nodes.map((k) => `    float hn${k} = 0.0;\n    for (int n = 0; n < ${NODE_BINS
     }
     float id1 = float(i1);
     float id2 = float(i2);
-    // The seam (law round 2, designer L5): each of the two weighted by its lead over the third; the
-    // guard keeps an exact triple tie finite.
-    float w1 = e1 - e3;
-    float w2 = e2 - e3;
+    // The seam (law round 2, L5′ at UI-125): each of the two weighted by the square of its lead over the
+    // third, so t has slope 0 where the second and third swap; the guard keeps an exact triple tie finite.
+    float d1 = e1 - e3;
+    float d2 = e2 - e3;
+    float w1 = d1 * d1;
+    float w2 = d2 * d2;
     float t = w1 > 0.0 ? w2 / (w1 + w2) : 0.0;
     float3 pair = c1;
     if (isWaypoint(id1, id2)) {
-      float s = 2.0 * t;
+      // The eased leg s(2t), s(x) = 1 − (1 − x)²: it reaches N with slope 0.
+      float x = 2.0 * t;
+      float s = 1.0 - (1.0 - x) * (1.0 - x);
       float nL = (c1.x + c2.x) / 2.0;
       pair = float3(c1.x + (nL - c1.x) * s, c1.y * (1.0 - s), c1.z * (1.0 - s));
     } else {
       pair = float3(c1.x + (c2.x - c1.x) * t, c1.y + (c2.y - c1.y) * t, c1.z + (c2.z - c1.z) * t);
     }
     // Near the triple point the pair fades to the e-weighted neutral over every slot (L6).
-    float beta = sstep(0.0, uSelect.w, w1 / e1);
+    float beta = sstep(0.0, uSelect.w, d1 / e1);
     // N̄ is summed over the slots, in the law's order (equal to the node sum).
     float eSum = 0.0;
     float eL = 0.0;
