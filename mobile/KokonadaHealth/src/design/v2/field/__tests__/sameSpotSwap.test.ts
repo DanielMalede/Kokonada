@@ -2,10 +2,11 @@ import type { Oklab } from '../../color/oklab.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE, encodeSrgb8, fieldOklab, pixelTerms, pooledNodes, rankNodes, slotColours, smoothstep, type FieldFrame } from '../fieldLaw.ts';
-import { FRAME_MS, lobeLattices } from '../flashCount.ts';
+import { throughLedger } from '../fieldScenes.ts';
+import { FRAME_MS, ledgerDriver, lobeLattices } from '../flashCount.ts';
 import { perSlotColours, twinPixel, type Twin } from '../lawTwins.ts';
-import { QUAD, stormDeps, type Mode } from '../ledgerStorms.ts';
-import { emptyLedger, reconcile, type LedgerConfig, type Tap } from '../placementLedger.ts';
+import { QUAD, frameState, stormDeps, type Mode } from '../ledgerStorms.ts';
+import { emptyLedger, fades, reconcile, type LedgerConfig, type Tap } from '../placementLedger.ts';
 import { HEAVIEST, LIGHT, R_DP, drawdown, held, measureSwap, rampFrames, reversal, swap, swapFrames, swapPoints, type SwapOptions } from '../sameSpotSwap.ts';
 import { staticsFor } from '../statics.ts';
 
@@ -21,11 +22,12 @@ import { staticsFor } from '../statics.ts';
 // draws the swap, shared with the D5b probes):
 //   · identical except for their id: the pair drawn with one ordinal (one drift table), so the end
 //     frame is the start frame and the bound is B2's own, max_u |Y(u) − Y(0)| < 0.08;
-//   · the ledger's own ordinals: the new placement drifts on the next table (critic item 5, a lobe's
-//     drift is its ordinal's for its whole life), so the lobe really moves, and Y(1) differs from Y(0)
-//     by up to 0.21 under any crossfade, a single one-way change, never a flash. Here the bounds are on
-//     the excursion beyond the swap's two ends and on the reversal against the net direction (both
-//     < 0.08), and a tripwire on the jump itself (≤ 0.25; resilience RA-5, a design question).
+//   · the ledger's own path: until UI-134 the new placement drifted on the next table (its ordinal's),
+//     so the lobe moved and Y(1) differed from Y(0) by up to 0.21. Designer Ruling 3 after UI-125: "do
+//     not keep the jump; a re-add inherits the drift key, never the ordinal or the id". The re-add now
+//     takes the leaver's drift key, so B2's own bound holds on this path too, with the excursion beyond
+//     the two ends and the reversal against the net direction (all < 0.08), and RA-5's tripwire on the
+//     jump tightens from 0.25 to 0.08. The planted next-ordinal drift (driftBy 'ordinal') must fail it.
 // The plant is the ledger with ω ≡ 1 (a reach of 0, the designer 2.6 curve), which must break both.
 // Resilience's ruling at 60cf046 (RA-1 to RA-5) is applied: the lobe lattices are the mode's own (reduced
 // draws at tier still), every measured case asserts a real swap, the reversal bound, and the tripwire.
@@ -53,7 +55,29 @@ describe('B2: a same-spot swap changes no pixel by 0.08 Y or more (Abyss, every 
       const placed = frames[0].nodes.filter((n) => n.bead !== null);
       expect(placed.map((n) => n.fade).sort()).toEqual([0, 1]); // out at 1, in at 0, in their own slots
       expect(placed[0].centre).toEqual(placed[1].centre);
+      // UI-134: on the ledger's own path too, the re-add's lobe sits on the leaver's (one drift key).
+      const own = swapFrames(optionsFor('dark', mode, false))[0].nodes.filter((n) => n.bead !== null);
+      expect(own[0].centre).toEqual(own[1].centre);
     }
+  });
+
+  // UI-134: the four ledger adapters (fieldScenes, flashCount, ledgerStorms, sameSpotSwap) hand the
+  // builder the ledger's drift key, so each draws a same-spot re-add on its leaver's drift table.
+  it('every ledger adapter passes the drift key through: a same-node replace draws the re-add on the leaver’s key', () => {
+    const deps = stormDeps('abyss', statics, 'dark');
+    const C = QUAD[1];
+    const near: Tap = { x: C.x - 0.05, y: C.y }; // the same node, its lobe 0.05·(1 − bead) R from C's
+    const keysOf = (placements: ReadonlyArray<{ driftKey?: number; ordinal?: number }>) => placements.map((p) => [p.ordinal, p.driftKey]);
+    // fieldScenes: one store change, C to the near tap, through the ledger.
+    const scene = throughLedger(deps, [C], [near]);
+    expect(keysOf(scene[1].shown.placements)).toEqual([[0, 0], [1, 0]]);
+    // flashCount's and ledgerStorms' drivers, and sameSpotSwap's frames, on the same replace.
+    const drive = ledgerDriver(deps, 'settle');
+    drive(0, [C], 1);
+    expect(keysOf(drive(1, [near], 2).placements)).toEqual([[0, 0], [1, 0]]);
+    let l = reconcile(emptyLedger(deps.config), { seq: 1, taps: [C] }, 0, 'settle');
+    l = reconcile(l, { seq: 2, taps: [near] }, 1, 'settle');
+    expect(keysOf(frameState('abyss', 'dark', fades(l)).placements)).toEqual([[0, 0], [1, 0]]);
   });
 
   it.each(CASES)('RA-1, %s, %s: every lobe centre drawn in the swap is a lobe-lattice centre of the mode it is drawn in (a settle lattice misses reduced’s)', (face, mode) => {
@@ -82,14 +106,28 @@ describe('B2: a same-spot swap changes no pixel by 0.08 Y or more (Abyss, every 
     expect(measureSwap(frames, swapPoints(face, mode, stormDeps('abyss', statics, face))).fromStart).toBeLessThan(BOUND);
   });
 
-  it.each(CASES)('%s, %s: the ledger’s own ordinals: no pixel goes 0.08 Y beyond the swap’s two ends nor reverses 0.08 Y against its net change; the re-add jump stays ≤ 0.25 Y (RA-5)', (face, mode) => {
-    const frames = swapFrames(optionsFor(face, mode, false));
+  // UI-134 (designer Ruling 3 after UI-125): "do not keep the jump; a re-add inherits the drift key, never
+  // the ordinal or the id". On the ledger's own path the re-added placement takes the leaver's drift key,
+  // so B2's own form holds there too, and RA-5's tripwire tightens from 0.25 to 0.08.
+  it.each(CASES)('%s, %s: the ledger’s own path (add, undo, re-add): max_u |Y(u) − Y(0)| < 0.08, nothing 0.08 Y beyond the ends or against the net change, and the re-add jump ≤ 0.08 Y (RA-5, tightened by UI-134)', (face, mode) => {
+    const { frames, ledgers } = swap(optionsFor(face, mode, false));
     realSwap(frames, mode);
+    // The pair: distinct ids and ordinals, one drift key, the leaver's.
+    const pair = fades(ledgers[0]).placements.filter((p) => p.x === QUAD[1].x && p.y === QUAD[1].y);
+    expect(pair.map((p) => [p.id, p.ordinal, p.driftKey, p.role])).toEqual([[0, 0, 0, 'leaving'], [1, 1, 0, 'live']]);
     const m = measureSwap(frames, swapPoints(face, mode, stormDeps('abyss', statics, face)));
+    expect(m.fromStart).toBeLessThan(BOUND);
     expect(m.beyondEnds).toBeLessThan(BOUND);
     expect(m.reversal).toBeLessThan(BOUND);
-    expect(m.jump).toBeLessThanOrEqual(0.25);
-    expect(m.jump).toBeGreaterThan(0.1); // not vacuous: the re-added lobe does move (UI-130)
+    expect(m.jump).toBeLessThanOrEqual(BOUND);
+  });
+
+  it.each(CASES)('the plant, %s, %s: the re-add drifting on its next ordinal (the jump UI-134 removed) fails the tightened tripwire and B2’s own form', (face, mode) => {
+    const frames = swapFrames(optionsFor(face, mode, false, { driftBy: 'ordinal' }));
+    realSwap(frames, mode);
+    const m = measureSwap(frames, swapPoints(face, mode, stormDeps('abyss', statics, face)));
+    expect(m.jump).toBeGreaterThan(BOUND);
+    expect(m.fromStart).toBeGreaterThanOrEqual(BOUND);
   });
 
   it.each(CASES)('the plant, %s, %s: ω ≡ 1 (the designer 2.6 curve) breaks both readings', (face, mode) => {
