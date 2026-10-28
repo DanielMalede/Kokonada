@@ -8,7 +8,17 @@
 // clock of its own, no I/O, plain data in and out, and every function is a worklet.
 //
 // Identity: each placement gets an id, its ordinal (how many came before it), from a counter that
-// only rises. The builder keys a lobe's drift by it for the placement's whole life.
+// only rises.
+//
+// The drift key (UI-134, designer Ruling 3 after UI-125): the builder keys a lobe's drift by it for the
+// placement's whole life. It is the ordinal, except that a placement landing on the same node within
+// ν·r_L of a placement still leaving, or of one that ended at most one crossfade duration
+// (rampDuration of the starting crossfade's mode) before it, takes that placement's key. It is fixed at
+// the start the placement enters in: each entrant, in arrival order, takes the nearest such donor's key
+// (undrifted anchors, as L7 measures δ; ties to the lower key). A donor gives its key once, and never a
+// key a placement staying on the field carries, so no two live placements share one. The drift is a
+// function of the key and the field clock alone, so the key carries its drift phase: the heir's lobe
+// drifts exactly as its donor's would have. Ids, ordinals, the counter, slots and fades are untouched.
 //
 // Reading the store:
 //   · a fresh ledger's first input is the only reset: its taps are shown at once, at fade 1 (a mount;
@@ -47,7 +57,7 @@
 
 import { clampFrameDt } from '../clock/frameDt.ts';
 import { BASE, DIRECTIONS, type DirectionId } from '../tokens/tokens.generated.ts';
-import { crossfade, overlapOmega, progress, type FadeMode } from './crossfade.ts';
+import { crossfade, overlapOmega, progress, rampDuration, type FadeMode } from './crossfade.ts';
 import { lobeAnchor, nodeAt, type PlacementNode } from './fieldFrame.ts';
 import { NODE_SLOTS } from './fieldLaw.ts';
 
@@ -132,6 +142,16 @@ interface Shown extends Placed {
   readonly phase: Phase;
   /** L7's ω, fixed at the start of the crossfade it leaves in; 1 otherwise. */
   readonly omega: number;
+  /** Its drift table (UI-134): the ordinal, or the key it took from a donor at its start. */
+  readonly driftKey: number;
+}
+
+/** A placement that has ended, kept one crossfade duration as a drift-key donor (UI-134). */
+interface Ended extends Placed {
+  readonly node: PlacementNode;
+  readonly driftKey: number;
+  /** The ledger's clock at its end. */
+  readonly at: number;
 }
 
 export interface Ledger {
@@ -162,11 +182,15 @@ export interface Ledger {
   readonly admitted: number;
   /** Ids whose fade reached 0 on the latest reconcile. */
   readonly ended: readonly number[];
+  /** Placements that ended within the longest crossfade duration: the drift-key donors (UI-134). */
+  readonly recent: readonly Ended[];
 }
 
 export interface LedgerPlacement {
   readonly id: number;
   readonly ordinal: number;
+  /** Its drift table (UI-134): the ordinal, unless it took a donor's key at its start. */
+  readonly driftKey: number;
   readonly x: number;
   readonly y: number;
   readonly node: PlacementNode;
@@ -240,13 +264,14 @@ export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION)
     starts: 0,
     admitted: 0,
     ended: [],
+    recent: [],
   };
 }
 
 /** Shown at once, at fade 1: a fresh ledger's first input, the only reset. */
 function reset(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
   'worklet';
-  const shown: Shown[] = taps.map((t, i) => ({ id: l.next + i, x: t.x, y: t.y, node: nodeAt(t.x, t.y), slot: i, phase: 'still' as const, omega: 1 }));
+  const shown: Shown[] = taps.map((t, i) => ({ id: l.next + i, x: t.x, y: t.y, node: nodeAt(t.x, t.y), slot: i, phase: 'still' as const, omega: 1, driftKey: l.next + i }));
   const lit = !shown.some((s) => bearsLobe(s.node, l.config));
   return {
     ...l,
@@ -353,9 +378,38 @@ function omegaAt(c: readonly [number, number], incoming: ReadonlyArray<readonly 
   return overlapOmega(nearest, reach);
 }
 
+/** How long an ended placement stays a drift-key donor: the longest crossfade (UI-134). */
+const DONOR_WINDOW = Math.max(rampDuration('settle'), rampDuration('reduced'));
+
+interface Donor {
+  readonly node: PlacementNode;
+  readonly driftKey: number;
+  readonly anchor: readonly [number, number];
+}
+
+/**
+ * An entrant's drift key (UI-134): the nearest donor's on its node within the reach (ties to the lower
+ * key), skipping keys already `taken`; its own ordinal with none. A reach of 0 or less reaches only δ = 0.
+ */
+function driftKeyFor(id: number, node: PlacementNode, anchor: readonly [number, number], donors: readonly Donor[], taken: readonly number[], reach: number): number {
+  'worklet';
+  let key = id;
+  let nearest = Infinity;
+  for (const d of donors) {
+    if (d.node !== node || taken.indexOf(d.driftKey) >= 0) continue;
+    const delta = Math.hypot(d.anchor[0] - anchor[0], d.anchor[1] - anchor[1]);
+    if (delta <= Math.max(0, reach) && (delta < nearest || (delta === nearest && d.driftKey < key))) {
+      key = d.driftKey;
+      nearest = delta;
+    }
+  }
+  return key;
+}
+
 /**
  * Start a crossfade with the admitted changes: leavers go 'out', new ones come 'in' in free slots, and
- * every outgoing lobe's ω is fixed here, once, for the life of the crossfade (L7).
+ * every outgoing lobe's ω is fixed here, once, for the life of the crossfade (L7). Each entrant's drift
+ * key is fixed here too, from the leavers and the recently ended (UI-134).
  */
 function start(l: Ledger, mode: FadeMode): Ledger {
   'worklet';
@@ -370,7 +424,19 @@ function start(l: Ledger, mode: FadeMode): Ledger {
   const shown: Shown[] = l.shown.map((s) => (plan.leaving.some((x) => x.id === s.id) ? { ...s, phase: 'out' as const, omega: omegaAt(anchorOf(s, o), incoming, o.reach) } : s));
   const used = [...shown.map((s) => s.slot), ...l.restSlots];
   const slots = freeSlots(plan.entering.length, used);
-  plan.entering.forEach((e, i) => shown.push({ id: e.id, x: e.x, y: e.y, node: nodeAt(e.x, e.y), slot: slots[i], phase: 'in', omega: 1 }));
+  // UI-134: the donors are the placements leaving now and those ended within this mode's crossfade.
+  const window = rampDuration(mode);
+  const donors: Donor[] = [
+    ...shown.filter((s) => s.phase === 'out').map((s) => ({ node: s.node, driftKey: s.driftKey, anchor: anchorOf(s, o) })),
+    ...l.recent.filter((e) => l.clock - e.at <= window).map((e) => ({ node: e.node, driftKey: e.driftKey, anchor: anchorOf(e, o) })),
+  ];
+  const taken = shown.filter((s) => s.phase !== 'out').map((s) => s.driftKey);
+  plan.entering.forEach((e, i) => {
+    const node = nodeAt(e.x, e.y);
+    const driftKey = driftKeyFor(e.id, node, entering[i], donors, taken, o.reach);
+    taken.push(driftKey);
+    shown.push({ id: e.id, x: e.x, y: e.y, node, slot: slots[i], phase: 'in', omega: 1, driftKey });
+  });
   const rest: RestPhase = restFalling ? 'out' : restRising ? 'in' : l.rest;
   const restSlots = restRising ? freeSlots(l.config.restLobes, shown.map((s) => s.slot)) : l.restSlots;
   const restOmegas = restFalling ? o.rest.map((c) => omegaAt(c, entering, o.reach)) : [];
@@ -392,8 +458,9 @@ function start(l: Ledger, mode: FadeMode): Ledger {
 /** The running crossfade has reached u = 1: leavers end, entrants settle, the rest lobes arrive. */
 function finish(l: Ledger): Ledger {
   'worklet';
-  const ended = l.shown.filter((s) => s.phase === 'out').map((s) => s.id);
+  const out = l.shown.filter((s) => s.phase === 'out');
   const rest = l.rest === 'in' ? 'on' : l.rest === 'out' ? 'off' : l.rest;
+  const gone: Ended[] = out.map((s) => ({ id: s.id, x: s.x, y: s.y, node: s.node, driftKey: s.driftKey, at: l.clock }));
   return {
     ...l,
     shown: l.shown.filter((s) => s.phase !== 'out').map((s) => (s.phase === 'in' ? { ...s, phase: 'still' as const } : s)),
@@ -401,7 +468,8 @@ function finish(l: Ledger): Ledger {
     restSlots: rest === 'off' ? [] : l.restSlots,
     restOmegas: [],
     running: null,
-    ended: [...l.ended, ...ended],
+    ended: [...l.ended, ...out.map((s) => s.id)],
+    recent: [...l.recent.filter((e) => l.clock - e.at <= DONOR_WINDOW), ...gone],
   };
 }
 
@@ -435,6 +503,7 @@ export function fades(l: Ledger): LedgerFades {
     .map((s) => ({
       id: s.id,
       ordinal: s.id,
+      driftKey: s.driftKey,
       x: s.x,
       y: s.y,
       node: s.node,
