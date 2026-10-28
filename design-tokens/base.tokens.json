@@ -129,6 +129,7 @@
     },
     "metaball": {"low":{"$type":"number","$value":0.55},"high":{"$type":"number","$value":1.6}},
     "lobe": {"core":{"$type":"number","$value":0.04}},
+    "crossfade": {"overlapFar":{"$type":"number","$value":1.25}},
     "halo": {
       "diameter": {"$type":"dimension","$value":{"value":44,"unit":"px"}},
       "peakDark": {"$type":"number","$value":0.45},

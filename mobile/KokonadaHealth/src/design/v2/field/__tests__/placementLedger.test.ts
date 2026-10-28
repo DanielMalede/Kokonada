@@ -6,11 +6,11 @@ import * as path from 'path';
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../tokens/tokens.generated.ts';
-import { progress, crossfade } from '../crossfade.ts';
+import { progress, crossfade, overlapOmega } from '../crossfade.ts';
 import { buildFieldFrame, nodeAt } from '../fieldFrame.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { frameState, geometry, stormDeps } from '../ledgerStorms.ts';
-import { ADMISSION, emptyLedger, fades, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
+import { ADMISSION, emptyLedger, fades, ledgerConfig, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
@@ -33,15 +33,30 @@ import { packFrame } from '../uniforms.ts';
 //     0, and freed slots are reused lowest first. There is no eviction.
 
 const SETTLE = BASE.motion.settle.duration;
-const ABYSS: LedgerConfig = { restLobes: 2, neutralLobe: true };
+/** Two rest lobes (Abyss's light table), on the storms' plate: the overlap law reads their centres (L7). */
+const TWO_REST: ReadonlyArray<readonly [number, number]> = [[-0.35, -0.3], [0.4, 0.35]];
+const ABYSS: LedgerConfig = ledgerConfig('abyss', TWO_REST, geometry);
 /** A hand-built config: two rest lobes, and neutral placements with no lobe (the binding neutral3 case). */
-const NO_NEUTRAL_LOBE: LedgerConfig = { restLobes: 2, neutralLobe: false };
+const NO_NEUTRAL_LOBE: LedgerConfig = { ...ABYSS, neutralLobe: false };
 const tap = (x: number, y: number): Tap => ({ x, y });
 const J = tap(0.566, 0.566);
 const C = tap(0.566, -0.566);
 const R = tap(-0.566, -0.566);
 const I = tap(-0.566, 0.566);
 const n = (k: number) => tap(0.02 * k, 0.03); // neutral: r < 0.15
+/** ν·r_L, from the tokens: an independent oracle for the ledger's ω (L7). */
+const REACH = BASE.field.crossfade.overlapFar * DIRECTIONS.abyss.field.lobe.radius;
+/** The bead radius on the storms' plate, as the builder reads it. */
+const BEAD = DIRECTIONS.abyss.bead.diameter / 2 / (geometry.radiusPx / geometry.pxPerDp);
+/** A tap's undrifted lobe centre on Abyss, which centres a lobe on its bead (centreAlpha 1, centreBeta 0). */
+const lobe = (t: Tap): [number, number] => [t.x * (1 - BEAD), t.y * (1 - BEAD)];
+/** A tap whose lobe centre is `d` from C's, turning clockwise round the plate centre (C's radius kept). */
+const fromC = (d: number): Tap => {
+  const r = Math.hypot(C.x, C.y);
+  const turn = 2 * Math.asin(d / (1 - BEAD) / (2 * r));
+  const a = Math.atan2(C.y, C.x) - turn;
+  return tap(r * Math.cos(a), r * Math.sin(a));
+};
 
 /** A stateful store with the cold lane's semantics (emotionSlice): a new array and a new seq per change. */
 function store(initial: Tap[] = []) {
@@ -71,7 +86,7 @@ const shown = (f: LedgerFades) => f.placements.map((p) => [p.x, p.y, p.role, Mat
 describe('the ledger at rest', () => {
   it('starts with nothing placed and the rest lobes lit, in the lowest slots', () => {
     const f = fades(emptyLedger(ABYSS));
-    expect(f).toEqual({ placements: [], ended: [], restFade: 1, restSlots: [0, 1], demand: 2 });
+    expect(f).toEqual({ placements: [], ended: [], restFade: 1, restFades: [1, 1], restSlots: [0, 1], demand: 2 });
     expect(needsFrames(emptyLedger(ABYSS))).toBe(false);
   });
 
@@ -81,14 +96,17 @@ describe('the ledger at rest', () => {
 });
 
 describe('a push: the first placement crossfades in, the rest glow out (designer 2.6)', () => {
-  it('starts on the frame it arrives, stamped there: u 0, then the settle curve; the rest lobes fall as 1 − u²', () => {
+  it('starts on the frame it arrives, stamped there: u 0, then the settle curve; each rest lobe falls as 1 − u^(1+ω), ω from its distance to the new lobe (L7)', () => {
     const s = store();
     const { frames, at } = run(emptyLedger(ABYSS), s, 0, 700, 'settle', { 100: () => s.add(C) });
     expect(at(99).f.placements).toEqual([]);
     expect(at(100).f.placements.map((p) => [p.id, p.fade, p.role, p.slot])).toEqual([[0, 0, 'live', 2]]);
     expect(at(100).f.restFade).toBe(1);
     expect(at(400).f.placements[0].fade).toBe(crossfade(progress('settle', 300)).in);
-    expect(at(400).f.restFade).toBe(crossfade(progress('settle', 300)).out);
+    const omegas = TWO_REST.map((r) => overlapOmega(Math.hypot(r[0] - lobe(C)[0], r[1] - lobe(C)[1]), REACH));
+    expect(omegas.every((w) => w > 0.8 && w < 0.95)).toBe(true); // both near enough to hand over a little
+    expect(at(400).f.restFades).toEqual(omegas.map((w) => crossfade(progress('settle', 300), w).out));
+    expect(at(400).f.restFade).toBe(Math.max(...at(400).f.restFades));
     expect(at(700).f.placements[0].fade).toBe(1);
     expect(at(700).f.restFade).toBe(0);
     expect(at(700).f.restSlots).toEqual([]);
@@ -159,7 +177,11 @@ describe('change detection by seq, classification by value', () => {
     expect(before.map((p) => [p.id, p.slot])).toEqual([[0, 2], [1, 0], [2, 1]]);
     expect(before.map((p) => p.fade).every((v) => v > 0.999)).toBe(true); // R's own ramp ends at 1800 ms
     expect(mid.map((p) => [p.id, p.role, p.slot])).toEqual([[0, 'leaving', 2], [1, 'live', 0], [2, 'live', 1], [3, 'live', 3]]);
-    expect(mid[0].fade).toBe(crossfade(progress('settle', 300)).out);
+    // L7: J leaves as I enters, a quadrant apart: ω ≈ 0.98, nearly the hold.
+    const omega = overlapOmega(Math.hypot(lobe(J)[0] - lobe(I)[0], lobe(J)[1] - lobe(I)[1]), REACH);
+    expect(omega).toBeGreaterThan(0.97);
+    expect(omega).toBeLessThan(0.99);
+    expect(mid[0].fade).toBe(crossfade(progress('settle', 300), omega).out);
     expect(mid[3].fade).toBe(crossfade(progress('settle', 300)).in);
     expect(at(2400).f.ended).toEqual([0]);
     expect(at(2401).f.placements.map((p) => p.id)).toEqual([1, 2, 3]);
@@ -450,5 +472,108 @@ describe('the ledger reads the store as the builder does', () => {
   it('a non-finite coordinate is read as 0, as the builder reads it, so both give the tap the same node', () => {
     const f = fades(reconcile(emptyLedger(outer.config), { seq: 1, taps: [tap(NaN, 0.5), tap(0.4, Infinity)] }, 0, 'settle'));
     expect(f.placements.map((p) => [p.x, p.y, p.node])).toEqual([[0, 0.5, nodeAt(0, 0.5)], [0.4, 0, nodeAt(0.4, 0)]]);
+  });
+});
+
+// Law round 2, item 2b (designer L7, amending 2.6): the outgoing fade is 1 − u^(1+ω_j), ω_j =
+// smoothstep(0, ν·r_L, δ_j), δ_j the distance from the outgoing lobe's undrifted centre to the nearest
+// incoming undrifted centre in the same crossfade (1 with none), ν = field.crossfade.overlapFar. The
+// ledger computes ω once per crossfade, at its start, for every leaving placement and every rest lobe.
+describe('L7: the overlap crossfade, ω computed once per crossfade by the ledger', () => {
+  it('Abyss centres a lobe on its bead, so the test oracle is the bead (centreAlpha 1, centreBeta 0)', () => {
+    expect([DIRECTIONS.abyss.field.lobe.centreAlpha, DIRECTIONS.abyss.field.lobe.centreBeta]).toEqual([1, 0]);
+    expect(ABYSS.overlap).toEqual({ rest: TWO_REST, centreAlpha: 1, centreBeta: 0, beadRadius: BEAD, reach: REACH });
+    const near = lobe(fromC(0.5 * 0.95));
+    expect(Math.hypot(near[0] - lobe(C)[0], near[1] - lobe(C)[1])).toBeCloseTo(0.5 * 0.95, 12);
+  });
+
+  /** A same-spot (or near-spot) swap: C, then an undo and a re-add inside the spacing, so a leave and an enter pair at the next start. */
+  const swap = (again: Tap, mode: 'settle' | 'reduced', config: LedgerConfig = ABYSS, to = 1400) => {
+    const s = store();
+    return run(emptyLedger(config), s, -1, to, mode, { 0: () => s.add(C), 100: () => s.undo(), 200: () => s.add(again) });
+  };
+
+  it.each(['settle', 'reduced'] as const)('%s: a same-spot swap crossfades linearly, ω = 0: the pair sums to 1 at every frame', (mode) => {
+    const { frames } = swap(C, mode);
+    const during = frames.filter((x) => x.t >= SETTLE && x.f.placements.length === 2);
+    expect(during.length).toBeGreaterThan(mode === 'settle' ? 590 : 140);
+    for (const { t, f } of during) {
+      const [out, inn] = f.placements;
+      expect([out.id, out.role, inn.id, inn.role]).toEqual([0, 'leaving', 1, 'live']);
+      const u = progress(mode, t - SETTLE);
+      expect(inn.fade).toBe(crossfade(u).in);
+      expect(out.fade).toBe(crossfade(u, 0).out);
+      expect(Math.abs(out.fade + inn.fade - 1)).toBeLessThanOrEqual(1e-15);
+    }
+  });
+
+  it.each([0.25, 0.5, 0.75, 1])('a near-spot swap at δ = %s·r_L: the leaving lobe falls as 1 − u^(1+ω(δ))', (k) => {
+    const omega = overlapOmega(k * 0.95, REACH);
+    const { at } = swap(fromC(k * 0.95), 'settle');
+    const f = at(SETTLE + 200).f;
+    expect(f.placements.map((p) => [p.id, p.role])).toEqual([[0, 'leaving'], [1, 'live']]);
+    expect(f.placements[0].fade).toBeCloseTo(crossfade(progress('settle', 200), omega).out, 12);
+    expect(f.placements[1].fade).toBe(crossfade(progress('settle', 200)).in);
+  });
+
+  it('a leave with nothing coming in holds, ω = 1 (1 − u²): a pop with a lobe still live, so no rest lobe rises', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 2000, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 1300: () => s.undo() });
+    const f = at(1500).f;
+    expect(f.placements.map((p) => [p.id, p.role])).toEqual([[0, 'live'], [1, 'leaving']]);
+    expect(f.restFades).toEqual([]);
+    expect(f.placements[1].fade).toBe(crossfade(progress('settle', 200)).out);
+    expect(f.placements[1].fade).toBe(1 - progress('settle', 200) ** 2);
+  });
+
+  it('the last lobe leaving as the rest lobes rise: its ω is from the nearest rising rest centre', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 2000, 'settle', { 0: () => s.add(C), 700: () => s.undo() });
+    const omega = overlapOmega(Math.min(...TWO_REST.map((r) => Math.hypot(r[0] - lobe(C)[0], r[1] - lobe(C)[1]))), REACH);
+    expect(omega).toBeLessThan(0.95);
+    const f = at(900).f;
+    expect(f.placements[0].role).toBe('leaving');
+    expect(f.placements[0].fade).toBe(crossfade(progress('settle', 200), omega).out);
+    expect(f.restFades).toEqual([crossfade(progress('settle', 200)).in, crossfade(progress('settle', 200)).in]);
+  });
+
+  it('ω is fixed for the life of a crossfade: changes that arrive mid-ramp wait, and the leaving curve never moves', () => {
+    const plain = swap(C, 'settle');
+    // Mid-swap, a tap lands right beside C (it waits for the spacing), and is undone and re-made nearer.
+    const s = store();
+    const busy = run(emptyLedger(ABYSS), s, -1, 1199, 'settle', {
+      0: () => s.add(C), 100: () => s.undo(), 200: () => s.add(C), 700: () => s.add(fromC(0.1)), 800: () => s.undo(), 900: () => s.add(fromC(0.2)),
+    });
+    expect(busy.at(1000).ledger.enters).toHaveLength(1); // the change waits for the spacing
+    for (let t = SETTLE; t < 2 * SETTLE; t++) {
+      const leaving = busy.at(t).f.placements.find((p) => p.id === 0)!;
+      expect(leaving.fade).toBe(plain.at(t).f.placements.find((p) => p.id === 0)!.fade);
+      expect(leaving.fade).toBe(crossfade(progress('settle', t - SETTLE), 0).out);
+    }
+    // And fades() never recomputes ω: the same ledger read under a config whose reach is 0 (every ω 1)
+    // draws the same fades, mid-ramp.
+    const mid = busy.at(SETTLE + 150).ledger;
+    const reread: Ledger = { ...mid, config: { ...mid.config, overlap: { ...mid.config.overlap, reach: 0 } } };
+    expect(fades(reread)).toEqual(fades(mid));
+  });
+
+  it('the planted hold: a config whose reach is 0 gives ω = 1 everywhere, the designer 2.6 curve, at the same spot too', () => {
+    const held: LedgerConfig = { ...ABYSS, overlap: { ...ABYSS.overlap, reach: 0 } };
+    const f = swap(C, 'settle', held).at(SETTLE + 200).f;
+    expect(f.placements[0].fade).toBe(crossfade(progress('settle', 200)).out);
+    expect(f.placements[0].fade + f.placements[1].fade).toBeGreaterThan(1.1);
+  });
+
+  it('ledgerConfig reads the direction and the plate as the builder does: ν·r_L from the tokens, the bead radius in plate units', () => {
+    const cfg = ledgerConfig('abyss', [[-0.3, 0.35]], { radiusPx: 80, pxPerDp: 80 / 170 });
+    expect(cfg.restLobes).toBe(1);
+    expect(cfg.neutralLobe).toBe(DIRECTIONS.abyss.field.lobe.neutralLobe > 0);
+    expect(cfg.overlap.reach).toBe(1.25 * DIRECTIONS.abyss.field.lobe.radius);
+    expect(cfg.overlap.beadRadius).toBe(DIRECTIONS.abyss.bead.diameter / 2 / (80 / (80 / 170)));
+    expect(cfg.overlap.rest).toEqual([[-0.3, 0.35]]);
+  });
+
+  it('a config whose rest count disagrees with its rest centres is refused', () => {
+    expect(() => emptyLedger({ ...ABYSS, restLobes: 1 })).toThrow(RangeError);
   });
 });

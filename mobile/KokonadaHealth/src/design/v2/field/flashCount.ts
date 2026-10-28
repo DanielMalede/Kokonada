@@ -25,13 +25,20 @@
 // The property the retired rows guarded (only neutral placements, neutralLobe 0: the rest lobes stay
 // lit, no rest crossfade) is a structural assertion on the fixture direction (fixturePaths.test.ts).
 //
+// Law round 2, item 2b (designer L7 (iii)): "Add near-spot toggles at δ ∈ {0.25, 0.5, 0.75, 1.0}·r_L,
+// with halo lattices. If any near-spot case exceeds 2, ν may go from 1.25 to 1.5. That is pre-authorised,
+// and nothing else is." A near-spot toggle alternates add QUAD[1], undo, add the near tap, undo, so the
+// ledger's swaps pair the two spots (δ apart) and the same spot (δ = 0), as the cadence falls. The near
+// tap keeps QUAD[1]'s radius and turns clockwise until its lobe centre is δ·r_L from QUAD[1]'s: inside
+// the calm quadrant at 0.25 and 0.5, into the reflective one at 0.75 and 1.0.
+//
 // Rendered: each sample is the law's 8-bit sRGB pixel (fieldPixel), which fieldShader.skia.test.ts
 // holds to the shader's pixel within ±1 LSB; the sweeps project runs in plain node, without CanvasKit.
 // The tension is 0. Under settle the clock and the breath run with the frames at tier full; under
 // reduced motion the tier is still, so only the placements move. E6, the CTA under the storms, waits
 // for the CTA (B6): it has no tint to sample here yet.
 
-import { BASE, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
+import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { crossfade, progress } from './crossfade.ts';
 import { buildFieldFrame, fixedFieldBreath, type FieldGeometry, type FieldState, type Placement } from './fieldFrame.ts';
 import { fieldPixel } from './fieldLaw.ts';
@@ -67,13 +74,15 @@ export function worstFlashesPerSecond(y: readonly number[], frameMs: number): nu
   return worst;
 }
 
-export type FlashStorm = 'toggle' | 'cycle4' | 'neutral3';
+export type FlashStorm = 'toggle' | 'cycle4' | 'neutral3' | 'near';
 export interface FlashCase {
   readonly id: DirectionId;
   readonly face: Face;
   readonly mode: Mode;
   readonly kind: FlashStorm;
   readonly every: number;
+  /** A near-spot toggle's lobe-centre distance, × r_L (field.lobe.radius). */
+  readonly delta?: number;
 }
 
 export const FRAME_MS = 1000 / 60;
@@ -86,36 +95,63 @@ export const E4_CASES: readonly FlashCase[] = [
   ...(['dark', 'light'] as Face[]).flatMap((face) => (['settle', 'reduced'] as Mode[]).flatMap((mode) => E4_CADENCES.map((every) => ({ id: 'abyss' as DirectionId, face, mode, kind: 'neutral3' as FlashStorm, every })))),
 ];
 
+/** The near-spot distances, × r_L (designer L7 (iii)). */
+export const NEAR_DELTAS = [0.25, 0.5, 0.75, 1];
+/** The near-spot toggles: Abyss's two faces × both modes × every distance × every E4 cadence. */
+export const E4_NEAR_CASES: readonly FlashCase[] = (['dark', 'light'] as Face[]).flatMap((face) => (['settle', 'reduced'] as Mode[]).flatMap((mode) =>
+  NEAR_DELTAS.flatMap((delta) => E4_CADENCES.map((every) => ({ id: 'abyss' as DirectionId, face, mode, kind: 'near' as FlashStorm, every, delta })))));
+
 const R_DP = BASE.plate.maxDiameter / 2;
 const C_PX = 1.5 * R_DP;
+
+/**
+ * The near tap: QUAD[1]'s radius, turned clockwise until its undrifted lobe centre is delta·r_L from
+ * QUAD[1]'s. Abyss centres a lobe on its bead (centreAlpha 1, centreBeta 0), so the lobe centre is the
+ * tap × (1 − the bead radius) on this plate; another direction is refused.
+ */
+export function nearTap(delta: number, id: DirectionId = 'abyss'): Tap {
+  const lobe = DIRECTIONS[id].field.lobe;
+  if (lobe.centreAlpha !== 1 || lobe.centreBeta !== 0) throw new Error(`nearTap: ${id} does not centre a lobe on its bead`);
+  const bead = DIRECTIONS[id].bead.diameter / 2 / R_DP;
+  const from = QUAD[1];
+  const r = Math.hypot(from.x, from.y);
+  const turn = 2 * Math.asin((delta * lobe.radius) / (1 - bead) / (2 * r));
+  const a = Math.atan2(from.y, from.x) - turn;
+  return { x: r * Math.cos(a), y: r * Math.sin(a) };
+}
 /** The plate at 1 px per dp, with its centre far enough in that every sample sits at positive pixels. */
 const geometry: FieldGeometry = { centrePx: [C_PX, C_PX], radiusPx: R_DP, pxPerDp: 1, fontScale: 1 };
 
 /** The taps of a storm over the 4 s window, each at its time, as store operations. */
-function schedule(kind: FlashStorm, every: number, s: ReturnType<typeof store>): Map<number, Array<() => void>> {
+function schedule(kind: FlashStorm, every: number, s: ReturnType<typeof store>, delta = 0): Map<number, Array<() => void>> {
   const at = new Map<number, Array<() => void>>();
   const put = (t: number, act: () => void) => at.set(t, [...(at.get(t) ?? []), act]);
   const span = FRAMES * FRAME_MS;
   if (kind === 'toggle') for (let t = 1, k = 0; t < span; t += every, k++) put(t, k % 2 === 0 ? () => s.add(QUAD[1]) : () => s.undo());
   else if (kind === 'cycle4') for (let t = 1, k = 0; t < span; t += every, k++) { const q = QUAD[k % 4]; put(t, () => s.add(q)); }
+  else if (kind === 'near') {
+    const near = nearTap(delta);
+    for (let t = 1, k = 0; t < span; t += every, k++) put(t, k % 2 === 1 ? () => s.undo() : k % 4 === 0 ? () => s.add(QUAD[1]) : () => s.add(near));
+  }
   else for (let k = 0; k < 3; k++) { const q = neutral(4 + k); put(100 + k * every, () => s.add(q)); }
   return at;
 }
 
 /** Every tap position a storm uses: the halo lattices sit around them. */
-function tapsOf(kind: FlashStorm): Tap[] {
+function tapsOf(kind: FlashStorm, delta = 0): Tap[] {
   if (kind === 'toggle') return [QUAD[1]];
+  if (kind === 'near') return [QUAD[1], nearTap(delta)];
   if (kind === 'cycle4') return [...QUAD];
   return [1, 2, 3, 4, 5, 6].map(neutral);
 }
 
 /** The samples, in plate units: the 12×12 grid over ±1.2 R, and a 5×5 lattice inside each tap's halo radius. */
-export function samplePoints(kind: FlashStorm): Array<[number, number]> {
+export function samplePoints(kind: FlashStorm, delta = 0): Array<[number, number]> {
   const grid: Array<[number, number]> = [];
   for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) grid.push([-1.2 + (2.4 * i) / 11, -1.2 + (2.4 * j) / 11]);
   const rh = BASE.field.halo.diameter / 2 / R_DP;
   const lattice: Array<[number, number]> = [];
-  for (const t of tapsOf(kind)) {
+  for (const t of tapsOf(kind, delta)) {
     for (let i = 0; i < 5; i++) {
       for (let j = 0; j < 5; j++) {
         const o: [number, number] = [-rh + (2 * rh * i) / 4, -rh + (2 * rh * j) / 4];
@@ -130,7 +166,7 @@ export function samplePoints(kind: FlashStorm): Array<[number, number]> {
 export const ABYSS_DARK_REST_BEFORE_ITEM_6: ReadonlyArray<readonly [number, number]> = [[-0.35, -0.3], [0.4, 0.35]];
 
 /** A case's state at a frame time t (ms from the storm's start), the clock running from 7000 ms. */
-function stateAt(c: FlashCase, t: number, shown: { placements: Placement[]; restFade: number; restSlots?: number[] }): FieldState {
+function stateAt(c: FlashCase, t: number, shown: { placements: Placement[]; restFade: number | readonly number[]; restSlots?: number[] }): FieldState {
   const tMs = 7000 + t;
   return {
     direction: c.id, face: c.face, placements: shown.placements, restFade: shown.restFade, restSlots: shown.restSlots,
@@ -148,7 +184,7 @@ export function lobeLattices(c: FlashCase, deps: StormDeps): { centres: Array<[n
     pick(buildFieldFrame(stateAt(c, 0, { placements, restFade }), geometry, deps.statics)).forEach((p) => centres.push(p));
   // The rest lobes: nothing placed, so the builder lights them all.
   centreOf([], 1, (f) => f.nodes.filter((n) => n.fade > 0 && n.bead === null).map((n) => [n.centre[0], n.centre[1]]));
-  for (const t of tapsOf(c.kind)) {
+  for (const t of tapsOf(c.kind, c.delta)) {
     for (let ordinal = 0; ordinal < 3; ordinal++) {
       centreOf([{ x: t.x, y: t.y, fade: 1, ordinal }], 0, (f) => f.nodes.filter((n) => n.fade > 0 && n.bead !== null).map((n) => [n.centre[0], n.centre[1]]));
     }
@@ -161,7 +197,7 @@ export function lobeLattices(c: FlashCase, deps: StormDeps): { centres: Array<[n
 }
 
 /** What the field shows at a frame, from the ledger, or from a naive driver that restarts each fade on every tap. */
-type Driver = (t: number, taps: readonly Tap[], seq: number) => { placements: Placement[]; restFade: number; restSlots?: number[] };
+type Driver = (t: number, taps: readonly Tap[], seq: number) => { placements: Placement[]; restFade: number | readonly number[]; restSlots?: number[] };
 
 function ledgerDriver(deps: StormDeps, mode: Mode): Driver {
   let ledger = emptyLedger(deps.config);
@@ -170,7 +206,7 @@ function ledgerDriver(deps: StormDeps, mode: Mode): Driver {
     const f = fades(ledger);
     return {
       placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })),
-      restFade: f.restFade,
+      restFade: [...f.restFades],
       restSlots: [...f.restSlots],
     };
   };
@@ -207,9 +243,9 @@ export function flashReport(c: FlashCase, deps: StormDeps, driver: Driver = ledg
   // table the ledger never counted.
   if (deps.face !== c.face) throw new Error(`E4: a ${c.face} face case needs deps of that face, got ${deps.face}`);
   const s = store(c.kind === 'neutral3' ? [neutral(1), neutral(2), neutral(3)] : []);
-  const actions = schedule(c.kind, c.every, s);
+  const actions = schedule(c.kind, c.every, s, c.delta);
   const times = [...actions.keys()].sort((a, b) => a - b);
-  const points = [...samplePoints(c.kind), ...lobeLattices(c, deps).points];
+  const points = [...samplePoints(c.kind, c.delta), ...lobeLattices(c, deps).points];
   const traces = points.map(() => [] as number[]);
   let done = 0;
   for (let f = 0; f < FRAMES; f++) {

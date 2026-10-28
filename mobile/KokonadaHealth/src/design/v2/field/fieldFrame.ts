@@ -72,11 +72,13 @@ export interface FieldState {
   readonly breathPhase: number;
   readonly tier: MotionTier;
   /**
-   * The rest lobes' fade, from the crossfade. Forced to 1 while no placement in the frame carries a
-   * lobe (nothing placed, or only neutral placements where neutralLobe is 0), placements still fading
-   * out included (designer 2.6). Required; a missing or non-finite value is 0.
+   * The rest lobes' fade, from the crossfade: one number for every rest lobe, or one per lobe in the
+   * table's order (the ledger's restFades: under L7 each outgoing lobe falls on its own curve). Forced to
+   * 1 while no placement in the frame carries a lobe (nothing placed, or only neutral placements where
+   * neutralLobe is 0), placements still fading out included (designer 2.6). Required; a missing or
+   * non-finite value is 0.
    */
-  readonly restFade: number;
+  readonly restFade: number | readonly number[];
   /** The node slot of each rest lobe, from the ledger. Default: the lowest free slots, after the placements. */
   readonly restSlots?: readonly number[];
 }
@@ -165,6 +167,27 @@ export function placementRamp(x: number, y: number): number {
   return clamp01((r - from) / (BASE.placement.rampEnd - from));
 }
 
+/**
+ * A placement's lobe centre before its drift (designer 2.7; L7 measures δ between these): the tap read
+ * as the builder reads it (a non-finite coordinate is 0, a tap outside the unit disc is moved onto its
+ * rim), its bead pulled in by the bead radius, then centreAlpha·bead + centreBeta·unit. The builder adds
+ * the ordinal's drift to it, so the ledger and the builder cannot disagree on where a lobe sits.
+ */
+export function lobeAnchor(px: number, py: number, beadRadius: number, centreAlpha: number, centreBeta: number): [number, number] {
+  'worklet';
+  let x = finite(px, 0);
+  let y = finite(py, 0);
+  const r = Math.hypot(x, y);
+  if (r > 1) {
+    x /= r;
+    y /= r;
+  }
+  const bead: [number, number] = [x * (1 - beadRadius), y * (1 - beadRadius)];
+  const along = Math.hypot(bead[0], bead[1]);
+  const unit: [number, number] = along > 0 ? [bead[0] / along, bead[1] / along] : [0, 0];
+  return [centreAlpha * bead[0] + centreBeta * unit[0], centreAlpha * bead[1] + centreBeta * unit[1]];
+}
+
 /** The breath at a fixed time (captures, stills, sweeps): n(s) in JS, a whole number, and its phase. */
 export function fixedFieldBreath(id: DirectionId, stress: number, tMs: number): { n: number; phase: number } {
   'worklet';
@@ -242,13 +265,9 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     const node = nodeAt(x, y);
     const p = placementRamp(x, y);
     const bead: [number, number] = [x * (1 - beadRadius), y * (1 - beadRadius)];
-    const along = Math.hypot(bead[0], bead[1]);
-    const unit: [number, number] = along > 0 ? [bead[0] / along, bead[1] / along] : [0, 0];
+    const [ax, ay] = lobeAnchor(placement.x, placement.y, beadRadius, d.field.lobe.centreAlpha, d.field.lobe.centreBeta);
     const [ox, oy] = offset(ordinal);
-    const centre: [number, number] = [
-      d.field.lobe.centreAlpha * bead[0] + d.field.lobe.centreBeta * unit[0] + ox,
-      d.field.lobe.centreAlpha * bead[1] + d.field.lobe.centreBeta * unit[1] + oy,
-    ];
+    const centre: [number, number] = [ax + ox, ay + oy];
     const fade = clamp01(finite(placement.fade, 0));
     if (node === 'neutral') {
       return { id: NODE.R0, fade, centre, radius: d.field.lobe.neutralLobe > 0 ? radius : 0, field: tense(restGlow), halo: restGlow, bead };
@@ -263,17 +282,17 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
 
   const items: Array<{ node: FieldNodeFrame; slot: number | undefined }> = entries.map((e) => ({ node: placed(e.placement, e.ordinal), slot: e.placement.slot }));
   // The rest glow shows while no placement in the frame carries a lobe, those still fading out
-  // included; otherwise the rest lobes take the crossfade's value (designer 2.6). Rest lobe i keeps
-  // drift table i. A rest lobe at fade 0 frees its slot.
+  // included; otherwise each rest lobe takes the crossfade's value, its own where one is given per lobe
+  // (designer 2.6, L7). Rest lobe i keeps drift table i. A rest lobe at fade 0 frees its slot.
   const anyLobe = entries.some(({ placement }) => nodeAt(finite(placement.x, 0), finite(placement.y, 0)) !== 'neutral' || d.field.lobe.neutralLobe > 0);
-  const restFade = anyLobe ? clamp01(finite(state.restFade, 0)) : 1;
-  if (restFade > 0) {
-    statics.restLobes[face].forEach(([rx, ry], i) => {
-      const [ox, oy] = offset(i);
-      const node = { id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy] as [number, number], radius, field: tense(restGlow), halo: restGlow, bead: null };
-      items.push({ node, slot: state.restSlots === undefined ? undefined : state.restSlots[i] });
-    });
-  }
+  const given = state.restFade;
+  statics.restLobes[face].forEach(([rx, ry], i) => {
+    const restFade = anyLobe ? clamp01(finite(Array.isArray(given) ? (i < given.length ? given[i] : 0) : (given as number), 0)) : 1;
+    if (!(restFade > 0)) return;
+    const [ox, oy] = offset(i);
+    const node = { id: NODE.R0, fade: restFade, centre: [rx + ox, ry + oy] as [number, number], radius, field: tense(restGlow), halo: restGlow, bead: null };
+    items.push({ node, slot: state.restSlots === undefined ? undefined : state.restSlots[i] });
+  });
   if (items.length > NODE_SLOTS) {
     throw new RangeError(`a field frame holds at most ${NODE_SLOTS} nodes, got ${items.length}`);
   }

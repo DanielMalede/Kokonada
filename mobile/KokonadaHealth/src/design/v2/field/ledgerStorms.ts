@@ -46,10 +46,10 @@
 // 10 s span; the sweeps project takes the full grid above, with the one-sided clause. A planted control
 // runs where its clause runs (resilience, rulings after T5d, §2).
 
-import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
+import { BASE, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldGeometry, type FieldState, type FieldStatics } from './fieldFrame.ts';
 import { NODE, NODE_SLOTS } from './fieldLaw.ts';
-import { ADMISSION, emptyLedger, fades, reconcile, type Admission, type LedgerConfig, type LedgerFades, type Tap } from './placementLedger.ts';
+import { ADMISSION, emptyLedger, fades, ledgerConfig, reconcile, type Admission, type LedgerConfig, type LedgerFades, type Tap } from './placementLedger.ts';
 import { packFrame } from './uniforms.ts';
 
 export type Mode = 'settle' | 'reduced';
@@ -78,10 +78,14 @@ export interface StormDeps {
   /** The face the storm's frames are built on: the ledger counts that face's rest lobes (UI-112). */
   readonly face: Face;
 }
-/** The ledger's config for a direction on one face, from the statics the caller holds. */
+/**
+ * The ledger's config for a direction on one face, from the statics the caller holds: that face's rest
+ * lobes, counted and placed (L7 reads their centres), on the storms' plate (geometry, below; R = 170 dp,
+ * as every harness here draws it).
+ */
 export const stormDeps = (id: DirectionId, statics: FieldStatics, face: Face): StormDeps => ({
   statics,
-  config: { restLobes: statics.restLobes[face].length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 },
+  config: ledgerConfig(id, statics.restLobes[face], geometry),
   face,
 });
 
@@ -117,7 +121,7 @@ export const frameState = (id: DirectionId, face: Face, f: LedgerFades): FieldSt
   direction: id,
   face,
   placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })),
-  restFade: f.restFade,
+  restFade: f.restFades,
   restSlots: f.restSlots,
   stress: 0,
   confidence: 1,
@@ -232,7 +236,7 @@ export function storm(
     // The built frame: it must build (never slice, never overflow), and its rest lobes obey the bound.
     // The builder is pure, so a frame whose ledger output is unchanged builds the same frame: it is
     // built again only when the output changes.
-    const key = f.placements.map((p) => `${p.id}:${p.slot}:${p.fade}`).join(',') + '|' + f.restFade + '|' + f.restSlots.join(',');
+    const key = f.placements.map((p) => `${p.id}:${p.slot}:${p.fade}`).join(',') + '|' + f.restFades.join(',') + '|' + f.restSlots.join(',');
     if (o.threw === null && key !== lastKey) {
       lastKey = key;
       try {

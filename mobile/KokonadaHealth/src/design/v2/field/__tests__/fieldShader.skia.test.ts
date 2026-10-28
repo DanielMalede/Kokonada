@@ -10,7 +10,7 @@ import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
-import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
+import { emptyLedger, fades as ledgerFades, ledgerConfig, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, FIELD_UNIFORM_FLOATS, packFrame } from '../uniforms.ts';
 
@@ -571,16 +571,16 @@ half4 main(float2 p) {
   // crossfade starts, at fade 0.
   // Under reduced motion the first ramp ends at 150 ms, so only the spacing keeps the second tap out.
   it.each((['abyss'] as DirectionId[]).flatMap((id) => (['settle', 'reduced'] as const).map((mode) => [id, mode] as const)))('%s, %s: a tap the ledger has not admitted draws nothing, byte for byte', (id, mode) => {
-    const config = { restLobes: staticsFor(id, EXTENSIONS as never).restLobes.dark.length, neutralLobe: DIRECTIONS[id].field.lobe.neutralLobe > 0 };
     // A heading above the plate and a CTA below it: quiet zones the pending tap must not reach either.
     const quietRects = [{ cx: 32, cy: 3, hx: 20, hy: 2 }, { cx: 32, cy: 61, hx: 18, hy: 2 }];
     const geometry = { centrePx: [32.3, 31.6] as [number, number], radiusPx: 24, pxPerDp: 24 / (BASE.plate.maxDiameter / 2), fontScale: 1, quietRects };
+    const config = ledgerConfig(id, staticsFor(id, EXTENSIONS as never).restLobes.dark, geometry);
     const frameAt = (taps: Array<{ x: number; y: number }>[], at: number) => {
       let l = emptyLedger(config);
       for (let t = 0; t <= at; t++) l = reconcile(l, { seq: t === 0 ? 0 : t < 100 ? 1 : taps.length, taps: t === 0 ? [] : t < 100 ? taps[0] : taps[taps.length - 1] }, t, mode);
       const f = ledgerFades(l);
       return buildFieldFrame(
-        { direction: id, face: 'dark', placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFade, restSlots: f.restSlots, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' },
+        { direction: id, face: 'dark', placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFades, restSlots: f.restSlots, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' },
         geometry,
         staticsFor(id, EXTENSIONS as never),
       );

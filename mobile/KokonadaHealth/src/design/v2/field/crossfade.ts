@@ -1,7 +1,12 @@
-// The field's one crossfade (designer 2.6, accepted with resilience's QA-068 amendments): every lobe
-// and halo change is one crossfade through the uniforms, never a layer opacity. Over the eased
-// progress u, the incoming node's fade is u and the outgoing node's is 1 − u², so the glow holds while
-// the new one blooms (a linear pair halves every lobe mid-way: a blink).
+// The field's one crossfade (designer 2.6, accepted with resilience's QA-068 amendments, and amended by
+// law round 2's L7): every lobe and halo change is one crossfade through the uniforms, never a layer
+// opacity. Over the eased progress u, the incoming node's fade is u and the outgoing node's is
+// 1 − u^(1+ω), ω = smoothstep(0, ν·r_L, δ), δ the distance from the outgoing lobe's undrifted centre to
+// the nearest incoming one in the same crossfade, ν = field.crossfade.overlapFar: "a lobe replaced in
+// place crossfades linearly, a lobe left alone holds". Far apart (ω = 1) the glow holds while the new one
+// blooms, 1 − u² (a linear pair there halves every lobe mid-way: a blink); at one spot (ω = 0) the pair
+// sums to 1, so nothing there rises and falls (the u + 1 − u² bump, up to 1.25, was a pulse). The ledger
+// computes ω once per crossfade, at its start (placementLedger.ts); a halo uses its lobe's fade.
 //
 // u runs over motion.settle (600 ms, its easing) normally, and over motion.fadeReduced (150 ms,
 // linear) under reduced motion and in the still tier: the same in every direction (a direction's
@@ -14,11 +19,28 @@ import { BASE } from '../tokens/tokens.generated.ts';
 
 export type FadeMode = 'settle' | 'reduced';
 
-/** The incoming and outgoing fades at progress u. u is clamped to [0, 1]; a NaN u ends the ramp. */
-export function crossfade(u: number): { in: number; out: number } {
+/**
+ * The incoming and outgoing fades at progress u, for an outgoing lobe of overlap ω (1, the hold, by
+ * default). u is clamped to [0, 1], and a NaN u ends the ramp; ω is clamped to [0, 1], and a NaN ω is the
+ * hold. At ω = 1 the outgoing fade is 1 − u·u exactly, the designer 2.6 curve.
+ */
+export function crossfade(u: number, omega = 1): { in: number; out: number } {
   'worklet';
   const v = Number.isNaN(u) ? 1 : Math.min(1, Math.max(0, u));
-  return { in: v, out: 1 - v * v };
+  const w = Number.isNaN(omega) ? 1 : Math.min(1, Math.max(0, omega));
+  return { in: v, out: 1 - (w === 1 ? v * v : Math.pow(v, 1 + w)) };
+}
+
+/**
+ * L7's ω for an outgoing lobe whose nearest incoming lobe is `delta` away (undrifted centres, × R):
+ * smoothstep(0, reach, delta), reach = ν·r_L (field.crossfade.overlapFar × field.lobe.radius). A
+ * non-finite delta (no incoming lobe) or a reach of 0 or less is the hold, ω = 1.
+ */
+export function overlapOmega(delta: number, reach: number): number {
+  'worklet';
+  if (!Number.isFinite(delta) || !(reach > 0)) return 1;
+  const t = Math.min(1, Math.max(0, delta / reach));
+  return t * t * (3 - 2 * t);
 }
 
 /** CSS cubic-bezier(x1, y1, x2, y2) at x in [0, 1], by bisection on the x curve (monotone for x1, x2 in [0, 1]). */

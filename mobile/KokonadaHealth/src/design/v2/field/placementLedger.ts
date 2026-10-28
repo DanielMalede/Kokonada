@@ -25,7 +25,15 @@
 // Serialized crossfades (designer 2.6 as amended): a crossfade never restarts or interrupts another,
 // so every fade is 0 or 1 when one starts; starts are at least motion.settle.duration apart in every
 // mode, on the ledger's own clock (dt clamped by motion.dtClamp, never running backwards), the same
-// clock the ramp's u runs on. Incoming fades are u, outgoing 1 − u² (crossfade.ts).
+// clock the ramp's u runs on. Incoming fades are u, outgoing 1 − u^(1+ω) (crossfade.ts).
+//
+// The overlap ω (law round 2, designer L7, amending 2.6): computed once per crossfade, at its start, and
+// fixed for its life. For each leaving placement and each falling rest lobe, ω = smoothstep(0, ν·r_L, δ),
+// δ the distance from its undrifted lobe centre to the nearest undrifted centre coming in in the same
+// crossfade (entering placements, and rest lobes rising), 1 with none. ν = field.crossfade.overlapFar,
+// r_L = field.lobe.radius without the breath. A placement's undrifted centre is the builder's own
+// (lobeAnchor), on the plate the config was made for (ledgerConfig). So a lobe replaced in place
+// crossfades linearly, and a lobe left alone holds.
 //
 // Admission (designer final ruling (1)): the arrival-order prefix of the waiting swaps, stopping at
 // the first that does not fit: at most 2 entering and 2 leaving, at most 3 live after, and live +
@@ -38,9 +46,9 @@
 // reaches 0; freed slots are reused lowest first.
 
 import { clampFrameDt } from '../clock/frameDt.ts';
-import { BASE } from '../tokens/tokens.generated.ts';
-import { crossfade, progress, type FadeMode } from './crossfade.ts';
-import { nodeAt, type PlacementNode } from './fieldFrame.ts';
+import { BASE, DIRECTIONS, type DirectionId } from '../tokens/tokens.generated.ts';
+import { crossfade, overlapOmega, progress, type FadeMode } from './crossfade.ts';
+import { lobeAnchor, nodeAt, type PlacementNode } from './fieldFrame.ts';
 import { NODE_SLOTS } from './fieldLaw.ts';
 
 export interface Tap {
@@ -55,10 +63,45 @@ export interface LedgerInput {
 }
 
 export interface LedgerConfig {
-  /** The direction's rest lobes (field.rest.lobes). */
+  /** How many rest lobes the face has (field.rest.lobes): overlap.rest's length. */
   readonly restLobes: number;
   /** Does a neutral placement carry a lobe here (field.lobe.neutralLobe)? */
   readonly neutralLobe: boolean;
+  /** Where the lobes sit, undrifted, for L7's ω. */
+  readonly overlap: LedgerOverlap;
+}
+
+/** L7's inputs: every lobe's undrifted centre, and the reach ν·r_L. */
+export interface LedgerOverlap {
+  /** The face's rest-lobe centres, × R (field.rest.lobes), in the table's order. */
+  readonly rest: ReadonlyArray<readonly [number, number]>;
+  /** The direction's field.lobe.centreAlpha and centreBeta. */
+  readonly centreAlpha: number;
+  readonly centreBeta: number;
+  /** The bead radius in plate units, on the plate the field is drawn on (fieldFrame.ts beadRadius). */
+  readonly beadRadius: number;
+  /** ν·r_L: field.crossfade.overlapFar × field.lobe.radius. 0 or less is the planted hold (ω = 1). */
+  readonly reach: number;
+}
+
+/**
+ * The ledger's config for a direction, one face's rest table and the plate (its radius in px and px per
+ * dp, as the builder reads them): the counts the admission needs and the centres L7 needs.
+ */
+export function ledgerConfig(id: DirectionId, rest: ReadonlyArray<readonly [number, number]>, plate: { readonly radiusPx: number; readonly pxPerDp: number }): LedgerConfig {
+  'worklet';
+  const d = DIRECTIONS[id];
+  return {
+    restLobes: rest.length,
+    neutralLobe: d.field.lobe.neutralLobe > 0,
+    overlap: {
+      rest,
+      centreAlpha: d.field.lobe.centreAlpha,
+      centreBeta: d.field.lobe.centreBeta,
+      beadRadius: d.bead.diameter / 2 / (plate.radiusPx / plate.pxPerDp),
+      reach: BASE.field.crossfade.overlapFar * d.field.lobe.radius,
+    },
+  };
 }
 
 /** The admission limits. Tests plant others to show each guard bites; the field uses ADMISSION. */
@@ -87,6 +130,8 @@ interface Shown extends Placed {
   readonly slot: number;
   /** 'in' while entering in the running crossfade, 'out' while leaving it. */
   readonly phase: Phase;
+  /** L7's ω, fixed at the start of the crossfade it leaves in; 1 otherwise. */
+  readonly omega: number;
 }
 
 export interface Ledger {
@@ -105,6 +150,8 @@ export interface Ledger {
   readonly enters: readonly Placed[];
   readonly rest: RestPhase;
   readonly restSlots: readonly number[];
+  /** Each rest lobe's ω while they fall ('out'), fixed at that crossfade's start; [] otherwise. */
+  readonly restOmegas: readonly number[];
   readonly running: null | { readonly elapsed: number; readonly mode: FadeMode };
   /** The ledger's own clock, in ms: clamped steps, never backwards. */
   readonly clock: number;
@@ -131,7 +178,10 @@ export interface LedgerPlacement {
 export interface LedgerFades {
   readonly placements: readonly LedgerPlacement[];
   readonly ended: readonly number[];
+  /** The brightest rest lobe's fade: 1 lit, 0 off. */
   readonly restFade: number;
+  /** Each rest lobe's fade, in the table's order, while they are drawn; [] when off. What a frame takes as its restFade (L7). */
+  readonly restFades: readonly number[];
   readonly restSlots: readonly number[];
   /** Live, entering and leaving placements, plus rest lobes above 0 or rising: what the frame holds. */
   readonly demand: number;
@@ -168,6 +218,9 @@ function sameTaps(store: readonly Placed[], taps: readonly Tap[]): boolean {
 
 export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION): Ledger {
   'worklet';
+  if (config.restLobes !== config.overlap.rest.length) {
+    throw new RangeError(`a ledger config counts ${config.restLobes} rest lobes but places ${config.overlap.rest.length}`);
+  }
   return {
     config,
     limits,
@@ -179,6 +232,7 @@ export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION)
     enters: [],
     rest: 'on',
     restSlots: freeSlots(config.restLobes, []),
+    restOmegas: [],
     running: null,
     clock: 0,
     lastNow: null,
@@ -192,7 +246,7 @@ export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION)
 /** Shown at once, at fade 1: a fresh ledger's first input, the only reset. */
 function reset(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
   'worklet';
-  const shown: Shown[] = taps.map((t, i) => ({ id: l.next + i, x: t.x, y: t.y, node: nodeAt(t.x, t.y), slot: i, phase: 'still' as const }));
+  const shown: Shown[] = taps.map((t, i) => ({ id: l.next + i, x: t.x, y: t.y, node: nodeAt(t.x, t.y), slot: i, phase: 'still' as const, omega: 1 }));
   const lit = !shown.some((s) => bearsLobe(s.node, l.config));
   return {
     ...l,
@@ -204,6 +258,7 @@ function reset(l: Ledger, taps: readonly Tap[], seq: number): Ledger {
     enters: [],
     rest: lit ? 'on' : 'off',
     restSlots: lit ? freeSlots(l.config.restLobes, shown.map((s) => s.slot)) : [],
+    restOmegas: [],
     running: null,
     ended: [...l.ended, ...l.shown.map((s) => s.id)],
   };
@@ -284,25 +339,45 @@ function admissible(l: Ledger): { count: number; leaving: Placed[]; entering: Pl
   return best;
 }
 
-/** Start a crossfade with the admitted changes: leavers go 'out', new ones come 'in' in free slots. */
+/** A placement's undrifted lobe centre, as the builder places it (lobeAnchor). */
+function anchorOf(p: Tap, o: LedgerOverlap): readonly [number, number] {
+  'worklet';
+  return lobeAnchor(p.x, p.y, o.beadRadius, o.centreAlpha, o.centreBeta);
+}
+
+/** L7's ω for an outgoing lobe at `c`: from the nearest centre coming in, or the hold with none. */
+function omegaAt(c: readonly [number, number], incoming: ReadonlyArray<readonly [number, number]>, reach: number): number {
+  'worklet';
+  let nearest = Infinity;
+  for (const q of incoming) nearest = Math.min(nearest, Math.hypot(c[0] - q[0], c[1] - q[1]));
+  return overlapOmega(nearest, reach);
+}
+
+/**
+ * Start a crossfade with the admitted changes: leavers go 'out', new ones come 'in' in free slots, and
+ * every outgoing lobe's ω is fixed here, once, for the life of the crossfade (L7).
+ */
 function start(l: Ledger, mode: FadeMode): Ledger {
   'worklet';
   const plan = admissible(l);
   if (plan.count === 0) return l;
-  const shown: Shown[] = l.shown.map((s) => (plan.leaving.some((x) => x.id === s.id) ? { ...s, phase: 'out' as const } : s));
+  const restFalling = l.rest === 'on' && !plan.restLit;
+  const restRising = l.rest === 'off' && plan.restLit;
+  // L7: every centre coming in (entering lobes, and rest lobes rising), then each outgoing lobe's ω.
+  const o = l.config.overlap;
+  const entering = plan.entering.map((e) => anchorOf(e, o));
+  const incoming = restRising ? [...entering, ...o.rest] : entering;
+  const shown: Shown[] = l.shown.map((s) => (plan.leaving.some((x) => x.id === s.id) ? { ...s, phase: 'out' as const, omega: omegaAt(anchorOf(s, o), incoming, o.reach) } : s));
   const used = [...shown.map((s) => s.slot), ...l.restSlots];
   const slots = freeSlots(plan.entering.length, used);
-  plan.entering.forEach((e, i) => shown.push({ id: e.id, x: e.x, y: e.y, node: nodeAt(e.x, e.y), slot: slots[i], phase: 'in' }));
-  let rest = l.rest;
-  let restSlots = l.restSlots;
-  if (l.rest === 'on' && !plan.restLit) rest = 'out';
-  if (l.rest === 'off' && plan.restLit) {
-    rest = 'in';
-    restSlots = freeSlots(l.config.restLobes, shown.map((s) => s.slot));
-  }
+  plan.entering.forEach((e, i) => shown.push({ id: e.id, x: e.x, y: e.y, node: nodeAt(e.x, e.y), slot: slots[i], phase: 'in', omega: 1 }));
+  const rest: RestPhase = restFalling ? 'out' : restRising ? 'in' : l.rest;
+  const restSlots = restRising ? freeSlots(l.config.restLobes, shown.map((s) => s.slot)) : l.restSlots;
+  const restOmegas = restFalling ? o.rest.map((c) => omegaAt(c, entering, o.reach)) : [];
   return {
     ...l,
     shown,
+    restOmegas,
     leaves: l.leaves.filter((x) => plan.leaving.every((y) => y.id !== x.id)),
     enters: l.enters.filter((x) => plan.entering.every((y) => y.id !== x.id)),
     rest,
@@ -324,6 +399,7 @@ function finish(l: Ledger): Ledger {
     shown: l.shown.filter((s) => s.phase !== 'out').map((s) => (s.phase === 'in' ? { ...s, phase: 'still' as const } : s)),
     rest,
     restSlots: rest === 'off' ? [] : l.restSlots,
+    restOmegas: [],
     running: null,
     ended: [...l.ended, ...ended],
   };
@@ -349,7 +425,7 @@ export function reconcile(prev: Ledger, input: LedgerInput, nowMs: number, mode:
   return l;
 }
 
-/** What the field draws this frame, from the ledger alone. */
+/** What the field draws this frame, from the ledger alone: each outgoing lobe on the ω fixed at its start. */
 export function fades(l: Ledger): LedgerFades {
   'worklet';
   const u = l.running === null ? 1 : progress(l.running.mode, l.running.elapsed);
@@ -362,13 +438,14 @@ export function fades(l: Ledger): LedgerFades {
       x: s.x,
       y: s.y,
       node: s.node,
-      fade: s.phase === 'in' ? c.in : s.phase === 'out' ? c.out : 1,
+      fade: s.phase === 'in' ? c.in : s.phase === 'out' ? crossfade(u, s.omega).out : 1,
       role: s.phase === 'out' ? ('leaving' as const) : ('live' as const),
       slot: s.slot,
     }));
-  const restFade = l.rest === 'on' ? 1 : l.rest === 'off' ? 0 : l.rest === 'in' ? c.in : c.out;
   const restSlots = l.rest === 'off' ? [] : [...l.restSlots];
-  return { placements, ended: [...l.ended], restFade, restSlots, demand: placements.length + restSlots.length };
+  const restFades = restSlots.map((_, i) => (l.rest === 'on' ? 1 : l.rest === 'in' ? c.in : crossfade(u, i < l.restOmegas.length ? l.restOmegas[i] : 1).out));
+  const restFade = l.rest === 'on' ? 1 : l.rest === 'off' ? 0 : l.rest === 'in' ? c.in : restFades.length > 0 ? Math.max(...restFades) : c.out;
+  return { placements, ended: [...l.ended], restFade, restFades, restSlots, demand: placements.length + restSlots.length };
 }
 
 /** Does the field need frames? While a crossfade runs, or a change waits for its start. */

@@ -35,6 +35,15 @@ describe('a storm’s face: the ledger’s rest count and the built frame are th
     expect(FACES.map((face) => [deps('abyss', face).face, deps('abyss', face).config.restLobes])).toEqual([['dark', 1], ['light', 2]]);
   });
 
+  // L7: the ledger's ω reads the same face's rest centres, on the storms' plate.
+  it('stormDeps places the face’s own rest lobes for the overlap law, on the storms’ plate', () => {
+    for (const face of FACES) {
+      const d = deps('abyss', face);
+      expect(d.config.overlap.rest).toEqual(staticsFor('abyss', EXTENSIONS as never).restLobes[face]);
+      expect(d.config.overlap.beadRadius).toBe(DIRECTIONS.abyss.bead.diameter / 2 / (geometry.radiusPx / geometry.pxPerDp));
+    }
+  });
+
   it('the storm builds on the deps’ face: a ledger counting dark’s one rest lobe, built on light’s two, is caught', () => {
     const crossed = { ...deps('abyss', 'light'), config: deps('abyss', 'dark').config };
     const failures = stormFailures('crossed', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, crossed));

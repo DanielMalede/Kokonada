@@ -5,6 +5,7 @@ import { Skia } from '@shopify/react-native-skia';
 import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
+import { crossfade, overlapOmega } from '../crossfade.ts';
 import { regionOf, shadowFactor } from '../fieldLaw.ts';
 import { DEFERRED, FIELD_SCENES, HEAVIEST, IDS, SEAM, STEP_MS, WHOLE, frameIn, noWaypoint, sceneCatalogue, sizeOf, stateFor, still, throughLedger } from '../fieldScenes.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
@@ -48,17 +49,28 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
     expect(scenes.some((s) => s.id === 'backlight')).toBe(false);
   });
 
-  it('restToIntense runs through the ledger along u and 1 − u²; the replace dissolve swaps the seam’s pair in one crossfade', () => {
+  // L7: an outgoing lobe falls as 1 − u^(1+ω), ω = smoothstep(0, ν·r_L, δ) from the nearest incoming
+  // lobe's undrifted centre; Abyss centres a lobe on its bead (centreAlpha 1, centreBeta 0).
+  it('restToIntense runs through the ledger along u and 1 − u^(1+ω) (L7); the replace dissolve swaps the seam’s pair in one crossfade', () => {
+    const reach = BASE.field.crossfade.overlapFar * DIRECTIONS.abyss.field.lobe.radius;
+    const bead = DIRECTIONS.abyss.bead.diameter / 2 / (BASE.plate.maxDiameter / 2);
+    const lobe = (b: { x: number; y: number }) => [b.x * (1 - bead), b.y * (1 - bead)];
+    expect([DIRECTIONS.abyss.field.lobe.centreAlpha, DIRECTIONS.abyss.field.lobe.centreBeta]).toEqual([1, 0]);
     const rest = throughLedger(deps('abyss', 'dark'), [], restTo.map((b) => ({ x: b.x, y: b.y })));
     expect(rest.map((s) => s.ms)).toEqual(Array.from({ length: 13 }, (_, k) => k * STEP_MS));
     const mid = rest[6].shown;
     expect(mid.placements).toHaveLength(1);
-    expect(mid.restFade).toBeCloseTo(1 - mid.placements[0].fade ** 2, 12);
-    expect([rest[0].shown.placements[0].fade, rest[12].shown.placements[0].fade, rest[12].shown.restFade]).toEqual([0, 1, 0]);
+    const [rx, ry] = staticsFor('abyss', EXTENSIONS as never).restLobes.dark[0];
+    const [ix, iy] = lobe(restTo[0]);
+    const restOmega = overlapOmega(Math.hypot(rx - ix, ry - iy), reach);
+    expect(restOmega).toBeLessThan(0.5); // the dark face's rest lobe sits near the intense bead
+    expect(mid.restFade).toEqual([crossfade(mid.placements[0].fade, restOmega).out]);
+    expect([rest[0].shown.placements[0].fade, rest[12].shown.placements[0].fade, rest[12].shown.restFade]).toEqual([0, 1, []]);
     const swap = throughLedger(deps('abyss', 'dark'), [{ x: SEAM[0].x, y: SEAM[0].y }], [{ x: SEAM[1].x, y: SEAM[1].y }]);
     const half = swap[6].shown.placements;
     expect(half.map((p) => p.role)).toEqual(['leaving', 'live']);
-    expect(half[0].fade).toBeCloseTo(1 - half[1].fade ** 2, 12);
+    const [a, b] = [lobe(SEAM[0]), lobe(SEAM[1])];
+    expect(half[0].fade).toBeCloseTo(crossfade(half[1].fade, overlapOmega(Math.hypot(a[0] - b[0], a[1] - b[1]), reach)).out, 12);
   });
 
   // UI-112: Abyss's rest table is per face, so each face's stepped scene runs a ledger that counts

@@ -5,9 +5,11 @@
 // imports the token extensions; the caller passes them in (sceneCatalogue) with the statics.
 //   · The bead scenes (seam, ringHalo, backlight) over tension × confidence × genesis.
 //   · restToIntense through the placement ledger: the placement fading in along u and the rest lobes
-//     out along 1 − u², at every 50 ms of the settle ramp (the reduced ramp draws the same pairs).
+//     out along 1 − u^(1+ω) (L7: each rest lobe's ω from its distance to the new lobe), at every 50 ms
+//     of the settle ramp (the reduced ramp draws the same pairs).
 //   · A replace dissolve through the ledger, every direction: the seam's intense bead swapped for its
-//     joy bead in one crossfade, I out along 1 − u² as J comes in along u.
+//     joy bead in one crossfade, I out along 1 − u^(1+ω) as J comes in along u (L7: their lobes 0.3 R
+//     apart, so ω is small and the pair hands over nearly linearly).
 //   · Every frame carries the builder's plate shadows.
 
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
@@ -47,7 +49,7 @@ export const EXTREMES: readonly Combo[] = [0, 1].flatMap((stress) => [{ stress, 
 export const HEAVIEST: Combo = { stress: 0, confidence: 1, genesis: true };
 export const comboLabel = (c: Combo) => `s ${c.stress}, c ${c.confidence ?? 'none'}, genesis ${c.genesis ? 'on' : 'off'}`;
 
-export interface Shown { readonly placements: readonly Placement[]; readonly restFade: number; readonly restSlots?: readonly number[] }
+export interface Shown { readonly placements: readonly Placement[]; readonly restFade: number | readonly number[]; readonly restSlots?: readonly number[] }
 export interface SceneFrame { readonly label: string; readonly state: FieldState }
 
 export function stateFor(id: DirectionId, face: Face, combo: Combo, shown: Shown, tOffset = 0): FieldState {
@@ -70,7 +72,7 @@ export function throughLedger(deps: StormDeps, from: readonly Tap[], to: readonl
     ledger = reconcile(ledger, t === 0 ? { seq: 0, taps: from } : { seq: 1, taps: to }, t, 'settle');
     if (t >= 1 && (t - 1) % STEP_MS === 0) {
       const f = fades(ledger);
-      out.push({ ms: t - 1, shown: { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })), restFade: f.restFade, restSlots: f.restSlots } });
+      out.push({ ms: t - 1, shown: { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot, role: p.role })), restFade: f.restFades, restSlots: f.restSlots } });
     }
   }
   return out;

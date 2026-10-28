@@ -3,8 +3,8 @@ import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
-import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type FieldStatics, type Placement } from '../fieldFrame.ts';
-import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
+import { buildFieldFrame, fixedFieldBreath, lobeAnchor, nodeAt, placementRamp, type FieldState, type FieldStatics, type Placement } from '../fieldFrame.ts';
+import { emptyLedger, fades as ledgerFades, ledgerConfig, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, packFrame } from '../uniforms.ts';
 
@@ -258,12 +258,12 @@ describe('six node slots, one pool, and the ordinal', () => {
   // and every survivor keeps its centre and its slot; the same ledger output packs the same uniforms.
   it('through the ledger: a fourth tap dissolves the oldest while every survivor keeps its centre and slot', () => {
     const [J, C, R, I] = [[0.566, 0.566], [0.566, -0.566], [-0.566, -0.566], [-0.566, 0.566]].map(([x, y]) => ({ x, y }));
-    const config = { restLobes: statics('abyss').restLobes.dark.length, neutralLobe: true };
+    const config = ledgerConfig('abyss', statics('abyss').restLobes.dark, geometry);
     let l = reconcile(emptyLedger(config), { seq: 1, taps: [J, C, R] }, 0, 'settle');
     const frameOf = () => {
       const f = ledgerFades(l);
       return buildFieldFrame(
-        state('abyss', 'dark', { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFade, restSlots: f.restSlots, tMs: 7000 }),
+        state('abyss', 'dark', { placements: f.placements.map((p) => ({ x: p.x, y: p.y, fade: p.fade, ordinal: p.ordinal, slot: p.slot })), restFade: f.restFades, restSlots: f.restSlots, tMs: 7000 }),
         geometry,
         statics('abyss'),
       );
@@ -549,5 +549,58 @@ describe('QA-068, the periodic path: nothing modulates at 3 Hz, nothing periodic
     const at = (t: number) => packFrame(buildFieldFrame(state(id, 'dark', { tier: 'still', tMs: t, breathPhase: fixedFieldBreath(id, 0, t).phase }), geometry, statics(id)));
     const first = at(0);
     for (let t = 997; t <= T; t += 997) expect(at(t)).toEqual(first);
+  });
+});
+
+// Law round 2, item 2b (designer L7): each outgoing lobe falls on its own curve, so each rest lobe has its
+// own fade (the ledger's restFades), and the ledger measures δ between undrifted lobe centres, which it
+// takes from the builder's own placement geometry (lobeAnchor), so the two can never disagree.
+describe('L7 in the builder: per-lobe rest fades and the undrifted lobe centre', () => {
+  it('a rest fade per lobe: lobe i is drawn at fade i; a single number is every lobe’s, bit for bit as before', () => {
+    const at2 = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: [0.25, 0.75] }), geometry, statics('abyss'));
+    expect(at2.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual([0.25, 0.75]);
+    const scalar = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: 0.4 }), geometry, statics('abyss'));
+    const array = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: [0.4, 0.4] }), geometry, statics('abyss'));
+    expect(packFrame(array)).toEqual(packFrame(scalar));
+  });
+
+  it('a rest lobe at fade 0 frees its slot; a missing or non-finite entry is 0; with no lobe placed every rest lobe is forced to 1', () => {
+    const one = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: [0, 0.5] }), geometry, statics('abyss'));
+    expect(one.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual([0.5]);
+    const short = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: [0.5] }), geometry, statics('abyss'));
+    expect(short.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual([0.5]);
+    const odd = buildFieldFrame(state('abyss', 'light', { placements: [{ x: 0.5, y: -0.5 }], restFade: [NaN, Infinity] }), geometry, statics('abyss'));
+    expect(odd.nodes.filter((n) => n.bead === null && n.fade > 0)).toEqual([]);
+    const forced = buildFieldFrame(state('abyss', 'light', { placements: [], restFade: [0, 0.2] }), geometry, statics('abyss'));
+    expect(forced.nodes.filter((n) => n.bead === null && n.fade > 0).map((n) => n.fade)).toEqual([1, 1]);
+  });
+
+  it('lobeAnchor is the builder’s lobe centre without its drift, for any tap, the clamp to the disc included', () => {
+    const d = DIRECTIONS.abyss;
+    const beadRadius = d.bead.diameter / 2 / (geometry.radiusPx / geometry.pxPerDp);
+    for (const [x, y] of [[0.566, -0.566], [0.05, 0.02], [0, 0], [1.4, 0.3], [-0.2, 0.9]]) {
+      const still = buildFieldFrame(state('abyss', 'dark', { placements: [{ x, y, ordinal: 0 }], tier: 'still' }), geometry, statics('abyss'));
+      const node = still.nodes.find((n) => n.bead !== null)!;
+      const [ax, ay] = lobeAnchor(x, y, beadRadius, d.field.lobe.centreAlpha, d.field.lobe.centreBeta);
+      // Two ordinals with different drift tables: each centre is the anchor plus its own drift.
+      const other = buildFieldFrame(state('abyss', 'dark', { placements: [{ x, y, ordinal: 1 }], tier: 'still' }), geometry, statics('abyss')).nodes.find((n) => n.bead !== null)!;
+      const drift0 = [node.centre[0] - ax, node.centre[1] - ay];
+      const drift1 = [other.centre[0] - ax, other.centre[1] - ay];
+      expect(Math.hypot(drift0[0] - drift1[0], drift0[1] - drift1[1])).toBeGreaterThan(0);
+      const empty = buildFieldFrame(state('abyss', 'dark', { placements: [{ x: 0.3, y: 0.3, ordinal: 0 }], tier: 'still' }), geometry, statics('abyss')).nodes.find((n) => n.bead !== null)!;
+      const [ex, ey] = lobeAnchor(0.3, 0.3, beadRadius, d.field.lobe.centreAlpha, d.field.lobe.centreBeta);
+      // The drift of ordinal 0 does not depend on where the tap is.
+      expect(drift0[0]).toBeCloseTo(empty.centre[0] - ex, 14);
+      expect(drift0[1]).toBeCloseTo(empty.centre[1] - ey, 14);
+    }
+    // centreAlpha and centreBeta as the builder uses them: α·bead + β·unit.
+    const [px, py] = lobeAnchor(0.6, 0.8, 0.1, 0.5, 0.2);
+    expect(px).toBeCloseTo(0.5 * 0.6 * 0.9 + 0.2 * 0.6, 14);
+    expect(py).toBeCloseTo(0.5 * 0.8 * 0.9 + 0.2 * 0.8, 14);
+    const [fx, fy] = lobeAnchor(3, 4, 0.1, 1, 0); // outside the disc: clamped to it first
+    expect(fx).toBeCloseTo(0.6 * 0.9, 14);
+    expect(fy).toBeCloseTo(0.8 * 0.9, 14);
+    expect(lobeAnchor(0, 0, 0.1, 0.5, 0.2)).toEqual([0, 0]);
+    expect(lobeAnchor(NaN, 0.5, 0.1, 1, 0)).toEqual([0, 0.5 * 0.9]);
   });
 });
