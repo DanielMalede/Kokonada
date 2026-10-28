@@ -1,5 +1,9 @@
-import { graphSegments, sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
-import { CHECK_BAND, DESIGN_BAND, fieldSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
+import { graphSegments, pivotComposite, sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
+import { ditherReachable } from '../../color/redBand.ts';
+import { buildFieldFrame, type FieldState } from '../../field/fieldFrame.ts';
+import { groundAt, regionOf } from '../../field/fieldLaw.ts';
+import { staticsFor } from '../../field/statics.ts';
+import { CHECK_BAND, DESIGN_BAND, faceShadingGrounds, fieldSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -49,6 +53,110 @@ it('tripwire (UI-096): every shipped plate-shadow strength is 0 until the certif
   expect(drawn).toEqual([]);
 });
 
+// HIGH-3 (resilience, law round 2): the law draws the face ground at L·(1 + vignette·ρ²) +
+// centreLift·(1 − ρ²), ρ = d / ringInner, on L only (fieldLaw.ts groundAt), so the sweeps take the
+// shaded face, not only the flat plate.face token. faceShadingGrounds samples ρ² evenly, ends included,
+// at an L step no larger than the sweep's L amplitude A (dither plus grain). Every 8-bit pass that
+// dithers over L ± A then sees every pixel any ρ² can show; the float passes step L by A, as the grain
+// shifts do. The edge sweep's face-lit families take the same grounds (neverRed.edges.test.ts).
+describe('HIGH-3: the face’s vignette and centre lift are swept', () => {
+  const amplitude = (id: DirectionId) => BASE.field.dither.amplitude + Math.max(DIRECTIONS[id].field.grain.ground, DIRECTIONS[id].field.grain.inside);
+  const plainFace = (id: DirectionId, face: Face) => {
+    const [L, a, b] = DIRECTIONS[id].color[face].plate.face.oklab;
+    return { L, a, b };
+  };
+  const rho2Of = (key: string) => Number(key.replace(/^face ρ² /, ''));
+  // The face ground at every sample, the plain face included, by L.
+  const faceLs = (id: DirectionId, face: Face) => [plainFace(id, face).L, ...Object.values(faceShadingGrounds(id, face)).map((g) => g.L)].sort((x, y) => x - y);
+  const hull = (id: DirectionId, face: Face) => {
+    const Ls = faceLs(id, face);
+    return [Ls[0], Ls[Ls.length - 1]];
+  };
+
+  // Law round 2, item 6 (designer §6): the rest vignette deepens to −0.18, L 0.123 at the face's edge.
+  it('Abyss: vignette −0.18 on the dark face and none on the light; lift 0.03 on the light face and none on the dark', () => {
+    expect(DIRECTIONS.abyss.plate.face).toEqual({ vignette: { dark: -0.18, light: 0 }, centreLift: { dark: 0, light: 0.03 } });
+    const dark = plainFace('abyss', 'dark').L;
+    const light = plainFace('abyss', 'light').L;
+    const [darkMin, darkMax] = hull('abyss', 'dark');
+    const [lightMin, lightMax] = hull('abyss', 'light');
+    expect([darkMin / dark, darkMax]).toEqual([expect.closeTo(0.82, 12), dark]);
+    expect(darkMin).toBeCloseTo(0.123, 12);
+    expect([lightMin, lightMax - light]).toEqual([light, expect.closeTo(0.03, 12)]);
+  });
+
+  it('Abyss: the samples are ρ² ½ and 1 on the dark face and 0 and ½ on the light; the other end is the plain face', () => {
+    expect(Object.keys(faceShadingGrounds('abyss', 'dark')).sort()).toEqual(['face ρ² 0.5', 'face ρ² 1']);
+    expect(Object.keys(faceShadingGrounds('abyss', 'light')).sort()).toEqual(['face ρ² 0', 'face ρ² 0.5']);
+  });
+
+  it.each(CASES)('%s, %s face: ρ² in [0, 1] with both ends taken, each sample the law’s ground on L only, at an L step of at most A', (id, face) => {
+    const d = DIRECTIONS[id];
+    const g = plainFace(id, face);
+    const law = (rho2: number) => g.L * (1 + d.plate.face.vignette[face] * rho2) + d.plate.face.centreLift[face] * (1 - rho2);
+    const samples = faceShadingGrounds(id, face);
+    for (const [key, ground] of Object.entries(samples)) {
+      const rho2 = rho2Of(key);
+      expect(rho2).toBeGreaterThanOrEqual(0);
+      expect(rho2).toBeLessThanOrEqual(1);
+      expect(ground).toEqual({ L: law(rho2), a: g.a, b: g.b });
+    }
+    // Both ends of the face are swept: as a sample, or as the plain face itself.
+    for (const end of [0, 1]) expect(Object.keys(samples).map(rho2Of).includes(end) || law(end) === g.L).toBe(true);
+    const Ls = faceLs(id, face);
+    for (let i = 1; i < Ls.length; i++) expect(Ls[i] - Ls[i - 1]).toBeLessThanOrEqual(amplitude(id) + 1e-12);
+  });
+
+  // Reach (law, not tokens): the law's face ground over every face pixel, at the smallest and largest
+  // plate and font scales 1 and 2, lies inside the swept range and reaches both of its ends.
+  const GEOMETRIES = [BASE.plate.minDiameter, BASE.plate.maxDiameter].flatMap((diameter) => [1, 2].map((fontScale) => ({ diameter, fontScale })));
+  it.each(CASES.flatMap(([id, face]) => GEOMETRIES.map((g) => [id, face, g.diameter, g.fontScale] as const)))('%s, %s face, plate %s dp, font scale %s: the law’s face ground, scanned at 1 px, stays in the swept range and reaches both ends', (id, face, diameter, fontScale) => {
+    const radiusPx = diameter / 2;
+    const state: FieldState = { direction: id, face, placements: [], restFade: 1, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' };
+    const frame = buildFieldFrame(state, { centrePx: [radiusPx, radiusPx], radiusPx, pxPerDp: 1, fontScale }, staticsFor(id, EXTENSIONS as never));
+    const scanned: number[] = [];
+    for (let px = 0; px / radiusPx < frame.ringInner; px++) {
+      expect(regionOf(px / radiusPx, frame)).toBe('face');
+      scanned.push(groundAt('face', px / radiusPx, frame).L);
+    }
+    const [lo, hi] = hull(id, face);
+    expect(scanned.filter((L) => L < lo - 1e-9 || L > hi + 1e-9)).toEqual([]);
+    expect(Math.min(...scanned) - lo).toBeLessThanOrEqual(0.005);
+    expect(hi - Math.max(...scanned)).toBeLessThanOrEqual(0.005);
+  });
+
+  // The samples are enough: for every node of the graph composited over the face at k 0, ½ and the cap,
+  // the pixels the dither reaches from the samples are exactly the pixels it reaches from a 1/256 ρ² grid.
+  const pixelsOver = (id: DirectionId, face: Face, grounds: Array<{ L: number; a: number; b: number }>, amplitudeL: number) => {
+    const cfg = sweepFor(id, face);
+    const keys = new Set<string>();
+    for (const node of Object.values(cfg.graph.nodes)) {
+      for (const k of [0, 0.5, DIRECTIONS[id].field.cap[face]]) {
+        for (const ground of grounds) {
+          for (const p of ditherReachable(pivotComposite(node, ground, k, cfg.kp), amplitudeL)) keys.add(p.map((c) => Math.round(c * 255)).join(','));
+        }
+      }
+    }
+    return [...keys].sort();
+  };
+  const fineGrid = (id: DirectionId, face: Face) => {
+    const d = DIRECTIONS[id];
+    const g = plainFace(id, face);
+    return Array.from({ length: 257 }, (_, i) => ({ L: g.L * (1 + d.plate.face.vignette[face] * (i / 256)) + d.plate.face.centreLift[face] * (1 - i / 256), a: g.a, b: g.b }));
+  };
+  const swept = (id: DirectionId, face: Face) => [plainFace(id, face), ...Object.values(faceShadingGrounds(id, face))];
+
+  it.each(CASES)('%s, %s face: the samples, dithered over ±A, show every pixel a 1/256 ρ² grid shows', (id, face) => {
+    expect(pixelsOver(id, face, swept(id, face), amplitude(id))).toEqual(pixelsOver(id, face, fineGrid(id, face), amplitude(id)));
+  });
+
+  it.each(CASES)('bites: %s, %s face, without the dither the same samples miss pixels the fine grid shows', (id, face) => {
+    const fromSamples = pixelsOver(id, face, swept(id, face), 0);
+    const fromGrid = pixelsOver(id, face, fineGrid(id, face), 0);
+    expect(fromGrid.filter((p) => !fromSamples.includes(p)).length).toBeGreaterThan(0);
+  });
+});
+
 describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered): %s, %s face', (id, face) => {
   // The sweep's inputs, pinned: dropping a ground, a k bound, a segment or the grain from the
   // amplitude would otherwise leave this block green while it checked less.
@@ -57,7 +165,10 @@ describe.each(CASES)('QA-065 field segments (upsampling and Skia not yet covered
     const d = DIRECTIONS[id];
     const { under, sum } = shadowsOf(id, face);
     const shadowed = under === null ? [] : [`${under} shadowed 0.5`, `${under} shadowed 1`];
-    expect(Object.keys(cfg.grounds).sort()).toEqual([...(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']), ...shadowed].sort());
+    const shading = Object.keys(faceShadingGrounds(id, face));
+    expect(shading.length).toBeGreaterThan(0);
+    expect(Object.keys(cfg.grounds).sort()).toEqual([...(d.field.mask.outside > 0 ? ['face', 'ground', 'ring'] : ['face', 'ring']), ...shadowed, ...shading].sort());
+    for (const key of shading) expect(cfg.grounds[key]).toEqual(faceShadingGrounds(id, face)[key]);
     // Each shadowed ground is its ground with L·(1 − Σ strength·P): L only, so a neutral one stays neutral.
     if (under !== null) {
       for (const P of [0.5, 1]) {

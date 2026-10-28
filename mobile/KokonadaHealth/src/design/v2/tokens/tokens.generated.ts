@@ -4,7 +4,7 @@
 
 export const TOKENS_SOURCE = {
   base: '4b812c6ade013ff76efa8bdbbb72b390a7f7c69b2a12c470567e8adbec9d7eee',
-  'direction.abyss': '2531dcc3a8d5c8aed8f3851ab3b1045deacef571f242912d22d8cc5fa6076b94',
+  'direction.abyss': 'bdf17089467e7dff12cfce474e5b207b7fd65f7a3a4116076b78849f2cbbd6d3',
 };
 
 export type DirectionId = 'abyss';
@@ -487,7 +487,7 @@ const abyss = {
     depth: 0,
     shadow: { dark: { offsetY: 0, blur: 0, strength: 0 }, light: { offsetY: 0, blur: 0, strength: 0 } },
     shadow2: { dark: { offsetY: 0, blur: 0, strength: 0 }, light: { offsetY: 0, blur: 0, strength: 0 } },
-    face: { vignette: { dark: -0.12, light: 0 }, centreLift: { dark: 0, light: 0.03 } },
+    face: { vignette: { dark: -0.18, light: 0 }, centreLift: { dark: 0, light: 0.03 } },
     rim: { light: 1 },
     ringHighlightArc: 0,
   },

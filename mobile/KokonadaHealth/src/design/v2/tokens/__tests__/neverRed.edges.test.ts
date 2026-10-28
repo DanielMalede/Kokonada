@@ -119,10 +119,12 @@ describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {
 //     layout (font scale, width, orientation), so the sweep takes the shadowed grounds whatever the layout.
 // Abyss draws no plate shadow (the close-out), so its grounds are the plain ones; the shadowed-ground
 // enumeration is held on the fixture directions (fixturePaths.test.ts), with the UI-096 tripwire in
-// neverRed.field.test.ts.
+// neverRed.field.test.ts. The face-lit surfaces also take the shaded face (HIGH-3, law round 2): the
+// vignette and centre lift at the ρ² samples neverRed.field.test.ts pins, so the "really takes them"
+// check below expects the face-lit families to grow.
 const SHADOW_GROUNDS: Record<string, [string[], string[]]> = {
-  'abyss dark': [['face'], ['ground']],
-  'abyss light': [['face'], ['ground']],
+  'abyss dark': [['face', 'face ρ² 0.5', 'face ρ² 1'], ['ground']],
+  'abyss light': [['face', 'face ρ² 0', 'face ρ² 0.5'], ['ground']],
 };
 
 describe.each(CASES)('QA-065 anti-aliased pairs over the plate’s shadows: %s, %s face', (id, face) => {

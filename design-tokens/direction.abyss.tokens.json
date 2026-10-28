@@ -121,7 +121,7 @@
       }
     },
     "face": {
-      "vignette": {"dark":{"$type":"number","$value":-0.12},"light":{"$type":"number","$value":0}},
+      "vignette": {"dark":{"$type":"number","$value":-0.18},"light":{"$type":"number","$value":0}},
       "centreLift": {"dark":{"$type":"number","$value":0},"light":{"$type":"number","$value":0.03}}
     },
     "rim": {"light":{"$type":"number","$value":1}},
@@ -163,7 +163,7 @@
       "centreBeta": {"$type":"number","$value":0},
       "neutralLobe": {"$type":"number","$value":1}
     },
-    "rest": {"$extensions":{"com.kokonada":{"lobes":[[-0.35,-0.3],[0.4,0.35]]}}},
+    "rest": {"$extensions":{"com.kokonada":{"lobes":[[-0.3,0.35]]}}},
     "grain": {"ground":{"$type":"number","$value":0.012},"inside":{"$type":"number","$value":0.012}},
     "pivot": {"$type":"number","$value":0},
     "graph": {"restIntenseRoute":{"$type":"string","$value":"straight"}},

@@ -3,7 +3,7 @@ import { breathCycles, breathLevel } from '../../motion/breathLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE, NODE_SLOTS, inertNode } from '../fieldLaw.ts';
-import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type Placement } from '../fieldFrame.ts';
+import { buildFieldFrame, fixedFieldBreath, nodeAt, placementRamp, type FieldState, type FieldStatics, type Placement } from '../fieldFrame.ts';
 import { emptyLedger, fades as ledgerFades, reconcile } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { FIELD_UNIFORMS, packFrame } from '../uniforms.ts';
@@ -16,6 +16,12 @@ const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const T = BASE.field.clock.T;
 const geometry = { centrePx: [200, 300] as [number, number], radiusPx: 150, pxPerDp: 1, fontScale: 1 };
 const statics = (id: DirectionId) => staticsFor(id, EXTENSIONS as never);
+/**
+ * Abyss's statics with two rest lobes, its table before law round 2 (item 6 left it one). The pool's
+ * rest slots and the per-lobe drift tables need more than one rest lobe to be seen, so these cases
+ * pass this table to the real builder; the shipped table is pinned below.
+ */
+const twoRest = (): FieldStatics => ({ ...statics('abyss'), restLobes: [[-0.35, -0.3], [0.4, 0.35]] });
 type ScenePlacement = Omit<Placement, 'fade'> & { readonly fade?: number };
 /**
  * A scene's state: every fade is given (fade is required on the runtime path). A scene's placements are
@@ -52,7 +58,8 @@ describe('the statics come from the extensions the caller passes in', () => {
   const DRIFT = { harmonics: [[2, 3], [3, 2], [1, 2]], phases: [[0, 0], [1.3, 0.7], [2.1, 4]] };
   const FALLBACK_STOPS = { position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1], weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0] };
   it.each([
-    ['abyss', [[-0.35, -0.3], [0.4, 0.35]]],
+    // Law round 2, item 6 (designer §6): one rest lobe at the upper left (y up), the light direction of bead.highlight.
+    ['abyss', [[-0.3, 0.35]]],
   ] as Array<[DirectionId, number[][]]>)('%s: every value of the port, pinned (rest lobes, drift, fallback stops)', (id, restLobes) => {
     expect(statics(id)).toEqual({ restLobes, drift: DRIFT, fallbackStops: FALLBACK_STOPS });
   });
@@ -101,7 +108,7 @@ describe('the frame for a moment', () => {
 
   it('shows the rest lobes in the rest glow when nothing is placed, and none once a bead is', () => {
     const rest = buildFieldFrame(state('abyss', 'dark', { placements: [] }), geometry, statics('abyss'));
-    expect(rest.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual([NODE.R0, NODE.R0]);
+    expect(rest.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual(statics('abyss').restLobes.map(() => NODE.R0));
     const placed = buildFieldFrame(state('abyss', 'dark'), geometry, statics('abyss'));
     expect(placed.nodes.filter((n) => n.fade > 0).map((n) => n.id)).toEqual([NODE.C]);
   });
@@ -145,7 +152,7 @@ describe('six node slots, one pool, and the ordinal', () => {
         restFade: 0.5,
       }),
       geometry,
-      statics('abyss'),
+      twoRest(),
     );
     expect(f.nodes).toHaveLength(NODE_SLOTS);
     expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([
@@ -167,7 +174,7 @@ describe('six node slots, one pool, and the ordinal', () => {
         restSlots: [5, 2],
       }),
       geometry,
-      statics('abyss'),
+      twoRest(),
     );
     expect(f.nodes.map((n) => [n.id, n.fade])).toEqual([[NODE.C, 1], [NODE.R0, 0], [NODE.R0, 0.6], [NODE.R0, 0], [NODE.J, 0.25], [NODE.R0, 0.6]]);
     expect(f.nodes[2].centre).not.toEqual(f.nodes[5].centre); // rest lobe 1 in slot 2, rest lobe 0 in slot 5
@@ -182,7 +189,7 @@ describe('six node slots, one pool, and the ordinal', () => {
 
   it('more than NODE_SLOTS nodes, or a slot out of range or taken twice, throws a RangeError: the builder never slices', () => {
     const four = [at(0.5, 0.5), at(0.5, -0.5), at(-0.5, -0.5), at(-0.5, 0.5)];
-    const build = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
+    const build = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, twoRest());
     expect(build({ placements: four, restFade: 1 })).not.toThrow(); // 4 + 2 = 6
     expect(build({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 5 + 2 = 7
     expect(build({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 0 })).not.toThrow(); // 6 + 0
@@ -190,6 +197,10 @@ describe('six node slots, one pool, and the ordinal', () => {
     expect(build({ placements: [at(0.5, 0.5, { slot: 1.5 })], restFade: 0 })).toThrow(RangeError);
     expect(build({ placements: [at(0.5, 0.5, { slot: 2 }), at(0.5, -0.5, { slot: 2 })], restFade: 0 })).toThrow(RangeError);
     expect(build({ placements: [at(0.5, 0.5, { slot: 0 })], restFade: 1, restSlots: [0, 1] })).toThrow(RangeError);
+    // Abyss's own table, one rest lobe: five placements fit beside it, six do not.
+    const shipped = (more: Parameters<typeof state>[2]) => () => buildFieldFrame(state('abyss', 'dark', more), geometry, statics('abyss'));
+    expect(shipped({ placements: [...four, at(0.3, 0.3)], restFade: 1 })).not.toThrow(); // 5 + 1 = 6
+    expect(shipped({ placements: [...four, at(0.3, 0.3), at(-0.3, 0.3)], restFade: 1 })).toThrow(RangeError); // 6 + 1 = 7
   });
 
   it('a lobe’s drift is its ordinal’s, mod the drift tables, wherever its slot', () => {
@@ -205,8 +216,8 @@ describe('six node slots, one pool, and the ordinal', () => {
   });
 
   it('rest lobe i drifts on table i', () => {
-    const rest = buildFieldFrame(state('abyss', 'dark', { placements: [], tMs: 7000 }), geometry, statics('abyss'));
-    const lobes = statics('abyss').restLobes;
+    const rest = buildFieldFrame(state('abyss', 'dark', { placements: [], tMs: 7000 }), geometry, twoRest());
+    const lobes = twoRest().restLobes;
     const d = DIRECTIONS.abyss.field.drift;
     const A = d.A0 * (1 + (d.D - 1) * 1);
     const T0 = (i: number) => {

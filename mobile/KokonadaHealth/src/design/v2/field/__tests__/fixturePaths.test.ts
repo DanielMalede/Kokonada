@@ -1,7 +1,7 @@
 jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedTokensModule());
 jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
 
-import { fieldSweepFor, plateShadowGrounds, type GraphEdges } from '../../tokens/neverRedSweeps.ts';
+import { faceShadingGrounds, fieldSweepFor, plateShadowGrounds, type GraphEdges } from '../../tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { FIXTURE_IDS, FIXTURE_INNER, FIXTURE_OUTER, actualExtensions, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
@@ -129,10 +129,13 @@ describe('the builder takes each fixture path from the tokens', () => {
     // The architect's counter, the case that proves it (mutant L13; moved here from fieldFrame.test.ts at
     // the close-out): neutral placements only, rest lobes lit. Two quick undos, or a clear's first
     // crossfade, leave 1 live, 2 leaving and 2 rest lobes: 5 nodes that fit 6 slots, but 4 of them
-    // non-live, which a 3/3 split cannot hold.
+    // non-live, which a 3/3 split cannot hold. Two rest lobes are needed for that, and fixture-outer
+    // carries Abyss's one-lobe table since law round 2 (item 6), so the case passes the two-lobe table
+    // (Abyss's before item 6) to the real builder with fixture-outer's tokens.
     it('the double undo (or a clear’s first crossfade): 1 live, 2 leaving and 2 rest lobes are all drawn, none cut', () => {
       const n = (ordinal: number, fade: number, role: 'live' | 'leaving'): Placement => ({ x: 0.03 * (ordinal + 1), y: 0.03, ordinal, fade, role });
-      const f = frameOf(FIXTURE_OUTER, 'dark', { placements: [n(0, 1, 'live'), n(1, 0.5, 'leaving'), n(2, 0.5, 'leaving')], restFade: 1 });
+      const twoRest = { ...statics(FIXTURE_OUTER), restLobes: [[-0.35, -0.3], [0.4, 0.35]] as const };
+      const f = buildFieldFrame(state(FIXTURE_OUTER, 'dark', { placements: [n(0, 1, 'live'), n(1, 0.5, 'leaving'), n(2, 0.5, 'leaving')], restFade: 1 }), geometry([]), twoRest);
       expect(f.nodes.filter((nd) => nd.fade > 0).map((nd) => [nd.id, nd.fade, nd.bead === null ? 'rest' : 'bead'])).toEqual([
         [NODE.R0, 1, 'bead'],
         [NODE.R0, 0.5, 'bead'],
@@ -180,7 +183,7 @@ describe('the builder: lobe centring, the rest–intense route and the rest-lobe
     expect([FIXTURE_OUTER, FIXTURE_INNER, ABYSS].map((id) => frameOf(id, 'dark').restIntenseWaypoint)).toEqual([true, true, false]);
   });
 
-  it('rest lobes: fixture-inner draws its one rest lobe at the centre, from the token table; Abyss its two', () => {
+  it('rest lobes: fixture-inner draws its one rest lobe at the centre, from the token table; Abyss its one at the upper left', () => {
     const empty: Partial<FieldState> = { tMs: 0, stress: 1, placements: [], restFade: 1 };
     const rest = (id: DirectionId) => frameOf(id, 'dark', empty).nodes.filter((n) => n.id === NODE.R0 && n.bead === null && n.fade > 0);
     expect(statics(FIXTURE_INNER).restLobes).toEqual([[0, 0]]);
@@ -188,8 +191,12 @@ describe('the builder: lobe centring, the rest–intense route and the rest-lobe
     expect(inner).toHaveLength(1);
     expect(inner[0].centre[0]).toBeCloseTo(0, 12);
     expect(inner[0].centre[1]).toBeCloseTo(driftY(FIXTURE_INNER), 9);
-    expect(rest(ABYSS)).toHaveLength(2);
-    expect([stormDeps(FIXTURE_INNER, statics(FIXTURE_INNER)).config.restLobes, stormDeps(ABYSS, statics(ABYSS)).config.restLobes]).toEqual([1, 2]);
+    expect(statics(ABYSS).restLobes).toEqual([[-0.3, 0.35]]);
+    const abyss = rest(ABYSS);
+    expect(abyss).toHaveLength(1);
+    expect(abyss[0].centre[0]).toBeCloseTo(-0.3, 12);
+    expect(abyss[0].centre[1]).toBeCloseTo(0.35 + driftY(ABYSS), 9);
+    expect([stormDeps(FIXTURE_INNER, statics(FIXTURE_INNER)).config.restLobes, stormDeps(ABYSS, statics(ABYSS)).config.restLobes]).toEqual([1, 1]);
   });
 });
 
@@ -370,13 +377,17 @@ describe('the never-red sampler enumerates the fixtures’ shadowed grounds', ()
 
   it('the field sweep’s grounds: the shadowed ground where a shadow lands under the field, and the ground only where the field lands outside', () => {
     const keys = CASES.map(([id, face]) => [id, face, Object.keys(fieldSweepFor(id, face, GRAPH.edges).grounds).sort()]);
+    // Every face also takes its vignette and centre lift at the ρ² samples (HIGH-3, law round 2); the
+    // fixtures carry Abyss's, so the same samples.
+    const dark = ['face ρ² 0.5', 'face ρ² 1'];
+    const light = ['face ρ² 0', 'face ρ² 0.5'];
     expect(keys).toEqual([
-      [ABYSS, 'dark', ['face', 'ground', 'ring']],
-      [ABYSS, 'light', ['face', 'ground', 'ring']],
-      [FIXTURE_OUTER, 'dark', ['face', 'ground', 'ring']],
-      [FIXTURE_OUTER, 'light', ['face', 'ground', 'ground shadowed 0.5', 'ground shadowed 1', 'ring']],
-      [FIXTURE_INNER, 'dark', ['face', 'face shadowed 0.5', 'face shadowed 1', 'ring']],
-      [FIXTURE_INNER, 'light', ['face', 'face shadowed 0.5', 'face shadowed 1', 'ring']],
+      [ABYSS, 'dark', ['face', ...dark, 'ground', 'ring']],
+      [ABYSS, 'light', ['face', ...light, 'ground', 'ring']],
+      [FIXTURE_OUTER, 'dark', ['face', ...dark, 'ground', 'ring']],
+      [FIXTURE_OUTER, 'light', ['face', ...light, 'ground', 'ground shadowed 0.5', 'ground shadowed 1', 'ring']],
+      [FIXTURE_INNER, 'dark', ['face', 'face shadowed 0.5', 'face shadowed 1', ...dark, 'ring']],
+      [FIXTURE_INNER, 'light', ['face', 'face shadowed 0.5', 'face shadowed 1', ...light, 'ring']],
     ]);
   });
 
@@ -392,13 +403,15 @@ describe('the never-red sampler enumerates the fixtures’ shadowed grounds', ()
       expect(field[`${side} shadowed ${P}`]).toEqual(want);
       expect(edge[`${side} shadowed ${P}`]).toEqual(want);
     }
-    expect(Object.keys(edge).sort()).toEqual([side, `${side} shadowed 0.5`, `${side} shadowed 1`]);
+    const shading = side === 'face' ? Object.keys(faceShadingGrounds(id, face)) : [];
+    expect(shading.length > 0).toBe(side === 'face');
+    expect(Object.keys(edge).sort()).toEqual([side, `${side} shadowed 0.5`, `${side} shadowed 1`, ...shading].sort());
   });
 
   it('the edge sweep’s surfaces: no shadowed ground where no shadow is drawn (Abyss, fixture-outer dark)', () => {
     for (const [id, face] of [[ABYSS, 'dark'], [ABYSS, 'light'], [FIXTURE_OUTER, 'dark']] as const) {
       const g = plateShadowGrounds(id, face);
-      expect([Object.keys(g.face), Object.keys(g.ground)]).toEqual([['face'], ['ground']]);
+      expect([Object.keys(g.face), Object.keys(g.ground)]).toEqual([['face', ...Object.keys(faceShadingGrounds(id, face))], ['ground']]);
     }
   });
 });

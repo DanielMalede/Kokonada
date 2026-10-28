@@ -192,10 +192,21 @@ describe('the field shader draws the TypeScript law, pixel for pixel (±1 LSB)',
   const faces: Face[] = ['dark', 'light'];
   const cases = ids.flatMap((id) => faces.map((face) => [id, face] as const));
 
-  it.each(cases)('%s, %s face: the rest glow on its rest lobes, warped and grained', (id, face) => {
+  const restLobe = (id: DirectionId, face: Face, at: readonly [number, number]): FieldNodeFrame => {
     const R0 = lab(DIRECTIONS[id].color[face].field.restGlow);
-    const rest = (at: [number, number]): FieldNodeFrame => ({ id: NODE.R0, fade: 1, centre: at, radius: DIRECTIONS[id].field.lobe.radius, field: R0, halo: R0, bead: null });
-    const frame = frameFor(id, face, [rest([-0.35, -0.3]), rest([0.4, 0.35])]);
+    return { id: NODE.R0, fade: 1, centre: [at[0], at[1]], radius: DIRECTIONS[id].field.lobe.radius, field: R0, halo: R0, bead: null };
+  };
+
+  // Two overlapping rest-glow lobes (Abyss's table before law round 2): the law's sum of lobes.
+  it.each(cases)('%s, %s face: the rest glow on two overlapping lobes, warped and grained', (id, face) => {
+    const frame = frameFor(id, face, [restLobe(id, face, [-0.35, -0.3]), restLobe(id, face, [0.4, 0.35])]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(cases)('%s, %s face: the rest glow on its own rest table (field.rest.lobes), warped and grained', (id, face) => {
+    const lobes = staticsFor(id, EXTENSIONS as never).restLobes;
+    expect(lobes.length).toBeGreaterThan(0);
+    const frame = frameFor(id, face, lobes.map((at) => restLobe(id, face, at)));
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
   });
 

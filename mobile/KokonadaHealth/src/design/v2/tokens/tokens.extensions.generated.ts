@@ -5,7 +5,7 @@
 
 export const EXTENSIONS_SOURCE = {
   base: '4b812c6ade013ff76efa8bdbbb72b390a7f7c69b2a12c470567e8adbec9d7eee',
-  'direction.abyss': '2531dcc3a8d5c8aed8f3851ab3b1045deacef571f242912d22d8cc5fa6076b94',
+  'direction.abyss': 'bdf17089467e7dff12cfce474e5b207b7fd65f7a3a4116076b78849f2cbbd6d3',
 };
 
 export const EXTENSIONS = {
@@ -491,7 +491,7 @@ export const EXTENSIONS = {
         { id: 'restToIntense', faces: ['dark', 'light'], steppedThroughMs: 600 },
       ],
     },
-    'field.rest': { lobes: [[-0.35, -0.3], [0.4, 0.35]] },
+    'field.rest': { lobes: [[-0.3, 0.35]] },
     'haptics.place': { fallback: 'EFFECT_TICK', trigger: 'plate.tap' },
     'haptics.replace': { fallback: 'EFFECT_TICK', trigger: 'plate.tap.fourth' },
     'haptics.remove': { fallback: 'CLOCK_TICK', trigger: 'plate.tapLatest' },

@@ -824,7 +824,7 @@
       "vignette": {
         "dark": {
           "$type": "number",
-          "$value": -0.12
+          "$value": -0.18
         },
         "light": {
           "$type": "number",
@@ -1012,11 +1012,7 @@
         "com.kokonada": {
           "lobes": [
             [
-              -0.35,
-              -0.3
-            ],
-            [
-              0.4,
+              -0.3,
               0.35
             ]
           ]

@@ -2,7 +2,8 @@
 //
 // Two kinds:
 //   • fieldSweepFor: the blend graph composited over every local ground the field or a halo lands
-//     on (blendSpace.ts), including each ground the plate's shadows darken or lift, at P 0.5 and 1.
+//     on (blendSpace.ts), including each ground the plate's shadows darken or lift, at P 0.5 and 1,
+//     and the face under its vignette and centre lift (faceShadingGrounds).
 //   • edgeFamiliesFor: every pair of colours that meet at an anti-aliased edge, a stroke, a shadow
 //     tail or a gradient, blended in sRGB as Skia draws them (edgeSweep.ts). Each family reports its
 //     exact largest in-band chroma in float (design band) and on 8-bit pixels (check band).
@@ -81,6 +82,32 @@ function plateShadowsUnderField(id: DirectionId, face: Face): { readonly under: 
 /** The shadow profile values the sweep adds (P = 0 is the ground itself): quantisation near black is not monotone in L. */
 const SHADOW_PROFILE = [0.5, 1];
 
+/**
+ * The face's own shading (resilience HIGH-3, law round 2): the law draws the face ground at
+ * L·(1 + vignette·ρ²) + centreLift·(1 − ρ²), ρ = d / ringInner in [0, 1), on L only (fieldLaw.ts
+ * groundAt). Sampled at n + 1 evenly spaced ρ², both ends included, n the fewest steps whose L step is
+ * at most the sweep's L amplitude A (dither plus grain). Every 8-bit pass that dithers over L ± A (the
+ * field sweep, and the edge sweep at full resolution) then reaches every pixel any ρ² can show, because
+ * neighbouring samples' intervals overlap; the float passes step L by A, as the grain shifts do. A
+ * sample equal to the plain face, which the sweeps take as 'face', is left out. The plate's inner
+ * shadows still shade the plain face only: their product with this shading belongs to the certified
+ * sampler (law round 2, D8), and the UI-096 tripwire keeps every shipped shadow at 0 until it exists.
+ */
+export function faceShadingGrounds(id: DirectionId, face: Face): Record<string, Oklab> {
+  const d = DIRECTIONS[id];
+  const g = lab(d.color[face].plate.face);
+  const vignette = d.plate.face.vignette[face];
+  const lift = d.plate.face.centreLift[face];
+  const at = (rho2: number) => g.L * (1 + vignette * rho2) + lift * (1 - rho2);
+  const n = Math.max(1, Math.ceil(Math.abs(at(1) - at(0)) / amplitudeFor(id) - 1e-9));
+  const out: Record<string, Oklab> = {};
+  for (let i = 0; i <= n; i++) {
+    const L = at(i / n);
+    if (L !== g.L) out[`face ρ² ${i / n}`] = { L, a: g.a, b: g.b };
+  }
+  return out;
+}
+
 export function fieldSweepFor(
   id: DirectionId,
   face: Face,
@@ -111,6 +138,8 @@ export function fieldSweepFor(
     const g = grounds[shadows.under];
     for (const P of SHADOW_PROFILE) grounds[`${shadows.under} shadowed ${P}`] = { L: g.L * (1 - shadows.sum * P), a: g.a, b: g.b };
   }
+  // The face's vignette and centre lift, which the field and the halos land on.
+  Object.assign(grounds, faceShadingGrounds(id, face));
   return {
     graph,
     grounds,
@@ -251,15 +280,16 @@ class Family {
 
 /**
  * The grounds the edge sweep composites over, with the plate's shadows (resilience, rulings after T5d,
- * §3): the face, and each inner-shadowed face at every profile value; the ground, and each
- * outer-shadowed ground. The law and the shader shade a ground's L wherever a shadow is drawn, whether
- * or not the field lands there, so the condition is that a shadow is drawn (strength and blur), never
- * the mask.
+ * §3): the face, its vignette and centre lift (faceShadingGrounds), and each inner-shadowed face at
+ * every profile value; the ground, and each outer-shadowed ground. The law and the shader shade a
+ * ground's L wherever a shadow is drawn, whether or not the field lands there, so the condition is
+ * that a shadow is drawn (strength and blur), never the mask.
  */
 export function plateShadowGrounds(id: DirectionId, face: Face): { readonly face: Record<string, Oklab>; readonly ground: Record<string, Oklab> } {
   const d = DIRECTIONS[id];
   const c = d.color[face];
-  const out = { face: { face: lab(c.plate.face) } as Record<string, Oklab>, ground: { ground: lab(c.ground) } as Record<string, Oklab> };
+  // The face, then its vignette and centre lift (faceShadingGrounds).
+  const out = { face: { face: lab(c.plate.face), ...faceShadingGrounds(id, face) } as Record<string, Oklab>, ground: { ground: lab(c.ground) } as Record<string, Oklab> };
   const drawn = [d.plate.shadow[face], d.plate.shadow2[face]].filter((t) => t.strength !== 0 && t.blur > 0);
   if (drawn.length === 0 || d.plate.depth === 0) return out;
   const sum = drawn.reduce((t, x) => t + x.strength, 0);
