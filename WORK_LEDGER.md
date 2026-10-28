@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `BE-070` (TASKS)
-- title: the socket handlers normalize the client's payload, so a null payload no longer crashes the backend
-- branch: `fix/be070-socket-payloads`
-- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/wearable/adapter.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/wearableAdapter.inheritedKeys.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/art9GateClass.structural.test.js`, `TASKS.md`
+- task: `own:garmin-access-domain` (own)
+- title: the owner's Garmin access request decisions of 2026-10-25 — the domain kokonada.com, the submitter, the free model (DAN-009, DAN-007, DAN-015)
+- branch: `docs/garmin-access-domain`
+- paths: `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-044.md`, `docs/design-v2/decisions/DEC-116.md`, `docs/design-v2/decisions/DEC-186.md`, `docs/design-v2/decisions/DEC-187.md`, `docs/design-v2/decisions/DEC-188.md`, `docs/design-v2/decisions/DEC-189.md`
 - resources: none
-- state: in-review · PR #266
-- started: 2026-10-20
+- state: claimed
+- started: 2026-10-25
 
 ### M02
 - task: `own:v1-vision-frame` (own)
@@ -85,34 +85,34 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `OPS-244` (TASKS)
-- title: OPS-244: the L-check waiver in CLAUDE.md; Bedrack stays a partner (DAN-065); his inactive items closed; the full-history scan recorded
-- branch: `docs/ops244-waiver-partner`
-- paths: `CLAUDE.md`, `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/decisions/DEC-185.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`
+- task: `BE-221` (TASKS)
+- title: No health-derived token reaches Groq: drop the intensity band from the generation prompt and the HR band and target tempo from the caption prompt; declarations follow
+- branch: `fix/be221-groq-health-egress`
+- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/moodDescriptors.js`, `backend/app/services/discovery/captionService.js`, `backend/app/sockets/biometricHandler.js`, `docs/PRIVACY_DECLARATIONS.md`, `TASKS.md`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/captionService.test.js`, `backend/tests/captionPipeline.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `backend/tests/shadow.captionHealthShapedTargets.test.js`, `backend/app/services/generation/targetsBuilder.js`, `backend/app/services/generation/orchestrator.js`, `backend/app/models/MusicProfile.js`, `backend/tests/wave4.affectSeam.test.js`
 - resources: none
-- state: in-review · PR #259
-- started: 2026-10-18
+- state: claimed
+- started: 2026-10-27
 
 ### M04
 _free_
 
 ### M05
-- task: `DAN-092` (TASKS)
-- title: close DAN-092 on the read-only MCP evidence; DAN-112 deploy evidence of 62041da and 1a5186a
-- branch: `docs/dan092-close`
+- task: `DAN-053` (TASKS)
+- title: Close DAN-053: record items 2-4 with their evidence; add OPS-322 (release signer missing, store submission deferred)
+- branch: `docs/dan053-close`
 - paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #276
+- state: in-review · PR #277
 - started: 2026-10-27
 
 ### M06
-- task: `own:garmin-personal-client` (own)
-- title: Garmin personal lane PR 2: the Connect Personal API client, rate policy, the personal-to-summary mapper, and key redaction in Sentry and logs
-- branch: `feat/garmin-personal-client`
-- paths: `backend/app/services/wearable/garminPersonal/client.js`, `backend/app/services/wearable/garminPersonal/mapper.js`, `backend/app/services/wearable/garminPersonal/redact.js`, `backend/app/services/wearable/garminPersonal/ratePolicy.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/fixtures/garminPersonal/**`, `backend/tests/sentryScrub.test.js`, `backend/tests/sentryCapture.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `TASKS.md`
+- task: `own:ops201-merge-guard-sweeps-skip` (own)
+- title: OPS-201: merge-guard step 3e also accepts mobile-sweeps skipped when sweeps-changes succeeded and no sweeps: path matches (before #234)
+- branch: `fix/ops201-merge-guard-sweeps-skip`
+- paths: `.claude/agents/merge-guard.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #274
-- started: 2026-10-26
+- state: claimed
+- started: 2026-10-27
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)

@@ -12,7 +12,9 @@ const MedicalProfile = require('../../models/MedicalProfile');
 const { aggregateProfileMetrics, computeLastNightSleep } = require('../medicalProfileService');
 const { enqueue } = require('../../queues/queue');
 const { insertManyAccounted, NO_REJECTS } = require('./insertAccounted');
-const { consentV2Enabled, sanitizeTzOffset } = require('./adapter');
+const {
+  consentV2Enabled, sanitizeTzOffset, TZ_MIN_MINUTES, TZ_MAX_MINUTES, MAX_FUTURE_SKEW_MS,
+} = require('./adapter');
 const { QUEUES } = require('../../queues/definitions');
 const { stateVectorJobOptions } = require('../../queues/stateVectorJob');
 
@@ -41,11 +43,35 @@ const METRIC_FIELD_PATHS = {
   sleepRem:   'sleepStages.rem',
 };
 
+// A Garmin HRV is one value a night, stamped where its window ends (adapter.js). Garmin can revise a
+// window's length on a later sync or pull, which moves that end, so for this one series the time is not
+// the reading's identity: the night is (BE-191, RA-3), filed under the LOCAL date of its end, and the first
+// write of a night wins. Under the UTC date, two different nights that end on one UTC date shared a key and
+// the second was never written: a wearer at UTC+8 who wakes at 08:10 and then at 07:50 the next morning ends
+// them at 00:10Z and 23:50Z (RA-1 of #275). The local date is the UTC date of recordedAt + tzOffsetMinutes.
+// The Garmin normaliser takes that offset from startTimeOffsetInSeconds, which is local minus UTC, so it is
+// east-positive (UTC+8 is +480) and is ADDED, as the baseline engine's localDayIndex adds it. A row with no
+// offset is filed under its UTC date.
+const MINUTE_MS = 60 * 1000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+const isGarminNightlyHrv = (d) => d.metric === 'hrv' && d.source === 'garmin';
+const localDateOf = (d) => {
+  const offsetMs = (sanitizeTzOffset(d.tzOffsetMinutes) ?? 0) * MINUTE_MS;
+  return new Date(new Date(d.recordedAt).getTime() + offsetMs).toISOString().slice(0, 10);
+};
+const vitalIdentity = (d) => (isGarminNightlyHrv(d)
+  ? `${d.metric}@${d.source}@${localDateOf(d)}`
+  : `${d.metric}@${d.source}@${new Date(d.recordedAt).getTime()}`);
+// Two rows of one local date are less than a day apart in local time, and their offsets differ by at most the
+// width of the offset band, so in UTC they are less than a day plus that width apart.
+const NIGHT_REACH_MS = DAY_MS + (TZ_MAX_MINUTES - TZ_MIN_MINUTES) * MINUTE_MS;
+
 /**
  * Per-metric physiological rows → VitalSample. Same idempotence contract as the heartRate path:
  * `metric@source@recordedAt` is the identity of a reading, so a replayed backfill chunk or a
  * reconnect writes nothing twice (S6). Keyed PER METRIC — an HRV reading and a resting-HR reading
- * from the same summary share a timestamp and are two different facts.
+ * from the same summary share a timestamp and are two different facts. A Garmin HRV is keyed by its
+ * night instead (vitalIdentity above).
  *
  * Best-effort by design: vitals feed baselines, and a baseline is a nicety compared to losing the
  * heart-rate ingest. A failure here is logged (count only, never a value) and swallowed.
@@ -70,22 +96,24 @@ async function persistVitalSamples(userId, metrics) {
 
   if (!docs.length) return { inserted: 0, rejected: NO_REJECTS };
 
-  const key = (d) => `${d.metric}@${d.source}@${new Date(d.recordedAt).getTime()}`;
-
   try {
-    const times = docs.map((d) => d.recordedAt.getTime());
+    // A night's row can sit anywhere on the local date of the night's end, under any offset, so a Garmin
+    // HRV widens the read on each side by NIGHT_REACH_MS, and the read takes each row's offset with it.
+    const reach = (d) => (isGarminNightlyHrv(d) ? NIGHT_REACH_MS : 0);
+    const from = docs.map((d) => d.recordedAt.getTime() - reach(d));
+    const to = docs.map((d) => d.recordedAt.getTime() + reach(d));
     const existing = await VitalSample
       .find({
         userId,
         metric: { $in: [...new Set(docs.map((d) => d.metric))] },
-        recordedAt: { $gte: new Date(Math.min(...times)), $lte: new Date(Math.max(...times)) },
+        recordedAt: { $gte: new Date(Math.min(...from)), $lte: new Date(Math.max(...to)) },
       })
-      .select('metric source recordedAt')
+      .select('metric source recordedAt tzOffsetMinutes')
       .lean();
 
-    const seen = new Set((existing || []).map(key));
+    const seen = new Set((existing || []).map(vitalIdentity));
     docs = docs.filter((d) => {
-      const k = key(d);
+      const k = vitalIdentity(d);
       if (seen.has(k)) return false;
       seen.add(k); // also collapses duplicates WITHIN this batch
       return true;
@@ -141,21 +169,50 @@ function withinRetention(metrics, now = Date.now()) {
   return { kept, dropped };
 }
 
+// ── Future cap (BE-206) ─────────────────────────────────────────────────────────────────────────────
+//
+// A reading stamped past the clock is not a reading yet. Written, a far-future night wins
+// MedicalProfile.lastNightSleep for good (the night-date guard below keeps the LATEST night) and its rows
+// outlive their TTL, which counts from recordedAt. The Health Connect contract and the personal-lane
+// envelope refuse such stamps at their door; the Garmin webhook lane has no door of its own, so the
+// Garmin seam asks the store to drop them, with the same allowance (adapter.js MAX_FUTURE_SKEW_MS).
+//
+// A metric is kept only when its time is provably at or before that moment. A time a Date cannot hold is NaN,
+// and NaN fails every comparison, so `at > latestMs` used to keep it: the heart-rate read then cast it and
+// threw, and the webhook answered 500 for the whole push (RA-2 of #275). It is dropped, and counted in
+// droppedInFuture with the future-stamped: the cap is the one filter that admits no time it cannot place.
+function notInFuture(metrics, now) {
+  const latestMs = now + MAX_FUTURE_SKEW_MS;
+  const kept = [];
+  let dropped = 0;
+  for (const m of metrics) {
+    const at = m?.recordedAt instanceof Date ? m.recordedAt.getTime() : NaN;
+    if (!(at <= latestMs)) { dropped += 1; continue; }
+    kept.push(m);
+  }
+  return { kept, dropped };
+}
+
 /**
  * @param {string} userId
  * @param {Array<{metric,value,unit,recordedAt,source}>} metrics  canonical records
- * @param {{dropOutsideRetention?: boolean}} [options]  drop, before any write, every metric older
- *   than its store keeps (withinRetention above). Off by default; only the Garmin lane opts in.
- * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number}>}
+ * @param {{dropOutsideRetention?: boolean, dropInFuture?: boolean, now?: Date}} [options]
+ *   `dropOutsideRetention` drops, before any write, every metric older than its store keeps
+ *   (withinRetention above); `dropInFuture` drops every metric stamped past `now` + MAX_FUTURE_SKEW_MS, or
+ *   at a time a Date cannot hold (notInFuture above). Both are off by default; only the Garmin seam opts
+ *   in. `now` is the clock both measure against, injectable so a test can stand on a boundary.
+ * @returns {Promise<{inserted:number, rejected:{count:number,reasons:Array}, vitals:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number}>}
  *   `inserted` is what Mongo actually took — NOT the attempted count (W4-D08).
  */
-async function persistMetrics(userId, metrics, { dropOutsideRetention = false } = {}) {
+async function persistMetrics(userId, metrics, { dropOutsideRetention = false, dropInFuture = false, now = new Date() } = {}) {
   let inserted = 0;
   let rejected = NO_REJECTS;
 
   let batch = metrics || [];
   let droppedOutsideRetention = 0;
-  if (dropOutsideRetention) ({ kept: batch, dropped: droppedOutsideRetention } = withinRetention(batch));
+  let droppedInFuture = 0;
+  if (dropOutsideRetention) ({ kept: batch, dropped: droppedOutsideRetention } = withinRetention(batch, now.getTime()));
+  if (dropInFuture) ({ kept: batch, dropped: droppedInFuture } = notInFuture(batch, now.getTime()));
 
   // heartRate → encrypted time-series rows, idempotent (skip already-stored
   // (source,recordedAt); collapse duplicate timestamps within the batch). App-level
@@ -245,7 +302,7 @@ async function persistMetrics(userId, metrics, { dropOutsideRetention = false } 
     }
   }
 
-  return { inserted, rejected, vitals, profileMetrics, droppedOutsideRetention };
+  return { inserted, rejected, vitals, profileMetrics, droppedOutsideRetention, droppedInFuture };
 }
 
 module.exports = { persistMetrics, persistVitalSamples, VITAL_METRICS_PERSISTED };
