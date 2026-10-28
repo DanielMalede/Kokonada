@@ -1,11 +1,11 @@
 'use strict';
 
-// Synthetic credentials for the Garmin personal lane's tests. Nothing here is or was ever a real key
-// or token. Each value is assembled at run time so that no line of the repository holds a string
+// Synthetic credentials for the redaction tests (redact.test.js, shadow.redactLinear.test.js and
+// sentryScrub.test.js). Nothing here is or was ever a real key or token. Each value is assembled at run time so that no line of the repository holds a string
 // shaped like a credential: the CI secret scan (gitleaks' jwt and generic-api-key rules) reads lines,
 // and a literal sentinel would be a finding even though it is fake.
 
-// The prefix Garmin's personal API keys carry, then an obviously synthetic body. The '.' and '-'
+// The GCDC_ prefix the redaction matches, then an obviously synthetic body. The '.' and '-'
 // exercise every character class the redaction pattern covers.
 const SENTINEL_KEY = ['GCDC', 'TESTSENTINEL', 'K3Y.v4lue-0001'].join('_');
 

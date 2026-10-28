@@ -13,9 +13,9 @@
 // runner two orders of magnitude of room and still fails a quadratic pattern by two.
 
 const fc = require('fast-check');
-const { redactString } = require('../app/services/wearable/garminPersonal/redact');
+const { redactString } = require('../app/utils/redact');
 const { scrubEvent } = require('../app/config/sentry');
-const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/garminPersonal/sentinels');
+const { SENTINEL_KEY, makeJwt, signatureOf } = require('./fixtures/redactSentinels');
 
 const JWT = makeJwt({ exp: 1793000000 });
 const KB = 1024;

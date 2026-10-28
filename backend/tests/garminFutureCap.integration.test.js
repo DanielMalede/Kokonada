@@ -3,12 +3,12 @@
 // BE-206 (security-auditor SEC-273-2, architect R3 and R5): the Garmin lane stores nothing stamped more
 // than MAX_FUTURE_SKEW_MS past the server's clock.
 //
-// The Health Connect batch contract and the personal-lane envelope each refused a future stamp, with a
-// five-minute allowance defined twice; the Garmin webhook lane had no cap at all. A far-future night then
+// The Health Connect batch contract refused a future stamp, with its own five-minute allowance; the
+// Garmin webhook lane had no cap at all. A far-future night then
 // held MedicalProfile.lastNightSleep for good (the night-date guard keeps the LATEST night, so no real
 // night could replace it), and its rows outlived their TTL, which counts from recordedAt. The seam now has
 // the store drop those metrics before any write and count them in `droppedInFuture`. The allowance is
-// defined once, in adapter.js; the contract, the envelope and the store import it.
+// defined once, in adapter.js; the contract and the store import it.
 //
 // Real semantics: the REAL consent read, normaliser and stores on a REAL Mongo (mongodb-memory-server);
 // the clock is injected (`now`) only where a case needs an exact boundary. Redis is absent, so the
@@ -189,10 +189,10 @@ describe('MAX_FUTURE_SKEW_MS is defined once (architect R5)', () => {
     expect(definitionsIn(ALL)).toEqual(['services/wearable/adapter.js']);
   });
 
-  // Imported, not copied: under a registry where adapter.js allows an hour, the contract and the envelope
-  // admit a reading half an hour ahead, which the real five minutes refuse. (The store's twin is in
+  // Imported, not copied: under a registry where adapter.js allows an hour, the contract admits a
+  // reading half an hour ahead, which the real five minutes refuse. (The store's twin is in
   // metricStore.test.js, whose models are mocked: this file's mongoose cannot be loaded twice.)
-  it('the Health Connect contract and the personal-lane envelope follow adapter.js', () => {
+  it('the Health Connect contract follows adapter.js', () => {
     const adapterPath = '../app/services/wearable/adapter';
     const now = new Date('2026-10-27T12:00:00.000Z');
     const ahead = new Date(now.getTime() + 30 * 60 * 1000);
@@ -201,20 +201,15 @@ describe('MAX_FUTURE_SKEW_MS is defined once (architect R5)', () => {
       startDate: ahead.toISOString(), endDate: ahead.toISOString(),
     };
     const batch = { schemaVersion: 2, platform: 'health_connect', batchId: '9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d', samples: [sample] };
-    const envelope = { schemaVersion: 1, items: [{ type: 'dailies', summary: { startTimeInSeconds: ahead.getTime() / 1000, restingHeartRateInBeatsPerMinute: 52 } }] };
 
     const { parseHealthBatchRequest } = require('../app/services/wearable/healthBatchContract');
-    const { parseGarminPersonalEnvelope } = require('../app/services/wearable/garminPersonalEnvelope');
     expect(() => parseHealthBatchRequest(batch, { now })).toThrow('invalid_health_sample');
-    expect(() => parseGarminPersonalEnvelope(envelope, { now })).toThrow('garmin_summary_in_future');
 
     try {
       jest.isolateModules(() => {
         jest.doMock(adapterPath, () => ({ ...jest.requireActual(adapterPath), MAX_FUTURE_SKEW_MS: HOUR * 1000 }));
         const contract = require('../app/services/wearable/healthBatchContract');
-        const personal = require('../app/services/wearable/garminPersonalEnvelope');
         expect(contract.parseHealthBatchRequest(batch, { now }).samples).toHaveLength(1);
-        expect(personal.parseGarminPersonalEnvelope(envelope, { now }).items).toHaveLength(1);
       });
     } finally {
       jest.dontMock(adapterPath);
