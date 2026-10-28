@@ -89,3 +89,26 @@ describe('G9: each face draws the token’s node tier', () => {
     }
   });
 });
+
+// The token graph's own statement of the law (designer §2.4, amended at D5b; TASKS UI-121): the text the
+// sweeps and the reviewers read must state the law the field draws, word for word where the designer
+// gave the words. Before D5b it still said "λ = 1000", a slot ranking and H = max (UI-121).
+describe('§2.4: the token graph states the law in force', () => {
+  const text = GRAPH as unknown as { selection: string; nodeColour: string; pixelK: string };
+
+  it('selection: topTwoSoft over nodes, not slots, as the designer amended it', () => {
+    expect(text.selection).toBe(
+      'topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo\'s unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node\'s colour is the e-weighted mean of its slots\' colours, each slot\'s mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2); straight edges mix C1→C2 by t, waypoint edges C1→N12 by 2t; the pair fades to N̄ = (E-weighted mean L, 0, 0) by β = smoothstep(0, θ, w1/E1).',
+    );
+    expect(text.selection).not.toContain('1000');
+  });
+
+  it('nodeColour: w from the node’s pooled halo', () => {
+    expect(text.nodeColour).toContain('w = smoothstep(−0.05, 0, H_n − k_field), H_n the node\'s pooled halo.');
+    expect(text.nodeColour).not.toContain('h_i − k_field');
+  });
+
+  it('pixelK: the halos add, up to the peak (L2), never the largest one', () => {
+    expect(text.pixelK).toBe('k = min(max(k_field, H), max(cap, peak)), where H = min(peak, Σ over the slots of h_i): the halos add, up to the peak');
+  });
+});

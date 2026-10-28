@@ -86,11 +86,11 @@
           },
           "restIntenseRule": "R0-I is a waypoint edge when field.graph.restIntenseRoute is \"waypoint\", and a straight edge when it is \"straight\"",
           "waypoint": "N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b",
-          "selection": "per node weight e_i = extent(x)·f_i + λ·h_i (λ = 1000); e1 ≥ e2 ≥ e3; colour = (e1·a1 + max(0, e2 − e3)·a2) / (e1 + max(0, e2 − e3)); if (a1, a2) is a waypoint edge, mix along a→N→b",
-          "nodeColour": "A bead node's colour is mix(its field colour turned by the shimmer, its steady halo colour, smoothstep(−0.05, 0, h_i − k_field)). A rest lobe's colour is its turned field colour. Selection weights are e_i = extent(x)·f_i + λ·h_i. So wherever the field is absent (extent = 0: the ring and moat in every direction, and a face or ground a direction's mask leaves empty), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
+          "selection": "topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo's unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node's colour is the e-weighted mean of its slots' colours, each slot's mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2); straight edges mix C1→C2 by t, waypoint edges C1→N12 by 2t; the pair fades to N̄ = (E-weighted mean L, 0, 0) by β = smoothstep(0, θ, w1/E1).",
+          "nodeColour": "A bead slot's colour is mix(its field colour turned by the shimmer, its steady halo colour, w): w = smoothstep(−0.05, 0, H_n − k_field), H_n the node's pooled halo. A rest lobe's colour is its turned field colour. Selection weights are e_i = fade_i·(extent·ρ_i + λ·η_i). So wherever the field is absent (extent = 0: the ring and moat in every direction, and a face or ground a direction's mask leaves empty), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
           "sameNode": "straight: two beads of one quadrant differ only in chroma",
           "groundComposite": "every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp",
-          "pixelK": "k = max(k_field, H), where H = max over beads of halo h_j"
+          "pixelK": "k = min(max(k_field, H), max(cap, peak)), where H = min(peak, Σ over the slots of h_i): the halos add, up to the peak"
         }
       },
       "maxNodesPerPixel": {"$type":"number","$value":2},

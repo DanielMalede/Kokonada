@@ -3,7 +3,7 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  base: 'e03936ccb178a5067d0dce9a90b3f0987a92f83d0ec38ddec901d650ebdea513',
+  base: '39fbff20b9d5b7fbfc0dd8068efbe38899c9a2edfc2c27acc29c6e9c0a977141',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
