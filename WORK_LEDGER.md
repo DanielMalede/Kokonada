@@ -102,7 +102,7 @@ _free_
 - branch: `docs/ops230-nextup-dan053`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #282
 - started: 2026-10-28
 
 ### M06
