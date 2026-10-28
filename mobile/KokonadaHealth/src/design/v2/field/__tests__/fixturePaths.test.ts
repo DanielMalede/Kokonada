@@ -156,9 +156,12 @@ describe('the builder takes each fixture path from the tokens', () => {
     it('the ledger agrees: through a settle, with only neutral taps, restFade stays 1 at every step on fixture-outer and falls to 0 on Abyss', () => {
       const taps = [neutral(1), neutral(2), neutral(3)];
       const outer = throughLedger(stormDeps(FIXTURE_OUTER, statics(FIXTURE_OUTER), 'dark'), [], taps);
-      expect(outer.map((s) => s.shown.restFade)).toEqual(outer.map(() => 1));
+      // Each rest lobe's own fade (the ledger's restFades, L7): every one at 1 on fixture-outer, none drawn on Abyss.
+      const lit = statics(FIXTURE_OUTER).restLobes.dark.map(() => 1);
+      expect(lit.length).toBeGreaterThan(0);
+      expect(outer.map((s) => s.shown.restFade)).toEqual(outer.map(() => lit));
       const abyss = throughLedger(stormDeps(ABYSS, statics(ABYSS), 'dark'), [], taps);
-      expect(abyss[abyss.length - 1].shown.restFade).toBe(0);
+      expect(abyss[abyss.length - 1].shown.restFade).toEqual([]);
     });
   });
 });
