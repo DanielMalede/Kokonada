@@ -98,11 +98,13 @@ function splitScene(next: () => number, k: number): { split: Scene; merged: Scen
   return { split, merged: { ...split, e }, n };
 }
 const run = (select: Select, s: Scene) => select(s.e, s.colours, s.ids, s.routed);
-/** The seam's β at the node level, from the bins. */
+/** The seam's β at the node level, from the bins: on r, symmetric in the three strongest (L6′, UI-139). */
 const betaOf = (s: Scene) => {
   const { E } = pooledNodes(s.e, s.colours, s.ids);
-  const [i1, , e3] = rankNodes(E);
-  return smoothstep(0, THETA, (E[i1] - e3) / E[i1]);
+  const [i1, i2, e3] = rankNodes(E);
+  const d1 = E[i1] - e3;
+  const d2 = E[i2] - e3;
+  return smoothstep(0, THETA, (3 * Math.sqrt(d1 * d1 - d1 * d2 + d2 * d2)) / (E[i1] + E[i2] + e3));
 };
 
 describe('a node placed more than once is one mood (L4 amended; DSN-049)', () => {

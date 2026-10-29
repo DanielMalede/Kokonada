@@ -11,8 +11,8 @@ import { staticsFor } from '../statics.ts';
 //       C_n the e-weighted mean of its slots' colours; E1 ≥ E2 ≥ E3 over the five bins (ties to the lower id);
 //   L5′ (UI-125) w1 = (E1 − E3)², w2 = (E2 − E3)², t = w2/(w1 + w2) where w1 > 0, else 0; straight edges
 //       mix C1→C2 by t, waypoint edges C1→N12 by s(2t), s(x) = 1 − (1 − x)², N12 = ((C1.L + C2.L)/2, 0, 0);
-//   L6  the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0, θ,
-//       (E1 − E3)/E1), θ = field.graph.tripleFade.
+//   L6′ (UI-139) the pair fades to N̄ = (Σ e_i·c_i.L / Σ e_i over all six slots, 0, 0) by β = smoothstep(0,
+//       θ, r), r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3), d1 = E1 − E3, d2 = E2 − E3, θ = field.graph.tripleFade.
 // Since UI-125 the bare and unguarded twins are built on L5′, so each still differs from the law in the
 // one piece it plants (the slope properties and their plants are in seamSlope.test.ts).
 // Each property is run on planted twins too (the old law, the bare pair without the fade, the
@@ -62,11 +62,13 @@ const bare: Select = (e, colours, ids, routed) => {
   const { E, C, i1, i2, e3 } = rank(e, colours, ids);
   return pairAt(C[i1], C[i2], seamT(E[i1], E[i2], e3), isWaypoint(i1, i2, routed));
 };
-/** L5′ and L6 with the guard on t removed: 0/0 at an exact triple tie. */
+/** L5′ and L6′ with the guard on t removed: 0/0 at an exact triple tie. */
 const unguarded: Select = (e, colours, ids, routed) => {
   const { E, C, i1, i2, e3 } = rank(e, colours, ids);
   const P = pairAt(C[i1], C[i2], seamT(E[i1], E[i2], e3, true), isWaypoint(i1, i2, routed));
-  const beta = smoothstep(0, THETA, (E[i1] - e3) / E[i1]);
+  const d1 = E[i1] - e3;
+  const d2 = E[i2] - e3;
+  const beta = smoothstep(0, THETA, (3 * Math.sqrt(d1 * d1 - d1 * d2 + d2 * d2)) / (E[i1] + E[i2] + e3));
   const sum = e.reduce((s, x) => s + x, 0);
   const nL = e.reduce((s, x, i) => s + x * colours[i].L, 0) / sum;
   return { L: P.L * beta + nL * (1 - beta), a: beta * P.a, b: beta * P.b };
