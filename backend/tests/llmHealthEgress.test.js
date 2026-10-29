@@ -100,11 +100,12 @@ const affectService  = require('../app/services/biosonic/affectService');
 const biosonic       = require('../app/services/biosonic/translate');
 const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
 
-const { buildEmotionPlaylist, adjustBiometricPlaylist, inferArtistGenres } = require('../app/services/geminiEngine');
+const fc = require('fast-check');
+const { buildEmotionPlaylist, adjustBiometricPlaylist, inferArtistGenres, _buildEmotionPrompt } = require('../app/services/geminiEngine');
 const captionService = require('../app/services/discovery/captionService');
 const llmEstimator   = require('../app/services/features/llmEstimatorAdapter');
 const embeddingWorker = require('../app/workers/embedding.worker');
-const { MOOD_DESCRIPTORS } = require('../app/services/moodDescriptors');
+const { MOOD_DESCRIPTORS, _ACTIVITY_LEXICON, promptSafeActivity } = require('../app/services/moodDescriptors');
 const { generateAndEmitPlaylist } = require('../app/sockets/biometricHandler');
 
 // ── The fake Groq: answers each caller in its own schema, records every request ───────────────
@@ -281,6 +282,53 @@ describe('buildEmotionPlaylist — a note about sleep sends nothing about sleep 
     const { body: chipAndNote } = await run('music before bed', 'running');
     expect(chipOnly).toContain('Current activity: running');
     expect(chipAndNote).toBe(chipOnly);
+  });
+
+  // RA-2 on #281: the gate is pinned on the params too, not only on the request body.
+  const targetsOf = (p) => ({ bpm: p.target_bpm, energy: p.target_energy, valence: p.target_valence, acousticness: p.target_acousticness, tempo: p.tempo_category });
+
+  it('a chip plus a sleep note gives the same params as the chip alone', async () => {
+    const { params: chipOnly } = await run('', 'running');
+    const { params: chipAndNote } = await run('music before bed', 'running');
+    expect(targetsOf(chipAndNote)).toEqual(targetsOf(chipOnly));
+  });
+
+  it.each(['going for a run', 'walk to work', 'party tonight', 'yoga'])('note %p names another activity: the model targets are not blended', async (note) => {
+    const { params } = await run(note);
+    expect(params.target_bpm).toBe(PARAMS.target_bpm);
+    expect(params.target_energy).toBe(PARAMS.target_energy);
+    expect(params.target_acousticness).toBe(PARAMS.target_acousticness);
+  });
+
+  // RA-3 on #281: stored vitals and a sleep note compose — the body band first, then half-way to resting.
+  it('stored vitals plus a sleep note: the body band applies first, then the resting blend', async () => {
+    axios.post.mockClear();
+    const { params } = await buildEmotionPlaylist({
+      musicProfile: MUSIC_PROFILE, emotionTaps: CALM, textPrompt: 'music before bed', activity: null,
+      biometricContext: { hrRatio: 1.5 }, fetchTracks: jest.fn().mockResolvedValue([]),
+    });
+    // bpm 110 → peak 151: 131 → resting 88: 110; energy .6 → .75 → .475; acousticness .3 → .2 → .5
+    expect(params.target_bpm).toBe(110);
+    expect(params.target_energy).toBeCloseTo(0.475, 10);
+    expect(params.target_acousticness).toBeCloseTo(0.5, 10);
+    expect(params.tempo_category).toBe('resting');
+  });
+
+  // RA-4 on #281: the sweep reads the lexicon's own withheld rows, so a word added there is covered.
+  it('property: no text around any word or phrase of a withheld row changes the prompt', () => {
+    const terms = _ACTIVITY_LEXICON
+      .filter((row) => promptSafeActivity(row.activity) === null)
+      .flatMap((row) => [...row.words, ...row.phrases]);
+    expect(terms.length).toBeGreaterThan(0);
+    fc.assert(fc.property(
+      fc.constantFrom(...terms),
+      fc.array(fc.constantFrom('a', 'b', ' ', 'z', 'q', 'calm'), { maxLength: 6 }).map((xs) => xs.join(' ')),
+      (term, pad) => {
+        const withTerm = _buildEmotionPrompt(MUSIC_PROFILE, CALM, `${pad} ${term} ${pad}`);
+        expect(withTerm).not.toMatch(/Current activity|sleep/i);
+        expect(withTerm).toBe(_buildEmotionPrompt(MUSIC_PROFILE, CALM, `${pad}  ${pad}`));
+      },
+    ), { numRuns: 300 });
   });
 });
 
