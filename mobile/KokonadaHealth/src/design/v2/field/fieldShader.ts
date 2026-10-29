@@ -139,8 +139,12 @@ half4 main(float2 p) {
   // 0 or 1 exactly off that pixel. Inside the rim the inputs mix at alpha, in OKLab: the face's ground at
   // d_f = min(d, ringInner) with its inner shadows read at q_f, the extent, and the grain's amplitude.
   float alpha = clamp((d - uGeom.w) * uGeom.z + 0.5, 0.0, 1.0);
-  float3 ground = uGroundOutside;
-  float extent = uMask.x * (uGeom2.y > 0.0 ? sstep(uGeom2.x, uGeom2.x + uGeom2.y, d) : 1.0);
+  // Then the outer edge over one canvas pixel (law round 2, D6-1, UI-151): the outside's coverage beta, 0 or
+  // 1 exactly off the rim's pixel (outerEdgeCoverage in fieldLaw.ts).
+  float beta = clamp((d - 1.0) * uGeom.z + 0.5, 0.0, 1.0);
+  // G_in: inside the rim the inner edge's mix, beyond it the ring's ground (alpha = 1 there).
+  float3 ground = uGroundRing;
+  float extent = uMask.z;
   float grain = uNoise.y;
   if (region < 1.5) {
     float df = min(d, uGeom.w);
@@ -151,10 +155,17 @@ half4 main(float2 p) {
     ground = (1.0 - alpha) * face + alpha * uGroundRing;
     extent = (1.0 - alpha) * uMask.y + alpha * uMask.z;
     grain = (1.0 - alpha) * uNoise.x + alpha * uNoise.y;
-  } else {
-    if (region == 2.0) { extent = 0.0; }
-    // The plate's outer shadows on the ground's L.
-    ground.x = ground.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, q, region)`).join(' + ')}));
+  }
+  // The outside's side, mixed in at beta in OKLab: the outside ground under the plate's outer shadows read at
+  // q_o (q pulled out to the rim inside it), and the region's extent beyond the rim (the moat's 0 in the band).
+  // Where beta = 0 nothing changes; the grain is the ground's on both sides, so it is not mixed.
+  if (beta > 0.0) {
+    float2 qo = d < 1.0 ? q * (1.0 / d) : q;
+    float3 outside = uGroundOutside;
+    outside.x = outside.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, qo, 3.0)`).join(' + ')}));
+    float extentOut = region < 2.5 ? 0.0 : uMask.x * (uGeom2.y > 0.0 ? sstep(uGeom2.x, uGeom2.x + uGeom2.y, d) : 1.0);
+    ground = (1.0 - beta) * ground + beta * outside;
+    extent = (1.0 - beta) * extent + beta * extentOut;
   }
   // The quiet zones on the extent (gated: no value changes).
   extent = extent > 0.0 ? extent * quiet(p) : 0.0;

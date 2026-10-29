@@ -10,6 +10,9 @@
 //              inside the rim the inputs mix in OKLab: ground = mix(face ground at d_f = min(d, ringInner),
 //              its inner shadows at q_f, ring ground, α), extent = mix(mask.face, mask.ring, α), grain
 //              amplitude = mix(inside, ground, α); the halos are unchanged;
+//   outer edge the rim over one canvas pixel (D6-1, UI-151): β = clamp((d − 1)·R_px + ½, 0, 1), after α; ground =
+//              mix(G_in, the outside ground with its outer shadows at q_o, β), q_o = q/d below d = 1 and q beyond,
+//              in OKLab; extent = (1 − β)·extent_in + β·0 (the moat); grain unchanged (the ring's is the ground's);
 //   warp       q' = q + W·(fbm(1.4q + orbit·(cos θ, sin θ)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin θ, cos θ)) − 0.5);
 //   lobes      ρ_i = r_i²/(|q' − c_i|² + κ·r_i²), the lobe with a core (κ = field.lobe.core), f_i = fade_i·ρ_i,
 //              m = smoothstep(0.55, 1.6, Σ f_i) (law round 2, designer L1);
@@ -233,6 +236,25 @@ export function ringEdgeCoverage(d: number, frame: FieldFrame): number {
   return Math.min(1, Math.max(0, (d - frame.ringInner) * frame.radiusPx + 0.5));
 }
 
+/**
+ * The ring's outer edge, anti-aliased (law round 2, D6-1, UI-151): the outside's coverage
+ * β = clamp((d − 1)·radiusPx + ½, 0, 1), one field-canvas pixel wide and centred on the rim, radiusPx the
+ * canvas's own (uGeom.z, no uniform added). Exactly 0 at d ≤ 1 − ½/radiusPx and 1 at d ≥ 1 + ½/radiusPx. The
+ * shader computes it after α, in the same order (fieldShader.ts), and the never-red sweep reads it here.
+ */
+export function outerEdgeCoverage(d: number, frame: FieldFrame): number {
+  return Math.min(1, Math.max(0, (d - 1) * frame.radiusPx + 0.5));
+}
+
+/**
+ * The precondition of the two edges (D6-1): (1 − ringInner)·radiusPx ≥ 1, so the inner edge's pixel and the
+ * outer edge's never overlap, and the outer band sees the ring at α = 1. ringOuterEdge.test.ts asserts it for
+ * every token set at renderScale 0.5 and 0.33 over the device densities.
+ */
+export function ringBandsApart(frame: FieldFrame): boolean {
+  return (1 - frame.ringInner) * frame.radiusPx >= 1;
+}
+
 /** The edge's mix of a face input and a ring input: (1 − α)·face + α·ring, the face bit for bit at α = 0, the ring at α = 1. */
 export function edgeMix(face: number, ring: number, alpha: number): number {
   return (1 - alpha) * face + alpha * ring;
@@ -253,6 +275,18 @@ export function faceGroundAt(frame: FieldFrame, qx: number, qy: number): Oklab {
   const pull = d > frame.ringInner ? frame.ringInner / d : 1;
   const local = groundAt('face', Math.min(d, frame.ringInner), frame);
   return { L: local.L * shadowFactor(frame, 'face', qx * pull, qy * pull), a: local.a, b: local.b };
+}
+
+/**
+ * The outside's side of the outer edge at q (plate units, y up): the outside ground, its outer shadows read at
+ * q_o, q pulled out to the rim below d = 1 (q_o = q·(1/d)) and q itself beyond (D6-1), so inside the rim the
+ * band sees the outer shadows as they are on the rim.
+ */
+export function outsideGroundAt(frame: FieldFrame, qx: number, qy: number): Oklab {
+  const d = Math.sqrt(qx * qx + qy * qy);
+  const pull = d < 1 ? 1 / d : 1;
+  const g = frame.grounds.outside;
+  return { L: g.L * shadowFactor(frame, 'outside', qx * pull, qy * pull), a: g.a, b: g.b };
 }
 
 function extentAt(region: Region, d: number, frame: FieldFrame, alpha: number): number {
@@ -487,15 +521,13 @@ export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms 
   const d = Math.sqrt(qx * qx + qy * qy);
   const region = regionOf(d, frame);
   // Inside the rim the ground is the edge's mix of the face's side and the ring's, at the ring's coverage
-  // (UI-114): the face's ground bit for bit where α = 0, the ring's where α = 1. Beyond it, as before.
+  // (UI-114): the face's ground bit for bit where α = 0, the ring's where α = 1; beyond it the ring's, G_in.
+  // Then the outer edge (D6-1), after α: G_in mixed toward the outside's side at β, which is 0 everywhere but
+  // the rim's pixel and beyond it, so where β = 0 the ground is G_in bit for bit.
   const coverage = d <= 1 ? ringEdgeCoverage(d, frame) : 1;
-  let ground: Oklab;
-  if (d <= 1) {
-    ground = edgeMixOklab(faceGroundAt(frame, qx, qy), frame.grounds.ring, coverage);
-  } else {
-    const local = groundAt(region, d, frame);
-    ground = { L: local.L * shadowFactor(frame, region, qx, qy), a: local.a, b: local.b };
-  }
+  const beta = outerEdgeCoverage(d, frame);
+  let ground = d <= 1 ? edgeMixOklab(faceGroundAt(frame, qx, qy), frame.grounds.ring, coverage) : frame.grounds.ring;
+  if (beta > 0) ground = edgeMixOklab(ground, outsideGroundAt(frame, qx, qy), beta);
 
   const w = frame.warp;
   const wx = qx + w.amount * (fbm(1.4 * qx + w.orbit * w.cos, 1.4 * qy + w.orbit * w.sin, w.octaves) - 0.5);
@@ -528,7 +560,9 @@ export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms 
   }
   // The halos add, up to the peak (designer L2): two halves of one halo draw the whole halo.
   const H = Math.min(frame.haloPeak, hSum);
-  const regionExtent = extentAt(region, d, frame, coverage);
+  // The extent: (1 − β)·the inner edge's + β·the region's beyond the rim, which is the moat's 0 in the band.
+  const innerExtent = extentAt(d <= 1 ? region : 'ring', d, frame, coverage);
+  const regionExtent = beta > 0 ? edgeMix(innerExtent, d <= 1 ? 0 : extentAt(region, d, frame, coverage), beta) : innerExtent;
   const extent = regionExtent > 0 ? regionExtent * quietFactor(frame, x, y) : 0;
   const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
