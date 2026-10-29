@@ -102,7 +102,7 @@ _free_
 - branch: `docs/ops230-mg282-findings`
 - paths: `TASKS.md`, `WORK_LEDGER.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #284
 - started: 2026-10-29
 
 ### M06
