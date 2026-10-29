@@ -225,7 +225,9 @@ describe('L6′: β = smoothstep(0, θ, r), r symmetric in the three strongest n
     for (let n = 0; n < 2000; n++) {
       const e1 = 0.01 + next() * 3;
       const e2 = next() * e1;
-      expect(tripleRatio(e1, e2, 0)).toBeGreaterThanOrEqual(1.5);
+      // r ≥ 1.5 in exact arithmetic; in float up to two units in the last place below it near e1 = e2
+      // (seamSlope.test.ts, R_FLOOR), far above every θ ≤ 1, so β is 1 bit for bit.
+      expect(tripleRatio(e1, e2, 0)).toBeGreaterThanOrEqual(1.5 - 4 * Number.EPSILON);
       const e = [e1, e2, 0, 0, 0];
       const pair = { L: J.L + (C.L - J.L) * ((e2 * e2) / (e1 * e1 + e2 * e2)), a: J.a + (C.a - J.a) * ((e2 * e2) / (e1 * e1 + e2 * e2)), b: J.b + (C.b - J.b) * ((e2 * e2) / (e1 * e1 + e2 * e2)) };
       for (const theta of [0.15, 0.25, 1]) {
