@@ -1,4 +1,4 @@
-import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, plateShadowGrounds } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, plateShadowGrounds, ringEdgeGrounds } from '../neverRedSweeps.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generated.ts';
 
 // QA-065's anti-aliased term (addendum §2.4, resilience HIGH-1, designer rulings §1, second voice
@@ -11,6 +11,17 @@ const IDS = Object.keys(DIRECTIONS) as DirectionId[];
 const CASES = IDS.flatMap((id) => (['dark', 'light'] as Face[]).map((face) => [id, face] as const));
 const DESIGN_LIMIT = DESIGN_BAND.chromaFloor - BASE.neverRed.margin;
 const CHECK_LIMIT = CHECK_BAND.chromaFloor - BASE.neverRed.margin;
+// The default families of a case, computed once: several blocks below read them.
+const DEFAULTS = new Map<string, ReturnType<typeof edgeFamiliesFor>>();
+const defaultFamilies = (id: DirectionId, face: Face) => {
+  const key = `${id} ${face}`;
+  let families = DEFAULTS.get(key);
+  if (!families) {
+    families = edgeFamiliesFor(id, face);
+    DEFAULTS.set(key, families);
+  }
+  return families;
+};
 
 // The sweep's resolutions, pinned: a coarser k step, fewer presences, a dropped shimmer end, a
 // missing grain shift or a narrower coverage range would leave the block below green while it
@@ -74,7 +85,7 @@ describe('QA-065 anti-aliased pairs: the resolutions the sweep runs at', () => {
 
 describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {
   it('no edge family reaches within the margin of either band', () => {
-    const over = edgeFamiliesFor(id, face)
+    const over = defaultFamilies(id, face)
       .filter((f) => f.design.chroma > DESIGN_LIMIT || f.check.chroma > CHECK_LIMIT)
       .map((f) => ({
         family: f.family,
@@ -86,7 +97,7 @@ describe.each(CASES)('QA-065 anti-aliased pairs: %s, %s face', (id, face) => {
 
   // The families the designer and resilience asked for, all present, so none can drop out quietly.
   it('sweeps every edge family this direction draws', () => {
-    const families = edgeFamiliesFor(id, face).map((f) => f.family);
+    const families = defaultFamilies(id, face).map((f) => f.family);
     expect(families).toEqual(
       expect.arrayContaining([
         'ring halo · text.primary',
@@ -144,12 +155,45 @@ describe.each(CASES)('QA-065 anti-aliased pairs over the plate’s shadows: %s, 
   it('and the sweep really takes them: more pixel blends than over the unshadowed grounds alone', () => {
     const grounds = plateShadowGrounds(id, face);
     const plain = { face: { face: grounds.face.face }, ground: { ground: grounds.ground.ground } };
-    const blends = (g: typeof grounds) => Object.fromEntries(edgeFamiliesFor(id, face, 'coarse', g).map((f) => [f.family, f.pixelBlends]));
+    // Without the ring edge's band (UI-114), which both sides would take alike: this measures the shadows alone.
+    const blends = (g: typeof grounds) => Object.fromEntries(edgeFamiliesFor(id, face, 'coarse', g, {}).map((f) => [f.family, f.pixelBlends]));
     const [withShadows, without] = [blends(grounds), blends(plain)];
     const grew = Object.keys(withShadows).filter((family) => withShadows[family] > without[family]).sort();
     const faceLit = Object.keys(withShadows).filter((f) => f.startsWith('face lit'));
     const overGround = Object.keys(withShadows).filter((f) => f.endsWith('· ground'));
     const expected = [...(Object.keys(grounds.face).length > 1 ? faceLit : []), ...(Object.keys(grounds.ground).length > 1 ? overGround : [])].sort();
     expect(grew).toEqual(expected);
+  });
+});
+
+// Law round 2, item 4 (designer §4 (b), UI-114): the ring's anti-aliased inner edge mixes the face's
+// ground and the ring's in OKLab, and the field and the halos land on that mix, so its grounds
+// (ringEdgeGrounds: every 0.1 by default, every 0.02 in full) join the backgrounds of every face-lit and
+// ring-halo family, each lit as the family lights its own ground. By default edgeFamiliesFor takes them.
+describe.each(CASES)('UI-114: the face-lit and ring-halo families take the band’s grounds: %s, %s face', (id, face) => {
+  it('exactly the face-lit and ring-halo families check more pixel blends than without the band', () => {
+    const blends = (families: ReturnType<typeof edgeFamiliesFor>) => Object.fromEntries(families.map((f) => [f.family, f.pixelBlends]));
+    const withBand = blends(defaultFamilies(id, face));
+    const without = blends(edgeFamiliesFor(id, face, 'coarse', plateShadowGrounds(id, face), {}));
+    const grew = Object.keys(withBand).filter((family) => withBand[family] > without[family]).sort();
+    expect(grew).toEqual(Object.keys(withBand).filter((f) => f.startsWith('face lit') || f.startsWith('ring halo')).sort());
+  });
+
+  it('and the band’s grounds are ringEdgeGrounds: one more α grows them again', () => {
+    const one = edgeFamiliesFor(id, face, 'coarse', plateShadowGrounds(id, face), { 'face·ring α 0.5': ringEdgeGrounds(id, face)['face·ring α 0.5'] });
+    const none = edgeFamiliesFor(id, face, 'coarse', plateShadowGrounds(id, face), {});
+    const all = defaultFamilies(id, face);
+    for (let i = 0; i < all.length; i++) {
+      if (!(all[i].family.startsWith('face lit') || all[i].family.startsWith('ring halo'))) continue;
+      expect([none[i].pixelBlends < one[i].pixelBlends, one[i].pixelBlends < all[i].pixelBlends]).toEqual([true, true]);
+    }
+  });
+
+  it('bites: a red ground planted in the band breaks the margin in the face-lit and ring-halo families', () => {
+    const red = { 'planted red': { L: 0.55, a: 0.12, b: 0.04 } };
+    const over = edgeFamiliesFor(id, face, 'coarse', plateShadowGrounds(id, face), red)
+      .filter((f) => f.design.chroma > DESIGN_LIMIT || f.check.chroma > CHECK_LIMIT)
+      .map((f) => f.family);
+    expect(over).toEqual(expect.arrayContaining(['face lit · bead.setting', 'ring halo · plate.rim.base']));
   });
 });

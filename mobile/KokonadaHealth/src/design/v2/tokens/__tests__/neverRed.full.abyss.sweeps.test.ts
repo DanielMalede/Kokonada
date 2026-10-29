@@ -1,4 +1,5 @@
-import { CHECK_BAND, DESIGN_BAND, fullEdgeReport, fullFieldReport, type GraphEdges } from '../neverRedSweeps.ts';
+import { sweepNeverRed } from '../../color/blendSpace.ts';
+import { CHECK_BAND, DESIGN_BAND, fullEdgeReport, fullFieldReport, ringEdgeGrounds, ringEdgeSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -22,6 +23,24 @@ describe.each(['dark', 'light'] as Face[])(`QA-065 at full resolution: ${ID}, %s
     () => {
       const { grid, report } = fullFieldReport(ID, face, GRAPH.edges);
       expect(grid.pixelShimmerStepDeg).toBe(1);
+      expect(report.failures).toEqual([]);
+      expect(report.pixelSamples).toBeGreaterThan(0);
+      expect(report.maxDesign.chroma).toBeLessThanOrEqual(DESIGN_LIMIT);
+      expect(report.maxCheck.chroma).toBeLessThanOrEqual(CHECK_LIMIT);
+    },
+    LONG,
+  );
+
+  // UI-114 (designer §4 (a)): the ring edge's mixed grounds every 0.02 of α. The float pass is the full
+  // grid's; the 8-bit pass keeps the default grid (t and k 0.2, the shimmer's ends): on the full 8-bit grid
+  // each of the 49 grounds costs about a minute (dark) or half a minute (light).
+  it(
+    'the ring edge: no blend-graph colour over the band’s grounds, every 0.02 of α, is red, in float or on 8-bit pixels, with the margin',
+    () => {
+      const config = ringEdgeSweepFor(ID, face, GRAPH.edges, undefined, 'full');
+      expect(Object.keys(config.grounds)).toEqual(Object.keys(ringEdgeGrounds(ID, face, 'full')));
+      expect(Object.keys(config.grounds)).toHaveLength(49);
+      const report = sweepNeverRed(config);
       expect(report.failures).toEqual([]);
       expect(report.pixelSamples).toBeGreaterThan(0);
       expect(report.maxDesign.chroma).toBeLessThanOrEqual(DESIGN_LIMIT);
