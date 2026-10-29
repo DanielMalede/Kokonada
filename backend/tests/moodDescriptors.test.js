@@ -14,6 +14,8 @@ const {
   buildBioParams,
   extractIntent,
   normalizeActivity,
+  promptSafeActivity,
+  applyIntentBand,
 } = require('../app/services/moodDescriptors');
 
 // ── resolveMoodKey ─────────────────────────────────────────────────────────────
@@ -452,6 +454,48 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
       expect(extractIntent(note)).toMatchObject({ activity: 'workout', tempoCategory: 'peak' });
     }
     expect(extractIntent('working on code').activity).toBeNull();
+  });
+});
+
+// ── BE-229 — a note's sleep intent is withheld from the prompt; its band applies after ──────
+// The owner's ruling of 2026-10-28: a sleep intent the user writes is medical information.
+
+describe('promptSafeActivity (the note intent the prompt may carry)', () => {
+  it('withholds the sleep intent every word and phrase of the sleep row produces', () => {
+    for (const note of ['sleep', 'sleeping', 'bedtime', 'bed', 'wind down', 'winding down', 'before bed', "can't sleep"]) {
+      const { activity } = extractIntent(note);
+      expect({ note, activity }).toEqual({ note, activity: 'sleep' });
+      expect({ note, safe: promptSafeActivity(activity) }).toEqual({ note, safe: null });
+    }
+  });
+
+  it('passes every other intent activity through unchanged (the ruling names sleep only)', () => {
+    for (const a of ['running', 'workout', 'party', 'walking', 'commute', 'relaxing']) {
+      expect(promptSafeActivity(a)).toBe(a);
+    }
+    expect(promptSafeActivity(null)).toBeNull();
+  });
+});
+
+describe('applyIntentBand (deterministic post-return blend toward a tempo band)', () => {
+  const P = { target_bpm: 110, target_energy: 0.6, target_valence: 0.5, target_acousticness: 0.3, seed_genres: ['x'] };
+
+  it('blends half-way toward the resting band, exactly as applyBiometricBands does for a resting body', () => {
+    expect(applyIntentBand(P, 'resting')).toEqual(applyBiometricBands(P, { hrRatio: 1.0 }));
+    const out = applyIntentBand(P, 'resting');
+    expect(out.target_bpm).toBe(99);
+    expect(out.target_energy).toBeCloseTo(0.4, 10);
+    expect(out.target_acousticness).toBeCloseTo(0.55, 10);
+    expect(out.seed_genres).toEqual(['x']);
+  });
+
+  it('returns the params unchanged for no band, an unknown band or a prototype key, and never mutates', () => {
+    const before = JSON.stringify(P);
+    expect(applyIntentBand(P, null)).toBe(P);
+    expect(applyIntentBand(P, 'drowsy')).toBe(P);
+    expect(applyIntentBand(P, 'constructor')).toBe(P);
+    applyIntentBand(P, 'resting');
+    expect(JSON.stringify(P)).toBe(before);
   });
 });
 

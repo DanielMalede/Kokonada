@@ -317,6 +317,10 @@ const _clampBpm = (v) => Math.max(30, Math.min(250, Math.round(v)));
 function applyBiometricBands(params, ctx) {
   const band = biometricBand(ctx);
   if (!band) return params;
+  return _blendTowardBand(params, band);
+}
+
+function _blendTowardBand(params, band) {
   const bandEnergy = _BIO_BAND_ENERGY[band];        // resting .2 / active .6 / peak .9
   const bandBpm    = 70 + bandEnergy * 90;          // ~88 / 124 / 151 (mirrors _descriptorTargets)
   const out = { ...params };
@@ -393,7 +397,7 @@ function normalizeActivity(activity) {
 
 // HX-7: no work, study or focus context is derived from free text (DEC-062, DEC-103 and the owner's
 // ruling on free-text focus). "focus" and "focused" remain music-mood keywords in _VIBE_LEXICON.
-const _ACTIVITY_LEXICON = [
+const _ACTIVITY_LEXICON = Object.freeze([
   { words: ['run', 'running', 'jog', 'jogging', 'sprint', 'cardio', '5k', '10k', 'marathon'], phrases: [],                             activity: 'running',  tempo: 'peak' },
   { words: ['gym', 'workout', 'lifting', 'weights', 'hiit', 'training'],                       phrases: ['work out', 'working out'],     activity: 'workout',  tempo: 'peak' },
   { words: ['dance', 'dancing', 'party', 'clubbing'],                                          phrases: [],                             activity: 'party',    tempo: 'peak' },
@@ -401,7 +405,7 @@ const _ACTIVITY_LEXICON = [
   { words: ['commute', 'commuting', 'driving', 'drive'],                                       phrases: ['on the train'],                activity: 'commute',  tempo: 'active' },
   { words: ['sleep', 'sleeping', 'bedtime', 'bed'],                                            phrases: ['wind down', 'winding down', 'before bed'], activity: 'sleep', tempo: 'resting' },
   { words: ['meditate', 'meditating', 'meditation', 'yoga', 'breathe', 'breathing', 'relax', 'relaxing', 'unwind'], phrases: [],         activity: 'relaxing', tempo: 'resting' },
-];
+].map((row) => Object.freeze({ ...row, words: Object.freeze([...row.words]), phrases: Object.freeze([...row.phrases]) })));
 
 // Free-text synonyms → our OWN canonical mood tags (never the user's words).
 const _VIBE_LEXICON = {
@@ -415,6 +419,24 @@ const _VIBE_LEXICON = {
   focus: 'focus', focused: 'focus', concentrate: 'concentration',
   bright: 'bright', hopeful: 'hopeful', driving: 'driving',
 };
+
+// BE-229 — the owner's ruling of 2026-10-28: a sleep intent the user writes in a note is medical
+// information, so it never reaches the LLM. promptSafeActivity is the only way the prompt builder
+// may read a note's intent activity; it withholds the sleep class and passes every other tag
+// through (the ruling names sleep only). The withheld intent's music effect is applied after the
+// model returns (applyIntentBand on its tempo band), the way its tempoCategory already was.
+const _PROMPT_WITHHELD_ACTIVITIES = Object.freeze(['sleep']);
+function promptSafeActivity(activity) {
+  return _PROMPT_WITHHELD_ACTIVITIES.includes(activity) ? null : activity;
+}
+
+// Deterministic post-return blend toward a closed tempo band ('resting' | 'active' | 'peak'), the
+// same blend applyBiometricBands makes for a body in that band. Anything else (null, an unknown
+// name, an Object.prototype key) returns the params untouched. Never mutates the input.
+function applyIntentBand(params, band) {
+  if (!Object.hasOwn(_BIO_BAND_ENERGY, band)) return params;
+  return _blendTowardBand(params, band);
+}
 
 function extractIntent(text) {
   const out = { keywords: [], activity: null, tempoCategory: null };
@@ -456,6 +478,10 @@ module.exports = {
   buildBioParams,
   extractIntent,
   normalizeActivity,
+  promptSafeActivity,
+  applyIntentBand,
+  // Read-only, so a test sweeps the lexicon's own rows rather than a hand-copied list (RA-4 on #281).
+  _ACTIVITY_LEXICON,
 };
 
 // Exported additively for the W4-006 taxonomy, which is now the SOURCE of this projection rather

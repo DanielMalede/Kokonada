@@ -87,6 +87,20 @@ function captionArgs(src) {
   return code.slice(at, code.indexOf('});', at) + 3);
 }
 const ARG_BANS = /hrBand|targets|latestActivity|stableHR/;
+// BE-229: the emotion prompt builder's body, comments stripped. Inside it the note's intent
+// activity may appear only as the argument of promptSafeActivity, the filter that withholds a
+// sleep intent; a bare `intent.activity` is the unfiltered tag reaching the prompt.
+function emotionPromptBody(src) {
+  const code = stripComments(src);
+  const at = code.indexOf('function _buildEmotionPrompt(');
+  if (at < 0) return null;
+  return code.slice(at, code.indexOf('\n}\n', at) + 2);
+}
+function unfilteredIntentActivity(body) {
+  const all = (body.match(/(?<![\w$])intent\.activity(?![\w$])/g) || []).length;
+  const filtered = (body.match(/promptSafeActivity\(\s*intent\.activity\s*\)/g) || []).length;
+  return { all, filtered };
+}
 
 describe('the Groq egress surface is exactly the allow-list', () => {
   it('every reference to chatJson, _generate, generateJson and _callLlm under backend/app is pinned', () => {
@@ -130,6 +144,21 @@ describe('the health-derived inputs are gone from the prompt builders', () => {
     const args = captionArgs(read('sockets/biometricHandler.js'));
     expect(args).not.toBeNull();
     expect(args).not.toMatch(ARG_BANS);
+  });
+
+  it('_buildEmotionPrompt reads the note\'s intent activity only through the sleep filter (BE-229)', () => {
+    const body = emotionPromptBody(read('services/geminiEngine.js'));
+    expect(body).not.toBeNull();
+    const { all, filtered } = unfilteredIntentActivity(body);
+    expect(filtered).toBeGreaterThan(0);
+    expect(all).toBe(filtered);
+  });
+
+  it('not vacuous: a bare intent.activity pasted into the real _buildEmotionPrompt is found', () => {
+    const real = emotionPromptBody(read('services/geminiEngine.js'));
+    const mutated = inject(real, '  return `You are an expert musicologist.', '  const leak = intent.activity;\n');
+    const { all, filtered } = unfilteredIntentActivity(mutated);
+    expect(all).toBe(filtered + 1);
   });
 
   it('not vacuous: each check fails on a mutated copy of the real file', () => {

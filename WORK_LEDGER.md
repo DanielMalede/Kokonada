@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `BE-221` (TASKS)
-- title: No health-derived token reaches Groq: drop the intensity band from the generation prompt and the HR band and target tempo from the caption prompt; declarations follow
-- branch: `fix/be221-groq-health-egress`
-- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/moodDescriptors.js`, `backend/app/services/discovery/captionService.js`, `backend/app/sockets/biometricHandler.js`, `docs/PRIVACY_DECLARATIONS.md`, `TASKS.md`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/captionService.test.js`, `backend/tests/captionPipeline.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `backend/tests/shadow.captionHealthShapedTargets.test.js`, `backend/app/services/generation/targetsBuilder.js`, `backend/app/services/generation/orchestrator.js`, `backend/app/models/MusicProfile.js`, `backend/tests/wave4.affectSeam.test.js`
+- task: `BE-229` (TASKS)
+- title: No sleep-derived token from the user's note reaches the Groq prompt; the music effect applies deterministically after the model returns
+- branch: `fix/be229-no-sleep-tag-to-groq`
+- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/youtubeDeclarations.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-10-27
+- started: 2026-10-28
 
 ### M04
 _free_
