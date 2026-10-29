@@ -5,7 +5,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, NODE_SLOTS, encodeSrgb8, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, quietFactor, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, encodeSrgb8, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, outerEdgeCoverage, quietFactor, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
@@ -535,6 +535,127 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
     const shadowAtQ = planted(/float2 qf = d > uGeom\.w \? q \* \(uGeom\.w \/ d\) : q;/, 'float2 qf = q;');
     expect(worstDisagreement(f, render(f, binaryExtent)).delta).toBeGreaterThan(1);
     expect(worstDisagreement(f, render(f, shadowAtQ)).delta).toBeGreaterThan(1);
+  });
+
+  // Law round 2, D6-1 (the designer's ruling at UI-151): the outer edge in real Skia, the same AA as the inner
+  // one. β = clamp((d − 1)·R + ½, 0, 1), R = uGeom.z, computed after α; the ground mixed toward the outside's,
+  // its outer shadows read at q_o (q/d inside the rim); the extent faded by 1 − β. Acceptance (b): every row
+  // and column the rim crosses has a fractional pixel and the drawn coverage is the law's within 1.5 bytes, at
+  // renderScale 0.5 and 0.33; (c) the step and q-unpulled plants fail; (e) shader and law agree on both bands.
+  describe('D6-1 (UI-151): the outer edge over one render pixel', () => {
+    const RING_GREY: Oklab = { L: 0.25, a: 0, b: 0 };
+    const OUT_GREY: Oklab = { L: 0.9, a: 0, b: 0 };
+    /** A 64×64 view centred on the rim at angle θ: face and ring one grey, the moat and beyond another; no field, grain or dither. */
+    const outerView = (R: number, theta: number): FieldFrame => {
+      const base = frameFor('abyss', 'dark', [], { radiusPx: R, vignette: 0, centreLift: 0, grain: { inside: 0, ground: 0 }, dither: 0 });
+      return { ...base, centrePx: [32 - R * Math.cos(theta), 32 + R * Math.sin(theta)], grounds: { outside: OUT_GREY, face: RING_GREY, ring: RING_GREY } };
+    };
+    const betaAt = (f: FieldFrame, x: number, y: number) => {
+      const qx = (x + 0.5 - f.centrePx[0]) / f.radiusPx;
+      const qy = -(y + 0.5 - f.centrePx[1]) / f.radiusPx;
+      return outerEdgeCoverage(Math.sqrt(qx * qx + qy * qy), f);
+    };
+    const coverageOf = (v: number) => (greyL(v) - RING_GREY.L) / (OUT_GREY.L - RING_GREY.L);
+    const within = (v: number) => (coverageOf(Math.min(255, v + 1.5)) - coverageOf(Math.max(0, v - 1.5))) / 2;
+    const rimCrossings = (f: FieldFrame) => {
+      const lines: number[][] = [];
+      for (let i = 0; i < W; i++) {
+        const row = Array.from({ length: W }, (_, x) => betaAt(f, x, i));
+        const column = Array.from({ length: H }, (_, y) => betaAt(f, i, y));
+        for (const line of [row, column]) if (line.includes(0) && line.includes(1)) lines.push(line);
+      }
+      return lines;
+    };
+    const BETA_LINE = /float beta = clamp\(\(d - 1\.0\) \* uGeom\.z \+ 0\.5, 0\.0, 1\.0\);/;
+    const QO_LINE = /float2 qo = d < 1\.0 \? q \* \(1\.0 \/ d\) : q;/;
+
+    it('the shader computes α, then β, from uGeom alone: the layout stays 159 floats in 46 declarations', () => {
+      const alphaAt = FIELD_SKSL.search(ALPHA_LINE);
+      const betaAt2 = FIELD_SKSL.search(BETA_LINE);
+      expect([alphaAt >= 0, betaAt2 > alphaAt]).toEqual([true, true]);
+      expect([FIELD_UNIFORMS.length, FIELD_UNIFORM_FLOATS]).toEqual([46, 159]);
+    });
+
+    it.each(VIEWS)('renderScale %s, the rim at %s rad: every row and column it crosses has a pixel at 0 < β < 1 in the law', (renderScale, theta) => {
+      const f = outerView(radiusAt(renderScale), theta);
+      const lines = rimCrossings(f);
+      expect(lines.length).toBeGreaterThan(40);
+      expect(lines.filter((line) => !line.some((b) => b > 0 && b < 1))).toEqual([]);
+    });
+
+    it.each(VIEWS)('renderScale %s, the rim at %s rad: the rendered coverage is the law’s within 1.5 bytes, and the pixels agree ±1 LSB', (renderScale, theta) => {
+      const f = outerView(radiusAt(renderScale), theta);
+      const pixels = render(f);
+      const [ringByte, outByte] = [encodeSrgb8(RING_GREY)[0], encodeSrgb8(OUT_GREY)[0]];
+      let band = 0;
+      let between = 0;
+      const off: string[] = [];
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const b = betaAt(f, x, y);
+          const v = rgbAt(pixels, x, y)[0];
+          if (b > 0 && b < 1) band++;
+          if (v > ringByte && v < outByte) between++;
+          if (Math.abs(coverageOf(v) - b) > within(v)) off.push(`(${x}, ${y}) β ${b.toFixed(3)} drawn ${coverageOf(v).toFixed(3)}`);
+        }
+      }
+      expect(band).toBeGreaterThan(40);
+      expect(between).toBeGreaterThan(0.9 * band);
+      expect(off).toEqual([]);
+      expect(worstDisagreement(f, pixels).delta).toBeLessThanOrEqual(1);
+    });
+
+    it.each(SCALES)('bites (c): at renderScale %s, β ≡ step(d − 1) and a half-pixel ramp draw coverage the law does not', (renderScale) => {
+      const f = outerView(radiusAt(renderScale), 0.35);
+      const plants = [
+        planted(BETA_LINE, 'float beta = step(1.0, d);'),
+        planted(BETA_LINE, 'float beta = clamp((d - 1.0) * uGeom.z * 2.0 + 0.5, 0.0, 1.0);'),
+      ];
+      for (const plant of plants) {
+        const pixels = render(f, plant);
+        let off = 0;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            const v = rgbAt(pixels, x, y)[0];
+            if (Math.abs(coverageOf(v) - betaAt(f, x, y)) > within(v)) off++;
+          }
+        }
+        expect(off).toBeGreaterThan(10);
+      }
+    });
+
+    // (e) The field beyond the moat, two halos at the rim, grain and dither, and an outer shadow, on Abyss's own
+    // grounds: the shader mixes at β as the law does, on both faces, with the inner band in view as well.
+    const OUTER_SHADOW = { offset: -0.04, blur: 0.08, strength: 0.4, mode: 1 };
+    const rimLit = (face: Face, R: number) => {
+      const theta = 1.2;
+      const rim: [number, number] = [Math.cos(theta), Math.sin(theta)];
+      const r = DIRECTIONS.abyss.field.lobe.radius;
+      return frameFor('abyss', face, [bead(NODE.I, 'intense', face, [0.97 * rim[0], 0.97 * rim[1] - 0.02], r), bead(NODE.C, 'calm', face, [0.9 * rim[0] - 0.05, 0.9 * rim[1]], 2)], {
+        radiusPx: R,
+        centrePx: [32 - rim[0] * R, 32 + rim[1] * R],
+        shadows: [OUTER_SHADOW, inertShadow()],
+        grain: { inside: 0.03, ground: 0.004 },
+      });
+    };
+
+    it.each((['dark', 'light'] as Face[]).flatMap((face) => [24, radiusAt(0.5)].map((R) => [face, R] as const)))(
+      '(e) abyss, %s face, R %s px: both bands under the field, two halos, grain and an outer shadow agree ±1 LSB',
+      (face, R) => {
+        const f = rimLit(face, R);
+        expect(rimCrossings(f).length).toBeGreaterThan(20);
+        expect(worstDisagreement(f, render(f)).delta).toBeLessThanOrEqual(1);
+      },
+    );
+
+    it.each(['dark', 'light'] as Face[])('bites (c): abyss, %s face, the outer shadow read at q, not q_o, breaks agreement', (face) => {
+      // A light neutral outside and a strong shadow, so the misreading shows above one LSB on both faces.
+      const base = rimLit(face, 24);
+      const f = { ...base, grounds: { ...base.grounds, outside: { L: 0.85, a: 0, b: 0 } }, shadows: [{ ...OUTER_SHADOW, strength: 0.8 }, inertShadow()] };
+      expect(worstDisagreement(f, render(f)).delta).toBeLessThanOrEqual(1);
+      const qUnpulled = planted(QO_LINE, 'float2 qo = q;');
+      expect(worstDisagreement(f, render(f, qUnpulled)).delta).toBeGreaterThan(1);
+    });
   });
 });
 
