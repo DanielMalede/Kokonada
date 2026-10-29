@@ -15,6 +15,8 @@ import {
   hash289,
   regionOf,
   selectColour as select,
+  smoothstep,
+  tripleRatio,
   valueNoise,
   type FieldFrame,
   type FieldNodeFrame,
@@ -128,7 +130,8 @@ describe('the hash and the value noise: exact in float32, so the shader agrees',
 
 // Law round 2 (designer L4–L6, L5′ at UI-125): w1 = (e1 − e3)², w2 = (e2 − e3)², t = w2/(w1 + w2), the
 // waypoint leg by s(2t), s(x) = 1 − (1 − x)², the pair fading to the e-weighted neutral N̄ by
-// β = smoothstep(0, θ, (e1 − e3)/e1); the properties are in seamContinuity.test.ts and seamSlope.test.ts.
+// β = smoothstep(0, θ, r), r = 3·√(d1² − d1·d2 + d2²)/(e1 + e2 + e3) (L6′, UI-139); the properties are in
+// seamContinuity.test.ts and seamSlope.test.ts.
 // The two worked values below are re-authored at UI-125 (L5′ squares the weights, so t moves; not a
 // loosening: the same exact expectation, at the new law's t).
 describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)²/((e1 − e3)² + (e2 − e3)²), faded to N̄ near a third', () => {
@@ -177,6 +180,94 @@ describe('topTwoSoft: e1 ≥ e2 ≥ e3, the pair mixed by t = (e2 − e3)²/((e1
     expect(straight.a).toBeCloseTo((R0.a + I.a) / 2, 12);
     const routed = selectColour([1, 1, 0, 0, 0], [R0, I, J, C, C], order, true);
     expectLab(routed, { L: (R0.L + I.L) / 2, a: 0, b: 0 });
+  });
+});
+
+// L6′ (UI-139, the designer's Ruling 1 d)): β reads r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3), d1 = E1 − E3,
+// d2 = E2 − E3, symmetric in the three strongest nodes (d1² − d1·d2 + d2² = ½·Σ_{i<j}(E_i − E_j)²), so its
+// slope does not bend where E1 and E2, or E2 and E3, swap; with no third node r ≥ 1.5, so β = 1 for every
+// θ ≤ 1 and the colour is the pair bit for bit; at an exact triple tie r = 0 and β = 0.
+describe('L6′: β = smoothstep(0, θ, r), r symmetric in the three strongest nodes', () => {
+  /** r as the designer wrote it, from the three values in any order. */
+  const rOf = (e1: number, e2: number, e3: number) => {
+    const d1 = e1 - e3;
+    const d2 = e2 - e3;
+    return (3 * Math.sqrt(d1 * d1 - d1 * d2 + d2 * d2)) / (e1 + e2 + e3);
+  };
+  /** A seeded generator (Park–Miller, exact in float64). */
+  const random = (seed: number) => {
+    let x = (seed % 2147483646) + 1;
+    return () => {
+      x = (16807 * x) % 2147483647;
+      return (x - 1) / 2147483646;
+    };
+  };
+  const PERMUTATIONS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+
+  it('r is the designer’s formula, and invariant under every permutation of (E1, E2, E3) to 1e-15 relative', () => {
+    const next = random(139);
+    let worst = 0;
+    for (let n = 0; n < 5000; n++) {
+      // Near-ties too: a third of the trials put the three within 1e-3 of each other.
+      const base = next() * 3;
+      const v = n % 3 === 0 ? [base, base + 1e-3 * next(), base + 1e-3 * next()] : [next() * 3, next() * 3, n % 7 === 0 ? 0 : next() * 3];
+      const sorted = [...v].sort((a, b) => b - a);
+      const ref = tripleRatio(sorted[0], sorted[1], sorted[2]);
+      expect(ref).toBe(rOf(sorted[0], sorted[1], sorted[2]));
+      for (const [i, j, k] of PERMUTATIONS) worst = Math.max(worst, Math.abs(tripleRatio(v[i], v[j], v[k]) - ref) / ref);
+    }
+    expect(worst).toBeLessThanOrEqual(1e-15);
+  });
+
+  it('E3 = 0: r ≥ 1.5, so β = 1 bit for bit for θ 0.15, 0.25 and 1, and the colour is the pair bit for bit', () => {
+    const next = random(1391);
+    const ids = [NODE.J, NODE.C, NODE.R, NODE.I, NODE.R0];
+    for (let n = 0; n < 2000; n++) {
+      const e1 = 0.01 + next() * 3;
+      const e2 = next() * e1;
+      expect(tripleRatio(e1, e2, 0)).toBeGreaterThanOrEqual(1.5);
+      const e = [e1, e2, 0, 0, 0];
+      const pair = { L: J.L + (C.L - J.L) * ((e2 * e2) / (e1 * e1 + e2 * e2)), a: J.a + (C.a - J.a) * ((e2 * e2) / (e1 * e1 + e2 * e2)), b: J.b + (C.b - J.b) * ((e2 * e2) / (e1 * e1 + e2 * e2)) };
+      for (const theta of [0.15, 0.25, 1]) {
+        expect(smoothstep(0, theta, tripleRatio(e1, e2, 0))).toBe(1);
+        expect(select(e, [J, C, I, I, C], ids, false, theta)).toEqual(pair);
+      }
+    }
+    // The equal pair, r = 1.5 exactly.
+    expect(tripleRatio(1, 1, 0)).toBe(1.5);
+  });
+
+  it('an exact triple tie: r = 0 and β = 0', () => {
+    for (const x of [1e-6, 0.3, 1, 7]) {
+      expect(tripleRatio(x, x, x)).toBe(0);
+      expect(smoothstep(0, 0.15, tripleRatio(x, x, x))).toBe(0);
+    }
+  });
+
+  it('inside the fade the law is P·β + N̄·(1 − β) with β on r, not on the ratio (E1 − E3)/E1', () => {
+    const ids = [NODE.J, NODE.C, NODE.R, NODE.I, NODE.R0];
+    const colours = [J, C, I, I, C];
+    const next = random(1392);
+    let differsFromRatio = 0;
+    for (let n = 0; n < 500; n++) {
+      // Three nodes within the fade: E1 = 1, E2 and E3 within 0.2 of it.
+      const e3 = 1 - 0.2 * next();
+      const e2 = e3 + (1 - e3) * next();
+      const e = [1, e2, e3, 0, 0];
+      const d1 = 1 - e3;
+      const d2 = e2 - e3;
+      const t = d1 * d1 > 0 ? (d2 * d2) / (d1 * d1 + d2 * d2) : 0;
+      const P = { L: J.L + (C.L - J.L) * t, a: J.a + (C.a - J.a) * t, b: J.b + (C.b - J.b) * t };
+      const beta = smoothstep(0, 0.15, rOf(1, e2, e3));
+      const nL = (J.L + C.L * e2 + I.L * e3) / (1 + e2 + e3);
+      const out = select(e, colours, ids, false, 0.15);
+      expect(out.L).toBeCloseTo(P.L * beta + nL * (1 - beta), 14);
+      expect(out.a).toBeCloseTo(beta * P.a, 14);
+      expect(out.b).toBeCloseTo(beta * P.b, 14);
+      if (Math.abs(beta - smoothstep(0, 0.15, d1)) > 1e-6) differsFromRatio++;
+    }
+    // Not vacuous: on most of these samples the ratio's β is a different number.
+    expect(differsFromRatio).toBeGreaterThan(250);
   });
 });
 
