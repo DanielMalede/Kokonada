@@ -453,15 +453,15 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
   const ALPHA_LINE = /float alpha = clamp\(\(d - uGeom\.w\) \* uGeom\.z \+ 0\.5, 0\.0, 1\.0\);/;
   const VIEWS = SCALES.flatMap((s) => [0.35, 1.2].map((theta) => [s, theta] as const));
 
-  it.each(VIEWS)('renderScale %s, the edge at %s rad: every row and column it crosses has a pixel at 0 < α < 1 in the law', (scale, theta) => {
-    const f = edgeView(radiusAt(scale), theta);
+  it.each(VIEWS)('renderScale %s, the edge at %s rad: every row and column it crosses has a pixel at 0 < α < 1 in the law', (renderScale, theta) => {
+    const f = edgeView(radiusAt(renderScale), theta);
     const lines = crossings(f);
     expect(lines.length).toBeGreaterThan(40);
     expect(lines.filter((line) => !line.some((a) => a > 0 && a < 1))).toEqual([]);
   });
 
-  it.each(VIEWS)('renderScale %s, the edge at %s rad: the rendered coverage is the law’s within 1.5 bytes, and the pixels agree ±1 LSB', (scale, theta) => {
-    const f = edgeView(radiusAt(scale), theta);
+  it.each(VIEWS)('renderScale %s, the edge at %s rad: the rendered coverage is the law’s within 1.5 bytes, and the pixels agree ±1 LSB', (renderScale, theta) => {
+    const f = edgeView(radiusAt(renderScale), theta);
     const pixels = render(f);
     const [faceByte, ringByte] = [encodeSrgb8(GREY_FACE)[0], encodeSrgb8(GREY_RING)[0]];
     let band = 0;
@@ -482,8 +482,8 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
     expect(worstDisagreement(f, pixels).delta).toBeLessThanOrEqual(1);
   });
 
-  it.each(SCALES)('bites: at renderScale %s the binary region and a half-pixel ramp draw coverage the law does not', (scale) => {
-    const f = edgeView(radiusAt(scale), 0.35);
+  it.each(SCALES)('bites: at renderScale %s the binary region and a half-pixel ramp draw coverage the law does not', (renderScale) => {
+    const f = edgeView(radiusAt(renderScale), 0.35);
     const plants = [
       planted(ALPHA_LINE, 'float alpha = d < uGeom.w ? 0.0 : 1.0;'),
       planted(ALPHA_LINE, 'float alpha = clamp((d - uGeom.w) * uGeom.z * 2.0 + 0.5, 0.0, 1.0);'),
