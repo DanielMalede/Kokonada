@@ -1,0 +1,574 @@
+{
+  "neverRed": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "owner:DEC-081",
+        "status": "decided",
+        "rule": "red iff hue in [start,end] inclusive and C >= floor"
+      }
+    },
+    "check": {
+      "hueStart": {"$type":"number","$value":350},
+      "hueEnd": {"$type":"number","$value":50},
+      "chromaFloor": {"$type":"number","$value":0.02}
+    },
+    "design": {
+      "hueStart": {"$type":"number","$value":345},
+      "hueEnd": {"$type":"number","$value":55},
+      "chromaFloor": {"$type":"number","$value":0.015}
+    },
+    "window": {"hueStart":{"$type":"number","$value":150},"hueEnd":{"$type":"number","$value":252}},
+    "margin": {"$type":"number","$value":0.0005},
+    "edgeInk": {
+      "$extensions": {
+        "com.kokonada": {
+          "tokens": [
+            "text.primary",
+            "text.onTint",
+            "text.onInk",
+            "plate.rim.base",
+            "plate.rim.lit",
+            "plate.ringHighlight",
+            "bead.setting",
+            "bead.shadow"
+          ],
+          "rule": "per direction and face: C == 0, or hue in [window.hueStart, window.hueEnd], or (C <= maxChroma and hue in [hueMin, hueMax])"
+        }
+      },
+      "maxChroma": {"$type":"number","$value":0.004},
+      "hueMin": {"$type":"number","$value":70},
+      "hueMax": {"$type":"number","$value":100}
+    }
+  },
+  "emotion": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "joy": {
+      "core": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.8,0.11,80],"alpha":1,"hex":"#E3B667"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.56,0.11,80],"alpha":1,"hex":"#966C13"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "calm": {
+      "core": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.8,0.11,178],"alpha":1,"hex":"#63D5BE"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.5,0.09,178],"alpha":1,"hex":"#097463"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "reflective": {
+      "core": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.68,0.11,250],"alpha":1,"hex":"#619DDA"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.48,0.11,250],"alpha":1,"hex":"#246099"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "intense": {
+      "core": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.68,0.1,322],"alpha":1,"hex":"#B583BD"},"$extensions":{"com.kokonada":{"hex":"v0"}}},
+      "deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.48,0.1,322],"alpha":1,"hex":"#78497F"},"$extensions":{"com.kokonada":{"hex":"v0"}}}
+    },
+    "minHueGap": {"$type":"number","$value":70},
+    "minFieldMarkGap": {"$type":"number","$value":64}
+  },
+  "placement": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "neutralRadius": {"$type":"number","$value":0.15},
+    "rampEnd": {"$type":"number","$value":0.6}
+  },
+  "field": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "graph": {
+      "$extensions": {
+        "com.kokonada": {
+          "nodes": {
+            "J": "{emotion.joy}",
+            "C": "{emotion.calm}",
+            "R": "{emotion.reflective}",
+            "I": "{emotion.intense}",
+            "R0": "{color.<face>.field.restGlow}"
+          },
+          "nodeTier": {"dark":"core","light":"deep"},
+          "edges": {
+            "straight": [["J","C"],["C","R"],["R","I"],["J","R"],["C","I"],["R0","J"],["R0","C"],["R0","R"]],
+            "waypoint": [["J","I"]],
+            "restIntense": ["R0","I"]
+          },
+          "restIntenseRule": "R0-I is a waypoint edge when field.graph.restIntenseRoute is \"waypoint\", and a straight edge when it is \"straight\"",
+          "waypoint": "N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b",
+          "selection": "topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo's unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node's colour is the e-weighted mean of its slots' colours, each slot's mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; d1 = E1 − E3, d2 = E2 − E3, w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0), so t's slope is 0 on both sides of E2 = E3; straight edges mix C1→C2 by t; waypoint edges mix C1→N12 by s(2t), s(x) = 1 − (1 − x)², N12 = ((L1 + L2)/2, 0, 0), so the mix meets N12 with slope 0 from both sides and never passes it; the pair fades to N̄ = (e-weighted mean L over the slots, 0, 0) by β = smoothstep(0, θ, r), r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3), symmetric in the three strongest nodes, so β's slope is continuous across both swaps; with no third node r ≥ 1.5 and β = 1, the pair bit for bit; a same-node merge equals one slot bit for bit where β = 1 and within 1e-12 where β < 1.",
+          "tripleFade": "θ, the fade near the triple point, on r (selection)",
+          "nodeColour": "A bead slot's colour is mix(its field colour turned by the shimmer, its steady halo colour, w): w = smoothstep(−0.05, 0, H_n − k_field), H_n the node's pooled halo. A rest lobe's colour is its turned field colour. Selection weights are e_i = fade_i·(extent·ρ_i + λ·η_i). So wherever the field is absent (extent = 0: the ring and moat in every direction, and a face or ground a direction's mask leaves empty), a pixel depends only on the halos and is identical across t, s, c and the shimmer.",
+          "sameNode": "straight: two beads of one quadrant differ only in chroma",
+          "groundComposite": "every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp",
+          "pixelK": "k = min(max(k_field, H), max(cap, peak)), where H = min(peak, Σ over the slots of h_i): the halos add, up to the peak"
+        }
+      },
+      "maxNodesPerPixel": {"$type":"number","$value":2},
+      "selection": {"$type":"string","$value":"topTwoSoft"},
+      "lambda": {"$type":"number","$value":25},
+      "tripleFade": {"$type":"number","$value":0.15},
+      "sameNode": {"$type":"string","$value":"straight"}
+    },
+    "clock": {
+      "$extensions": {
+        "com.kokonada": {
+          "drift": {
+            "harmonics": {"lobe0":[2,3],"lobe1":[3,2],"lobe2":[1,2]},
+            "phases": {"lobe0":[0,0],"lobe1":[1.3,0.7],"lobe2":[2.1,4]}
+          },
+          "breathPhase": "frac(n·t/T) at fixed n; n(s) = nRest − Math.round((nRest − nStress)·s), computed in JS, passed as an integer",
+          "lobeOffset": "A_d(s)·R·(sin(2π·kx·t/T + φx), cos(2π·ky·t/T + φy)); A_d(s) = A0·[1 + (D − 1)(1 − s)]·(1 − 0.4s)",
+          "warp": "q' = q + W(s)·(fbm(1.4q + orbit·(cos 2πt/T, sin 2πt/T)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin 2πt/T, cos 2πt/T)) − 0.5); W(s) = W0·(1 − 0.4s)",
+          "shimmer": "hue rotates by deg·(1 − s)·sin(6πt/T), common-mode",
+          "still": "t = t* with b = 0.5; reduced motion and tier L both draw it once"
+        }
+      },
+      "T": {"$type":"duration","$value":{"value":60000,"unit":"ms"}},
+      "warp": {"harmonic":{"$type":"number","$value":1}},
+      "shimmer": {"harmonic":{"$type":"number","$value":3}},
+      "breath": {"nMax":{"$type":"number","$value":12},"nMin":{"$type":"number","$value":6}}
+    },
+    "stress": {
+      "chroma": {"$type":"number","$value":0.35},
+      "lightnessDark": {"$type":"number","$value":0.15},
+      "lightnessLight": {"$type":"number","$value":0},
+      "weight": {"$type":"number","$value":0.2},
+      "speed": {"$type":"number","$value":0.4},
+      "life": {"$type":"number","$value":1},
+      "breathAmp": {"$type":"number","$value":0.5}
+    },
+    "metaball": {"low":{"$type":"number","$value":0.55},"high":{"$type":"number","$value":1.6}},
+    "lobe": {"core":{"$type":"number","$value":0.04}},
+    "crossfade": {"overlapFar":{"$type":"number","$value":1.25}},
+    "halo": {
+      "diameter": {"$type":"dimension","$value":{"value":44,"unit":"px"}},
+      "peakDark": {"$type":"number","$value":0.45},
+      "peakLight": {"$type":"number","$value":0.25},
+      "combine": {"$type":"string","$value":"max"},
+      "clipToRim": {"$type":"number","$value":1}
+    },
+    "dither": {
+      "$extensions":{"com.kokonada":{"rule":"± amplitude on OKLab L, one scalar per pixel, added before the sRGB encode and rounded once; per channel the 8-bit change is at most ceil(sigma), sigma = that channel's unrounded 8-bit change over ±amplitude of L at the pixel's colour (under 1 on every dark-face ground). Never per channel in sRGB."}},
+      "amplitude": {"$type":"number","$value":0.003922},
+      "pattern": {"$type":"string","$value":"blueNoise64.static"}
+    },
+    "noise": {"space":{"$type":"string","$value":"oklab.L"},"paintDither":{"$type":"number","$value":0}},
+    "tiers": {
+      "$extensions": {"com.kokonada":{"lock":"owner:DEC-084","status":"proposed"}},
+      "full": {
+        "renderScale": {"$type":"number","$value":0.5},
+        "octaves": {"$type":"number","$value":3},
+        "fpsCap": {"$type":"number","$value":60},
+        "shimmer": {"$type":"number","$value":1}
+      },
+      "low": {
+        "renderScale": {"$type":"number","$value":0.33},
+        "octaves": {"$type":"number","$value":2},
+        "fpsCap": {"$type":"number","$value":30},
+        "shimmer": {"$type":"number","$value":0}
+      },
+      "still": {"fpsCap":{"$type":"number","$value":0}},
+      "reducedMotion": {"$type":"string","$value":"still"},
+      "powerSave": {"$type":"string","$value":"low"},
+      "thermalSevere": {"$type":"string","$value":"still"}
+    },
+    "fallback": {
+      "$extensions": {
+        "com.kokonada": {
+          "stops": {"position":[0,0.585,0.63,0.7,0.815,0.926,1],"weight":[1,1,0.89,0.565,0.171,0.021,0]}
+        }
+      },
+      "radiusScale": {"$type":"number","$value":1.35},
+      "halos": {"$type":"number","$value":0},
+      "latestOnly": {"$type":"number","$value":1}
+    }
+  },
+  "breath": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "curve": {"$type":"string","$value":"cosineHalves"},
+    "changeLimit": {
+      "slowerStepsPerWrap": {"$type":"number","$value":1},
+      "fasterWrapsPerStep": {"$type":"number","$value":2}
+    }
+  },
+  "plate": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "rim": {"width":{"$type":"dimension","$value":{"value":1.5,"unit":"px"}}},
+    "minDiameter": {"$type":"dimension","$value":{"value":264,"unit":"px"}},
+    "maxDiameter": {"$type":"dimension","$value":{"value":340,"unit":"px"}},
+    "viewportMargin": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+    "labelBand": {
+      "min": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+      "padding": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
+      "knockoutGap": {"$type":"dimension","$value":{"value":5,"unit":"px"}},
+      "trackingBottomLatin": {"$type":"number","$value":0.03},
+      "trackingBottomHebrew": {"$type":"number","$value":0.02}
+    }
+  },
+  "bead": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "hitTarget": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+  },
+  "quiet": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "grow": {"$type":"dimension","$value":{"value":8,"unit":"px"}}
+  },
+  "cta": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
+    "radius": {"$type":"dimension","$value":{"value":28,"unit":"px"}}
+  },
+  "well": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
+    "consentSlotHeight": {"$type":"dimension","$value":{"value":108,"unit":"px"}}
+  },
+  "topBar": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}}
+  },
+  "avatar": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "size": {"$type":"dimension","$value":{"value":36,"unit":"px"}},
+    "target": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+  },
+  "nav": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "height": {"$type":"dimension","$value":{"value":64,"unit":"px"}},
+    "iconSize": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "iconStroke": {"$type":"dimension","$value":{"value":1.5,"unit":"px"}}
+  },
+  "type": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "face": {
+      "ui": {"$type":"fontFamily","$value":"Heebo"},
+      "voice": {"$type":"fontFamily","$value":"Bellefair"},
+      "voiceFallback": {"$type":"fontFamily","$value":"Frank Ruhl Libre"},
+      "voiceFallbackWeight": {"$type":"fontWeight","$value":300}
+    },
+    "voice": {
+      "minSize": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+      "m": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":32,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":34,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
+      }
+    },
+    "ui": {
+      "body": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":26,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "legal": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":14,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":14,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":22,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "label": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":14,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":500},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":14,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":22,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":500},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "cta": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":17,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":600},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":17,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":26,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":600},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "nav": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":13,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":18,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":500},
+          "tracking": {"$type":"number","$value":0.01},
+          "weightActive": {"$type":"fontWeight","$value":600}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":13,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":500},
+          "tracking": {"$type":"number","$value":0},
+          "weightActive": {"$type":"fontWeight","$value":600}
+        }
+      },
+      "caption": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":13,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":18,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":13,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "weight": {"$type":"fontWeight","$value":400},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "title": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "tracking": {"$type":"number","$value":-0.005}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":30,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
+      },
+      "display": {
+        "latin": {
+          "size": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":34,"unit":"px"}},
+          "tracking": {"$type":"number","$value":-0.01}
+        },
+        "hebrew": {
+          "size": {"$type":"dimension","$value":{"value":28,"unit":"px"}},
+          "lineHeight": {"$type":"dimension","$value":{"value":36,"unit":"px"}},
+          "tracking": {"$type":"number","$value":0}
+        }
+      }
+    }
+  },
+  "spacing": {
+    "0": {"$type":"dimension","$value":{"value":0,"unit":"px"}},
+    "1": {"$type":"dimension","$value":{"value":2,"unit":"px"}},
+    "2": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
+    "3": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
+    "4": {"$type":"dimension","$value":{"value":12,"unit":"px"}},
+    "5": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+    "6": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+    "7": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "8": {"$type":"dimension","$value":{"value":32,"unit":"px"}},
+    "9": {"$type":"dimension","$value":{"value":40,"unit":"px"}},
+    "10": {"$type":"dimension","$value":{"value":48,"unit":"px"}},
+    "11": {"$type":"dimension","$value":{"value":64,"unit":"px"}},
+    "12": {"$type":"dimension","$value":{"value":80,"unit":"px"}},
+    "$extensions": {"com.kokonada":{"lock":"designer"}}
+  },
+  "motion": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "respond": {
+      "duration": {"$type":"duration","$value":{"value":350,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0.22,1,0.36,1]}
+    },
+    "settle": {
+      "duration": {"$type":"duration","$value":{"value":600,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0.25,1,0.5,1]}
+    },
+    "drift": {
+      "duration": {"$type":"duration","$value":{"value":1200,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0.37,0,0.63,1]}
+    },
+    "pop": {
+      "duration": {"$type":"duration","$value":{"value":420,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0.34,1.56,0.64,1]}
+    },
+    "gather": {
+      "duration": {"$type":"duration","$value":{"value":2400,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0.37,0,0.63,1]}
+    },
+    "fadeReduced": {
+      "duration": {"$type":"duration","$value":{"value":150,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":[0,0,1,1]}
+    },
+    "dtClamp": {"$type":"duration","$value":{"value":50,"unit":"ms"}}
+  },
+  "radius": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "art": {
+      "phone": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
+      "large": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
+      "largeMinWidth": {"$type":"dimension","$value":{"value":600,"unit":"px"}}
+    }
+  },
+  "haptics": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer",
+        "delay": "In PRIMITIVE@delayMs:scale, the delay is Android's VibrationEffect.Composition.addPrimitive delay: the gap after the previous primitive ends, not time from the start of the event."
+      }
+    },
+    "minEventGap": {"$type":"duration","$value":{"value":80,"unit":"ms"}}
+  },
+  "$extensions": {
+    "com.kokonada": {
+      "opaqueSurfaces": {
+        "surfaces": [
+          {
+            "element": "hero.ground.sample",
+            "token": "color.<face>.ground",
+            "sample": "24×24 dp patch at the trailing end of the AI-line band, glyph pixels excluded, median (grain has zero mean)",
+            "directions": ["abyss"]
+          },
+          {
+            "element": "hero.plate.ring.sample",
+            "token": "color.<face>.plate.ring",
+            "sample": "8×8 dp at the band centre, at 225°, in scene rest",
+            "directions": ["abyss"]
+          },
+          {
+            "element": "hero.cta.fill",
+            "token": "the tint token, or color.<face>.text.primary",
+            "sample": "8×8 dp, 8 dp from the leading edge, vertically centred",
+            "directions": ["abyss"]
+          },
+          {
+            "element": "hero.nav.active.fill",
+            "token": "color.<face>.nav.activeFill",
+            "sample": {"abyss":"the 2×2 centre of the 4 dp dot"},
+            "directions": ["abyss"]
+          },
+          {
+            "element": "hero.avatar.fill",
+            "token": "color.<face>.avatar.fill",
+            "sample": "6×6 dp, avoiding the initial",
+            "directions": ["abyss"]
+          }
+        ],
+        "glyphCores": [
+          {"element":"hero.plate.word.*","token":"color.<face>.text.primary"},
+          {"element":"hero.aiLine","token":"color.<face>.text.secondary"},
+          {"element":"hero.voiceLine","token":"color.<face>.text.primary"},
+          {"element":"hero.cta.label","token":"color.<face>.text.onTint / color.<face>.text.onInk"},
+          {"element":"hero.nav.item.* (inactive)","token":"color.<face>.text.secondary"},
+          {"element":"hero.nav.item.* (active)","token":"color.<face>.nav.activeLabel"}
+        ],
+        "neverSampled": ["rim","keylines","setting rings","shadows","halos","field"]
+      },
+      "hero": {
+        "elements": [
+          "hero.root",
+          "hero.ground",
+          "hero.field",
+          "hero.topBar",
+          "hero.avatar",
+          "hero.aiLine",
+          "hero.aiLine.glyph",
+          "hero.voiceLine",
+          "hero.plate",
+          "hero.plate.moat",
+          "hero.plate.rim",
+          "hero.plate.ring",
+          "hero.plate.face",
+          "hero.plate.word.top",
+          "hero.plate.word.top.a11y",
+          "hero.plate.word.right",
+          "hero.plate.word.right.a11y",
+          "hero.plate.word.bottom",
+          "hero.plate.word.bottom.a11y",
+          "hero.plate.word.left",
+          "hero.plate.word.left.a11y",
+          "hero.plate.bead.0",
+          "hero.plate.bead.0.setting",
+          "hero.plate.bead.0.halo",
+          "hero.plate.bead.1",
+          "hero.plate.bead.1.setting",
+          "hero.plate.bead.1.halo",
+          "hero.plate.bead.2",
+          "hero.plate.bead.2.setting",
+          "hero.plate.bead.2.halo",
+          "hero.plate.touch",
+          "hero.listEntry",
+          "hero.well",
+          "hero.cta",
+          "hero.cta.label",
+          "hero.consentSlot",
+          "hero.nav",
+          "hero.nav.item.session",
+          "hero.nav.item.body",
+          "hero.nav.item.archive",
+          "hero.nav.active",
+          "hero.announcer",
+          "hero.fallback",
+          "hero.header",
+          "hero.scroll"
+        ],
+        "scenes": {
+          "rest": {"placements":[]},
+          "one.joy": {"placements":[{"node":"J","x":0.566,"y":0.566}]},
+          "one.calm": {"placements":[{"node":"C","x":0.566,"y":-0.566}]},
+          "one.reflective": {"placements":[{"node":"R","x":-0.566,"y":-0.566}]},
+          "one.intense": {"placements":[{"node":"I","x":-0.566,"y":0.566}]},
+          "one.neutral": {"placements":[{"node":"neutral","x":0.05,"y":0.05}]},
+          "seam": {"placements":[{"node":"I","x":-0.15,"y":0.8},{"node":"J","x":0.15,"y":0.8}]},
+          "three": {
+            "placements": [
+              {"node":"J","x":0.566,"y":0.566},
+              {"node":"C","x":0.566,"y":-0.566},
+              {"node":"R","x":-0.566,"y":-0.566}
+            ]
+          },
+          "replace": {
+            "placements": [
+              {"node":"J","x":0.566,"y":0.566},
+              {"node":"C","x":0.566,"y":-0.566},
+              {"node":"R","x":-0.566,"y":-0.566},
+              {"node":"I","x":-0.566,"y":0.566}
+            ]
+          },
+          "genesisHold": {"from":"three","afterGatherMs":2400},
+          "consentSlot": {"from":"rest","consentSlot":true},
+          "tension.0": {"from":"three","s":0},
+          "tension.1": {"from":"three","s":1},
+          "fieldOff": {"from":"three","fieldEnabled":false},
+          "three.scrolled": {"from":"three","scrolledTo":"end"}
+        },
+        "placementsFromHardest": ["hard.*","reach.*"],
+        "pairs": [
+          {"rule":"QA-023","element":"hero.cta","scenes":["tension.0","tension.1"]},
+          {"rule":"QA-023","element":"hero.aiLine","scenes":["one.joy","one.intense"]}
+        ],
+        "shots": {
+          "S1": {"scenes":["*"],"clock":"fixed","at":"t*","fontScale":1},
+          "S2": {"scenes":["rest","three","fieldOff"],"reducedMotion":true,"clock":"fixed"},
+          "S3": {"scenes":["three"],"powerSave":"observed on","clock":"fixed"},
+          "S4": {
+            "scenes": ["rest","three","three.scrolled","hard.word.* at 2.0"],
+            "fontScale": 2,
+            "clock": "fixed"
+          },
+          "S5": {"scenes":["hard.*","reach.*","three"],"clock":"stepped","sweep":"T@4Hz"},
+          "S6": {"scenes":["three","one.intense"],"shader":"forced failure","clock":"fixed"}
+        },
+        "capturedTwice": ["S1","S2","S3","S4"],
+        "language": "Hebrew right-to-left on the device; English on the boards only"
+      }
+    }
+  }
+}

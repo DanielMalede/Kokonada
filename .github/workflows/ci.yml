@@ -372,6 +372,72 @@ jobs:
             build
         working-directory: mobile/KokonadaHealth/ios
 
+  # Cheap Ubuntu job that decides whether the full-resolution never-red sweeps (UI-073) and E3's full
+  # ledger-storm grid (QA-068) must run, the same pattern as ios-changes. The sweeps take minutes,
+  # and the Actions budget is a P0 resource (see ios-changes), so they never run inside the
+  # always-run mobile job.
+  sweeps-changes:
+    name: Detect changes to the never-red sweeps' inputs
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # dorny/paths-filter resolves the changed-file set through listFiles(pull_number).
+      pull-requests: read
+    outputs:
+      sweeps: ${{ steps.filter.outputs.sweeps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # Every input that can change a sweep result: the token sources, the v2 colour, token,
+          # field, clock and motion code the sweeps load, both jest configs, the lockfile and this
+          # file. Pinned, with a check that it covers every file the sweep tests import
+          # (mobile/KokonadaHealth/scripts/jest/__tests__/jestProjects.test.ts).
+          filters: |
+            sweeps:
+              - 'design-tokens/**'
+              - 'mobile/KokonadaHealth/src/design/v2/color/**'
+              - 'mobile/KokonadaHealth/src/design/v2/tokens/**'
+              - 'mobile/KokonadaHealth/src/design/v2/field/**'
+              - 'mobile/KokonadaHealth/src/design/v2/clock/**'
+              - 'mobile/KokonadaHealth/src/design/v2/motion/**'
+              - 'mobile/KokonadaHealth/jest.sweeps.config.js'
+              - 'mobile/KokonadaHealth/jest.config.js'
+              - 'mobile/KokonadaHealth/package-lock.json'
+              - '.github/workflows/ci.yml'
+
+  # UI-073: QA-065 at full resolution (the sweeps project, jest.sweeps.config.js), one file per
+  # direction, two workers; with it, QA-068's E3 ledger storms on their full grid, one file per
+  # direction, E4's flash count, and (project sweeps-skia, CanvasKit from `npm ci`) the never-red
+  # scenes in real Skia. The default run keeps the coarse grids, which hid up to 0.004 of check-band chroma,
+  # so this job is the never-red check whenever its filter fires. Gated by `needs` + `if`, so an
+  # unrelated PR shows it as skipped, not as a silent green.
+  mobile-sweeps:
+    name: Mobile — never-red sweeps at full resolution
+    runs-on: ubuntu-24.04
+    # About twice the measured run: the sweeps took 319 s at two workers after the close-out (5.3 min,
+    # Abyss only), so about 11 min, plus checkout, setup-node and npm ci. A hung sweep stops here, not
+    # after the default six hours of Actions minutes.
+    timeout-minutes: 15
+    needs: sweeps-changes
+    if: needs.sweeps-changes.outputs.sweeps == 'true'
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: mobile/KokonadaHealth/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: mobile/KokonadaHealth
+      - name: Never-red sweeps at full resolution
+        run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2
+        working-directory: mobile/KokonadaHealth
+
   # The backend deploys via Railway's NATIVE GitHub integration: the service is
   # connected to this repo with Root Directory = /backend, branch = main, "auto-deploy
   # on push" + "wait for CI" enabled. Railway builds backend/Dockerfile itself once

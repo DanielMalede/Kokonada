@@ -174,12 +174,12 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
     ]);
     // Every job checks out, so every job needs `contents` named in any override it declares.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
       'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'secret-scan',
+      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
     ]);
 
     // Every job that touches the PR API is caught by the PR-API rule. secret-scan and
@@ -190,11 +190,13 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     // The macOS job no longer touches the PR API at all, which is why it drops out here.
     // `secret-scan` dropped out the same way: it runs the gitleaks CLI over a range taken from the
     // event payload (secretScanGates.test.js), not gitleaks-action, so it holds no PR scope.
+    // `sweeps-changes` is the same pattern as `ios-changes` for the full-resolution never-red sweeps
+    // (UI-073): its paths-filter gates `mobile-sweeps`, which itself never touches the PR API.
     const prApiJobs = ci.jobs
       .filter((j) => j.uses.some((u) => PR_API_ACTIONS.some((a) => a.match.test(u))))
       .map((j) => j.id)
       .sort();
-    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile']);
+    expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'sweeps-changes']);
   });
 
   it('reads every entry of the workflows directory, so none escapes these pins', () => {
@@ -329,7 +331,9 @@ describe('CI runner images (OPS-191)', () => {
       'ci.yml ios-changes',
       'ci.yml mobile',
       'ci.yml mobile-android-compile',
+      'ci.yml mobile-sweeps',
       'ci.yml secret-scan',
+      'ci.yml sweeps-changes',
       'coordination.yml coordination',
       'secret-scan-history.yml gitleaks-history',
     ]);
