@@ -186,13 +186,13 @@ describe('§2.4: the token graph states the law in force', () => {
    */
   const trials = (seed: number, count: number) => {
     const next = random(seed);
-    const IDS = NAMES.map((n) => NODE[n]);
+    const NODE_IDS = NAMES.map((n) => NODE[n]);
     return Array.from({ length: count }, (_, k) => {
       const colours = Array.from({ length: 6 }, () => oklchToOklab({ L: 0.3 + 0.6 * next(), C: 0.15 * next(), h: 360 * next() }));
-      const ids = Array.from({ length: 6 }, () => IDS[Math.floor(next() * IDS.length)]);
+      const ids = Array.from({ length: 6 }, () => NODE_IDS[Math.floor(next() * NODE_IDS.length)]);
       let e: number[];
       if (k % 3 === 0) {
-        const lead = [...IDS].sort(() => next() - 0.5).slice(0, 3);
+        const lead = [...NODE_IDS].sort(() => next() - 0.5).slice(0, 3);
         lead.forEach((id, i) => (ids[i] = id));
         e = [0.9 + 0.1 * next(), 0.9 + 0.1 * next(), 0.9 + 0.1 * next(), 0.02 * next(), 0.02 * next(), next() < 0.5 ? 0 : 0.02 * next()];
       } else {
