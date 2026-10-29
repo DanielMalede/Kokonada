@@ -1,9 +1,9 @@
-import { oklabToOklch } from '../../color/oklab.ts';
+import { oklabToOklch, oklchToOklab } from '../../color/oklab.ts';
 import { tierFor } from '../../tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE_TIER, buildFieldFrame } from '../fieldFrame.ts';
-import { NODE, ROUTED_EDGES, WAYPOINT_EDGES, isWaypoint } from '../fieldLaw.ts';
+import { NODE, ROUTED_EDGES, WAYPOINT_EDGES, isWaypoint, selectColour, tripleRatio } from '../fieldLaw.ts';
 import { staticsFor } from '../statics.ts';
 
 // The blend graph has one source: the tokens (designer §2.4, field.graph). The never-red sweeps read
@@ -92,15 +92,149 @@ describe('G9: each face draws the token’s node tier', () => {
 
 // The token graph's own statement of the law (designer §2.4, amended at D5b; TASKS UI-121): the text the
 // sweeps and the reviewers read must state the law the field draws, word for word where the designer
-// gave the words. Before D5b it still said "λ = 1000", a slot ranking and H = max (UI-121).
+// gave the words. Before D5b it still said "λ = 1000", a slot ranking and H = max (UI-121). Since L6′
+// (UI-137) it is the designer's Ruling 5, word for word, landed with the law it states.
+//   UI-138: a literal alone let a stale text pass (UI-137: the pre-UI-125 L5 stood beside L5′). So each
+// formula the text names is also held to the law: READING below is the text's selection clause by clause,
+// each piece keyed by the words it reads, and every key must stand in the token text; composed, the reading
+// must equal selectColour on random trials. A law change the text does not follow fails the reading; a text
+// change that drops or rewrites a clause fails its key. The text's former statement (UI-137's stale words)
+// and the text with only its β clause reverted are planted readings, and each must disagree with the law.
 describe('§2.4: the token graph states the law in force', () => {
-  const text = GRAPH as unknown as { selection: string; nodeColour: string; pixelK: string };
+  const text = GRAPH as unknown as { selection: string; nodeColour: string; pixelK: string; tripleFade: string };
 
-  it('selection: topTwoSoft over nodes, not slots, as the designer amended it', () => {
+  it('selection: the designer’s Ruling 5, word for word (L5′ and L6′)', () => {
     expect(text.selection).toBe(
-      'topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo\'s unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node\'s colour is the e-weighted mean of its slots\' colours, each slot\'s mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2); straight edges mix C1→C2 by t, waypoint edges C1→N12 by 2t; the pair fades to N̄ = (E-weighted mean L, 0, 0) by β = smoothstep(0, θ, w1/E1).',
+      'topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo\'s unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node\'s colour is the e-weighted mean of its slots\' colours, each slot\'s mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; d1 = E1 − E3, d2 = E2 − E3, w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0), so t\'s slope is 0 on both sides of E2 = E3; straight edges mix C1→C2 by t; waypoint edges mix C1→N12 by s(2t), s(x) = 1 − (1 − x)², N12 = ((L1 + L2)/2, 0, 0), so the mix meets N12 with slope 0 from both sides and never passes it; the pair fades to N̄ = (e-weighted mean L over the slots, 0, 0) by β = smoothstep(0, θ, r), r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3), symmetric in the three strongest nodes, so β\'s slope is continuous across both swaps; with no third node r ≥ 1.5 and β = 1, the pair bit for bit; a same-node merge equals one slot bit for bit where β = 1 and within 1e-12 where β < 1.',
     );
     expect(text.selection).not.toContain('1000');
+  });
+
+  it('tripleFade: θ is described as the fade on r, and the selection names r', () => {
+    expect(text.tripleFade).toBe('θ, the fade near the triple point, on r (selection)');
+    expect(text.selection).toContain('β = smoothstep(0, θ, r), r = ');
+  });
+
+  /** A colour as the text has it: (L, a, b). */
+  type Lab = { L: number; a: number; b: number };
+  const mix = (p: Lab, q: Lab, x: number): Lab => ({ L: p.L + (q.L - p.L) * x, a: p.a + (q.a - p.a) * x, b: p.b + (q.b - p.b) * x });
+  /** The standard smoothstep the text names. */
+  const smooth = (e0: number, e1: number, x: number) => {
+    const u = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
+    return u * u * (3 - 2 * u);
+  };
+  const tokenWaypointIds = (a: number, b: number, routed: boolean) => {
+    const name = (id: number) => NAMES.find((n) => NODE[n] === id) as Name;
+    return tokenWaypoint(name(a), name(b), routed);
+  };
+  /** Each formula the selection text names, keyed by its words in the text, and read as code. */
+  const READING = {
+    'E_n = Σ e_i': (e: readonly number[], ids: readonly number[], n: number) => e.reduce((s, x, i) => (ids[i] === n ? s + x : s), 0),
+    "a node's colour is the e-weighted mean of its slots' colours": (e: readonly number[], c: readonly Lab[], ids: readonly number[], n: number): Lab => {
+      const mine = e.map((x, i) => (ids[i] === n && x > 0 ? i : -1)).filter((i) => i >= 0);
+      const W = mine.reduce((s, i) => s + e[i], 0);
+      return mine.length === 1 ? c[mine[0]] : mine.reduce((m, i) => ({ L: m.L + (e[i] * c[i].L) / W, a: m.a + (e[i] * c[i].a) / W, b: m.b + (e[i] * c[i].b) / W }), { L: 0, a: 0, b: 0 });
+    },
+    'E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id': (E: readonly number[]) => [0, 1, 2, 3, 4].sort((a, b) => E[b] - E[a] || a - b),
+    'd1 = E1 − E3, d2 = E2 − E3': (E1: number, E2: number, E3: number) => [E1 - E3, E2 - E3] as const,
+    'w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0)': (d1: number, d2: number) => (d1 * d1 > 0 ? (d2 * d2) / (d1 * d1 + d2 * d2) : 0),
+    'straight edges mix C1→C2 by t': (C1: Lab, C2: Lab, t: number) => mix(C1, C2, t),
+    'waypoint edges mix C1→N12 by s(2t)': (C1: Lab, N12: Lab, t: number, s: (x: number) => number) => mix(C1, N12, s(2 * t)),
+    's(x) = 1 − (1 − x)²': (x: number) => 1 - (1 - x) * (1 - x),
+    'N12 = ((L1 + L2)/2, 0, 0)': (C1: Lab, C2: Lab): Lab => ({ L: (C1.L + C2.L) / 2, a: 0, b: 0 }),
+    'the pair fades to N̄ = (e-weighted mean L over the slots, 0, 0) by β': (P: Lab, e: readonly number[], c: readonly Lab[], beta: number): Lab =>
+      mix({ L: e.reduce((s, x, i) => s + x * c[i].L, 0) / e.reduce((s, x) => s + x, 0), a: 0, b: 0 }, P, beta),
+    'β = smoothstep(0, θ, r)': (theta: number, r: number) => smooth(0, theta, r),
+    'r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3)': (d1: number, d2: number, E1: number, E2: number, E3: number) => (3 * Math.sqrt(d1 * d1 - d1 * d2 + d2 * d2)) / (E1 + E2 + E3),
+  } as const;
+  type Clauses = typeof READING;
+  /** The selection as the text states it, composed from READING (or from a planted set of clauses). */
+  const textSelect = (R: Clauses, e: readonly number[], c: readonly Lab[], ids: readonly number[], routed: boolean, theta: number): Lab => {
+    const E = [0, 1, 2, 3, 4].map((n) => R['E_n = Σ e_i'](e, ids, n));
+    const C = [0, 1, 2, 3, 4].map((n) => R["a node's colour is the e-weighted mean of its slots' colours"](e, c, ids, n));
+    const [i1, i2, i3] = R['E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id'](E);
+    const [E1, E2, E3] = [E[i1], E[i2], E[i3]];
+    const [d1, d2] = R['d1 = E1 − E3, d2 = E2 − E3'](E1, E2, E3);
+    const t = R['w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0)'](d1, d2);
+    const P = tokenWaypointIds(i1, i2, routed)
+      ? R['waypoint edges mix C1→N12 by s(2t)'](C[i1], R['N12 = ((L1 + L2)/2, 0, 0)'](C[i1], C[i2]), t, R['s(x) = 1 − (1 − x)²'])
+      : R['straight edges mix C1→C2 by t'](C[i1], C[i2], t);
+    const beta = R['β = smoothstep(0, θ, r)'](theta, R['r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3)'](d1, d2, E1, E2, E3));
+    return R['the pair fades to N̄ = (e-weighted mean L over the slots, 0, 0) by β'](P, e, c, beta);
+  };
+  /** UI-137's stale text: w1 = E1 − E3, w2 = E2 − E3, waypoint C1→N12 by 2t, β = smoothstep(0, θ, w1/E1). */
+  const STALE: Clauses = {
+    ...READING,
+    'w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0)': (d1: number, d2: number) => (d1 > 0 ? d2 / (d1 + d2) : 0),
+    's(x) = 1 − (1 − x)²': (x: number) => x,
+    'r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3)': (d1: number, _d2: number, E1: number) => d1 / E1,
+  };
+  /** The text with only its β clause reverted (Ruling 5: "β = smoothstep(0, θ, (E1 − E3)/E1), on the linear ratio"). */
+  const RATIO_BETA: Clauses = { ...READING, 'r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3)': (d1: number, _d2: number, E1: number) => d1 / E1 };
+
+  /** A seeded generator (Park–Miller, exact in float64). */
+  const random = (seed: number) => {
+    let x = (seed % 2147483646) + 1;
+    return () => {
+      x = (16807 * x) % 2147483647;
+      return (x - 1) / 2147483646;
+    };
+  };
+  /**
+   * Trials that reach every clause: six slots, ids drawn with duplicates; in a third of them three distinct
+   * nodes lead within 10% of each other (inside the triple fade), the other slots small, any id.
+   */
+  const trials = (seed: number, count: number) => {
+    const next = random(seed);
+    const IDS = NAMES.map((n) => NODE[n]);
+    return Array.from({ length: count }, (_, k) => {
+      const colours = Array.from({ length: 6 }, () => oklchToOklab({ L: 0.3 + 0.6 * next(), C: 0.15 * next(), h: 360 * next() }));
+      const ids = Array.from({ length: 6 }, () => IDS[Math.floor(next() * IDS.length)]);
+      let e: number[];
+      if (k % 3 === 0) {
+        const lead = [...IDS].sort(() => next() - 0.5).slice(0, 3);
+        lead.forEach((id, i) => (ids[i] = id));
+        e = [0.9 + 0.1 * next(), 0.9 + 0.1 * next(), 0.9 + 0.1 * next(), 0.02 * next(), 0.02 * next(), next() < 0.5 ? 0 : 0.02 * next()];
+      } else {
+        e = Array.from({ length: 6 }, () => (next() < 0.25 ? 0 : next()));
+        if (!e.some((x) => x > 0)) e[0] = 1;
+      }
+      return { e, colours, ids, routed: next() < 0.5, theta: k % 2 === 0 ? BASE.field.graph.tripleFade : 0.25 };
+    });
+  };
+  const dE = (p: Lab, q: Lab) => Math.hypot(p.L - q.L, p.a - q.a, p.b - q.b);
+
+  it('UI-138: every formula the reading reads stands in the token text, word for word', () => {
+    const missing = Object.keys(READING).filter((words) => !text.selection.includes(words));
+    expect(missing).toEqual([]);
+  });
+
+  it('UI-138: the text, read clause by clause, is the law: within 1e-12 of selectColour on 3000 random trials', () => {
+    let worst = 0;
+    for (const { e, colours, ids, routed, theta } of trials(138, 3000)) {
+      worst = Math.max(worst, dE(textSelect(READING, e, colours, ids, routed, theta), selectColour(e, colours, ids, routed, theta)));
+    }
+    expect(worst).toBeLessThanOrEqual(1e-12);
+  });
+
+  it('UI-138: the r the text names is the law’s r, bit for bit; with no third node r ≥ 1.5 (less float’s 4ε), so β = 1', () => {
+    const next = random(1381);
+    for (let n = 0; n < 1000; n++) {
+      const [E1, E2, E3] = [next(), next(), next()].sort((a, b) => b - a);
+      expect(READING['r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3)'](E1 - E3, E2 - E3, E1, E2, E3)).toBe(tripleRatio(E1, E2, E3));
+      expect(tripleRatio(E1, E2, 0)).toBeGreaterThanOrEqual(1.5 - 4 * Number.EPSILON);
+    }
+  });
+
+  it.each([
+    ['UI-137’s stale text (linear w, the 2t leg, β on the ratio)', STALE],
+    ['the text with only its β clause reverted (β on the ratio)', RATIO_BETA],
+  ] as const)('planted: %s disagrees with the law', (_name, clauses) => {
+    let off = 0;
+    for (const { e, colours, ids, routed, theta } of trials(138, 3000)) {
+      if (dE(textSelect(clauses, e, colours, ids, routed, theta), selectColour(e, colours, ids, routed, theta)) > 1e-6) off++;
+    }
+    expect(off).toBeGreaterThan(100);
   });
 
   it('nodeColour: w from the node’s pooled halo', () => {
