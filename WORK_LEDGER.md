@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `BE-222` (TASKS)
-- title: Remove the dormant Garmin personal lane; move redact.js to backend/app/utils
-- branch: `chore/be222-remove-garmin-personal-lane`
-- paths: `backend/app/services/wearable/garminPersonal/**`, `backend/app/services/wearable/garminPersonalEnvelope.js`, `backend/app/utils/redact.js`, `backend/app/config/sentry.js`, `backend/.env.example`, `backend/app/services/wearable/adapter.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/wearable/garminIngest.js`, `backend/tests/fixtures/garminPersonal/blockEgress.js`, `backend/tests/fixtures/garminPersonal/bodyBattery.json`, `backend/tests/fixtures/garminPersonal/clock.js`, `backend/tests/fixtures/garminPersonal/dailyHeartRate.json`, `backend/tests/fixtures/garminPersonal/dailySleep.json`, `backend/tests/fixtures/garminPersonal/dailySleepSummaries.json`, `backend/tests/fixtures/garminPersonal/fakeGarminServer.js`, `backend/tests/fixtures/garminPersonal/healthApi.expected.json`, `backend/tests/fixtures/garminPersonal/hrv.json`, `backend/tests/fixtures/garminPersonal/sentinels.js`, `backend/tests/fixtures/redactSentinels.js`, `backend/tests/garminPersonalClient.test.js`, `backend/tests/garminPersonalEnvelope.test.js`, `backend/tests/garminPersonalEnvelopeHop.test.js`, `backend/tests/garminPersonalMapper.test.js`, `backend/tests/garminPersonalRatePolicy.test.js`, `backend/tests/garminPersonalRedaction.test.js`, `backend/tests/shadow.garminPersonalRedactionLinear.test.js`, `backend/tests/shadow.garminPersonalStopHoldsQueue.test.js`, `backend/tests/shadow.garminEnvelope.boundaries.test.js`, `backend/tests/redact.test.js`, `backend/tests/shadow.redactLinear.test.js`, `backend/tests/sentryScrub.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `TASKS.md`, `backend/tests/shadow.garminNightEndBounds.test.js`
+- task: `OPS-371` (TASKS)
+- title: chore: add backend/app/utils/redact.js to the security-auditor row J4 (OPS-371)
+- branch: `chore/ops371-redact-security-row`
+- paths: `CLAUDE.md`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-10-27
+- started: 2026-10-28
 
 ### M02
 - task: `own:v1-vision-frame` (own)
