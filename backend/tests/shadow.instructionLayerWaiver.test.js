@@ -128,7 +128,7 @@ describe('RA-11 · the guards on this class (a) text need class (a) to weaken', 
     expect(covered('J16', 'backend/tests/wave4.attributionGuard.test.js')).toBe(true);
     expect(covered('J8', 'CLAUDE.md')).toBe(true);
   });
-  test.each([['J8', 'backend/tests/instructionLayerWaiver.test.js'], ['J16', 'backend/tests/instructionLayerWaiver.test.js'], ['J8', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J16', 'backend/tests/shadow.instructionLayerWaiver.test.js']])('%s covers %s', (id, file) => { expect(covered(id, file)).toBe(true); });
+  test.each([['J8', 'backend/tests/instructionLayerWaiver.test.js'], ['J16', 'backend/tests/instructionLayerWaiver.test.js'], ['J8', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J16', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J4', 'backend/app/utils/redact.js']])('%s covers %s', (id, file) => { expect(covered(id, file)).toBe(true); });
   test.each(['J8', 'J16'])('%s names the two waiver tests with one glob that matches nothing else in backend/tests', (id) => {
     const testFiles = fs.readdirSync(path.join(REPO_ROOT, 'backend', 'tests'), { recursive: true }).map((f) => `backend/tests/${String(f).replace(/\\/g, '/')}`);
     const waiverGlobs = globs(id).filter((g) => matches(g, 'backend/tests/instructionLayerWaiver.test.js'));
