@@ -497,7 +497,7 @@ The linked page (answer/13996367) counts "Health and fitness apps" among health 
 | "Sleep" vs "Sleep sessions" drift | `VaultConsentPanel.tsx:24` vs `ConsentSheet.tsx:22` | Align both on "Sleep session", matching the OS sheet the user sees seconds later. |
 | Retention absent from shipped copy | `ConsentSheet.tsx` "How long we keep it" | Says only "minimised over time". Port the canvas facts (90 days / one year). |
 | History wording understates granted scope | canvas + shipped | `READ_HEALTH_DATA_HISTORY` grants the **entire** history; 182 days is our self-imposed window. Say both — it is also a trust win. |
-| Setup docs teach over-scoping | `native-snippets/AndroidManifest.additions.xml:14,15,19`, `SETUP_ANDROID.md:93` | Still declare SpO2, respiratory rate and background access. Anyone following the doc reintroduces three unjustified scopes and contradicts the filed declaration. Align or delete. |
+| Setup docs teach over-scoping | `native-snippets/AndroidManifest.additions.xml:14,15,19`, `SETUP_ANDROID.md:93 (deleted; see docs/ARCHIVE.md)` | Still declare SpO2, respiratory rate and background access. Anyone following the doc reintroduces three unjustified scopes and contradicts the filed declaration. Align or delete. |
 | iOS ships an Android-only CTA | `ConnectServicesScreen.tsx:145` | On iOS its only outcome is "Available on Android" — App Store 2.1 non-functional-feature territory. Gate or hide. |
 | "Google Health Connect" | `backend/app/services/wearable/healthStore.js:4` | Google never brands it that way. Cosmetic. |
 
