@@ -9,6 +9,7 @@ import {
   fieldOklab,
   inertNode,
   inertShadow,
+  outerEdgeCoverage,
   pixelTerms,
   ringEdgeCoverage,
   smoothstep,
@@ -159,16 +160,22 @@ describe('UI-114: the ring’s inner edge, continuous at one canvas pixel', () =
       for (const theta of ANGLES) expect(largestStep(f, LAW, theta)).toBeLessThan(0.1);
     });
 
-    it('away from the band the pixel is the face’s ground, or the ring’s, exactly', () => {
+    // Away from both bands: the outer edge's pixel at the rim (D6-1, β > 0) is ringOuterEdge.test.ts's.
+    it('away from the band the pixel is the face’s ground, or the ring’s, exactly (and the ring’s up to the outer band)', () => {
       const f = frame(face);
+      let ring = 0;
       for (const theta of ANGLES) {
         for (const s of ray(f, theta, 0, 1, 1 / 4)) {
           const { d } = at(f, s.x, s.y);
           const a = alphaOf(f, d);
           if (a === 0) expect(LAW(f, s.x, s.y)).toEqual(faceGround(f, d));
-          if (a === 1) expect(LAW(f, s.x, s.y)).toEqual(f.grounds.ring);
+          if (a === 1 && outerEdgeCoverage(d, f) === 0) {
+            ring++;
+            expect(LAW(f, s.x, s.y)).toEqual(f.grounds.ring);
+          }
         }
       }
+      expect(ring).toBeGreaterThan(4 * 20);
     });
 
     it('bites: the hard edge has no ramp and steps the whole difference; half and double widths miss one pixel', () => {
