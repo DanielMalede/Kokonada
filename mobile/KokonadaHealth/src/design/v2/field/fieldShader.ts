@@ -135,20 +135,28 @@ half4 main(float2 p) {
   float d = sqrt(q.x * q.x + q.y * q.y);
   float region = d < uGeom.w ? 0.0 : (d <= 1.0 ? 1.0 : (d < uGeom2.x ? 2.0 : 3.0));
 
+  // The ring's inner edge over one canvas pixel (law round 2, item 4, UI-114): the ring's coverage alpha,
+  // 0 or 1 exactly off that pixel. Inside the rim the inputs mix at alpha, in OKLab: the face's ground at
+  // d_f = min(d, ringInner) with its inner shadows read at q_f, the extent, and the grain's amplitude.
+  float alpha = clamp((d - uGeom.w) * uGeom.z + 0.5, 0.0, 1.0);
   float3 ground = uGroundOutside;
   float extent = uMask.x * (uGeom2.y > 0.0 ? sstep(uGeom2.x, uGeom2.x + uGeom2.y, d) : 1.0);
-  if (region == 0.0) {
-    float rho2 = (d / uGeom.w) * (d / uGeom.w);
-    ground = float3(uGroundFace.x * (1.0 + uFace.x * rho2) + uFace.y * (1.0 - rho2), uGroundFace.y, uGroundFace.z);
-    extent = uMask.y;
-  } else if (region == 1.0) {
-    ground = uGroundRing;
-    extent = uMask.z;
-  } else if (region == 2.0) {
-    extent = 0.0;
+  float grain = uNoise.y;
+  if (region < 1.5) {
+    float df = min(d, uGeom.w);
+    float2 qf = d > uGeom.w ? q * (uGeom.w / d) : q;
+    float rho2 = (df / uGeom.w) * (df / uGeom.w);
+    float3 face = float3(uGroundFace.x * (1.0 + uFace.x * rho2) + uFace.y * (1.0 - rho2), uGroundFace.y, uGroundFace.z);
+    face.x = face.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, qf, 0.0)`).join(' + ')}));
+    ground = (1.0 - alpha) * face + alpha * uGroundRing;
+    extent = (1.0 - alpha) * uMask.y + alpha * uMask.z;
+    grain = (1.0 - alpha) * uNoise.x + alpha * uNoise.y;
+  } else {
+    if (region == 2.0) { extent = 0.0; }
+    // The plate's outer shadows on the ground's L.
+    ground.x = ground.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, q, region)`).join(' + ')}));
   }
-  // The plate's shadows on the ground's L, and the quiet zones on the extent (gated: no value changes).
-  ground.x = ground.x * (1.0 - (${shadowSlots.map((k) => `shadowOne(uShadow${k}, q, region)`).join(' + ')}));
+  // The quiet zones on the extent (gated: no value changes).
   extent = extent > 0.0 ? extent * quiet(p) : 0.0;
 
   float2 qw = float2(
@@ -255,7 +263,6 @@ ${nodes.map((k) => `    float hn${k} = 0.0;\n    for (int n = 0; n < ${NODE_BINS
   float grainLevel = floor(float(noise.g) * 255.0 + 0.5);
   float ditherValue = (2.0 * (ditherLevel + 0.5)) / 256.0 - 1.0;
   float grainValue = (2.0 * (grainLevel + 0.5)) / 256.0 - 1.0;
-  float grain = region == 0.0 ? uNoise.x : uNoise.y;
   float L = ground.x + (colour.x - ground.x) * k + grain * grainValue + uNoise.z * ditherValue;
   float A = k * colour.y + share * ground.y;
   float B = k * colour.z + share * ground.z;

@@ -6,6 +6,10 @@
 //
 //   q          the pixel in plate units: R = 1 at the rim, y up;
 //   region     face (inside the label ring), ring, moat (field-free) or outside;
+//   edge       the ring's inner edge over one canvas pixel (UI-114): α = clamp((d − ringInner)·R_px + ½, 0, 1);
+//              inside the rim the inputs mix in OKLab: ground = mix(face ground at d_f = min(d, ringInner),
+//              its inner shadows at q_f, ring ground, α), extent = mix(mask.face, mask.ring, α), grain
+//              amplitude = mix(inside, ground, α); the halos are unchanged;
 //   warp       q' = q + W·(fbm(1.4q + orbit·(cos θ, sin θ)) − 0.5, fbm(1.4q + (5.2, 1.3) + orbit·(sin θ, cos θ)) − 0.5);
 //   lobes      ρ_i = r_i²/(|q' − c_i|² + κ·r_i²), the lobe with a core (κ = field.lobe.core), f_i = fade_i·ρ_i,
 //              m = smoothstep(0.55, 1.6, Σ f_i) (law round 2, designer L1);
@@ -219,9 +223,40 @@ export function groundAt(region: Region, d: number, frame: FieldFrame): Oklab {
   return region === 'ring' ? frame.grounds.ring : frame.grounds.outside;
 }
 
-function extentAt(region: Region, d: number, frame: FieldFrame): number {
-  if (region === 'face') return frame.mask.face;
-  if (region === 'ring') return frame.mask.ring;
+/**
+ * The ring's inner edge, anti-aliased (law round 2, item 4, UI-114): the ring's coverage
+ * α = clamp((d − ringInner)·radiusPx + ½, 0, 1), one field-canvas pixel wide and centred on ringInner, so
+ * radiusPx is the canvas's own (uGeom.z) and no uniform is added. Away from that pixel α is exactly 0
+ * or 1. The shader computes it in the same order (fieldShader.ts), and the never-red sweep reads it here.
+ */
+export function ringEdgeCoverage(d: number, frame: FieldFrame): number {
+  return Math.min(1, Math.max(0, (d - frame.ringInner) * frame.radiusPx + 0.5));
+}
+
+/** The edge's mix of a face input and a ring input: (1 − α)·face + α·ring, the face bit for bit at α = 0, the ring at α = 1. */
+export function edgeMix(face: number, ring: number, alpha: number): number {
+  return (1 - alpha) * face + alpha * ring;
+}
+
+/** edgeMix on each OKLab channel: the edge's grounds are mixed in OKLab, never in sRGB. */
+export function edgeMixOklab(face: Oklab, ring: Oklab, alpha: number): Oklab {
+  return { L: edgeMix(face.L, ring.L, alpha), a: edgeMix(face.a, ring.a, alpha), b: edgeMix(face.b, ring.b, alpha) };
+}
+
+/**
+ * The face's side of the edge at q (plate units, y up): the face ground at d_f = min(d, ringInner), its
+ * inner shadows read at q_f, q pulled in to d_f (designer §4), so inside the band ρ ≤ 1 and P ≤ P_max
+ * hold as they do on the face. Inside the face (d ≤ ringInner) it is the face's ground at q itself.
+ */
+export function faceGroundAt(frame: FieldFrame, qx: number, qy: number): Oklab {
+  const d = Math.sqrt(qx * qx + qy * qy);
+  const pull = d > frame.ringInner ? frame.ringInner / d : 1;
+  const local = groundAt('face', Math.min(d, frame.ringInner), frame);
+  return { L: local.L * shadowFactor(frame, 'face', qx * pull, qy * pull), a: local.a, b: local.b };
+}
+
+function extentAt(region: Region, d: number, frame: FieldFrame, alpha: number): number {
+  if (region === 'face' || region === 'ring') return edgeMix(frame.mask.face, frame.mask.ring, alpha);
   if (region === 'moat') return 0;
   return frame.mask.outside * (frame.moatFeather > 0 ? smoothstep(frame.moatOuter, frame.moatOuter + frame.moatFeather, d) : 1);
 }
@@ -377,6 +412,8 @@ export function nodeColour(node: FieldNodeFrame, h: number, kField: number, shim
  */
 export interface PixelTerms {
   readonly region: Region;
+  /** The ring's coverage α at the pixel (ringEdgeCoverage): 0 on the face, 1 on the ring and beyond the rim. */
+  readonly coverage: number;
   readonly ground: Oklab;
   readonly kField: number;
   readonly k: number;
@@ -449,8 +486,16 @@ export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms 
   const qy = -(y - frame.centrePx[1]) / frame.radiusPx;
   const d = Math.sqrt(qx * qx + qy * qy);
   const region = regionOf(d, frame);
-  const local = groundAt(region, d, frame);
-  const ground = { L: local.L * shadowFactor(frame, region, qx, qy), a: local.a, b: local.b };
+  // Inside the rim the ground is the edge's mix of the face's side and the ring's, at the ring's coverage
+  // (UI-114): the face's ground bit for bit where α = 0, the ring's where α = 1. Beyond it, as before.
+  const coverage = d <= 1 ? ringEdgeCoverage(d, frame) : 1;
+  let ground: Oklab;
+  if (d <= 1) {
+    ground = edgeMixOklab(faceGroundAt(frame, qx, qy), frame.grounds.ring, coverage);
+  } else {
+    const local = groundAt(region, d, frame);
+    ground = { L: local.L * shadowFactor(frame, region, qx, qy), a: local.a, b: local.b };
+  }
 
   const w = frame.warp;
   const wx = qx + w.amount * (fbm(1.4 * qx + w.orbit * w.cos, 1.4 * qy + w.orbit * w.sin, w.octaves) - 0.5);
@@ -483,7 +528,7 @@ export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms 
   }
   // The halos add, up to the peak (designer L2): two halves of one halo draw the whole halo.
   const H = Math.min(frame.haloPeak, hSum);
-  const regionExtent = extentAt(region, d, frame);
+  const regionExtent = extentAt(region, d, frame, coverage);
   const extent = regionExtent > 0 ? regionExtent * quietFactor(frame, x, y) : 0;
   const kFieldHere = frame.kField * smoothstep(0.55, 1.6, fSum) * extent;
   const k = Math.min(Math.max(kFieldHere, H), frame.kMax);
@@ -492,7 +537,7 @@ export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms 
   // each node's fade (designer L3), so a fading node hands its colour over across its fade.
   const e = frame.nodes.map((node, i) => node.fade * (extent * rho[i] + frame.lambda * eta[i]));
   const halos = pooledHalos(h, frame.nodes.map((node) => node.id), frame.haloPeak);
-  return { region, ground, kField: kFieldHere, k, e, h, halos };
+  return { region, coverage, ground, kField: kFieldHere, k, e, h, halos };
 }
 
 /**
@@ -509,7 +554,8 @@ export function compositePixel(frame: FieldFrame, terms: PixelTerms, colour: Okl
   const share = (1 - k) * (frame.kp > 0 ? 1 - smoothstep(0, frame.kp, k) : 1);
   const px = Math.floor(x);
   const py = Math.floor(y);
-  const grain = terms.region === 'face' ? frame.grain.inside : frame.grain.ground;
+  // The grain's amplitude is an input too: inside on the face, ground on the ring and beyond, mixed at α (UI-114).
+  const grain = edgeMix(frame.grain.inside, frame.grain.ground, terms.coverage);
   return {
     L: ground.L + (colour.L - ground.L) * k + grain * blueNoiseValue('grain', px, py) + frame.dither * blueNoiseValue('dither', px, py),
     a: k * colour.a + share * ground.a,
