@@ -1,7 +1,7 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldState, type Placement } from '../fieldFrame.ts';
-import { NODE, fieldOklab, nodeColour, regionOf, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
+import { NODE, fieldOklab, nodeColour, regionOf, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame } from '../fieldLaw.ts';
 import { staticsFor } from '../statics.ts';
 
 // Designer 2.1 (node colour, corrected), with the critic's clause (accepted):
@@ -64,7 +64,10 @@ function steadyPixels(frame: FieldFrame): Array<{ x: number; y: number; nearest:
         const qy = -(y - frame.centrePx[1]) / frame.radiusPx;
         const d = Math.hypot(qx, qy);
         const region = regionOf(d, frame);
-        const absent = region === 'moat' || (region === 'ring' && frame.mask.ring === 0) || (region === 'face' && frame.mask.face === 0);
+        // Inside the rim the extent is the edge's mix at the ring's coverage (UI-114): the field reaches into the
+        // ring's first half pixel wherever the face takes it.
+        const alpha = ringEdgeCoverage(Math.sqrt(qx * qx + qy * qy), frame);
+        const absent = d <= 1 ? (1 - alpha) * frame.mask.face + alpha * frame.mask.ring === 0 : region === 'moat';
         const distances = beads.map((n) => Math.hypot(qx - n.bead![0], qy - n.bead![1]));
         const lit = d <= 1 && Math.min(...distances) < frame.haloRadius;
         if (absent && lit) out.push({ x, y, nearest: beads[distances.indexOf(Math.min(...distances))].id });

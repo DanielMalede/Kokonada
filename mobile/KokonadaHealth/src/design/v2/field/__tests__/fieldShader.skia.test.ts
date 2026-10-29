@@ -5,7 +5,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, NODE_SLOTS, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, quietFactor, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, encodeSrgb8, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, quietFactor, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
@@ -399,6 +399,145 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
   });
 });
 
+// Law round 2, item 4 (designer §4, resilience §(c), UI-114): the ring's inner edge in real Skia. The ramp
+// is one field-canvas pixel, α = clamp((d − ringInner)·R + ½, 0, 1) with R = uGeom.z, so it is one render
+// pixel at every tier: the edge views take R at renderScale 0.5 and 0.33 (the largest plate, 2.625 px/dp).
+describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, in real Skia', () => {
+  const GREY_FACE: Oklab = { L: 0.25, a: 0, b: 0 };
+  const GREY_RING: Oklab = { L: 0.9, a: 0, b: 0 };
+  const radiusAt = (renderScale: number) => (BASE.plate.maxDiameter / 2) * 2.625 * renderScale;
+  const SCALES = [BASE.field.tiers.full.renderScale, BASE.field.tiers.low.renderScale];
+  /** A 64×64 view centred on the edge at angle θ, on neutral grounds (the moat and beyond as the ring), no field, grain or dither. */
+  const edgeView = (R: number, theta: number, overrides: Partial<FieldFrame> = {}): FieldFrame => {
+    const base = frameFor('abyss', 'dark', [], { radiusPx: R, vignette: 0, centreLift: 0, grain: { inside: 0, ground: 0 }, dither: 0 });
+    const ri = base.ringInner;
+    return { ...base, centrePx: [32 - ri * R * Math.cos(theta), 32 + ri * R * Math.sin(theta)], grounds: { outside: GREY_RING, face: GREY_FACE, ring: GREY_RING }, ...overrides };
+  };
+  const alphaAt = (f: FieldFrame, x: number, y: number) => {
+    const qx = (x + 0.5 - f.centrePx[0]) / f.radiusPx;
+    const qy = -(y + 0.5 - f.centrePx[1]) / f.radiusPx;
+    return ringEdgeCoverage(Math.sqrt(qx * qx + qy * qy), f);
+  };
+  /** The OKLab L of a neutral grey whose sRGB channel is v (0..255, fractional allowed), by bisection on the law's own encode. */
+  const greyL = (v: number) => {
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (oklabToSrgb({ L: mid, a: 0, b: 0 })[0] * 255 < v) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  };
+  const recovered = (v: number) => (greyL(v) - GREY_FACE.L) / (GREY_RING.L - GREY_FACE.L);
+  /** How far 1.5 bytes (half a byte of rounding, one of the shader's ±1) move the recovered coverage at v. */
+  const tolerance = (v: number) => (recovered(Math.min(255, v + 1.5)) - recovered(Math.max(0, v - 1.5))) / 2;
+
+  /** Every row and every column the edge crosses (a pixel at α = 0 and one at α = 1), as its pixels' α. */
+  const crossings = (f: FieldFrame) => {
+    const lines: number[][] = [];
+    for (let i = 0; i < W; i++) {
+      const row = Array.from({ length: W }, (_, x) => alphaAt(f, x, i));
+      const column = Array.from({ length: H }, (_, y) => alphaAt(f, i, y));
+      for (const line of [row, column]) if (line.includes(0) && line.includes(1)) lines.push(line);
+    }
+    return lines;
+  };
+
+  const planted = (find: RegExp, replace: string): SkRuntimeEffect => {
+    expect(FIELD_SKSL).toMatch(find);
+    const made = Skia.RuntimeEffect.Make(FIELD_SKSL.replace(find, replace));
+    if (!made) throw new Error('the planted shader did not compile');
+    return made;
+  };
+  const ALPHA_LINE = /float alpha = clamp\(\(d - uGeom\.w\) \* uGeom\.z \+ 0\.5, 0\.0, 1\.0\);/;
+  const VIEWS = SCALES.flatMap((s) => [0.35, 1.2].map((theta) => [s, theta] as const));
+
+  it.each(VIEWS)('renderScale %s, the edge at %s rad: every row and column it crosses has a pixel at 0 < α < 1 in the law', (scale, theta) => {
+    const f = edgeView(radiusAt(scale), theta);
+    const lines = crossings(f);
+    expect(lines.length).toBeGreaterThan(40);
+    expect(lines.filter((line) => !line.some((a) => a > 0 && a < 1))).toEqual([]);
+  });
+
+  it.each(VIEWS)('renderScale %s, the edge at %s rad: the rendered coverage is the law’s within 1.5 bytes, and the pixels agree ±1 LSB', (scale, theta) => {
+    const f = edgeView(radiusAt(scale), theta);
+    const pixels = render(f);
+    const [faceByte, ringByte] = [encodeSrgb8(GREY_FACE)[0], encodeSrgb8(GREY_RING)[0]];
+    let band = 0;
+    let between = 0;
+    const off: string[] = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const a = alphaAt(f, x, y);
+        const v = rgbAt(pixels, x, y)[0];
+        if (a > 0 && a < 1) band++;
+        if (v > faceByte && v < ringByte) between++;
+        if (Math.abs(recovered(v) - a) > tolerance(v)) off.push(`(${x}, ${y}) α ${a.toFixed(3)} drawn ${recovered(v).toFixed(3)}`);
+      }
+    }
+    expect(band).toBeGreaterThan(40);
+    expect(between).toBeGreaterThan(0.9 * band);
+    expect(off).toEqual([]);
+    expect(worstDisagreement(f, pixels).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(SCALES)('bites: at renderScale %s the binary region and a half-pixel ramp draw coverage the law does not', (scale) => {
+    const f = edgeView(radiusAt(scale), 0.35);
+    const plants = [
+      planted(ALPHA_LINE, 'float alpha = d < uGeom.w ? 0.0 : 1.0;'),
+      planted(ALPHA_LINE, 'float alpha = clamp((d - uGeom.w) * uGeom.z * 2.0 + 0.5, 0.0, 1.0);'),
+    ];
+    for (const plant of plants) {
+      const pixels = render(f, plant);
+      let off = 0;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const v = rgbAt(pixels, x, y)[0];
+          if (Math.abs(recovered(v) - alphaAt(f, x, y)) > tolerance(v)) off++;
+        }
+      }
+      expect(off).toBeGreaterThan(10);
+    }
+  });
+
+  // The field, two halos, grain and dither over the band, on Abyss's own grounds, with an inner shadow:
+  // the shader mixes every input at α as the law does, on both faces.
+  const SHADOW = { offset: -0.04, blur: 0.08, strength: 0.4, mode: -1 };
+  const lit = (face: Face, R: number) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const ri = 1 - 28 / 150;
+    const edge: [number, number] = [ri * Math.cos(1.2), ri * Math.sin(1.2)];
+    return frameFor('abyss', face, [bead(NODE.I, 'intense', face, [edge[0] + 0.03, edge[1] + 0.04], r), bead(NODE.C, 'calm', face, [edge[0] - 0.2, edge[1] - 0.2], 2)], {
+      radiusPx: R,
+      centrePx: [32 - edge[0] * R, 32 + edge[1] * R],
+      shadows: [SHADOW, inertShadow()],
+      grain: { inside: 0.03, ground: 0.004 },
+    });
+  };
+
+  it.each((['dark', 'light'] as Face[]).flatMap((face) => [24, radiusAt(0.5)].map((R) => [face, R] as const)))(
+    'abyss, %s face, R %s px: the band under the field, two halos, grain and an inner shadow agree ±1 LSB',
+    (face, R) => {
+      const f = lit(face, R);
+      expect(crossings(f).length).toBeGreaterThan(20);
+      expect(worstDisagreement(f, render(f)).delta).toBeLessThanOrEqual(1);
+    },
+  );
+
+  it.each(['dark', 'light'] as Face[])('bites: abyss, %s face, α on the colour but a binary extent, or the shadow read at q, breaks agreement', (face) => {
+    // A light neutral face and a strong shadow, so that the shadow's misreading shows above one LSB on both faces
+    // (on Abyss's dark face, L near 0.12, it stays below one).
+    const base = lit(face, 24);
+    const f = { ...base, grounds: { ...base.grounds, face: { L: 0.85, a: 0, b: 0 } }, shadows: [{ ...SHADOW, strength: 0.8 }, inertShadow()] };
+    expect(worstDisagreement(f, render(f)).delta).toBeLessThanOrEqual(1);
+    const binaryExtent = planted(/extent = \(1\.0 - alpha\) \* uMask\.y \+ alpha \* uMask\.z;/, 'extent = d < uGeom.w ? uMask.y : uMask.z;');
+    const shadowAtQ = planted(/float2 qf = d > uGeom\.w \? q \* \(uGeom\.w \/ d\) : q;/, 'float2 qf = q;');
+    expect(worstDisagreement(f, render(f, binaryExtent)).delta).toBeGreaterThan(1);
+    expect(worstDisagreement(f, render(f, shadowAtQ)).delta).toBeGreaterThan(1);
+  });
+});
+
 describe('what the shader’s pixels show', () => {
   it.each([['dark'], ['light']] as Array<[Face]>)('an anchor composited over itself renders as its token hex ±1 (%s face)', (face) => {
     for (const q of ['joy', 'calm', 'reflective', 'intense'] as const) {
@@ -545,7 +684,10 @@ describe('what the shader’s pixels show', () => {
           const qy = -(y + 0.5 - a.centrePx[1]) / R;
           const d = Math.hypot(qx, qy);
           const region = d < a.ringInner ? 'face' : d <= 1 ? 'ring' : d < a.moatOuter ? 'moat' : 'outside';
-          const maskOf = { face: a.mask.face, ring: a.mask.ring, moat: 0, outside: a.mask.outside }[region];
+          // Inside the rim the extent is the edge's mix at the ring's coverage (UI-114): the field reaches into
+          // the ring's first half pixel wherever the face takes it.
+          const alpha = ringEdgeCoverage(Math.sqrt(qx * qx + qy * qy), a);
+          const maskOf = d <= 1 ? (1 - alpha) * a.mask.face + alpha * a.mask.ring : region === 'moat' ? 0 : a.mask.outside;
           if (maskOf !== 0) continue;
           fieldFree++;
           if (d <= 1 && a.nodes.some((n) => n.bead && Math.hypot(qx - n.bead[0], qy - n.bead[1]) < a.haloRadius)) lit++;

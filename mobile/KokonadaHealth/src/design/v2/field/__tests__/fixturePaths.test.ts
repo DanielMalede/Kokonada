@@ -366,12 +366,18 @@ describe('a planted quiet rect on the fixture paths: nothing the field does reac
         const qy = -(py - f.centrePx[1]) / f.radiusPx;
         const d = Math.sqrt(qx * qx + qy * qy);
         const region = regionOf(d, f);
-        const g = groundAt(region, d, f);
-        const grain = region === 'face' ? f.grain.inside : f.grain.ground;
-        const factor = shadowFactor(f, region, qx, qy);
-        if (factor !== 1) shadowed++;
+        // Inside the rim the ground is the edge's mix (UI-114): the face's ground at d_f = min(d, ringInner),
+        // its inner shadow read at q pulled in to d_f, and the ring's, at α; the grain's amplitude likewise.
+        const alpha = d <= 1 ? Math.min(1, Math.max(0, (d - f.ringInner) * f.radiusPx + 0.5)) : 1;
+        const pull = d <= 1 && d > f.ringInner ? f.ringInner / d : 1;
+        const side = d <= 1 ? groundAt('face', Math.min(d, f.ringInner), f) : groundAt(region, d, f);
+        const factor = shadowFactor(f, d <= 1 ? 'face' : region, qx * pull, qy * pull);
+        const shadedL = side.L * factor;
+        const g = d <= 1 ? { L: (1 - alpha) * shadedL + alpha * f.grounds.ring.L, a: (1 - alpha) * side.a + alpha * f.grounds.ring.a, b: (1 - alpha) * side.b + alpha * f.grounds.ring.b } : { ...side, L: shadedL };
+        const grain = (1 - alpha) * f.grain.inside + alpha * f.grain.ground;
+        if (factor !== 1 && (d > 1 || alpha < 1)) shadowed++;
         expect([first.a, first.b]).toEqual([g.a, g.b]);
-        expect(first.L).toBeCloseTo(g.L * factor + grain * blueNoiseValue('grain', x, y) + f.dither * blueNoiseValue('dither', x, y), 14);
+        expect(first.L).toBeCloseTo(g.L + grain * blueNoiseValue('grain', x, y) + f.dither * blueNoiseValue('dither', x, y), 14);
       }
     }
     expect(inside).toBeGreaterThan(100);
