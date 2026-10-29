@@ -98,12 +98,12 @@ _free_
 
 ### M05
 - task: `OPS-230` (TASKS)
-- title: remove DAN-053 from Next up (the owner's words); record #277's post-merge findings on OPS-230, OPS-345 and OPS-288
-- branch: `docs/ops230-nextup-dan053`
-- paths: `TASKS.md`
+- title: record merge-guard's findings from #282 on OPS-230, OPS-374 and OPS-288, a row for a conditional owner approval in step 8g; release M05 and OPS-230's claim line (OPS-230)
+- branch: `docs/ops230-mg282-findings`
+- paths: `TASKS.md`, `WORK_LEDGER.md`
 - resources: none
-- state: in-review · PR #282
-- started: 2026-10-28
+- state: claimed
+- started: 2026-10-29
 
 ### M06
 - task: `own:ops201-merge-guard-sweeps-skip` (own)
