@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: '39fbff20b9d5b7fbfc0dd8068efbe38899c9a2edfc2c27acc29c6e9c0a977141',
+  base: '99d03be074c0518e479044e44557f0e89f119cc1438a7a2acb7de58f25cfde04',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
@@ -192,7 +192,8 @@ export const EXTENSIONS = {
       },
       restIntenseRule: 'R0-I is a waypoint edge when field.graph.restIntenseRoute is "waypoint", and a straight edge when it is "straight"',
       waypoint: 'N = (lerp(L_a, L_b, 0.5), 0, 0): two straight OKLab segments a→N→b',
-      selection: 'topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo\'s unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node\'s colour is the e-weighted mean of its slots\' colours, each slot\'s mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; w1 = E1 − E3, w2 = E2 − E3, t = w2/(w1 + w2); straight edges mix C1→C2 by t, waypoint edges C1→N12 by 2t; the pair fades to N̄ = (E-weighted mean L, 0, 0) by β = smoothstep(0, θ, w1/E1).',
+      selection: 'topTwoSoft over nodes, not slots: e_i = fade_i·(extent·ρ_i + λ·η_i), ρ_i = r_i²/(|q′ − c_i|² + κr_i²), η_i the halo\'s unfaded shape over its peak; each node n (J, C, R, I, R0) pools its slots: E_n = Σ e_i, H_n = min(peak, Σ h_i), and a node\'s colour is the e-weighted mean of its slots\' colours, each slot\'s mark weight read from H_n; E1 ≥ E2 ≥ E3 over the nodes, ties to the lower id; d1 = E1 − E3, d2 = E2 − E3, w1 = d1², w2 = d2², t = w2/(w1 + w2) (0 where w1 = 0), so t\'s slope is 0 on both sides of E2 = E3; straight edges mix C1→C2 by t; waypoint edges mix C1→N12 by s(2t), s(x) = 1 − (1 − x)², N12 = ((L1 + L2)/2, 0, 0), so the mix meets N12 with slope 0 from both sides and never passes it; the pair fades to N̄ = (e-weighted mean L over the slots, 0, 0) by β = smoothstep(0, θ, r), r = 3·√(d1² − d1·d2 + d2²)/(E1 + E2 + E3), symmetric in the three strongest nodes, so β\'s slope is continuous across both swaps; with no third node r ≥ 1.5 and β = 1, the pair bit for bit; a same-node merge equals one slot bit for bit where β = 1 and within 1e-12 where β < 1.',
+      tripleFade: 'θ, the fade near the triple point, on r (selection)',
       nodeColour: 'A bead slot\'s colour is mix(its field colour turned by the shimmer, its steady halo colour, w): w = smoothstep(−0.05, 0, H_n − k_field), H_n the node\'s pooled halo. A rest lobe\'s colour is its turned field colour. Selection weights are e_i = fade_i·(extent·ρ_i + λ·η_i). So wherever the field is absent (extent = 0: the ring and moat in every direction, and a face or ground a direction\'s mask leaves empty), a pixel depends only on the halos and is identical across t, s, c and the shimmer.',
       sameNode: 'straight: two beads of one quadrant differ only in chroma',
       groundComposite: 'every node, and N, to the local ground (ground / plate.face / plate.ring), with pivot kp',

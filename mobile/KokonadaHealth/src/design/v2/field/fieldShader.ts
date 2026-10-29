@@ -237,8 +237,10 @@ ${nodes.map((k) => `    float hn${k} = 0.0;\n    for (int n = 0; n < ${NODE_BINS
     } else {
       pair = float3(c1.x + (c2.x - c1.x) * t, c1.y + (c2.y - c1.y) * t, c1.z + (c2.z - c1.z) * t);
     }
-    // Near the triple point the pair fades to the e-weighted neutral over every slot (L6).
-    float beta = sstep(0.0, uSelect.w, d1 / e1);
+    // Near the triple point the pair fades to the e-weighted neutral over every slot, by β on r, symmetric
+    // in the three strongest (L6′ at UI-139; tripleRatio in fieldLaw.ts, the same order).
+    float r = 3.0 * sqrt(d1 * d1 - d1 * d2 + d2 * d2) / (e1 + e2 + e3);
+    float beta = sstep(0.0, uSelect.w, r);
     // N̄ is summed over the slots, in the law's order (equal to the node sum).
     float eSum = 0.0;
     float eL = 0.0;
