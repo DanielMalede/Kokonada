@@ -3,7 +3,8 @@
 // Two kinds:
 //   • fieldSweepFor: the blend graph composited over every local ground the field or a halo lands
 //     on (blendSpace.ts), including each ground the plate's shadows darken or lift, at P 0.5 and 1,
-//     and the face under its vignette and centre lift (faceShadingGrounds).
+//     and the face under its vignette and centre lift (faceShadingGrounds); and ringEdgeSweepFor, the
+//     same over the ring's anti-aliased inner edge, the law's OKLab mixes of face and ring (UI-114).
 //   • edgeFamiliesFor: every pair of colours that meet at an anti-aliased edge, a stroke, a shadow
 //     tail or a gradient, blended in sRGB as Skia draws them (edgeSweep.ts). Each family reports its
 //     exact largest in-band chroma in float (design band) and on 8-bit pixels (check band).
@@ -18,6 +19,7 @@ import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
 import { ditherReachable, type RedBand } from '../color/redBand.ts';
 import { sweepOklabToSrgb } from '../color/sweepConvert.ts';
+import { edgeMixOklab } from '../field/fieldLaw.ts';
 import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from './tokens.generated.ts';
 
 export interface GraphEdges {
@@ -106,6 +108,46 @@ export function faceShadingGrounds(id: DirectionId, face: Face): Record<string, 
     if (L !== g.L) out[`face ρ² ${i / n}`] = { L, a: g.a, b: g.b };
   }
   return out;
+}
+
+/** The ring edge's α steps per unit (UI-114): every 0.1 by default, every 0.02 in the sweeps project. */
+const RING_EDGE_STEPS: Record<SweepResolution, number> = { coarse: 10, full: 50 };
+
+/**
+ * The ring's anti-aliased inner edge (law round 2, item 4, designer §4 (a), UI-114): the law mixes the
+ * face's ground at d_f = ringInner (ρ = 1: the vignette in full, the lift's 1 − ρ² at 0) and the ring's,
+ * in OKLab, at the ring's coverage α (fieldLaw.ts edgeMixOklab, the same function). One ground per α
+ * strictly inside (0, 1); α 0 and 1 are the face at ρ = 1 and the ring, which the field sweep already
+ * takes. The face's side never darkens past ρ = 1 inside the band, and within one canvas pixel of the
+ * edge it differs from ρ = 1 by far less than the sweep's L amplitude (neverRed.field.test.ts reaches
+ * every band pixel from these grounds). The inner shadows' product with the edge belongs to the certified
+ * sampler (law round 2, D8), as for the face's shading, and the UI-096 tripwire keeps every shadow at 0.
+ */
+export function ringEdgeGrounds(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse'): Record<string, Oklab> {
+  const d = DIRECTIONS[id];
+  const g = lab(d.color[face].plate.face);
+  const faceEdge = { L: g.L * (1 + d.plate.face.vignette[face]), a: g.a, b: g.b };
+  const ring = lab(d.color[face].plate.ring);
+  const n = RING_EDGE_STEPS[resolution];
+  const out: Record<string, Oklab> = {};
+  for (let i = 1; i < n; i++) out[`face·ring α ${i / n}`] = edgeMixOklab(faceEdge, ring, i / n);
+  return out;
+}
+
+/**
+ * The field sweep over the ring edge's grounds (designer §4 (a)): the same graph, k range, pivot,
+ * shimmer, bands and dither as fieldSweepFor, over ringEdgeGrounds at the resolution. Its grid is the
+ * default field grid at both resolutions: the float pass there is already the full one (k 0.01,
+ * shimmer 1°); the full 8-bit grid would cost about a minute per ground (dark), 49 grounds in full.
+ */
+export function ringEdgeSweepFor(
+  id: DirectionId,
+  face: Face,
+  graphEdges: GraphEdges,
+  edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> },
+  resolution: SweepResolution = 'coarse',
+): NeverRedSweep {
+  return { ...fieldSweepFor(id, face, graphEdges, edges), grounds: ringEdgeGrounds(id, face, resolution) };
 }
 
 export function fieldSweepFor(
@@ -299,7 +341,13 @@ export function plateShadowGrounds(id: DirectionId, face: Face): { readonly face
   return out;
 }
 
-export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse', grounds = plateShadowGrounds(id, face)): EdgeFamilyMax[] {
+export function edgeFamiliesFor(
+  id: DirectionId,
+  face: Face,
+  resolution: SweepResolution = 'coarse',
+  grounds = plateShadowGrounds(id, face),
+  ringEdge: Record<string, Oklab> = ringEdgeGrounds(id, face, resolution),
+): EdgeFamilyMax[] {
   const d = DIRECTIONS[id];
   const c = d.color[face];
   const tier = tierFor(face);
@@ -343,18 +391,22 @@ export function edgeFamiliesFor(id: DirectionId, face: Face, resolution: SweepRe
   const faceGrounds = Object.values(grounds.face);
   const groundGrounds = Object.values(grounds.ground);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
-  const ringFloat = shifted(lit(ring, anchors, haloPeak(face), [0], floatKStep));
-  const ringBytes = quantised(byteShifted(lit(ring, anchors, haloPeak(face), [0], byteKStep)));
-  const faceFloat = shifted(faceGrounds.flatMap((faceGround) => [
-    ...lit(faceGround, anchors, haloPeak(face), [0], floatKStep),
-    ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, floatKStep) : []),
-  ]));
-  const faceBytes = quantised(
-    byteShifted(faceGrounds.flatMap((faceGround) => [
-      ...lit(faceGround, anchors, haloPeak(face), [0], byteKStep),
-      ...(d.field.mask.face > 0 ? lit(faceGround, fieldNodes, d.field.cap[face], shimmers, byteKStep) : []),
-    ])),
-  );
+  // A face-side surface: lit by the halos, and by the field where the face's mask lets it in.
+  const faceLit = (surfaces: Oklab[], kStep: number): Oklab[] =>
+    surfaces.flatMap((ground) => [
+      ...lit(ground, anchors, haloPeak(face), [0], kStep),
+      ...(d.field.mask.face > 0 ? lit(ground, fieldNodes, d.field.cap[face], shimmers, kStep) : []),
+    ]);
+  // The ring edge's band (designer §4 (b), UI-114): its mixed grounds join the backgrounds of every
+  // face-lit and ring-halo family, each lit as the family lights its own ground: the ring-halo surfaces by
+  // the halos, the face-lit ones by the halos and the field, which reaches the band with the face's mask,
+  // (1 − α)·mask.face. The inks a bead brings into the band (its setting and shadow) are in both.
+  const bandGrounds = Object.values(ringEdge);
+  const ringLit = (surfaces: Oklab[], kStep: number): Oklab[] => surfaces.flatMap((ground) => lit(ground, anchors, haloPeak(face), [0], kStep));
+  const ringFloat = shifted(ringLit([ring, ...bandGrounds], floatKStep));
+  const ringBytes = quantised(byteShifted(ringLit([ring, ...bandGrounds], byteKStep)));
+  const faceFloat = shifted(faceLit([...faceGrounds, ...bandGrounds], floatKStep));
+  const faceBytes = quantised(byteShifted(faceLit([...faceGrounds, ...bandGrounds], byteKStep)));
 
   const shadows: Ink[] = [{ colour: c.bead.shadow, coverage: c.bead.shadow.alpha }];
   const levels = ['none', 'e1', 'e2', 'raised', 'recessed'] as const;
