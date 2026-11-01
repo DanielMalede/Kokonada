@@ -1,0 +1,22 @@
+{
+  "ruling": "UI-160",
+  "inputs": {
+    "sha256": "0f8f5870c967f7c96de956ff2f9d097042a1ce788453c8108ce433960d7e97f1",
+    "tokens": "fcf98a7bcad29a2bc13687d980875be5cd67c9c1faae945fd019f2ed1f07197a",
+    "files": {
+      "scripts/field/bandEvidence.mts": "3bf614b696f2b12c9cbbc51d06c15a109d93bb32a2c920e25adc9e7a24ea6f42",
+      "src/design/v2/color/blendSpace.ts": "176eaa8fdae0bb884b5301e52cdc9645bedbf81bb4f024d0d0f0a9d682ae849c",
+      "src/design/v2/color/edgeSweep.ts": "df48d7b3864b22b0f0ac6b7265595b3a172c70f95e583e514f166376211c7df0",
+      "src/design/v2/color/mixSafe.ts": "1fc8759d3d1a4dd1c851a3afbdf53b96f841d902089dbff7f8cdf60fa2335bf6",
+      "src/design/v2/color/oklab.ts": "e7056f22b1b3164322cc189cc16c8536d149a5832c826dcfdf4d53656551c2ae",
+      "src/design/v2/color/redBand.ts": "2d020919c1da4dc7dc57b14d11b3d730d4d625320f5a02900af354412d9a5a2e",
+      "src/design/v2/color/sweepConvert.ts": "1f6cf13d7420e6444783de4ae0c5cd1533fc0a3beb0ac8a6083ff4cbab97cab4",
+      "src/design/v2/field/blueNoise.generated.ts": "af12c70d820e57bb5ee8c5827417f8bf58804d7abd82b9e78b86818f7f781a85",
+      "src/design/v2/field/blueNoise.ts": "21d4242f921dff5f5cef6bca0f89d6e3e063d00f1f75a60ad5bf65b69f40ca94",
+      "src/design/v2/field/fieldLaw.ts": "805a80bdb9872e5187e4910c6ce3f1ed002b760550892a9b60727d0f4590739b",
+      "src/design/v2/tokens/neverRedSweeps.ts": "1bbb60a536713525818c2b4418d1d1b4e1dd641e5991740a48515c1ef2716b73"
+    }
+  },
+  "commit": "26b3c1c68cc7bcc59b05e067eff1d1b15faf4a65",
+  "pass": "PASS: 0 failures; 2173.6 s in all"
+}
