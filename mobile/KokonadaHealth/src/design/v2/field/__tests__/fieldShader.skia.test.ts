@@ -570,9 +570,9 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
     const QO_LINE = /float2 qo = d < 1\.0 \? q \* \(1\.0 \/ d\) : q;/;
 
     it('the shader computes α, then β, from uGeom alone: the layout stays 159 floats in 46 declarations', () => {
-      const alphaAt = FIELD_SKSL.search(ALPHA_LINE);
-      const betaAt2 = FIELD_SKSL.search(BETA_LINE);
-      expect([alphaAt >= 0, betaAt2 > alphaAt]).toEqual([true, true]);
+      const alphaIndex = FIELD_SKSL.search(ALPHA_LINE);
+      const betaIndex = FIELD_SKSL.search(BETA_LINE);
+      expect([alphaIndex >= 0, betaIndex > alphaIndex]).toEqual([true, true]);
       expect([FIELD_UNIFORMS.length, FIELD_UNIFORM_FLOATS]).toEqual([46, 159]);
     });
 
