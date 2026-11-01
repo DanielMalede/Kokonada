@@ -49,7 +49,7 @@ for (const { direction, face, edge } of cases) {
   t0 = Date.now();
   const cert = certifyBand(spec);
   const w = cert.worst;
-  console.log(`  (4) certificate, five rows: S ${fmt(cert.S)}, Δ ${cert.step}, S·Δ/2 ${fmt((cert.S * cert.step) / 2)}, q8 ${fmt(cert.q8)}, threshold ${fmt(cert.threshold)}; cells ${cert.cells}; min m ${fmt(w.m)} (${w.segment} at ${w.sample}, k ${w.k}, t ${w.t}, scales ${w.chromaScales.join('/')}, shimmer ${w.shimmerDeg.join('/')}); failing ${cert.failing}, out of gamut ${cert.outOfGamut}`);
+  console.log(`  (4) certificate, five rows: S ${fmt(cert.S)}, Δ ${cert.step}, S·Δ/2 ${fmt((cert.S * cert.step) / 2)}, q8 ${fmt(cert.q8)} (source '${cert.q8Source}'; on the grounds alone ${fmt(cert.q8Grounds)}), threshold ${fmt(cert.threshold)}; cells ${cert.cells}; min m ${fmt(w.m)} (${w.segment} at ${w.sample}, k ${w.k}, t ${w.t}, scales ${w.chromaScales.join('/')}, shimmer ${w.shimmerDeg.join('/')}); failing ${cert.failing}, out of gamut ${cert.outOfGamut}`);
   // UI-161: five rows, the endpoints' half-cells too; each row walks one sample's cells of the full grid.
   for (const row of cert.rows) {
     const rw = row.worst;

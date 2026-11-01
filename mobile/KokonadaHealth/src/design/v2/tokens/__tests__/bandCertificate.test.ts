@@ -1,5 +1,5 @@
-import { sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
-import { oklabToSrgb, srgbToOklab, type Oklab } from '../../color/oklab.ts';
+import { graphSegments, pivotComposite, samplesAround, samplesUpTo, sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
+import { mixOklab, oklabToSrgb, srgbToOklab, type Oklab } from '../../color/oklab.ts';
 import { maxInBandChromaOfPixels } from '../../color/redBand.ts';
 import { edgeMixOklab } from '../../field/fieldLaw.ts';
 import {
@@ -143,12 +143,19 @@ const smallSpec = (id: DirectionId, face: Face, edge: 'alpha' | 'beta', graph?: 
   const spec = bandSpecFor(id, face, GRAPH.edges, edge);
   return { ...spec, config: { ...spec.config, grid: SMALL, graph: { ...spec.config.graph, ...graph } } };
 };
+/** Each band's certificate on the small grid, made once and shared by the tests that read it. */
+const SMALL_CERTS = new Map<string, ReturnType<typeof certifyBand>>();
+const smallCert = (id: DirectionId, face: Face, edge: 'alpha' | 'beta') => {
+  const key = `${id} ${face} ${edge}`;
+  if (!SMALL_CERTS.has(key)) SMALL_CERTS.set(key, certifyBand(smallSpec(id, face, edge)));
+  return SMALL_CERTS.get(key) as ReturnType<typeof certifyBand>;
+};
 
 describe.each(CASES.flatMap(([id, face]) => (['alpha', 'beta'] as const).map((edge) => [id, face, edge] as const)))('D6-2 (4): the certificate, %s, %s face, %s', (id, face, edge) => {
   const spec = smallSpec(id, face, edge);
-  const cert = certifyBand(spec);
+  const cert = smallCert(id, face, edge);
 
-  it('S is |to − from|, Δ 0.25, q8 computed on the band’s grounds at L − A, L and L + A, and the threshold S·Δ/2 + q8', () => {
+  it('S is |to − from|, Δ 0.25, q8 on the band’s grounds at L − A, L and L + A, reported beside the q8 the threshold uses', () => {
     const { from, to } = sidesOf(id, face, edge);
     expect(cert.S).toBe(dist(to, from));
     const vs = [...Array.from({ length: 51 }, (_, i) => i / 50), 0.25, 0.5, 0.75];
@@ -156,8 +163,33 @@ describe.each(CASES.flatMap(([id, face]) => (['alpha', 'beta'] as const).map((ed
       const g = edgeMixOklab(from, to, v);
       return halfStepReach({ L: g.L + dL, a: g.a, b: g.b });
     })));
-    expect(cert.q8).toBe(q8);
-    expect(cert.q8).toBeGreaterThan(0);
+    expect(cert.q8Grounds).toBe(q8);
+    expect(cert.q8Grounds).toBeGreaterThan(0);
+  });
+
+  it('UI-163: q8 is the largest halfStepReach over every composite cell of the five rows, at the dither extremes ±A, and the grounds; source ‘all cells’', () => {
+    const { from, to } = sidesOf(id, face, edge);
+    const { config } = spec;
+    const RAD = Math.PI / 180;
+    const turn = (c: Oklab, deg: number): Oklab => ({ L: c.L, a: c.a * Math.cos(deg * RAD) - c.b * Math.sin(deg * RAD), b: c.a * Math.sin(deg * RAD) + c.b * Math.cos(deg * RAD) });
+    const shimmers = samplesAround(config.shimmerDeg, SMALL.pixelShimmerStepDeg as number);
+    let cells = 0;
+    let q8Cells = 0;
+    for (const sample of [0, 0.25, 0.5, 0.75, 1]) {
+      const G = edgeMixOklab(from, to, sample);
+      for (const seg of graphSegments(config.graph)) for (const k of samplesUpTo(config.kMax, SMALL.pixelKStep as number)) for (const t of samplesUpTo(1, SMALL.pixelTStep as number))
+        for (const si of SMALL.chromaScales) for (const sj of SMALL.chromaScales) for (const fp of shimmers) for (const fq of shimmers) {
+          const p = turn({ L: seg.from.L, a: si * seg.from.a, b: si * seg.from.b }, fp);
+          const q = turn({ L: seg.to.L, a: sj * seg.to.a, b: sj * seg.to.b }, fq);
+          const shown = pivotComposite(mixOklab(p, q, t), G, k, config.kp);
+          cells++;
+          for (const dL of [-A, 0, A]) q8Cells = Math.max(q8Cells, halfStepReach({ L: shown.L + dL, a: shown.a, b: shown.b }));
+        }
+    }
+    expect(cells).toBe(cert.cells);
+    expect(cert.q8Source).toBe('all cells');
+    expect(cert.q8).toBeCloseTo(Math.max(q8Cells, cert.q8Grounds), 15);
+    expect(cert.q8).toBeGreaterThanOrEqual(cert.q8Grounds);
     expect(cert.threshold).toBe((cert.S * 0.25) / 2 + cert.q8);
   });
 
@@ -262,5 +294,13 @@ describe('UI-161: a plant inside an end half-cell fails', () => {
     const failures = bandCertificateFailures(cert);
     expect(failures.length).toBeGreaterThan(0);
     expect(failures.every((f) => f.startsWith(`${cert.label} row ${row}:`))).toBe(true);
+  });
+});
+
+describe('UI-163: the cells move q8', () => {
+  it('on some band the composite cells reach further than its grounds, so the grounds alone would understate q8', () => {
+    const certs = CASES.flatMap(([id, face]) => (['alpha', 'beta'] as const).map((edge) => smallCert(id, face, edge)));
+    for (const c of certs) expect(c.q8).toBeGreaterThanOrEqual(c.q8Grounds);
+    expect(certs.some((c) => c.q8 > c.q8Grounds)).toBe(true);
   });
 });
