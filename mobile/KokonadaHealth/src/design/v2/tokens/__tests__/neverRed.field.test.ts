@@ -43,14 +43,25 @@ it('no shipped direction draws a shadow under the field, so no shadowed ground i
 // Tripwire (UI-096). The sweep samples a shadowed ground at P 0.5 and 1 only, which misses failures at
 // intermediate P (the QA-065 probe found them between 0.125 and 0.6875). Before any direction draws a
 // plate shadow, the certified P-sampler (law round 2, D8) has to replace it.
+const tripwireMessage = (drawn: readonly string[]) =>
+  `UI-096: ${drawn.join(', ')} draws a plate shadow, but the never-red sweep samples a shadowed ground at P 0.5 and 1 only. Build the certified P-sampler (law round 2, D8) first. This also reopens UI-155: the ring bands' P terms (the inner shadows at q_f on the face side, the outer shadows at q_o on the outside side, D6-1) join the never-red sweep through that sampler.`;
+
 it('tripwire (UI-096): every shipped plate-shadow strength is 0 until the certified P-sampler exists', () => {
   const drawn = CASES.flatMap(([id, face]) =>
     [DIRECTIONS[id].plate.shadow[face], DIRECTIONS[id].plate.shadow2[face]].filter((t) => t.strength !== 0).map((t) => `${id} ${face} (strength ${t.strength})`),
   );
-  if (drawn.length > 0) {
-    throw new Error(`UI-096: ${drawn.join(', ')} draws a plate shadow, but the never-red sweep samples a shadowed ground at P 0.5 and 1 only. Build the certified P-sampler (law round 2, D8) first.`);
-  }
+  if (drawn.length > 0) throw new Error(tripwireMessage(drawn));
   expect(drawn).toEqual([]);
+});
+
+// D6-4 (the designer's ruling at UI-155): the band's face side leaves out the inner shadows' P, moot while every
+// shadow is 0. A strength above 0 reopens it, so the tripwire's message names UI-155 and what it reopens.
+it('the tripwire’s message, on a planted shadow, names UI-096 and UI-155 and the band’s P terms it reopens', () => {
+  const message = tripwireMessage(['abyss dark (strength 0.2)']);
+  expect(message).toContain('UI-096: abyss dark (strength 0.2) draws a plate shadow');
+  expect(message).toContain('UI-155');
+  expect(message).toContain('inner shadows at q_f');
+  expect(message).toContain('outer shadows at q_o');
 });
 
 // HIGH-3 (resilience, law round 2): the law draws the face ground at L·(1 + vignette·ρ²) +
