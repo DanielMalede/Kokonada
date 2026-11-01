@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `OPS-371` (TASKS)
-- title: chore: add backend/app/utils/redact.js to the security-auditor row J4 (OPS-371)
-- branch: `chore/ops371-redact-security-row`
-- paths: `CLAUDE.md`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `TASKS.md`
+- task: `own:garmin-rulings-records` (own)
+- title: Record the owner's 2026-10-28/29 rulings: DEC-047 and DEC-048 DECIDED, TASKS update lines, a DAN row for OAuth domains, #281 review findings
+- branch: `docs/garmin-rulings-records`
+- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-047.md`, `docs/design-v2/decisions/DEC-048.md`, `docs/design-v2/DECISIONS.md`
 - resources: none
 - state: claimed
-- started: 2026-10-28
+- started: 2026-11-01
 
 ### M02
 - task: `own:v1-vision-frame` (own)
