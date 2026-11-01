@@ -242,6 +242,16 @@ describe('§2.4: the token graph states the law in force', () => {
     expect(text.nodeColour).not.toContain('h_i − k_field');
   });
 
+  // D6-5 (the designer's ruling at UI-157): since the inner edge's AA (UI-114) the ring's first half pixel takes
+  // the field at (1 − α)·mask.face·quiet, so "extent = 0 on the ring" holds only where α = 1. The ruled wording,
+  // word for word, in place of the former parenthesis; the rest of the sentence stays.
+  it('nodeColour: where the field is absent, in the designer’s D6-5 wording (UI-157), the former parenthesis gone', () => {
+    expect(text.nodeColour).toContain(
+      'So wherever the field is absent (extent = 0: the ring wherever its inner-edge coverage α = 1, that is d ≥ ringInner + ½/radiusPx, and the moat, in every direction; and a face or ground a direction\'s mask leaves empty; inside the inner edge\'s anti-aliased pixel extent = (1 − α)·mask.face·quiet, so a pixel there still follows the field), a pixel depends only on the halos and is identical across t, s, c and the shimmer.',
+    );
+    expect(text.nodeColour).not.toContain('(extent = 0: the ring and moat in every direction, and a face or ground a direction\'s mask leaves empty)');
+  });
+
   it('pixelK: the halos add, up to the peak (L2), never the largest one', () => {
     expect(text.pixelK).toBe('k = min(max(k_field, H), max(cap, peak)), where H = min(peak, Σ over the slots of h_i): the halos add, up to the peak');
   });
