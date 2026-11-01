@@ -1,4 +1,8 @@
 import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, plateShadowGrounds, ringEdgeGrounds, ringOuterGrounds } from '../neverRedSweeps.ts';
+import { buildFieldFrame, type FieldState } from '../../field/fieldFrame.ts';
+import { pixelTerms } from '../../field/fieldLaw.ts';
+import { staticsFor } from '../../field/statics.ts';
+import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generated.ts';
 
 // QA-065's anti-aliased term (addendum §2.4, resilience HIGH-1, designer rulings §1, second voice
@@ -203,6 +207,43 @@ describe.each(CASES)('UI-114: the face-lit and ring-halo families take the band�
       .filter((f) => f.design.chroma > DESIGN_LIMIT || f.check.chroma > CHECK_LIMIT)
       .map((f) => f.family);
     expect(over).toEqual(expect.arrayContaining(['face lit · bead.setting', 'ring halo · plate.rim.base']));
+  });
+});
+
+// D6-3 (i) (the designer's ruling at UI-154): the 'face lit ·' families light the inner band with the mixed extent
+// (1 − α)·mask.face·quiet, never with mask.face. edgeFamiliesFor lights each band ground with the field at every
+// k in [0, cap] wherever mask.face > 0, which for α < 1 is exactly where (1 − α)·mask.face > 0; and the weight the
+// law composites in the band, min(max(k_field·(1 − α)·mask.face·quiet, H), max(cap, peak)), is never above cap.
+// So the swept set holds every colour the mixed extent draws there: measured here on the law's own band pixels,
+// genesis and stress included, on the largest plate.
+describe.each(CASES)('D6-3 (i) (UI-154): the face-lit families’ field reaches every weight the band’s mixed extent draws: %s, %s face', (id, face) => {
+  it('the cap is at least the halo peak, and every band pixel’s composite k is at most the cap; with no face mask the band is field-free', () => {
+    const d = DIRECTIONS[id];
+    const peak = face === 'dark' ? BASE.field.halo.peakDark : BASE.field.halo.peakLight;
+    expect(d.field.cap[face]).toBeGreaterThanOrEqual(peak);
+    const R = BASE.plate.maxDiameter / 2;
+    const placements = [{ x: 0.62, y: 0.4, fade: 1, ordinal: 0 }, { x: -0.5, y: -0.55, fade: 1, ordinal: 1 }];
+    let band = 0;
+    let worst = 0;
+    for (const [genesis, stress] of [[false, 0], [true, 0], [true, 1], [false, 1]] as const) {
+      const state: FieldState = { direction: id, face, placements, restFade: 0.6, stress, confidence: 1, genesis, tMs: 7000, breathPhase: 0.3, tier: 'full' };
+      const frame = buildFieldFrame(state, { centrePx: [R + 0.37, R - 0.21], radiusPx: R, pxPerDp: 1, fontScale: 1 }, staticsFor(id, EXTENSIONS as never));
+      for (let y = 0; y < 2 * R + 1; y++) {
+        for (let x = 0; x < 2 * R + 1; x++) {
+          const qx = (x + 0.5 - frame.centrePx[0]) / R;
+          const qy = -(y + 0.5 - frame.centrePx[1]) / R;
+          if (Math.abs(Math.hypot(qx, qy) - frame.ringInner) * R > 1) continue;
+          const terms = pixelTerms(frame, x + 0.5, y + 0.5);
+          if (!(terms.coverage > 0 && terms.coverage < 1)) continue;
+          band++;
+          worst = Math.max(worst, terms.k);
+          if (d.field.mask.face === 0) expect(terms.kField).toBe(0);
+        }
+      }
+    }
+    expect(band).toBeGreaterThan(400);
+    expect(worst).toBeGreaterThan(0);
+    expect(worst).toBeLessThanOrEqual(d.field.cap[face]);
   });
 });
 
