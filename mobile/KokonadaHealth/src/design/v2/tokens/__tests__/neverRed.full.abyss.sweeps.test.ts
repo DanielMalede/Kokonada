@@ -1,5 +1,5 @@
 import { sweepNeverRed } from '../../color/blendSpace.ts';
-import { CHECK_BAND, DESIGN_BAND, fullEdgeReport, fullFieldReport, ringEdgeGrounds, ringEdgeSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, fullEdgeReport, fullFieldReport, ringEdgeGrounds, ringEdgeSweepFor, ringOuterGrounds, ringOuterSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -39,6 +39,23 @@ describe.each(['dark', 'light'] as Face[])(`QA-065 at full resolution: ${ID}, %s
     () => {
       const config = ringEdgeSweepFor(ID, face, GRAPH.edges, undefined, 'full');
       expect(Object.keys(config.grounds)).toEqual(Object.keys(ringEdgeGrounds(ID, face, 'full')));
+      expect(Object.keys(config.grounds)).toHaveLength(49);
+      const report = sweepNeverRed(config);
+      expect(report.failures).toEqual([]);
+      expect(report.pixelSamples).toBeGreaterThan(0);
+      expect(report.maxDesign.chroma).toBeLessThanOrEqual(DESIGN_LIMIT);
+      expect(report.maxCheck.chroma).toBeLessThanOrEqual(CHECK_LIMIT);
+    },
+    LONG,
+  );
+
+  // D6-1 (d) (the designer's ruling at UI-151): the ring's outer edge's mixed grounds every 0.02 of β, the same pass
+  // as the inner edge's: the float pass the full grid's, the 8-bit pass the default grid (D6-2 (3)).
+  it(
+    'the outer edge: no blend-graph colour over the outer band’s grounds, every 0.02 of β, is red, in float or on 8-bit pixels, with the margin',
+    () => {
+      const config = ringOuterSweepFor(ID, face, GRAPH.edges, undefined, 'full');
+      expect(Object.keys(config.grounds)).toEqual(Object.keys(ringOuterGrounds(ID, face, 'full')));
       expect(Object.keys(config.grounds)).toHaveLength(49);
       const report = sweepNeverRed(config);
       expect(report.failures).toEqual([]);

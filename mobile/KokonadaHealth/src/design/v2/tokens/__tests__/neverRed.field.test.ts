@@ -1,9 +1,9 @@
 import { graphSegments, pivotComposite, sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
 import { ditherReachable } from '../../color/redBand.ts';
 import { buildFieldFrame, type FieldState } from '../../field/fieldFrame.ts';
-import { edgeMixOklab, groundAt, pixelTerms, regionOf } from '../../field/fieldLaw.ts';
+import { edgeMixOklab, groundAt, outerEdgeCoverage, pixelTerms, regionOf } from '../../field/fieldLaw.ts';
 import { staticsFor } from '../../field/statics.ts';
-import { CHECK_BAND, DESIGN_BAND, faceShadingGrounds, fieldSweepFor, ringEdgeGrounds, ringEdgeSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, faceShadingGrounds, fieldSweepFor, ringEdgeGrounds, ringEdgeSweepFor, ringOuterGrounds, ringOuterSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -292,6 +292,80 @@ describe('UI-114: the ring edge’s mixed grounds are swept', () => {
           band++;
           const g = terms.ground;
           if (!swept.some((s) => Math.abs(s.L - g.L) <= A && Math.abs(s.a - g.a) <= 1e-3 && Math.abs(s.b - g.b) <= 1e-3)) far.push(`(${x}, ${y}) α ${terms.coverage.toFixed(3)}`);
+        }
+      }
+      expect(band).toBeGreaterThan(100);
+      expect(far).toEqual([]);
+    },
+  );
+});
+
+// Law round 2, D6-1 (d) (the designer's ruling at UI-151): the field anti-aliases the ring's outer edge too, its
+// ground the law's OKLab mix of the ring and the outside ground at the outside's coverage β (the outer shadows at
+// q_o: none is drawn, the UI-096 tripwire). The sweep takes those grounds for β ∈ (0, 1): every 0.1 by default,
+// every 0.02 in the sweeps project, both faces, all directions, through the graph, k, the pivot, the shimmer and
+// the dither exactly as the field's other grounds; they join the 'ring halo ·' families' backgrounds too
+// (neverRed.edges.test.ts).
+describe('D6-1 (UI-151): the outer edge’s mixed grounds are swept', () => {
+  const lab3 = (c: { oklab: readonly number[] }) => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
+
+  it.each(CASES.flatMap(([id, face]) => (['coarse', 'full'] as const).map((r) => [id, face, r] as const)))(
+    '%s, %s face, %s: β every 0.1 (coarse) or 0.02 (full) inside (0, 1), each the law’s edgeMixOklab of the ring and the outside ground',
+    (id, face, resolution) => {
+      const n = resolution === 'full' ? 50 : 10;
+      const c = DIRECTIONS[id].color[face];
+      const grounds = ringOuterGrounds(id, face, resolution);
+      expect(Object.keys(grounds)).toEqual(Array.from({ length: n - 1 }, (_, i) => `ring·outside β ${(i + 1) / n}`));
+      for (let i = 1; i < n; i++) expect(grounds[`ring·outside β ${i / n}`]).toEqual(edgeMixOklab(lab3(c.plate.ring), lab3(c.ground), i / n));
+    },
+  );
+
+  it.each(CASES)('%s, %s face: the outer band sweep is the field sweep over those grounds; its grids pinned (full: float full, 8-bit as by default)', (id, face) => {
+    const field = sweepFor(id, face);
+    const coarse = ringOuterSweepFor(id, face, GRAPH.edges);
+    expect({ ...coarse, grounds: field.grounds }).toEqual(field);
+    expect(coarse.grounds).toEqual(ringOuterGrounds(id, face));
+    const full = ringOuterSweepFor(id, face, GRAPH.edges, undefined, 'full');
+    expect(full.grounds).toEqual(ringOuterGrounds(id, face, 'full'));
+    expect(full.grid).toEqual({ kStep: 0.01, shimmerStepDeg: 1, pixelTStep: 0.2, pixelKStep: 0.2, chromaScales: [0.25, 0.5, 1] });
+  });
+
+  it.each(CASES)('%s, %s face: no blend-graph colour over the outer band’s grounds is red, in float or on 8-bit pixels, with the margin', (id, face) => {
+    const report = sweepNeverRed(ringOuterSweepFor(id, face, GRAPH.edges));
+    expect(report.failures).toEqual([]);
+    expect(report.pixelSamples).toBeGreaterThan(0);
+    expect(report.maxDesign.chroma).toBeLessThanOrEqual(DESIGN_LIMIT);
+    expect(report.maxCheck.chroma).toBeLessThanOrEqual(CHECK_LIMIT);
+  });
+
+  it.each(CASES)('bites: %s, %s face, the planted straight joy–intense edge fails over the outer band too', (id, face) => {
+    const planted = ringOuterSweepFor(id, face, GRAPH.edges, { straight: [['J', 'I']], waypoint: [] });
+    const report = sweepNeverRed({ ...planted, grid: { ...planted.grid, pixelTStep: 0.5, pixelKStep: 0.5 } });
+    expect(report.failures.some((f) => f.segment === 'J-I' && f.check === 'design-band')).toBe(true);
+  });
+
+  // Reach: what the law draws in the outer band, on the smallest and largest plates at font scales 1 and 2, is within
+  // the sweep's L amplitude A of a swept ground in L and within 1e-3 in a and b, so the 8-bit pass's dither reaches it.
+  const GEOMETRIES = [BASE.plate.minDiameter, BASE.plate.maxDiameter].flatMap((diameter) => [1, 2].map((fontScale) => ({ diameter, fontScale })));
+  it.each(CASES.flatMap(([id, face]) => GEOMETRIES.map((g) => [id, face, g.diameter, g.fontScale] as const)))(
+    '%s, %s face, plate %s dp, font scale %s: every outer band pixel’s ground is within reach of a swept ground',
+    (id, face, diameter, fontScale) => {
+      const radiusPx = diameter / 2;
+      const state: FieldState = { direction: id, face, placements: [], restFade: 1, stress: 0, confidence: 1, genesis: false, tMs: 7000, breathPhase: 0.3, tier: 'full' };
+      const frame = buildFieldFrame(state, { centrePx: [radiusPx + 1.37, radiusPx + 0.79], radiusPx, pxPerDp: 1, fontScale }, staticsFor(id, EXTENSIONS as never));
+      const swept = [...Object.values(ringOuterGrounds(id, face)), ...Object.values(sweepFor(id, face).grounds)];
+      const A = BASE.field.dither.amplitude + Math.max(DIRECTIONS[id].field.grain.ground, DIRECTIONS[id].field.grain.inside);
+      let band = 0;
+      const far: string[] = [];
+      for (let y = 0; y < 2 * radiusPx + 4; y++) {
+        for (let x = 0; x < 2 * radiusPx + 4; x++) {
+          const qx = (x + 0.5 - frame.centrePx[0]) / radiusPx;
+          const qy = -(y + 0.5 - frame.centrePx[1]) / radiusPx;
+          const beta = outerEdgeCoverage(Math.sqrt(qx * qx + qy * qy), frame);
+          if (!(beta > 0 && beta < 1)) continue;
+          band++;
+          const g = pixelTerms(frame, x + 0.5, y + 0.5).ground;
+          if (!swept.some((s) => Math.abs(s.L - g.L) <= A && Math.abs(s.a - g.a) <= 1e-3 && Math.abs(s.b - g.b) <= 1e-3)) far.push(`(${x}, ${y}) β ${beta.toFixed(3)}`);
         }
       }
       expect(band).toBeGreaterThan(100);
