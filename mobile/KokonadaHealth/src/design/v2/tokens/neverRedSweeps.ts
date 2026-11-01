@@ -14,12 +14,12 @@
 // numbers. The graph's edges come from the extensions module, which only tests, scripts and the lab
 // import, so the caller passes them in. Sweep-only: never imported by app code.
 
-import { pivotComposite, samplesAround, sweepNeverRed, type BlendGraph, type NeverRedReport, type NeverRedSweep } from '../color/blendSpace.ts';
+import { graphSegments, pivotComposite, samplesAround, samplesUpTo, sweepNeverRed, type BlendGraph, type NeverRedReport, type NeverRedSweep } from '../color/blendSpace.ts';
 import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
 import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
-import { ditherReachable, type RedBand } from '../color/redBand.ts';
-import { sweepOklabToSrgb } from '../color/sweepConvert.ts';
+import { ditherReachable, hueInBand, maxInBandChromaOfPixels, type RedBand } from '../color/redBand.ts';
+import { sweepOklabToSrgb, sweepSrgbToOklab } from '../color/sweepConvert.ts';
 import { edgeMixOklab } from '../field/fieldLaw.ts';
 import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from './tokens.generated.ts';
 
@@ -530,3 +530,259 @@ export function fullEdgeReport(id: DirectionId, face: Face): { families: EdgeFam
   };
 }
 
+// ---------------------------------------------------------------- the band grid (D6-2, UI-153)
+//
+// The designer's ruling at UI-153: (1) α ∈ {0, 1} are the face and ring families on their full grid; (2) α ∈
+// {0.25, 0.5, 0.75} on that same full 8-bit grid; (3) the fine pass, α every 0.02 on the default grid
+// (ringEdgeSweepFor); (4) a margin certificate over every cell of (2), a failing cell re-swept locally at α every
+// 0.02, the refined cells counted. The same for β (D6-1, ringOuterSweepFor). (2) and (4) run in the scheduled
+// evidence lane (scripts/field/bandEvidence.mts), never thinned; bandCertificate.test.ts holds them on small grids.
+
+/** D6-2 (2): the band's samples inside (0, 1); (4): the cell each one certifies, Δ wide; the local refinement's step. */
+export const BAND_SAMPLES: readonly number[] = [0.25, 0.5, 0.75];
+export const BAND_STEP = 0.25;
+export const BAND_REFINE_STEP = 0.02;
+
+export type BandEdge = 'alpha' | 'beta';
+
+export interface BandSpec {
+  /** The field sweep at full resolution over the band's three samples: the full 8-bit grid of (2). */
+  readonly config: NeverRedSweep;
+  /** The band runs from `from` (α or β = 0) to `to` (= 1), mixed in OKLab (edgeMixOklab). */
+  readonly from: Oklab;
+  readonly to: Oklab;
+  readonly label: string;
+}
+
+/**
+ * The band's two sides: the inner edge (α) from the face at ρ = 1 (d_f = ringInner, as ringEdgeGrounds) to the
+ * ring; the outer edge (β) from the ring to the outside ground (as ringOuterGrounds).
+ */
+function bandSides(id: DirectionId, face: Face, edge: BandEdge): { from: Oklab; to: Oklab; label: string } {
+  const d = DIRECTIONS[id];
+  const c = d.color[face];
+  const g = lab(c.plate.face);
+  const ring = lab(c.plate.ring);
+  if (edge === 'alpha') return { from: { L: g.L * (1 + d.plate.face.vignette[face]), a: g.a, b: g.b }, to: ring, label: 'face·ring α' };
+  return { from: ring, to: lab(c.ground), label: 'ring·outside β' };
+}
+
+/** D6-2 (2): the field sweep at full resolution (its full 8-bit grid, never thinned) over the band's three samples. */
+export function bandGridSweepFor(
+  id: DirectionId,
+  face: Face,
+  graphEdges: GraphEdges,
+  edge: BandEdge,
+  edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> },
+): NeverRedSweep {
+  const { from, to, label } = bandSides(id, face, edge);
+  const grounds: Record<string, Oklab> = {};
+  for (const s of BAND_SAMPLES) grounds[`${label} ${s}`] = edgeMixOklab(from, to, s);
+  return { ...fieldSweepFor(id, face, graphEdges, edges, 'full'), grounds };
+}
+
+/** The band's (2) sweep and the sides its certificate needs. */
+export function bandSpecFor(id: DirectionId, face: Face, graphEdges: GraphEdges, edge: BandEdge): BandSpec {
+  return { config: bandGridSweepFor(id, face, graphEdges, edge), ...bandSides(id, face, edge) };
+}
+
+const DEG = Math.PI / 180;
+
+/**
+ * The OKLab distance from a colour to the red-exclusion band: the region of hues in `band` at chroma ≥ `floor`
+ * (the 8-bit check band at its floor less DEC-081's margin). Lightness never decides redness, so it is the
+ * distance in the a-b plane: 0 inside; floor − C at a hue in the band; else the distance to the nearer edge
+ * ray (from C = floor outward).
+ */
+export function distanceToRed(colour: Oklab, redBand: RedBand, floor: number): number {
+  const { a, b } = colour;
+  const C = Math.hypot(a, b);
+  if (hueInBand(Math.atan2(b, a) / DEG, redBand) || C === 0) return C >= floor ? 0 : floor - C;
+  let best = Infinity;
+  for (const hue of [redBand.hueFrom, redBand.hueTo]) {
+    const ux = Math.cos(hue * DEG);
+    const uy = Math.sin(hue * DEG);
+    const along = a * ux + b * uy;
+    const d = along >= floor ? Math.abs(a * uy - b * ux) : Math.hypot(a - floor * ux, b - floor * uy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
+const HALF_STEP = 0.5 / 255;
+
+/** The largest OKLab move of a half-step 8-bit rounding at a colour: every corner of the ±½-step cube around its clamped sRGB. */
+export function halfStepReach(colour: Oklab): number {
+  const rgb = sweepOklabToSrgb(colour).map(clamp01);
+  const base = sweepSrgbToOklab(rgb as unknown as Srgb);
+  let worst = 0;
+  for (const dr of [-HALF_STEP, HALF_STEP]) {
+    for (const dg of [-HALF_STEP, HALF_STEP]) {
+      for (const db of [-HALF_STEP, HALF_STEP]) {
+        const p = sweepSrgbToOklab([clamp01(rgb[0] + dr), clamp01(rgb[1] + dg), clamp01(rgb[2] + db)]);
+        const move = Math.hypot(p.L - base.L, p.a - base.a, p.b - base.b);
+        if (move > worst) worst = move;
+      }
+    }
+  }
+  return worst;
+}
+
+const inGamut = (colour: Oklab) => sweepOklabToSrgb(colour).every((v) => v >= -1e-9 && v <= 1 + 1e-9);
+
+export interface BandCellWhere {
+  readonly sample: number;
+  readonly segment: string;
+  readonly k: number;
+  readonly t: number;
+  readonly chromaScales: readonly [number, number];
+  readonly shimmerDeg: readonly [number, number];
+}
+
+export interface BandCertificate {
+  readonly label: string;
+  /** |to − from| in OKLab: how far the band's colour moves per unit of α (or β). */
+  readonly S: number;
+  readonly step: number;
+  /** The largest OKLab move of a half-step rounding on the band's grounds (every 0.02 and the samples), at L − A, L and L + A. */
+  readonly q8: number;
+  /** S·Δ/2 + q8: a cell passes only if its m is above this. */
+  readonly threshold: number;
+  /** The 8-bit cells of (2): as many as sweepNeverRed's pixel samples on the same config. */
+  readonly cells: number;
+  /** Cells with m ≤ threshold. */
+  readonly failing: number;
+  /** Cells whose dither range L ± A leaves the sRGB gamut: the clamp is not an OKLab move, so the bound does not hold. */
+  readonly outOfGamut: number;
+  /** The smallest m, and where. */
+  readonly worst: { readonly m: number } & BandCellWhere;
+  readonly refined: {
+    /** The cells re-swept: every failing or out-of-gamut one. */
+    readonly cells: number;
+    /** The values each sample's cell is re-swept at: every multiple of 0.02 within Δ/2 of it. */
+    readonly values: Readonly<Record<number, readonly number[]>>;
+    /** Distinct colours the refinement checked on 8-bit pixels. */
+    readonly distinct: number;
+    /** The largest in-band chroma it found on 8-bit pixels, against the check band. */
+    readonly maxCheck: number;
+    /** How many checked colours reach a pixel above the check band's floor less the margin. */
+    readonly overLimit: number;
+    readonly worst: ({ readonly value: number; readonly chroma: number } & BandCellWhere) | null;
+  };
+}
+
+/** Every multiple of the refinement step within Δ/2 of a sample, both ends included. */
+function refineValues(sample: number): number[] {
+  const n = Math.round(1 / BAND_REFINE_STEP);
+  const out: number[] = [];
+  for (let j = 0; j <= n; j++) {
+    const v = j / n;
+    if (v >= sample - BAND_STEP / 2 - 1e-9 && v <= sample + BAND_STEP / 2 + 1e-9) out.push(v);
+  }
+  return out;
+}
+
+/**
+ * D6-2 (4): the margin certificate over every 8-bit cell of the band's (2) sweep, in sweepNeverRed's order (each
+ * segment, ground, k, t, pair of chroma scales and pair of shimmer turns). m is the distance from the cell's
+ * composited float colour to the red-exclusion band; between two samples the band's colour moves along a
+ * straight OKLab segment, by at most S·Δ/2 within a cell, and the composite by no more, so a cell with
+ * m > S·Δ/2 + q8 has no red 8-bit neighbour. A cell that fails it, or whose dither leaves the gamut, is
+ * re-swept locally at every 0.02 inside its cell (the same cell at each value, every 8-bit pixel the dither and
+ * grain reach, against the check band), unless `refine` is false.
+ */
+export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean } = {}): BandCertificate {
+  const { config, from, to, label } = spec;
+  const refine = options.refine ?? true;
+  const { grid, kp } = config;
+  const A = config.ditherAmplitude;
+  const floor = config.checkBand.chromaFloor - BASE.neverRed.margin;
+  const S = Math.hypot(to.L - from.L, to.a - from.a, to.b - from.b);
+  const shift = (c: Oklab, dL: number): Oklab => ({ L: c.L + dL, a: c.a, b: c.b });
+  // q8 on the band's grounds: every 0.02 of it and the three samples, each where the dither and grain take it.
+  const n = Math.round(1 / BAND_REFINE_STEP);
+  const values = [...Array.from({ length: n + 1 }, (_, j) => j / n), ...BAND_SAMPLES];
+  let q8 = 0;
+  for (const v of values) {
+    const g = edgeMixOklab(from, to, v);
+    for (const dL of [-A, 0, A]) q8 = Math.max(q8, halfStepReach(shift(g, dL)));
+  }
+  const threshold = (S * BAND_STEP) / 2 + q8;
+
+  const segments = graphSegments(config.graph);
+  const pixelShimmers = samplesAround(config.shimmerDeg, grid.pixelShimmerStepDeg ?? (config.shimmerDeg || 1));
+  const ks = samplesUpTo(config.kMax, grid.pixelKStep);
+  const ts = samplesUpTo(1, grid.pixelTStep);
+  const scales = grid.chromaScales;
+  let cells = 0;
+  let failing = 0;
+  let outOfGamut = 0;
+  let worst: BandCertificate['worst'] = { m: Infinity, sample: NaN, segment: '', k: NaN, t: NaN, chromaScales: [NaN, NaN], shimmerDeg: [NaN, NaN] };
+  const toRefine: Array<{ sample: number; mixed: Oklab; where: BandCellWhere }> = [];
+  for (const segment of segments) {
+    for (const sample of BAND_SAMPLES) {
+      const G = config.grounds[`${label} ${sample}`];
+      if (G === undefined) throw new RangeError(`the band's sweep has no ground ${label} ${sample}`);
+      for (const k of ks) {
+        for (const t of ts) {
+          for (const si of scales) {
+            for (const sj of scales) {
+              const p = { L: segment.from.L, a: si * segment.from.a, b: si * segment.from.b };
+              const q = { L: segment.to.L, a: sj * segment.to.a, b: sj * segment.to.b };
+              for (const fp of pixelShimmers) {
+                for (const fq of pixelShimmers) {
+                  cells++;
+                  const mixed = mixOklab(rotate(p, fp), rotate(q, fq), t);
+                  const shown = pivotComposite(mixed, G, k, kp);
+                  const m = distanceToRed(shown, config.checkBand, floor);
+                  const where: BandCellWhere = { sample, segment: segment.id, k, t, chromaScales: [si, sj], shimmerDeg: [fp, fq] };
+                  if (m < worst.m) worst = { m, ...where };
+                  const gamut = inGamut(shift(shown, -A)) && inGamut(shift(shown, A));
+                  if (!gamut) outOfGamut++;
+                  else if (!(m > threshold)) failing++;
+                  if (refine && (!gamut || !(m > threshold))) toRefine.push({ sample, mixed, where });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const refineAt: Record<number, number[]> = {};
+  for (const s of BAND_SAMPLES) refineAt[s] = refineValues(s);
+  const seen = new Map<string, number>();
+  let maxCheck = 0;
+  let overLimit = 0;
+  let refinedWorst: BandCertificate['refined']['worst'] = null;
+  for (const cell of toRefine) {
+    for (const value of refineAt[cell.sample]) {
+      const shown = pivotComposite(cell.mixed, edgeMixOklab(from, to, value), cell.where.k, kp);
+      const key = `${shown.L},${shown.a},${shown.b}`;
+      let chroma = seen.get(key);
+      if (chroma === undefined) {
+        chroma = maxInBandChromaOfPixels(shown, config.checkBand, A).chroma;
+        seen.set(key, chroma);
+        if (chroma > floor) overLimit++;
+      }
+      if (chroma > maxCheck) {
+        maxCheck = chroma;
+        refinedWorst = { value, chroma, ...cell.where };
+      }
+    }
+  }
+  return {
+    label,
+    S,
+    step: BAND_STEP,
+    q8,
+    threshold,
+    cells,
+    failing,
+    outOfGamut,
+    worst,
+    refined: { cells: toRefine.length, values: refineAt, distinct: seen.size, maxCheck, overLimit, worst: refinedWorst },
+  };
+}

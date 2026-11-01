@@ -202,8 +202,8 @@ export function pivotComposite(colour: Oklab, ground: Oklab, k: number, kp: numb
   };
 }
 
-/** 0 to `max` inclusive, in equal steps no longer than `step`. */
-function samplesUpTo(limit: number, step: number): number[] {
+/** 0 to `max` inclusive, in equal steps no longer than `step`; the band certificate (neverRedSweeps.ts) walks the same grid. */
+export function samplesUpTo(limit: number, step: number): number[] {
   if (limit === 0) {
     return [0];
   }
