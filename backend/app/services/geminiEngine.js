@@ -6,7 +6,7 @@ const { captureException } = require('../config/sentry');
 const { disabled }     = require('../utils/envFlag');
 const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
 const { chatJson, failureMessage, LlmTruncatedError } = require('./llmCall');
-const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, buildBioParams, extractIntent, normalizeActivity } = require('./moodDescriptors');
+const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, buildBioParams, extractIntent, normalizeActivity, promptSafeActivity, applyIntentBand } = require('./moodDescriptors');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -162,9 +162,10 @@ function _strictMoodLine(emotionTaps) {
  * NO PII and NO health information of any kind, nor anything derived from it (BE-221, the
  * owner's ruling of 2026-10-27): no reading, no band, no state label, no ratio, no activity a
  * wearable detected. The prompt carries only the emotion coordinates the user tapped, the
- * activity chip the user chose, closed-vocabulary intent tags from the user's note and the
- * mood descriptor's genres. Stored vitals steer the audio targets deterministically AFTER the
- * LLM returns (buildEmotionPlaylist → applyBiometricBands), and never enter this string.
+ * activity chip the user chose, closed-vocabulary intent tags from the user's note (never a
+ * sleep intent: BE-229, the owner's ruling of 2026-10-28) and the mood descriptor's genres.
+ * Stored vitals steer the audio targets deterministically AFTER the LLM returns
+ * (buildEmotionPlaylist → applyBiometricBands), and never enter this string.
  */
 function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null, { activity = null } = {}) {
   const { tempoBaseline, energy, valence, acousticness } = musicProfile;
@@ -180,7 +181,9 @@ function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null,
   const intent = extractIntent(textPrompt);
   // H1: the client-supplied activity CHIP is validated against the preset enum before it
   // can enter the prompt; the server-derived intent activity is already closed-vocabulary.
-  const effectiveActivity = normalizeActivity(activity) || intent.activity;
+  // BE-229: a sleep intent from the note is medical information and is withheld here; its
+  // effect on the music is applied after the model returns (buildEmotionPlaylist).
+  const effectiveActivity = normalizeActivity(activity) || promptSafeActivity(intent.activity);
   const intentLine = intent.keywords.length
     ? `Derived listener intent (structured tags, not the user's words): ${intent.keywords.join(', ')}`
     : '';
@@ -228,9 +231,9 @@ const llmBandFromStateDisabled = () => disabled(process.env.WAVE4_LLM_BAND_FROM_
 // DATA EGRESS NOTE (audit F16): prompts are sent to the VETTED provider (Groq) — list it
 // as a sub-processor in the privacy policy / DPA. Prompts carry NO name/email/userId, NO health
 // information or anything derived from it (BE-221), NO raw free-text, and NO Spotify Content
-// — only the tapped emotion coords, the chosen activity chip, closed-vocabulary intent tags, and
-// mood-descriptor genres. The Redis cache key is `gemini:<model>:md5(prompt)` and the cached
-// VALUE is only the derived AI params (target_bpm, etc.); the md5 is not reversible. The model is
+// — only the tapped emotion coords, the chosen activity chip, closed-vocabulary intent tags (never
+// a sleep intent, BE-229), and mood-descriptor genres. The Redis cache key is
+// `gemini:<model>:md5(prompt)` and the cached VALUE is only the derived AI params (target_bpm, etc.); the md5 is not reversible. The model is
 // in the key so a model switch never replays the previous model's params for the 24 h TTL.
 async function _callLlm(prompt) {
   const redis = getRedis();
@@ -269,12 +272,17 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
   // Wave-0 two-stage split: the decrypted vitals never crossed the LLM boundary — they
   // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
   // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
-  const bandedParams = applyBiometricBands(rawParams, biometricContext);
+  const bodyBanded = applyBiometricBands(rawParams, biometricContext);
+  // BE-229: a note intent the prompt withheld (a sleep intent, with no chip to stand in for it)
+  // still shapes the music: the targets blend toward its tempo band here, after the model
+  // returned, where the prompt used to ask the model for the same calmer, lower-tempo music.
+  const intent = extractIntent(textPrompt);
+  const withheld = !normalizeActivity(activity) && promptSafeActivity(intent.activity) !== intent.activity;
+  const bandedParams = withheld ? applyIntentBand(bodyBanded, intent.tempoCategory) : bodyBanded;
   // Wave-0: the raw note is reduced to closed-vocabulary intent tags server-side (extractIntent);
   // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
   // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
   // old free-text behaviour deterministically.
-  const intent = extractIntent(textPrompt);
   const derivedIntent = [activity || intent.activity, ...intent.keywords].filter(Boolean).join(' ');
   const params = applyMoodFallback(bandedParams, emotionTaps, derivedIntent, musicProfile);
   // Deterministic movement cue: a "going for a run" note → peak, even for a calm mood —
