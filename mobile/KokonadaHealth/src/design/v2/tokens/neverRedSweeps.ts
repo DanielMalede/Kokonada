@@ -18,7 +18,7 @@ import { graphSegments, pivotComposite, samplesAround, samplesUpTo, sweepNeverRe
 import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
 import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
-import { ditherReachable, hueInBand, maxInBandChromaOfPixels, type RedBand } from '../color/redBand.ts';
+import { ditherReachable, hueInBand, maxInBandChromaInTriangle, maxInBandChromaOfPixels, type RedBand } from '../color/redBand.ts';
 import { sweepOklabToSrgb, sweepSrgbToOklab } from '../color/sweepConvert.ts';
 import { edgeMixOklab } from '../field/fieldLaw.ts';
 import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from './tokens.generated.ts';
@@ -883,4 +883,270 @@ export function bandCertificateFailures(cert: BandCertificate): string[] {
     if (r.overLimit > 0 || r.maxCheck > limit) out.push(`${cert.label} row ${row.sample}: ${r.overLimit} refined colours over the margin, max C ${r.maxCheck}`);
   }
   return out;
+}
+
+// ---------------------------------------------------------------- the β pair family (iv) (criterion G, UI-165)
+//
+// Criterion G (D5b, the designer's (2)): "never-red measured, not presumed: per node, the segment between its
+// presence-ramp extremes × shimmer × w in [0, 1] toward its halo, used as an endpoint of every straight edge and both
+// waypoint legs, × β × N̄.L over the node set's L range, every ground, float and 8-bit, with the planted red control:
+// 0 failures." D6-3 (ii) puts the band's mixed grounds, α and β, among its backgrounds; UI-165 brings it into the repo:
+// a small grid in the default jest run (betaPairFamily.test.ts), the full grid in the evidence lane (bandEvidence.mts).
+//
+// A node's colour under the amended L4 is the e-weighted mean of its slots' colours, each slot
+// (1 − w)·turned(tense(halo(p))) + w·halo(p), halo(p) = (lerp(L_R0, L_tier, p), p·chromaScale·tier.ab) (fieldFrame.ts),
+// so it lies in the convex hull of its family over p, the stress s, the shimmer and w.
+//   Float (design band, exact): in OKLab ab a quadrant node's family lies inside the hull of the origin and the arc
+//   R_φ(A), |φ| ≤ shimmer.deg, A its chroma-scaled tier anchor; R0's the same with A its rest glow. A straight pair,
+//   its fade by β toward the achromatic N̄ and the composite over a ground (ab = k·c + share·G, k + share ≤ 1) stay
+//   inside hull(0, G, arc_a, arc_b); a waypoint leg inside hull(0, G, arc_a). Each arc is replaced by its
+//   circumscribed polygon (a superset), each hull fanned into triangles, and maxInBandChromaInTriangle is exact.
+//   8-bit (check band, sampled): the grid's endpoints, t (and the eased waypoint leg's own samples s(2t)), fades β
+//   with N̄.L at the node set's L extremes, k, every ground; each composite through pivotComposite, then every 8-bit
+//   pixel the dither and grain reach (maxInBandChromaOfPixels).
+//   Planted control: a red node X (hue 20°, chroma 0.12, L 0.6) on a straight edge with J: both passes must fail.
+
+/** A fade toward N̄ by β; below 1, N̄.L sits at the node set's lowest or highest L. */
+export interface BetaPairFade {
+  readonly beta: number;
+  readonly at?: 'min' | 'max';
+}
+
+export interface BetaPairGrid {
+  /** Presence-ramp values p of each endpoint. */
+  readonly presences: readonly number[];
+  /** Stress values s. */
+  readonly stresses: readonly number[];
+  /** Shimmer turns, as shares of shimmer.deg. */
+  readonly turns: readonly number[];
+  /** Mark weights w. */
+  readonly marks: readonly number[];
+  /** Positions t along a straight edge (and, with their eased s(2t), along a waypoint leg). */
+  readonly ts: readonly number[];
+  readonly fades: readonly BetaPairFade[];
+  /** The composite's k values; the sweep's kMax is always added. */
+  readonly ks: readonly number[];
+  /** The float pass's arc polygon step. */
+  readonly arcStepDeg: number;
+  /** The band's mixed grounds at every 1/bandSteps of α and of β, strictly inside (0, 1). */
+  readonly bandSteps: number;
+}
+
+/**
+ * The family's grids. 'full' is criterion G's own grid, the one its probe ran and the designer read at ae8b132, with
+ * the band every 0.1 (D6-1 (d)'s default steps); the evidence lane runs it. 'coarse' takes a subset of every axis for
+ * the default jest run (about 31k composites, under a second a face): one presence, both stresses, the shimmer's
+ * ends, both mark weights, t at 0, ½ and 1, the pair and one fade, k at kMax, and the band at α ½ and β ½.
+ */
+export const BETA_PAIR_GRIDS: Record<SweepResolution, BetaPairGrid> = {
+  coarse: {
+    presences: [1],
+    stresses: [0, 1],
+    turns: [-1, 1],
+    marks: [0, 1],
+    ts: [0, 0.5, 1],
+    fades: [{ beta: 1 }, { beta: 0.3, at: 'min' }],
+    ks: [],
+    arcStepDeg: 1,
+    bandSteps: 2,
+  },
+  full: {
+    presences: [0.5, 1],
+    stresses: [0, 1],
+    turns: [-1, 0, 1],
+    marks: [0, 1],
+    ts: [0, 0.25, 0.5, 0.75, 1],
+    fades: [{ beta: 1 }, { beta: 0.6, at: 'min' }, { beta: 0.6, at: 'max' }, { beta: 0.3, at: 'min' }, { beta: 0.3, at: 'max' }, { beta: 0, at: 'min' }, { beta: 0, at: 'max' }],
+    ks: [0.1, 0.3, 0.5],
+    arcStepDeg: 0.25,
+    bandSteps: 10,
+  },
+};
+
+/** The family's backgrounds: the field sweep's grounds, and the band's mixed grounds α and β at the grid's steps (D6-3 (ii)). */
+export function betaPairGrounds(id: DirectionId, face: Face, graphEdges: GraphEdges, grid: BetaPairGrid): Record<string, Oklab> {
+  const out: Record<string, Oklab> = { ...fieldSweepFor(id, face, graphEdges).grounds };
+  for (const edge of ['alpha', 'beta'] as const) {
+    const { from, to, label } = bandSides(id, face, edge);
+    for (let i = 1; i < grid.bandSteps; i++) out[`${label} ${i / grid.bandSteps}`] = edgeMixOklab(from, to, i / grid.bandSteps);
+  }
+  return out;
+}
+
+export interface BetaPairWorst {
+  readonly chroma: number;
+  readonly hue: number;
+  readonly where: string;
+}
+
+export interface BetaPairReport {
+  readonly grounds: Readonly<Record<string, Oklab>>;
+  /** Straight edges plus both legs of every waypoint edge. */
+  readonly legs: number;
+  /** The node set's L range over the endpoints: where N̄.L sits. */
+  readonly lRange: readonly [number, number];
+  /** The design band's floor less the margin (float), the check band's (8-bit). */
+  readonly limits: { readonly design: number; readonly check: number };
+  readonly float: { readonly failures: readonly string[]; readonly worst: BetaPairWorst };
+  readonly pixel: { readonly composites: number; readonly failures: number; readonly first: readonly string[]; readonly worst: BetaPairWorst };
+}
+
+type Ab = readonly [number, number];
+
+/** The convex hull of points in the plane (monotone chain), counter-clockwise. */
+function hull2(points: readonly Ab[]): Ab[] {
+  const p = [...points].sort((u, v) => u[0] - v[0] || u[1] - v[1]);
+  const cross = (o: Ab, a: Ab, b: Ab) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Ab[] = [];
+  const upper: Ab[] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  for (const q of p.reverse()) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}
+
+/** The largest in-band chroma anywhere in the hull of the points: its fan of triangles, each exact. */
+function hullMaxInBand(points: readonly Ab[], redBand: RedBand): { chroma: number; hue: number } {
+  const h = hull2(points);
+  const at = (q: Ab): Oklab => ({ L: 0.5, a: q[0], b: q[1] });
+  let best = { chroma: 0, hue: NaN };
+  for (let i = 1; i + 1 < h.length; i++) {
+    const m = maxInBandChromaInTriangle(at(h[0]), at(h[i]), at(h[i + 1]), redBand);
+    if (m.chroma > best.chroma) best = m;
+  }
+  return best;
+}
+
+/** The β pair family (iv) for one direction and face, on a grid; with `plant`, the red node X joins on J–X. */
+export function betaPairFamilyFor(
+  id: DirectionId,
+  face: Face,
+  graphEdges: GraphEdges,
+  resolution: SweepResolution,
+  options: { readonly plant?: boolean } = {},
+): BetaPairReport {
+  const grid = BETA_PAIR_GRIDS[resolution];
+  const d = DIRECTIONS[id];
+  const sweep = fieldSweepFor(id, face, graphEdges);
+  const grounds = betaPairGrounds(id, face, graphEdges, grid);
+  const tier = tierFor(face);
+  const deg = d.field.shimmer.deg;
+  const restGlow = lab(d.color[face].field.restGlow);
+  const stress = BASE.field.stress;
+  const lightness = face === 'dark' ? stress.lightnessDark : stress.lightnessLight;
+  const limits = { design: DESIGN_BAND.chromaFloor - BASE.neverRed.margin, check: CHECK_BAND.chromaFloor - BASE.neverRed.margin };
+
+  // Each node's L at full presence and its chroma-scaled anchor in ab.
+  const nodes: Record<string, { L1: number; A: Ab }> = {};
+  const quadrantIds = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
+  for (const [n, q] of Object.entries(quadrantIds)) {
+    const anchor = lab(BASE.emotion[q][tier]);
+    nodes[n] = { L1: anchor.L, A: [anchor.a * d.bead.chromaScale, anchor.b * d.bead.chromaScale] };
+  }
+  nodes.R0 = { L1: restGlow.L, A: [restGlow.a, restGlow.b] };
+  const RAD = Math.PI / 180;
+  if (options.plant) nodes.X = { L1: 0.6, A: [0.12 * Math.cos(20 * RAD), 0.12 * Math.sin(20 * RAD)] };
+  const turn = (a: number, b: number, phi: number): Ab => [a * Math.cos(phi * RAD) - b * Math.sin(phi * RAD), a * Math.sin(phi * RAD) + b * Math.cos(phi * RAD)];
+  const halo = (n: string, p: number): Oklab =>
+    n === 'R0' ? restGlow : { L: restGlow.L + (nodes[n].L1 - restGlow.L) * p, a: nodes[n].A[0] * p, b: nodes[n].A[1] * p };
+  const slot = (n: string, p: number, s: number, phi: number, w: number): Oklab => {
+    const h = halo(n, p);
+    const f = { L: h.L * (1 - lightness * s), a: h.a * (1 - stress.chroma * s), b: h.b * (1 - stress.chroma * s) };
+    const [ta, tb] = turn(f.a, f.b, phi);
+    return { L: (1 - w) * f.L + w * h.L, a: (1 - w) * ta + w * h.a, b: (1 - w) * tb + w * h.b };
+  };
+  // Each node's arc in ab, |φ| ≤ deg, as its circumscribed polygon.
+  const arc = (n: string): Ab[] => {
+    if (deg === 0) return [nodes[n].A];
+    const steps = Math.ceil((2 * deg) / grid.arcStepDeg - 1e-9);
+    const grow = 1 / Math.cos(((deg / steps) * RAD));
+    return Array.from({ length: steps + 1 }, (_, i) => {
+      const [a, b] = turn(nodes[n].A[0], nodes[n].A[1], -deg + (2 * deg * i) / steps);
+      return [a * grow, b * grow] as Ab;
+    });
+  };
+  const straight: Array<readonly [string, string]> = [...sweep.graph.straight];
+  const waypoint: Array<readonly [string, string]> = [...sweep.graph.waypoint];
+  if (options.plant) straight.push(['J', 'X']);
+
+  // The endpoints, and the node set's L range over them.
+  const endpoints: Record<string, Oklab[]> = {};
+  let Lmin = Infinity;
+  let Lmax = -Infinity;
+  for (const n of Object.keys(nodes)) {
+    endpoints[n] = [];
+    for (const p of grid.presences) for (const s of grid.stresses) for (const share of grid.turns) for (const w of grid.marks) {
+      const c = slot(n, p, s, share * deg, w);
+      endpoints[n].push(c);
+      Lmin = Math.min(Lmin, c.L);
+      Lmax = Math.max(Lmax, c.L);
+    }
+  }
+
+  // Float: exact hull certificates.
+  const floatFailures: string[] = [];
+  let floatWorst: BetaPairWorst = { chroma: 0, hue: NaN, where: '' };
+  for (const [gName, G] of Object.entries(grounds)) {
+    const check = (label: string, pts: Ab[]) => {
+      const m = hullMaxInBand(pts, DESIGN_BAND);
+      if (m.chroma > floatWorst.chroma) floatWorst = { ...m, where: `${label} over ${gName}` };
+      if (m.chroma > limits.design) floatFailures.push(`${label} over ${gName}: C ${m.chroma.toFixed(5)} at ${m.hue.toFixed(1)}`);
+    };
+    for (const [a, b] of straight) check(`${a}-${b}`, [[0, 0], [G.a, G.b], ...arc(a), ...arc(b)]);
+    for (const [a, b] of waypoint) {
+      check(`${a}->N leg`, [[0, 0], [G.a, G.b], ...arc(a)]);
+      check(`${b}->N leg`, [[0, 0], [G.a, G.b], ...arc(b)]);
+    }
+  }
+
+  // 8-bit: sampled.
+  const colours: Array<{ label: string; c: Oklab }> = [];
+  const add = (label: string, c: Oklab) => {
+    for (const fade of grid.fades) {
+      if (fade.at === undefined) colours.push({ label, c });
+      else {
+        const NL = fade.at === 'min' ? Lmin : Lmax;
+        colours.push({ label, c: { L: c.L * fade.beta + NL * (1 - fade.beta), a: fade.beta * c.a, b: fade.beta * c.b } });
+      }
+    }
+  };
+  for (const [a, b] of straight) for (const e1 of endpoints[a]) for (const e2 of endpoints[b]) for (const t of grid.ts) {
+    add(`${a}-${b}`, { L: e1.L + (e2.L - e1.L) * t, a: e1.a + (e2.a - e1.a) * t, b: e1.b + (e2.b - e1.b) * t });
+  }
+  const leg = [...new Set([...grid.ts, ...grid.ts.map((x) => 1 - (1 - x) * (1 - x))])];
+  for (const [a, b] of waypoint) for (const [x, y] of [[a, b], [b, a]] as const) for (const e1 of endpoints[x]) for (const e2 of endpoints[y]) for (const s of leg) {
+    const nL = (e1.L + e2.L) / 2;
+    add(`${x}->N leg`, { L: e1.L + (nL - e1.L) * s, a: e1.a * (1 - s), b: e1.b * (1 - s) });
+  }
+  const ks = [...grid.ks, sweep.kMax];
+  let composites = 0;
+  let pixelFailures = 0;
+  const first: string[] = [];
+  let pixelWorst: BetaPairWorst = { chroma: 0, hue: NaN, where: '' };
+  for (const [gName, G] of Object.entries(grounds)) {
+    for (const { label, c } of colours) {
+      for (const k of ks) {
+        composites++;
+        const m = maxInBandChromaOfPixels(pivotComposite(c, G, k, sweep.kp), CHECK_BAND, sweep.ditherAmplitude);
+        if (m.chroma > pixelWorst.chroma) pixelWorst = { chroma: m.chroma, hue: m.hue, where: `${label} over ${gName}, k ${k}` };
+        if (m.chroma > limits.check) {
+          pixelFailures++;
+          if (first.length < 3) first.push(`${label} over ${gName} k ${k}: C ${m.chroma.toFixed(5)} at ${m.hue.toFixed(1)}`);
+        }
+      }
+    }
+  }
+  return {
+    grounds,
+    legs: straight.length + 2 * waypoint.length,
+    lRange: [Lmin, Lmax],
+    limits,
+    float: { failures: floatFailures, worst: floatWorst },
+    pixel: { composites, failures: pixelFailures, first, worst: pixelWorst },
+  };
 }
