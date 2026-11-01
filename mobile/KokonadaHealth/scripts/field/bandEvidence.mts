@@ -5,10 +5,11 @@
 //
 // (2) the band's samples α (and β) ∈ {0.25, 0.5, 0.75} on the full 8-bit never-red grid (bandGridSweepFor), and
 // (4) the margin certificate over every one of its cells, each failing cell re-swept locally every 0.02
-// (certifyBand). About half an hour locally, past the CI sweeps job's 15-minute budget, so by the ruling it runs
-// here and never thinned; no CI job runs it yet (scripts/field/__tests__/bandEvidence.test.ts). It prints every
-// number and exits 1 on any failure: a red pixel, a sweep over DEC-081's margin, a certificate that does not walk
-// the sweep's cells, or a refined colour over the margin.
+// (certifyBand). 656 s locally in node and 754 s in jest's sandbox (c4fb628); beside the sweeps project's files,
+// in CI's two-worker file-size order, that projects the sweeps job to 12.9-16.8 min, across its 15-minute budget,
+// so by the ruling it runs here and never thinned; no CI job runs it yet (scripts/field/__tests__/
+// bandEvidence.test.ts). It prints every number and exits 1 on any failure: a red pixel, a sweep over DEC-081's
+// margin, a certificate that does not walk the sweep's cells, or a refined colour over the margin.
 
 import { sweepNeverRed } from '../../src/design/v2/color/blendSpace.ts';
 import { BAND_REFINE_STEP, BAND_SAMPLES, BAND_STEP, CHECK_BAND, DESIGN_BAND, bandSpecFor, certifyBand } from '../../src/design/v2/tokens/neverRedSweeps.ts';

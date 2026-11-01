@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 // Law round 2, D6-2 (the designer's ruling at UI-153): (2) the band's three samples on the full 8-bit grid and
-// (4) its margin certificate, with the local refinement, for α and β, both Abyss faces. They cost about half an
-// hour locally, past the CI sweeps job's 15-minute budget, so by the ruling they live in the scheduled evidence
-// lane, never thinned: scripts/field/bandEvidence.mts, an opt-in script that exits 1 on any failure. Wiring it
-// into a scheduled workflow is a later step (ci.yml is owner class a). This pins what the script would run, by
+// (4) its margin certificate, with the local refinement, for α and β, both Abyss faces. They cost 656 s locally in
+// node and 754 s in jest's sandbox (c4fb628); beside the sweeps project's files, in CI's two-worker file-size order,
+// that projects the sweeps job to 12.9-16.8 min, across its 15-minute budget, so by the ruling they live in the
+// scheduled evidence lane, never thinned: scripts/field/bandEvidence.mts, an opt-in script that exits 1 on any
+// failure. Wiring it into a scheduled workflow is a later step (ci.yml is owner class a). This pins what the script would run, by
 // asking it (--plan), and that no CI job runs it today, so nobody reads a green PR as its evidence.
 
 const APP = path.resolve(__dirname, '../../..');

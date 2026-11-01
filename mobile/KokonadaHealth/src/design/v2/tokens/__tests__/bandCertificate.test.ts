@@ -25,8 +25,9 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens.generat
 // OKLab move of a half-step 8-bit rounding on the band's grounds, computed. A failing cell is re-swept locally
 // at α every 0.02; the run reports how many were refined. The same for β (D6-1).
 //
-// (2) and (4) cost about half an hour locally per run, past the CI sweeps job's 15-minute budget, so they live
-// in the scheduled evidence lane (scripts/field/bandEvidence.mts; its pin is scripts/field/__tests__/
+// (2) and (4) cost 656 s locally in node and 754 s in jest's sandbox (c4fb628); beside the sweeps project's
+// files, in CI's two-worker file-size order, that projects the sweeps job to 12.9-16.8 min, across its 15-minute
+// budget, so they live in the scheduled evidence lane (scripts/field/bandEvidence.mts; its pin is scripts/field/__tests__/
 // bandEvidence.test.ts). This file holds their pieces on small grids in the default run: what the full grid is,
 // the distance, the rounding reach, S, q8, the cells it certifies and the cells it refines, each with a plant.
 
