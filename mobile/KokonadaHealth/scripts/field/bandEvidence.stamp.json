@@ -18,5 +18,9 @@
     }
   },
   "commit": "26b3c1c68cc7bcc59b05e067eff1d1b15faf4a65",
-  "pass": "PASS: 0 failures; 2173.6 s in all"
+  "pass": "PASS: 0 failures; 2173.6 s in all",
+  "runFile": {
+    "name": "d6c-evidence-band-26b3c1c.txt",
+    "sha256": "a72cd781775d9d919bde50358c141f06ce3a5c08e51c4bb34f7c0e2a3463f44e"
+  }
 }
