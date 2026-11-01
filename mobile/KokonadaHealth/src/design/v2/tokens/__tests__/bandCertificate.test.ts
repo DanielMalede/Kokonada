@@ -1,11 +1,14 @@
 import { sweepNeverRed, type NeverRedSweep } from '../../color/blendSpace.ts';
 import { oklabToSrgb, srgbToOklab, type Oklab } from '../../color/oklab.ts';
+import { maxInBandChromaOfPixels } from '../../color/redBand.ts';
 import { edgeMixOklab } from '../../field/fieldLaw.ts';
 import {
+  BAND_CERT_SAMPLES,
   BAND_REFINE_STEP,
   BAND_SAMPLES,
   BAND_STEP,
   CHECK_BAND,
+  bandCertificateFailures,
   bandGridSweepFor,
   bandSpecFor,
   certifyBand,
@@ -53,6 +56,11 @@ const SMALL: NeverRedSweep['grid'] = { kStep: 0.25, shimmerStepDeg: 6, pixelTSte
 describe('D6-2 (UI-153): the band grid, ruled', () => {
   it('the samples are 0.25, 0.5 and 0.75, the cell 0.25 wide, the refinement every 0.02', () => {
     expect([BAND_SAMPLES, BAND_STEP, BAND_REFINE_STEP]).toEqual([[0.25, 0.5, 0.75], 0.25, 0.02]);
+  });
+
+  it('UI-161: the certificate also takes the endpoints, 0 and 1, so its five cells cover [0, 1] with no gap', () => {
+    expect(BAND_CERT_SAMPLES).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    expect(Object.values(REFINE_VALUES).flat().sort((x, y) => x - y)).toEqual(Array.from({ length: 51 }, (_, i) => i / 50));
   });
 
   it.each(CASES.flatMap(([id, face]) => (['alpha', 'beta'] as const).map((edge) => [id, face, edge] as const)))(
@@ -153,19 +161,41 @@ describe.each(CASES.flatMap(([id, face]) => (['alpha', 'beta'] as const).map((ed
     expect(cert.threshold).toBe((cert.S * 0.25) / 2 + cert.q8);
   });
 
-  it('it certifies exactly the 8-bit cells sweepNeverRed checks on the same grid', () => {
-    expect(cert.cells).toBe(sweepNeverRed(spec.config).pixelSamples);
+  it('its rows 0.25 to 0.75 certify exactly the 8-bit cells sweepNeverRed checks on the same grid', () => {
+    const middle = cert.rows.filter((r) => BAND_SAMPLES.includes(r.sample));
+    expect(middle.reduce((t, r) => t + r.cells, 0)).toBe(sweepNeverRed(spec.config).pixelSamples);
     expect(cert.cells).toBeGreaterThan(1000);
   });
 
   it('every cell it does not certify is refined at every 0.02 inside its own 0.25 cell, and none of those is red', () => {
     expect(cert.refined.cells).toBe(cert.failing + cert.outOfGamut);
-    expect(cert.refined.values).toEqual({ 0.25: [0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36], 0.5: [0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52, 0.54, 0.56, 0.58, 0.6, 0.62], 0.75: [0.64, 0.66, 0.68, 0.7, 0.72, 0.74, 0.76, 0.78, 0.8, 0.82, 0.84, 0.86] });
+    expect(Object.fromEntries(cert.rows.map((r) => [r.sample, r.refined.values]))).toEqual(REFINE_VALUES);
+    for (const row of cert.rows) expect(row.refined.cells).toBe(row.failing + row.outOfGamut);
     expect(cert.refined.overLimit).toBe(0);
     expect(cert.refined.maxCheck).toBeLessThanOrEqual(CHECK_LIMIT);
     expect(cert.worst.m).toBeGreaterThan(0);
+    expect(bandCertificateFailures(cert)).toEqual([]);
+  });
+
+  it('UI-161: five rows, 0, 0.25, 0.5, 0.75 and 1, each over the same 8-bit cells as one sample of (2), at one threshold', () => {
+    const perSample = sweepNeverRed(spec.config).pixelSamples / BAND_SAMPLES.length;
+    expect(cert.rows.map((r) => r.sample)).toEqual([0, 0.25, 0.5, 0.75, 1]);
+    for (const row of cert.rows) expect(row.cells).toBe(perSample);
+    expect(cert.cells).toBe(5 * perSample);
+    expect(cert.failing).toBe(cert.rows.reduce((t, r) => t + r.failing, 0));
+    expect(cert.outOfGamut).toBe(cert.rows.reduce((t, r) => t + r.outOfGamut, 0));
+    expect(Math.min(...cert.rows.map((r) => r.worst.m))).toBe(cert.worst.m);
   });
 });
+
+/** UI-161: each row refines only inside its own cell; the end rows' half-cells are [0, 0.125] and [0.875, 1]. */
+const REFINE_VALUES = {
+  0: [0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12],
+  0.25: [0.14, 0.16, 0.18, 0.2, 0.22, 0.24, 0.26, 0.28, 0.3, 0.32, 0.34, 0.36],
+  0.5: [0.38, 0.4, 0.42, 0.44, 0.46, 0.48, 0.5, 0.52, 0.54, 0.56, 0.58, 0.6, 0.62],
+  0.75: [0.64, 0.66, 0.68, 0.7, 0.72, 0.74, 0.76, 0.78, 0.8, 0.82, 0.84, 0.86],
+  1: [0.88, 0.9, 0.92, 0.94, 0.96, 0.98, 1],
+};
 
 describe('D6-2 (4): the certificate bites', () => {
   const RAD = Math.PI / 180;
@@ -195,5 +225,42 @@ describe('D6-2 (4): the certificate bites', () => {
     const full = certifyBand(spec);
     expect([quick.cells, quick.failing, quick.outOfGamut]).toEqual([full.cells, full.failing, full.outOfGamut]);
     expect(quick.refined.cells).toBe(0);
+  });
+});
+
+// ------------------------------------------------------------------ UI-161: the end half-cells bite
+
+/**
+ * A planted band, on real semantics: a straight OKLab segment (L 0.6, S 0.2) that grazes the check band's red corner
+ * at hue 50 only around α 0.06. Its ends, its samples 0.25 to 0.75 and every other multiple of 0.02 are not red on
+ * 8-bit pixels, and the field is off (k = 0: every cell shows the band itself), so only the end row's half-cell can
+ * see it: before UI-161 no certificate covered [0, 0.125].
+ * Mirrored, it plants red at β 0.94.
+ */
+const PLANT_FROM: Oklab = { L: 0.6, a: 0.014240496594409445, b: 0.02674646590694235 };
+const PLANT_TO: Oklab = { L: 0.6, a: 0.014240496594409409, b: -0.17325353409305766 };
+const plantedSpec = (edge: 'alpha' | 'beta', from: Oklab, to: Oklab) => {
+  const spec = smallSpec('abyss', 'dark', edge);
+  const grounds = Object.fromEntries(BAND_SAMPLES.map((s) => [`${spec.label} ${s}`, edgeMixOklab(from, to, s)]));
+  return { ...spec, from, to, config: { ...spec.config, grounds, kMax: 0 } };
+};
+const redOnBand = (from: Oklab, to: Oklab) =>
+  Array.from({ length: 51 }, (_, i) => i / 50).filter((v) => maxInBandChromaOfPixels(edgeMixOklab(from, to, v), CHECK_BAND, A).chroma > CHECK_LIMIT);
+
+describe('UI-161: a plant inside an end half-cell fails', () => {
+  it.each([
+    ['alpha', PLANT_FROM, PLANT_TO, 0.06, 0],
+    ['beta', PLANT_TO, PLANT_FROM, 0.94, 1],
+  ] as const)('%s: red planted only at %s on the band is caught by its end row, and by no other', (edge, from, to, at, row) => {
+    expect(redOnBand(from, to)).toEqual([at]);
+    const cert = certifyBand(plantedSpec(edge, from, to));
+    const end = cert.rows.find((r) => r.sample === row);
+    expect(end?.refined.overLimit).toBeGreaterThan(0);
+    expect(end?.refined.maxCheck).toBeGreaterThan(CHECK_LIMIT);
+    // The rows 0.25 to 0.75, the whole certificate before UI-161, never see it.
+    for (const r of cert.rows.filter((x) => x.sample > 0 && x.sample < 1)) expect(r.refined.overLimit).toBe(0);
+    const failures = bandCertificateFailures(cert);
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures.every((f) => f.startsWith(`${cert.label} row ${row}:`))).toBe(true);
   });
 });

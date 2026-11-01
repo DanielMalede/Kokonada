@@ -12,7 +12,7 @@
 // margin, a certificate that does not walk the sweep's cells, or a refined colour over the margin.
 
 import { sweepNeverRed } from '../../src/design/v2/color/blendSpace.ts';
-import { BAND_REFINE_STEP, BAND_SAMPLES, BAND_STEP, CHECK_BAND, DESIGN_BAND, bandSpecFor, certifyBand } from '../../src/design/v2/tokens/neverRedSweeps.ts';
+import { BAND_REFINE_STEP, BAND_SAMPLES, BAND_STEP, CHECK_BAND, DESIGN_BAND, bandCertificateFailures, bandSpecFor, certifyBand } from '../../src/design/v2/tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../src/design/v2/tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../src/design/v2/tokens/tokens.generated.ts';
 
@@ -49,12 +49,16 @@ for (const { direction, face, edge } of cases) {
   t0 = Date.now();
   const cert = certifyBand(spec);
   const w = cert.worst;
-  console.log(`  (4) certificate: S ${fmt(cert.S)}, Δ ${cert.step}, S·Δ/2 ${fmt((cert.S * cert.step) / 2)}, q8 ${fmt(cert.q8)}, threshold ${fmt(cert.threshold)}; cells ${cert.cells}; min m ${fmt(w.m)} (${w.segment} at ${w.sample}, k ${w.k}, t ${w.t}, scales ${w.chromaScales.join('/')}, shimmer ${w.shimmerDeg.join('/')}); failing ${cert.failing}, out of gamut ${cert.outOfGamut}`);
-  const r = cert.refined;
-  console.log(`      refined ${r.cells} cells (${BAND_SAMPLES.map((s) => `${s}: ${r.values[s].length} values`).join(', ')}), ${r.distinct} distinct colours on 8-bit pixels; max check C ${fmt(r.maxCheck)}${r.worst ? ` (${r.worst.segment} at ${r.worst.value}, k ${r.worst.k}, t ${r.worst.t})` : ''}; over the margin ${r.overLimit}; ${((Date.now() - t0) / 1000).toFixed(1)} s`);
-  if (cert.cells !== report.pixelSamples) fail(`(4) walked ${cert.cells} cells, the sweep ${report.pixelSamples}`);
-  if (r.cells !== cert.failing + cert.outOfGamut) fail(`(4) refined ${r.cells} of ${cert.failing + cert.outOfGamut} uncertified cells`);
-  if (r.overLimit > 0 || r.maxCheck > CHECK_LIMIT) fail(`(4) refinement: ${r.overLimit} colours over the margin, max C ${fmt(r.maxCheck)}`);
+  console.log(`  (4) certificate, five rows: S ${fmt(cert.S)}, Δ ${cert.step}, S·Δ/2 ${fmt((cert.S * cert.step) / 2)}, q8 ${fmt(cert.q8)}, threshold ${fmt(cert.threshold)}; cells ${cert.cells}; min m ${fmt(w.m)} (${w.segment} at ${w.sample}, k ${w.k}, t ${w.t}, scales ${w.chromaScales.join('/')}, shimmer ${w.shimmerDeg.join('/')}); failing ${cert.failing}, out of gamut ${cert.outOfGamut}`);
+  // UI-161: five rows, the endpoints' half-cells too; each row walks one sample's cells of the full grid.
+  for (const row of cert.rows) {
+    const rw = row.worst;
+    const r = row.refined;
+    console.log(`      row ${row.sample}: cells ${row.cells}; min m ${fmt(rw.m)} (${rw.segment}, k ${rw.k}, t ${rw.t}, scales ${rw.chromaScales.join('/')}, shimmer ${rw.shimmerDeg.join('/')}); failing ${row.failing}, out of gamut ${row.outOfGamut}; refined ${r.cells} cells at ${r.values.length} values (${r.values[0]}-${r.values[r.values.length - 1]}), ${r.distinct} distinct colours; max check C ${fmt(r.maxCheck)}${r.worst ? ` (${r.worst.segment} at ${r.worst.value}, k ${r.worst.k}, t ${r.worst.t})` : ''}; over the margin ${r.overLimit}`);
+    if (row.cells * BAND_SAMPLES.length !== report.pixelSamples) fail(`(4) row ${row.sample} walked ${row.cells} cells, one sample of the sweep ${report.pixelSamples / BAND_SAMPLES.length}`);
+  }
+  console.log(`      certificate ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  for (const line of bandCertificateFailures(cert)) fail(`(4) ${line}`);
 }
 console.log(`${failed === 0 ? 'PASS' : 'FAIL'}: ${failed} failures; ${((Date.now() - started) / 1000).toFixed(1)} s in all`);
 process.exit(failed === 0 ? 0 : 1);

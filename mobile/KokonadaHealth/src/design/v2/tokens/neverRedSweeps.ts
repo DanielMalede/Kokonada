@@ -640,6 +640,40 @@ export interface BandCellWhere {
   readonly shimmerDeg: readonly [number, number];
 }
 
+/**
+ * UI-161: the certificate's samples, the endpoints too. Each certifies its own cell: Δ wide around 0.25, 0.5 and
+ * 0.75, and the one-sided half-cells [0, 0.125] and [0.875, 1] at the ends, whose reach 0.125·S is S·Δ/2, so one
+ * threshold holds for all five and they cover [0, 1] with no gap.
+ */
+export const BAND_CERT_SAMPLES: readonly number[] = [0, ...BAND_SAMPLES, 1];
+
+export interface BandRefinement {
+  /** The cells re-swept: every failing or out-of-gamut one. */
+  readonly cells: number;
+  /** Distinct colours the refinement checked on 8-bit pixels. */
+  readonly distinct: number;
+  /** The largest in-band chroma it found on 8-bit pixels, against the check band. */
+  readonly maxCheck: number;
+  /** How many checked colours reach a pixel above the check band's floor less the margin. */
+  readonly overLimit: number;
+  readonly worst: ({ readonly value: number; readonly chroma: number } & BandCellWhere) | null;
+}
+
+/** One sample's row of the certificate (UI-161: five per band). */
+export interface BandCertRow {
+  readonly sample: number;
+  /** The 8-bit cells at this sample: as many as sweepNeverRed's pixel samples on one ground of the same config. */
+  readonly cells: number;
+  /** Cells with m ≤ threshold. */
+  readonly failing: number;
+  /** Cells whose dither range L ± A leaves the sRGB gamut: the clamp is not an OKLab move, so the bound does not hold (UI-162). */
+  readonly outOfGamut: number;
+  /** The smallest m, and where. */
+  readonly worst: { readonly m: number } & BandCellWhere;
+  /** The values the row's cell is re-swept at (every multiple of 0.02 inside it), and what that found. */
+  readonly refined: BandRefinement & { readonly values: readonly number[] };
+}
+
 export interface BandCertificate {
   readonly label: string;
   /** |to − from| in OKLab: how far the band's colour moves per unit of α (or β). */
@@ -649,30 +683,17 @@ export interface BandCertificate {
   readonly q8: number;
   /** S·Δ/2 + q8: a cell passes only if its m is above this. */
   readonly threshold: number;
-  /** The 8-bit cells of (2): as many as sweepNeverRed's pixel samples on the same config. */
+  /** The rows' totals. */
   readonly cells: number;
-  /** Cells with m ≤ threshold. */
   readonly failing: number;
-  /** Cells whose dither range L ± A leaves the sRGB gamut: the clamp is not an OKLab move, so the bound does not hold. */
   readonly outOfGamut: number;
-  /** The smallest m, and where. */
   readonly worst: { readonly m: number } & BandCellWhere;
-  readonly refined: {
-    /** The cells re-swept: every failing or out-of-gamut one. */
-    readonly cells: number;
-    /** The values each sample's cell is re-swept at: every multiple of 0.02 within Δ/2 of it. */
-    readonly values: Readonly<Record<number, readonly number[]>>;
-    /** Distinct colours the refinement checked on 8-bit pixels. */
-    readonly distinct: number;
-    /** The largest in-band chroma it found on 8-bit pixels, against the check band. */
-    readonly maxCheck: number;
-    /** How many checked colours reach a pixel above the check band's floor less the margin. */
-    readonly overLimit: number;
-    readonly worst: ({ readonly value: number; readonly chroma: number } & BandCellWhere) | null;
-  };
+  readonly refined: BandRefinement;
+  /** One row per sample of BAND_CERT_SAMPLES, in order. */
+  readonly rows: readonly BandCertRow[];
 }
 
-/** Every multiple of the refinement step within Δ/2 of a sample, both ends included. */
+/** Every multiple of the refinement step inside a sample's cell, both ends included: Δ/2 either side, inside [0, 1]. */
 function refineValues(sample: number): number[] {
   const n = Math.round(1 / BAND_REFINE_STEP);
   const out: number[] = [];
@@ -683,14 +704,17 @@ function refineValues(sample: number): number[] {
   return out;
 }
 
+const NO_CELL: BandCellWhere = { sample: NaN, segment: '', k: NaN, t: NaN, chromaScales: [NaN, NaN], shimmerDeg: [NaN, NaN] };
+
 /**
- * D6-2 (4): the margin certificate over every 8-bit cell of the band's (2) sweep, in sweepNeverRed's order (each
- * segment, ground, k, t, pair of chroma scales and pair of shimmer turns). m is the distance from the cell's
- * composited float colour to the red-exclusion band; between two samples the band's colour moves along a
- * straight OKLab segment, by at most S·Δ/2 within a cell, and the composite by no more, so a cell with
- * m > S·Δ/2 + q8 has no red 8-bit neighbour. A cell that fails it, or whose dither leaves the gamut, is
- * re-swept locally at every 0.02 inside its cell (the same cell at each value, every 8-bit pixel the dither and
- * grain reach, against the check band), unless `refine` is false.
+ * D6-2 (4) with UI-161: the margin certificate over every 8-bit cell of the band's full grid at each of the five
+ * samples, in sweepNeverRed's order within a sample (each segment, k, t, pair of chroma scales and pair of shimmer
+ * turns). m is the distance from the cell's composited float colour to the red-exclusion band; between two samples
+ * the band's colour moves along a straight OKLab segment, by at most S·Δ/2 within a cell (an end's half-cell too),
+ * and the composite by no more, so a cell with m > S·Δ/2 + q8 has no red 8-bit neighbour. A cell that fails it, or
+ * whose dither leaves the gamut, is re-swept locally at every 0.02 inside its own cell (the same cell at each value,
+ * every 8-bit pixel the dither and grain reach, against the check band), unless `refine` is false. The grounds are
+ * the law's mixes edgeMixOklab(from, to, sample); the (2) sweep's must be the same, bit for bit.
  */
 export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean } = {}): BandCertificate {
   const { config, from, to, label } = spec;
@@ -700,6 +724,12 @@ export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean
   const floor = config.checkBand.chromaFloor - BASE.neverRed.margin;
   const S = Math.hypot(to.L - from.L, to.a - from.a, to.b - from.b);
   const shift = (c: Oklab, dL: number): Oklab => ({ L: c.L + dL, a: c.a, b: c.b });
+  for (const s of BAND_SAMPLES) {
+    const G = config.grounds[`${label} ${s}`];
+    if (G === undefined) throw new RangeError(`the band's sweep has no ground ${label} ${s}`);
+    const mixed = edgeMixOklab(from, to, s);
+    if (G.L !== mixed.L || G.a !== mixed.a || G.b !== mixed.b) throw new RangeError(`the band's sweep ground ${label} ${s} is not the law's mix at ${s}`);
+  }
   // q8 on the band's grounds: every 0.02 of it and the three samples, each where the dither and grain take it.
   const n = Math.round(1 / BAND_REFINE_STEP);
   const values = [...Array.from({ length: n + 1 }, (_, j) => j / n), ...BAND_SAMPLES];
@@ -715,15 +745,16 @@ export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean
   const ks = samplesUpTo(config.kMax, grid.pixelKStep);
   const ts = samplesUpTo(1, grid.pixelTStep);
   const scales = grid.chromaScales;
-  let cells = 0;
-  let failing = 0;
-  let outOfGamut = 0;
-  let worst: BandCertificate['worst'] = { m: Infinity, sample: NaN, segment: '', k: NaN, t: NaN, chromaScales: [NaN, NaN], shimmerDeg: [NaN, NaN] };
-  const toRefine: Array<{ sample: number; mixed: Oklab; where: BandCellWhere }> = [];
-  for (const segment of segments) {
-    for (const sample of BAND_SAMPLES) {
-      const G = config.grounds[`${label} ${sample}`];
-      if (G === undefined) throw new RangeError(`the band's sweep has no ground ${label} ${sample}`);
+  const chromaOf = new Map<string, number>();
+
+  const rows: BandCertRow[] = BAND_CERT_SAMPLES.map((sample) => {
+    const G = edgeMixOklab(from, to, sample);
+    let cells = 0;
+    let failing = 0;
+    let outOfGamut = 0;
+    let worst: BandCertRow['worst'] = { m: Infinity, ...NO_CELL };
+    const toRefine: Array<{ mixed: Oklab; where: BandCellWhere }> = [];
+    for (const segment of segments) {
       for (const k of ks) {
         for (const t of ts) {
           for (const si of scales) {
@@ -741,7 +772,7 @@ export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean
                   const gamut = inGamut(shift(shown, -A)) && inGamut(shift(shown, A));
                   if (!gamut) outOfGamut++;
                   else if (!(m > threshold)) failing++;
-                  if (refine && (!gamut || !(m > threshold))) toRefine.push({ sample, mixed, where });
+                  if (refine && (!gamut || !(m > threshold))) toRefine.push({ mixed, where });
                 }
               }
             }
@@ -749,40 +780,69 @@ export function certifyBand(spec: BandSpec, options: { readonly refine?: boolean
         }
       }
     }
-  }
-
-  const refineAt: Record<number, number[]> = {};
-  for (const s of BAND_SAMPLES) refineAt[s] = refineValues(s);
-  const seen = new Map<string, number>();
-  let maxCheck = 0;
-  let overLimit = 0;
-  let refinedWorst: BandCertificate['refined']['worst'] = null;
-  for (const cell of toRefine) {
-    for (const value of refineAt[cell.sample]) {
-      const shown = pivotComposite(cell.mixed, edgeMixOklab(from, to, value), cell.where.k, kp);
-      const key = `${shown.L},${shown.a},${shown.b}`;
-      let chroma = seen.get(key);
-      if (chroma === undefined) {
-        chroma = maxInBandChromaOfPixels(shown, config.checkBand, A).chroma;
-        seen.set(key, chroma);
-        if (chroma > floor) overLimit++;
-      }
-      if (chroma > maxCheck) {
-        maxCheck = chroma;
-        refinedWorst = { value, chroma, ...cell.where };
+    const at = refineValues(sample);
+    const seen = new Set<string>();
+    let maxCheck = 0;
+    let overLimit = 0;
+    let refinedWorst: BandRefinement['worst'] = null;
+    for (const cell of toRefine) {
+      for (const value of at) {
+        const shown = pivotComposite(cell.mixed, edgeMixOklab(from, to, value), cell.where.k, kp);
+        const key = `${shown.L},${shown.a},${shown.b}`;
+        let chroma = chromaOf.get(key);
+        if (chroma === undefined) {
+          chroma = maxInBandChromaOfPixels(shown, config.checkBand, A).chroma;
+          chromaOf.set(key, chroma);
+        }
+        if (!seen.has(key)) {
+          seen.add(key);
+          if (chroma > floor) overLimit++;
+        }
+        if (chroma > maxCheck) {
+          maxCheck = chroma;
+          refinedWorst = { value, chroma, ...cell.where };
+        }
       }
     }
-  }
+    return { sample, cells, failing, outOfGamut, worst, refined: { cells: toRefine.length, values: at, distinct: seen.size, maxCheck, overLimit, worst: refinedWorst } };
+  });
+
+  const sum = (f: (r: BandCertRow) => number) => rows.reduce((t, r) => t + f(r), 0);
+  const worst = rows.reduce((w, r) => (r.worst.m < w.m ? r.worst : w), rows[0].worst);
+  const refinedWorst = rows.reduce<BandRefinement['worst']>((w, r) => (r.refined.worst !== null && (w === null || r.refined.worst.chroma > w.chroma) ? r.refined.worst : w), null);
   return {
     label,
     S,
     step: BAND_STEP,
     q8,
     threshold,
-    cells,
-    failing,
-    outOfGamut,
+    cells: sum((r) => r.cells),
+    failing: sum((r) => r.failing),
+    outOfGamut: sum((r) => r.outOfGamut),
     worst,
-    refined: { cells: toRefine.length, values: refineAt, distinct: seen.size, maxCheck, overLimit, worst: refinedWorst },
+    refined: {
+      cells: sum((r) => r.refined.cells),
+      distinct: sum((r) => r.refined.distinct),
+      maxCheck: Math.max(...rows.map((r) => r.refined.maxCheck)),
+      overLimit: sum((r) => r.refined.overLimit),
+      worst: refinedWorst,
+    },
+    rows,
   };
+}
+
+/**
+ * What fails a certificate, one line per finding, each `<label> row <sample>: …`: a row that did not refine every
+ * cell it did not certify, or whose refinement found a colour over the check band's floor less the margin. Empty is
+ * a pass; the evidence lane exits 1 on any line.
+ */
+export function bandCertificateFailures(cert: BandCertificate): string[] {
+  const limit = CHECK_BAND.chromaFloor - BASE.neverRed.margin;
+  const out: string[] = [];
+  for (const row of cert.rows) {
+    const r = row.refined;
+    if (r.cells !== row.failing + row.outOfGamut) out.push(`${cert.label} row ${row.sample}: refined ${r.cells} of ${row.failing + row.outOfGamut} uncertified cells`);
+    if (r.overLimit > 0 || r.maxCheck > limit) out.push(`${cert.label} row ${row.sample}: ${r.overLimit} refined colours over the margin, max C ${r.maxCheck}`);
+  }
+  return out;
 }
