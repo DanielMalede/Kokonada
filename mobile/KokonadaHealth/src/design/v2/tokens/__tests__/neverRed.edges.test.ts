@@ -1,4 +1,4 @@
-import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, plateShadowGrounds, ringEdgeGrounds, ringOuterGrounds } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, EDGE_SWEEP_GRIDS, coverageRange, edgeFamiliesFor, edgeSweepInputs, faceLitFieldKs, plateShadowGrounds, ringEdgeGrounds, ringOuterGrounds } from '../neverRedSweeps.ts';
 import { buildFieldFrame, type FieldState } from '../../field/fieldFrame.ts';
 import { pixelTerms } from '../../field/fieldLaw.ts';
 import { staticsFor } from '../../field/statics.ts';
@@ -275,5 +275,23 @@ describe.each(CASES)('D6-1 (UI-151): the ring-halo families take the outer band�
       .map((f) => f.family);
     expect(over).toEqual(expect.arrayContaining(['ring halo · plate.rim.base', 'ring halo · text.primary']));
     expect(over.filter((f) => f.startsWith('face lit'))).toEqual([]);
+  });
+});
+
+// UI-164 (the designer, D6 round 2): D6-3 (i) is met by the superset, the face-lit families lighting every
+// face-side surface (the inner band's grounds too) with the field at every k from 0 to the cap. The k grid must
+// include 0 and the cap, at full 8-bit resolution.
+describe.each(CASES)('UI-164: the face-lit families’ field k grid, %s, %s face', (id, face) => {
+  it.each(['coarse', 'full'] as const)('%s: from 0 to the cap, both included, in steps no longer than the grid’s, float and 8-bit', (resolution) => {
+    const cap = DIRECTIONS[id].field.cap[face];
+    const grid = EDGE_SWEEP_GRIDS[resolution];
+    for (const step of [grid.floatKStep, grid.byteKStep]) {
+      const ks = faceLitFieldKs(id, face, step);
+      expect(DIRECTIONS[id].field.mask.face).toBeGreaterThan(0);
+      expect(ks[0]).toBe(0);
+      expect(ks[ks.length - 1]).toBe(cap);
+      for (let i = 1; i < ks.length; i++) expect(ks[i] - ks[i - 1]).toBeLessThanOrEqual(step + 1e-12);
+    }
+    expect(EDGE_SWEEP_GRIDS.full.byteKStep).toBe(0.01);
   });
 });

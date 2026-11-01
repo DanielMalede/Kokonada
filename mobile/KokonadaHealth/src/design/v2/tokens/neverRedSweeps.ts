@@ -371,6 +371,16 @@ export function plateShadowGrounds(id: DirectionId, face: Face): { readonly face
   return out;
 }
 
+/**
+ * The k values the face-lit families light a face-side surface with the field at, the inner band's grounds too
+ * (UI-164: D6-3 (i) met by the superset): from 0 to the face's cap, both included, in steps no longer than kStep;
+ * none where the face's mask keeps the field out.
+ */
+export function faceLitFieldKs(id: DirectionId, face: Face, kStep: number): number[] {
+  const d = DIRECTIONS[id];
+  return d.field.mask.face > 0 ? upTo(d.field.cap[face], kStep) : [];
+}
+
 export function edgeFamiliesFor(
   id: DirectionId,
   face: Face,
@@ -388,12 +398,12 @@ export function edgeFamiliesFor(
   const srgb = (x: Oklab) => sweepOklabToSrgb(x);
 
   // Surfaces lit by a halo (no shimmer: marks never shimmer) or by the field (which shimmers).
-  const lit = (ground: Oklab, nodes: Oklab[], kMax: number, turns: readonly number[], kStep: number): Oklab[] => {
+  const lit = (ground: Oklab, nodes: Oklab[], ks: readonly number[], turns: readonly number[]): Oklab[] => {
     const out: Oklab[] = [];
     for (const node of nodes) {
       for (const p of presences) {
         for (const phi of turns) {
-          for (const k of upTo(kMax, kStep)) out.push(pivotComposite(rotate(scale(node, p), phi), ground, k, kp));
+          for (const k of ks) out.push(pivotComposite(rotate(scale(node, p), phi), ground, k, kp));
         }
       }
     }
@@ -425,8 +435,8 @@ export function edgeFamiliesFor(
   // A face-side surface: lit by the halos, and by the field where the face's mask lets it in.
   const faceLit = (surfaces: Oklab[], kStep: number): Oklab[] =>
     surfaces.flatMap((ground) => [
-      ...lit(ground, anchors, haloPeak(face), [0], kStep),
-      ...(d.field.mask.face > 0 ? lit(ground, fieldNodes, d.field.cap[face], shimmers, kStep) : []),
+      ...lit(ground, anchors, upTo(haloPeak(face), kStep), [0]),
+      ...lit(ground, fieldNodes, faceLitFieldKs(id, face, kStep), shimmers),
     ]);
   // The ring edge's band (designer §4 (b), UI-114): its mixed grounds join the backgrounds of every
   // face-lit and ring-halo family, each lit as the family lights its own ground: the ring-halo surfaces by
@@ -436,7 +446,7 @@ export function edgeFamiliesFor(
   // The outer edge's band (D6-1 (d)): its mixed grounds join the ring-halo families' backgrounds alone, lit by
   // the halos as the ring is (the band is field-free: the ring's mask and the moat's extent are 0).
   const outerGrounds = Object.values(ringOuter);
-  const ringLit = (surfaces: Oklab[], kStep: number): Oklab[] => surfaces.flatMap((ground) => lit(ground, anchors, haloPeak(face), [0], kStep));
+  const ringLit = (surfaces: Oklab[], kStep: number): Oklab[] => surfaces.flatMap((ground) => lit(ground, anchors, upTo(haloPeak(face), kStep), [0]));
   const ringFloat = shifted(ringLit([ring, ...bandGrounds, ...outerGrounds], floatKStep));
   const ringBytes = quantised(byteShifted(ringLit([ring, ...bandGrounds, ...outerGrounds], byteKStep)));
   const faceFloat = shifted(faceLit([...faceGrounds, ...bandGrounds], floatKStep));
