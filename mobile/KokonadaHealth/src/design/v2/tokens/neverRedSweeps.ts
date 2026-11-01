@@ -4,7 +4,8 @@
 //   • fieldSweepFor: the blend graph composited over every local ground the field or a halo lands
 //     on (blendSpace.ts), including each ground the plate's shadows darken or lift, at P 0.5 and 1,
 //     and the face under its vignette and centre lift (faceShadingGrounds); and ringEdgeSweepFor, the
-//     same over the ring's anti-aliased inner edge, the law's OKLab mixes of face and ring (UI-114).
+//     same over the ring's anti-aliased inner edge, the law's OKLab mixes of face and ring (UI-114), and
+//     ringOuterSweepFor over its outer edge, the mixes of ring and outside ground (D6-1, UI-151).
 //   • edgeFamiliesFor: every pair of colours that meet at an anti-aliased edge, a stroke, a shadow
 //     tail or a gradient, blended in sRGB as Skia draws them (edgeSweep.ts). Each family reports its
 //     exact largest in-band chroma in float (design band) and on 8-bit pixels (check band).
@@ -148,6 +149,35 @@ export function ringEdgeSweepFor(
   resolution: SweepResolution = 'coarse',
 ): NeverRedSweep {
   return { ...fieldSweepFor(id, face, graphEdges, edges), grounds: ringEdgeGrounds(id, face, resolution) };
+}
+
+/**
+ * The ring's anti-aliased outer edge (law round 2, D6-1 (d), the designer's ruling at UI-151): the law mixes the
+ * ring's ground and the outside ground in OKLab at the outside's coverage β (fieldLaw.ts edgeMixOklab, the same
+ * function). One ground per β strictly inside (0, 1), at the inner edge's steps: every 0.1 by default, every 0.02
+ * in the sweeps project; β 0 and 1 are the ring and the ground, which the field sweep already takes. The outer
+ * shadows read at q_o shade the outside side's L: no shipped direction draws one (the UI-096 tripwire), and their
+ * product with the band belongs to the certified sampler (law round 2, D8), as the inner shadows' does.
+ */
+export function ringOuterGrounds(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse'): Record<string, Oklab> {
+  const c = DIRECTIONS[id].color[face];
+  const ring = lab(c.plate.ring);
+  const outside = lab(c.ground);
+  const n = RING_EDGE_STEPS[resolution];
+  const out: Record<string, Oklab> = {};
+  for (let i = 1; i < n; i++) out[`ring·outside β ${i / n}`] = edgeMixOklab(ring, outside, i / n);
+  return out;
+}
+
+/** The field sweep over the outer edge's grounds (D6-1 (d)): ringEdgeSweepFor's pass, over ringOuterGrounds. */
+export function ringOuterSweepFor(
+  id: DirectionId,
+  face: Face,
+  graphEdges: GraphEdges,
+  edges?: { straight: Array<[string, string]>; waypoint: Array<[string, string]> },
+  resolution: SweepResolution = 'coarse',
+): NeverRedSweep {
+  return { ...fieldSweepFor(id, face, graphEdges, edges), grounds: ringOuterGrounds(id, face, resolution) };
 }
 
 export function fieldSweepFor(
@@ -347,6 +377,7 @@ export function edgeFamiliesFor(
   resolution: SweepResolution = 'coarse',
   grounds = plateShadowGrounds(id, face),
   ringEdge: Record<string, Oklab> = ringEdgeGrounds(id, face, resolution),
+  ringOuter: Record<string, Oklab> = ringOuterGrounds(id, face, resolution),
 ): EdgeFamilyMax[] {
   const d = DIRECTIONS[id];
   const c = d.color[face];
@@ -402,9 +433,12 @@ export function edgeFamiliesFor(
   // the halos, the face-lit ones by the halos and the field, which reaches the band with the face's mask,
   // (1 − α)·mask.face. The inks a bead brings into the band (its setting and shadow) are in both.
   const bandGrounds = Object.values(ringEdge);
+  // The outer edge's band (D6-1 (d)): its mixed grounds join the ring-halo families' backgrounds alone, lit by
+  // the halos as the ring is (the band is field-free: the ring's mask and the moat's extent are 0).
+  const outerGrounds = Object.values(ringOuter);
   const ringLit = (surfaces: Oklab[], kStep: number): Oklab[] => surfaces.flatMap((ground) => lit(ground, anchors, haloPeak(face), [0], kStep));
-  const ringFloat = shifted(ringLit([ring, ...bandGrounds], floatKStep));
-  const ringBytes = quantised(byteShifted(ringLit([ring, ...bandGrounds], byteKStep)));
+  const ringFloat = shifted(ringLit([ring, ...bandGrounds, ...outerGrounds], floatKStep));
+  const ringBytes = quantised(byteShifted(ringLit([ring, ...bandGrounds, ...outerGrounds], byteKStep)));
   const faceFloat = shifted(faceLit([...faceGrounds, ...bandGrounds], floatKStep));
   const faceBytes = quantised(byteShifted(faceLit([...faceGrounds, ...bandGrounds], byteKStep)));
 
@@ -495,3 +529,4 @@ export function fullEdgeReport(id: DirectionId, face: Face): { families: EdgeFam
     notFiner: full.filter((f, i) => lit(f) && !(f.pixelBlends > coarse[i].pixelBlends)).map((f) => f.family),
   };
 }
+
