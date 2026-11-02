@@ -8,6 +8,7 @@
 
 import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import type { FieldStatics } from './fieldFrame.ts';
+import { ledgerConfig, type LedgerConfig } from './placementLedger.ts';
 
 interface ExtensionsShape {
   readonly base: {
@@ -37,3 +38,13 @@ export function staticsFor(id: DirectionId, extensions: ExtensionsShape): FieldS
 }
 
 const isOneTable = (rest: RestTable | Readonly<Record<Face, RestTable>>): rest is RestTable => Array.isArray(rest);
+
+/**
+ * The placement ledger's config for a direction and face, from the same statics the builder draws with
+ * (architect T5 r1 G-c, resilience F13): the face's rest table and the direction's neutralLobe, on the
+ * plate the field is drawn on. FieldView and the tests make the config here and nowhere else, so the
+ * ledger's lobe rule and the builder's cannot disagree (ledgerConfigFor.test.ts).
+ */
+export function ledgerConfigFor(id: DirectionId, face: Face, statics: FieldStatics, plate: { readonly radiusPx: number; readonly pxPerDp: number }): LedgerConfig {
+  return ledgerConfig(id, statics.restLobes[face], plate);
+}
