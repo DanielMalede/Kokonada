@@ -241,3 +241,45 @@ describe('worklet-safe maths', () => {
     },
   );
 });
+
+// Fork 1, 1C (architect B4 forks): statics are made on the JS thread, once per direction, and passed down
+// as props. A worklet that called staticsFor, or read EXTENSIONS, would copy the whole extensions object
+// to the UI runtime on every capture.
+/** The names of the functions in `source` that open with 'worklet' and name staticsFor or EXTENSIONS. */
+function workletsReadingExtensions(source: string, fileName: string): string[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  const opensWithWorklet = (body: ts.Node | undefined) =>
+    body !== undefined && ts.isBlock(body) && body.statements.length > 0 && ts.isExpressionStatement(body.statements[0])
+    && ts.isStringLiteral(body.statements[0].expression) && body.statements[0].expression.text === 'worklet';
+  const names = (node: ts.Node): boolean => (ts.isIdentifier(node) && (node.text === 'staticsFor' || node.text === 'EXTENSIONS')) || ts.forEachChild(node, names) === true;
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node) && opensWithWorklet((node as ts.FunctionLikeDeclarationBase).body) && names((node as ts.FunctionLikeDeclarationBase).body!)) {
+      const name = (node as ts.FunctionLikeDeclarationBase).name;
+      out.push(name !== undefined && ts.isIdentifier(name) ? name.text : `(line ${file.getLineAndCharacterOfPosition(node.getStart()).line + 1})`);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
+describe('no worklet reads the token extensions (fork 1, 1C)', () => {
+  const files = sourceFiles(V2).filter((f) => /\.tsx?$/.test(f) && !rel(f).includes('__tests__'));
+
+  it('the scan sees FieldView and its frame worklet', () => {
+    expect(files.map(rel)).toEqual(expect.arrayContaining(['field/FieldView.tsx', 'field/fieldDriver.ts', 'field/statics.ts']));
+    expect(fs.readFileSync(path.join(V2, 'field/FieldView.tsx'), 'utf8')).toMatch(/'worklet'/);
+  });
+
+  it('no worklet in v2 calls staticsFor or names EXTENSIONS', () => {
+    expect(files.flatMap((f) => workletsReadingExtensions(fs.readFileSync(f, 'utf8'), rel(f)).map((n) => `${rel(f)}: ${n}`))).toEqual([]);
+  });
+
+  it('planted: a worklet that calls staticsFor, or reads EXTENSIONS, is flagged; a plain function that does is not', () => {
+    expect(workletsReadingExtensions("function f(id) { 'worklet'; return staticsFor(id, X); }", 'p.ts')).toEqual(['f']);
+    expect(workletsReadingExtensions("const g = () => { 'worklet'; return EXTENSIONS.base; };", 'p.ts')).toEqual(['(line 1)']);
+    expect(workletsReadingExtensions("const h = useCallback(() => { 'worklet'; const s = staticsFor(a, b); }, []);", 'p.tsx')).toHaveLength(1);
+    expect(workletsReadingExtensions('function root(id) { return staticsFor(id, EXTENSIONS); }', 'p.ts')).toEqual([]);
+  });
+});
