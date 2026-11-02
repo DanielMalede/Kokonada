@@ -240,8 +240,9 @@ function sameTaps(store: readonly Placed[], taps: readonly Tap[]): boolean {
   return true;
 }
 
-export function emptyLedger(config: LedgerConfig, limits: Admission = ADMISSION): Ledger {
+export function emptyLedger(config: LedgerConfig, limitsIn?: Admission): Ledger {
   'worklet';
+  const limits = limitsIn === undefined ? ADMISSION : limitsIn;
   if (config.restLobes !== config.overlap.rest.length) {
     throw new RangeError(`a ledger config counts ${config.restLobes} rest lobes but places ${config.overlap.rest.length}`);
   }

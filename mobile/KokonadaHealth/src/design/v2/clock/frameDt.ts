@@ -9,7 +9,10 @@ import { BASE } from '../tokens/tokens.generated.ts';
 export const MAX_FRAME_DT_MS = BASE.motion.dtClamp;
 
 /** A frame's dt as the field takes it: at most the clamp; a negative, missing or non-finite dt is 0. */
-export function clampFrameDt(dtMs: number | null | undefined, maxDtMs: number = MAX_FRAME_DT_MS): number {
+// The default is resolved in the body, never as a default parameter: the worklets plugin captures only what
+// a worklet's body names, so on the UI thread `maxDtMs = MAX_FRAME_DT_MS` threw (workletSafe.test.ts).
+export function clampFrameDt(dtMs: number | null | undefined, maxDtMs?: number): number {
   'worklet';
-  return typeof dtMs === 'number' && Number.isFinite(dtMs) && dtMs > 0 ? Math.min(dtMs, maxDtMs) : 0;
+  const max = maxDtMs === undefined ? MAX_FRAME_DT_MS : maxDtMs;
+  return typeof dtMs === 'number' && Number.isFinite(dtMs) && dtMs > 0 ? Math.min(dtMs, max) : 0;
 }

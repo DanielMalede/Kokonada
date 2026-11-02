@@ -283,3 +283,44 @@ describe('no worklet reads the token extensions (fork 1, 1C)', () => {
     expect(workletsReadingExtensions('function root(id) { return staticsFor(id, EXTENSIONS); }', 'p.ts')).toEqual([]);
   });
 });
+
+// The worklets Babel plugin captures what a worklet's BODY names, and nothing a default parameter names
+// (seen on the emulator, the field preview: `clampFrameDt(dt)` threw "Property 'MAX_FRAME_DT_MS' doesn't
+// exist" on the UI thread, from `maxDtMs = MAX_FRAME_DT_MS`). Jest runs worklets as plain functions, so only
+// a static check sees it: a worklet's default parameters may hold literals only, never a name.
+/** The worklets in `source` whose default parameters name an identifier: `name(param)`. */
+function workletDefaultsNamingIdentifiers(source: string, fileName: string): string[] {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, fileName.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+  const out: string[] = [];
+  const opensWithWorklet = (body: ts.Node | undefined) =>
+    body !== undefined && ts.isBlock(body) && body.statements.length > 0 && ts.isExpressionStatement(body.statements[0])
+    && ts.isStringLiteral(body.statements[0].expression) && body.statements[0].expression.text === 'worklet';
+  const namesAny = (node: ts.Node): boolean => (ts.isIdentifier(node) && node.text !== 'undefined') || ts.forEachChild(node, namesAny) === true;
+  const visit = (node: ts.Node) => {
+    if (ts.isFunctionLike(node) && opensWithWorklet((node as ts.FunctionLikeDeclarationBase).body)) {
+      const fn = node as ts.FunctionLikeDeclarationBase;
+      const name = fn.name !== undefined && ts.isIdentifier(fn.name) ? fn.name.text : `(line ${file.getLineAndCharacterOfPosition(node.getStart()).line + 1})`;
+      for (const p of fn.parameters) {
+        if (p.initializer !== undefined && namesAny(p.initializer)) out.push(`${name}(${p.name.getText(file)})`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+  return out;
+}
+
+describe('no worklet default parameter names anything (the plugin does not capture it)', () => {
+  const files = sourceFiles(V2).filter((f) => /\.tsx?$/.test(f) && !rel(f).includes('__tests__'));
+
+  it('no worklet in v2 has a default parameter that names an identifier', () => {
+    expect(files.flatMap((f) => workletDefaultsNamingIdentifiers(fs.readFileSync(f, 'utf8'), rel(f)).map((n) => `${rel(f)}: ${n}`))).toEqual([]);
+  });
+
+  it('planted: a worklet default naming a constant is flagged; a literal default, or a plain function, is not', () => {
+    expect(workletDefaultsNamingIdentifiers("function f(a, m = MAX) { 'worklet'; return a + m; }", 'p.ts')).toEqual(['f(m)']);
+    expect(workletDefaultsNamingIdentifiers("const g = (a, l = X.y) => { 'worklet'; return l; };", 'p.ts')).toEqual(['(line 1)(l)']);
+    expect(workletDefaultsNamingIdentifiers("function h(a, m = 50, u = undefined) { 'worklet'; return a; }", 'p.ts')).toEqual([]);
+    expect(workletDefaultsNamingIdentifiers('function k(a, m = MAX) { return a + m; }', 'p.ts')).toEqual([]);
+  });
+});

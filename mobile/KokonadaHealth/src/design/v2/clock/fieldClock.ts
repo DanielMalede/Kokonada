@@ -27,11 +27,11 @@ export function advanceFieldTime(
   t: number,
   dtMs: number | null | undefined,
   periodMs: number,
-  maxDtMs: number = MAX_FRAME_DT_MS,
+  maxDtMs?: number,
 ): number {
   'worklet';
   if (!(Number.isFinite(periodMs) && periodMs > 0)) return 0;
-  const dt = clampFrameDt(dtMs, maxDtMs);
+  const dt = clampFrameDt(dtMs, maxDtMs === undefined ? MAX_FRAME_DT_MS : maxDtMs);
   const base = Number.isFinite(t) && t >= 0 ? t : 0;
   return (base + dt) % periodMs;
 }
@@ -54,11 +54,12 @@ export function advanceFieldMotion(
   periodMs: number,
   targetN: number,
   breathClock: BreathClock,
-  maxDtMs: number = MAX_FRAME_DT_MS,
+  maxDtMs?: number,
 ): FieldMotion {
   'worklet';
-  const dt = clampFrameDt(dtMs, maxDtMs);
-  return { t: advanceFieldTime(motion.t, dt, periodMs, maxDtMs), breath: advanceBreath(motion.breath, dt, targetN, breathClock) };
+  const max = maxDtMs === undefined ? MAX_FRAME_DT_MS : maxDtMs;
+  const dt = clampFrameDt(dtMs, max);
+  return { t: advanceFieldTime(motion.t, dt, periodMs, max), breath: advanceBreath(motion.breath, dt, targetN, breathClock) };
 }
 
 /** Real time for the field: advances on every frame while `active`, and holds still otherwise. */
