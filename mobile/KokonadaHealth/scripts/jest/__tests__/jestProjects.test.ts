@@ -115,6 +115,12 @@ describe('the two jest projects (MB-086)', () => {
     expect(unit).toContain('scripts/jest/__tests__/jestProjects.test.ts');
   });
 
+  // E3's binding coverage pins (demand at NODE_SLOTS, a rest lobe beside three live placements) run
+  // only on fixture-outer: the default run must keep that file (law round 2 D9, RA-3).
+  it('the default config’s unit project runs E3 on fixture-outer (ledgerStorms.fixture.test.ts)', () => {
+    expect(unit).toContain('src/design/v2/field/__tests__/ledgerStorms.fixture.test.ts');
+  });
+
   it('the skia project runs every *.skia.test.* file but the CanvasKit sweeps, and only those', () => {
     expect(skia).toEqual(disk.filter((f) => SKIA_TEST.test(f) && !SWEEPS_SKIA_TEST.test(f)));
     expect(skia.length).toBeGreaterThan(0);
