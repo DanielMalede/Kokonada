@@ -37,7 +37,7 @@ describe('E3’s planted controls in the sweeps project', () => {
 
   it('the one-sided backlog clause bites (the harness predicate): a raw ledger at 250 ms converges after both storms, the 10 s one more than 600 ms later', () => {
     const spans = STORM_GRIDS.full.span;
-    const outcomes = spans.map((span) => storm('abyss', 'settle', 'toggle', 250, span, deps2('abyss'), raw, false, 30_000));
+    const outcomes = spans.map((span) => storm('abyss', 'settle', 'toggle', 250, span, deps2('abyss'), { limits: raw, tail: 30_000 }));
     expect(outcomes.map((o) => o.converged === null)).toEqual([false, false]);
     expect(backlogBreaks('raw', spans, outcomes)).toHaveLength(1);
   }, LONG);
@@ -53,13 +53,13 @@ describe('E3’s planted controls in the sweeps project', () => {
   }, LONG);
 
   it('a raw ledger at 17 and 50 ms never converges inside the window: the absolute bound fires', () => {
-    for (const every of [17, 50]) expect(has(stormFailures(`raw ${every}`, 'toggle', 'settle', storm('abyss', 'settle', 'toggle', every, 3000, deps2('abyss'), raw)), 'did not converge')).toBe(true);
+    for (const every of [17, 50]) expect(has(stormFailures(`raw ${every}`, 'toggle', 'settle', storm('abyss', 'settle', 'toggle', every, 3000, deps2('abyss'), { limits: raw })), 'did not converge')).toBe(true);
   }, LONG);
 
   it.each(MODES)('%s: reemit’s fades are bit-identical to one tap sent once, at every cadence of the full set', (mode) => {
     for (const every of STORM_GRIDS.full.every) {
-      const re = storm('abyss', mode, 'reemit', every, 3000, deps2('abyss'), ADMISSION, true);
-      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps2('abyss'), ADMISSION, true);
+      const re = storm('abyss', mode, 'reemit', every, 3000, deps2('abyss'), { keepSeries: true });
+      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps2('abyss'), { keepSeries: true });
       expect(re.series).toEqual(once.series);
     }
   }, LONG);

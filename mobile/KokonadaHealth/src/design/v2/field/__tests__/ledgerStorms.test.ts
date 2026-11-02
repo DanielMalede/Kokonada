@@ -5,8 +5,11 @@ import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
-import { ADMISSION, emptyLedger, fades, reconcile, type Admission } from '../placementLedger.ts';
-import { MODES, QUAD, STORMS, STORM_GRIDS, frameState, geometry, gridReport, storm, store, stormDeps, stormFailures, type Mode, type Outcome, type Storm } from '../ledgerStorms.ts';
+import { ADMISSION, emptyLedger, fades, reconcile, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
+import {
+  MODES, QUAD, STORMS, STORM_GRIDS, frameState, geometry, gridReport, plantCutLeaveEarly, plantEnterAboveZero, plantQuarterStepFades, plantRestQuarterSteps,
+  storm, store, stormDeps, stormFailures, type Mode, type Outcome, type Storm,
+} from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
@@ -29,6 +32,13 @@ const deps = (id: DirectionId, face: Face) => stormDeps(id, staticsFor(id, EXTEN
 const config = (id: DirectionId) => deps(id, 'dark').config;
 
 const cases = IDS.flatMap((id) => FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) => [id, face, mode, kind] as [DirectionId, Face, Mode, Storm]))));
+// Each coarse case runs once: its own test and the coverage pins read the same report.
+const reports = new Map<string, ReturnType<typeof gridReport>>();
+const coarse = (id: DirectionId, face: Face, mode: Mode, kind: Storm) => {
+  const key = `${id} ${face} ${mode} ${kind}`;
+  if (!reports.has(key)) reports.set(key, gridReport(id, mode, kind, STORM_GRIDS.coarse, deps(id, face)));
+  return reports.get(key)!;
+};
 
 describe('a storm’s face: the ledger’s rest count and the built frame are the same face’s', () => {
   it('stormDeps counts the face’s own rest lobes: Abyss one on dark, two on light', () => {
@@ -60,17 +70,30 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
   it.each(cases)(
     '%s, %s face, %s, %s',
     (id, face, mode, kind) => {
-      const { runs, failures } = gridReport(id, mode, kind, STORM_GRIDS.coarse, deps(id, face));
-      expect(runs).toBe(3);
+      const { runs, failures, outcomes } = coarse(id, face, mode, kind);
+      expect([runs, outcomes.length]).toEqual([3, 3]);
       expect(failures).toEqual([]);
     },
     LONG,
   );
 
+  // E3's coverage pins (resilience, law round 2 (d)): the coarse grid still reaches what its clauses
+  // guard. Demand at NODE_SLOTS and a rest lobe lit beside three live placements bind on fixture-outer
+  // (ledgerStorms.fixture.test.ts): no shipped direction reaches either since Basin left.
+  it('the full grid holds the coarse one: every coarse cadence and span runs in the sweeps project too', () => {
+    expect(STORM_GRIDS.coarse.every.filter((e) => !STORM_GRIDS.full.every.includes(e))).toEqual([]);
+    expect(STORM_GRIDS.coarse.span.filter((s) => !STORM_GRIDS.full.span.includes(s))).toEqual([]);
+  });
+
+  it.each(MODES)('%s: some coarse storm makes three or more starts', (mode) => {
+    const starts = cases.filter((c) => c[2] === mode).flatMap(([id, face, , kind]) => coarse(id, face, mode, kind).outcomes.map((o) => o.starts.length));
+    expect(Math.max(...starts)).toBeGreaterThanOrEqual(3);
+  }, LONG);
+
   it.each(MODES)('%s: reemit’s fades are bit-identical to one tap sent once, at the coarse cadences (the full set runs in the sweeps project)', (mode) => {
     for (const every of STORM_GRIDS.coarse.every) {
-      const re = storm('abyss', mode, 'reemit', every, 3000, deps('abyss', 'dark'), ADMISSION, true);
-      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps('abyss', 'dark'), ADMISSION, true);
+      const re = storm('abyss', mode, 'reemit', every, 3000, deps('abyss', 'dark'), { keepSeries: true });
+      const once = storm('abyss', mode, 'reemit', 1e9, 3000, deps('abyss', 'dark'), { keepSeries: true });
       expect(re.series).toEqual(once.series);
     }
   });
@@ -85,7 +108,7 @@ describe('E3’s planted controls: each guard is shown to bite, through the harn
     // One below a toggle's smallest swap, one placement and every rest lobe beside it (one on dark, two
     // on light, UI-112), so it holds whatever the face's rest table.
     const tight: Admission = { ...ADMISSION, nodes: deps('abyss', face).config.restLobes };
-    const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', face), tight));
+    const failures = stormFailures('tight', 'toggle', 'settle', storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', face), { limits: tight }));
     expect(has(failures, 'a frame ended idle with a change waiting past the spacing')).toBe(true);
   });
 
@@ -97,8 +120,66 @@ describe('E3’s planted controls: each guard is shown to bite, through the harn
   });
 
   it('a raw ledger at 143 ms never converges inside the window: the absolute bound fires (17 and 50 ms run in the sweeps project)', () => {
-    const o = storm('abyss', 'settle', 'toggle', 143, 3000, deps('abyss', 'dark'), raw);
+    const o = storm('abyss', 'settle', 'toggle', 143, 3000, deps('abyss', 'dark'), { limits: raw });
     expect(has(stormFailures('raw 143', 'toggle', 'settle', o), 'did not converge')).toBe(true);
+  });
+});
+
+// The fades driver (resilience, law round 2 (d)): storm() reads the ledger's fades through an injectable
+// fadesOf, the ledger's own by default, so the four fade detectors (D6–D9) each bite on a real plant
+// driven through a real storm, not only on a planted outcome. Each plant is a factory, made fresh per
+// storm, and each must fail with exactly its one clause, but one measured case: D8 under settle.
+describe('E3’s fades driver: each fade detector bites on its own real plant, and only it', () => {
+  const SLOPE_CLAUSE = 'a fade moved faster than its curve';
+  const REST_CLAUSE = 'a rest-lobe fade moved faster than its curve';
+  // D8 under settle also breaks the rest-lobe slope, for real: where the cut leave was the frame's only
+  // placement, the builder draws the rest glow at 1 (fieldFrame.ts, no placement carries a lobe) while
+  // the ledger's rest lobe is at 0.9901, a 0.0099 step in one ms against settle's 0.00667. Under reduced
+  // the step is 0.00667, inside its 0.01333 (runs/d9-probe-d8-*.txt).
+  const plants: Array<[string, () => (ledger: Ledger) => LedgerFades, Record<Mode, string[]>]> = [
+    ['D6 plantQuarterStepFades', plantQuarterStepFades, { settle: [SLOPE_CLAUSE], reduced: [SLOPE_CLAUSE] }],
+    ['D7 plantEnterAboveZero', plantEnterAboveZero, { settle: ['an id entered above 0'], reduced: ['an id entered above 0'] }],
+    ['D8 plantCutLeaveEarly', plantCutLeaveEarly, { settle: ['an id left above 0', REST_CLAUSE], reduced: ['an id left above 0'] }],
+    ['D9 plantRestQuarterSteps', plantRestQuarterSteps, { settle: [REST_CLAUSE], reduced: [REST_CLAUSE] }],
+  ];
+
+  // babel-jest does not type-check: an old positional call, storm(…, deps, limits), would hand the
+  // admission limits in as the options and silently run the default ledger.
+  it('storm() refuses an option it does not know: admission limits passed where the options go throw', () => {
+    expect(() => storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', 'dark'), { ...ADMISSION, netting: false } as never)).toThrow(/unknown storm option/);
+  });
+
+  it('the default path deep-equals an explicit fadesOf: fades', () => {
+    const d = deps('abyss', 'dark');
+    const implicit = storm('abyss', 'settle', 'toggle', 250, 3000, d, { keepSeries: true });
+    expect(implicit.series.length).toBeGreaterThan(3000);
+    expect(storm('abyss', 'settle', 'toggle', 250, 3000, d, { keepSeries: true, fadesOf: fades })).toEqual(implicit);
+  });
+
+  // Each planted storm runs once here; the factory pin below runs one more, with a fresh plant.
+  const planted = new Map<string, Outcome>();
+  const plantedStorm = (name: string, mode: Mode, plant: () => (ledger: Ledger) => LedgerFades) => {
+    const key = `${name} ${mode}`;
+    if (!planted.has(key)) planted.set(key, storm('abyss', mode, 'toggle', 250, 3000, deps('abyss', 'dark'), { fadesOf: plant() }));
+    return planted.get(key)!;
+  };
+
+  it.each(plants.flatMap(([name, plant, clauses]) => MODES.map((mode) => [name, mode, plant, clauses[mode]] as const)))(
+    '%s, %s, Abyss, toggle every 250 ms for 3 s: exactly its clauses',
+    (name, mode, plant, clauses) => {
+      const label = `${name} ${mode}`;
+      const failures = stormFailures(label, 'toggle', mode, plantedStorm(name, mode, plant));
+      expect(failures).toHaveLength(clauses.length);
+      expect(failures.map((f, i) => f.startsWith(`${label}: ${clauses[i]}: `))).toEqual(clauses.map(() => true));
+    },
+  );
+
+  // A plant that kept state between storms would bite on the first and pass the second (the S10-1
+  // parity class): the same plant, made fresh, gives the same outcome again.
+  it.each(plants)('%s is a factory: each call is a fresh driver, and a second storm bites as the first did', (name, plant) => {
+    expect(plant()).not.toBe(plant());
+    const first = plantedStorm(name, 'settle', plant);
+    expect(storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', 'dark'), { fadesOf: plant() })).toEqual(first);
   });
 });
 

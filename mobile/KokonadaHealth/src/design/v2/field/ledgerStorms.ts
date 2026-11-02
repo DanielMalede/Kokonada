@@ -45,11 +45,16 @@
 // ms for 3 s, where the netting identity and the no-stall check keep the no-backlog guard without the
 // 10 s span; the sweeps project takes the full grid above, with the one-sided clause. A planted control
 // runs where its clause runs (resilience, rulings after T5d, §2).
+//
+// The fades driver (resilience, law round 2 (d)): storm() reads the ledger's fades through
+// opts.fadesOf, the ledger's own fades by default; the four factory plants at the end of this file
+// give the fade detectors (slope, enter at 0, leave at 0, rest-lobe slope) a real plant each, run in
+// the default run.
 
 import { BASE, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldGeometry, type FieldState, type FieldStatics } from './fieldFrame.ts';
 import { NODE, NODE_SLOTS } from './fieldLaw.ts';
-import { ADMISSION, emptyLedger, fades, ledgerConfig, reconcile, type Admission, type LedgerConfig, type LedgerFades, type Tap } from './placementLedger.ts';
+import { ADMISSION, emptyLedger, fades, ledgerConfig, reconcile, type Admission, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from './placementLedger.ts';
 import { packFrame } from './uniforms.ts';
 
 export type Mode = 'settle' | 'reduced';
@@ -150,18 +155,29 @@ export interface Outcome {
   series: string[];
 }
 
+/** How a storm reads the ledger's fades: the ledger's own (fades), or a planted driver. */
+export type FadesOf = (ledger: Ledger) => LedgerFades;
+
+export interface StormOptions {
+  /** The admission limits; the planted controls pass others, the field uses the defaults. */
+  readonly limits?: Admission;
+  /** Keep every frame's fades, serialized (reemit's bit-identity). */
+  readonly keepSeries?: boolean;
+  /** How long the storm runs past its last tap, in ms. */
+  readonly tail?: number;
+  /** The fades driver: fades by default; a factory plant (below) for the detectors' own controls. */
+  readonly fadesOf?: FadesOf;
+}
+
+const STORM_OPTIONS: ReadonlySet<string> = new Set(['limits', 'keepSeries', 'tail', 'fadesOf']);
+
 /** One storm, frame by frame at 1 ms, through the ledger and the builder. */
-export function storm(
-  id: DirectionId,
-  mode: Mode,
-  kind: Storm,
-  every: number,
-  span: number,
-  deps: StormDeps,
-  limits: Admission = ADMISSION,
-  keepSeries = false,
-  tail = 3 * SETTLE + RAMP[mode] + 200,
-): Outcome {
+export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, span: number, deps: StormDeps, opts: StormOptions = {}): Outcome {
+  // The tests run untyped (babel-jest): admission limits passed where the options go must throw, not
+  // silently run the default ledger.
+  const unknown = Object.keys(opts).filter((k) => !STORM_OPTIONS.has(k));
+  if (unknown.length > 0) throw new TypeError(`unknown storm option: ${unknown.join(', ')}`);
+  const { limits = ADMISSION, keepSeries = false, tail = 3 * SETTLE + RAMP[mode] + 200, fadesOf = fades } = opts;
   const s = store(kind === 'neutral3' ? [neutral(1), neutral(2), neutral(3)] : []);
   const actions = new Map<number, Array<() => void>>();
   const at = (t: number, act: () => void) => actions.set(t, [...(actions.get(t) ?? []), act]);
@@ -195,7 +211,7 @@ export function storm(
       input = { seq: (t / every) % 2 === 0 ? s.seq() + t : s.seq(), taps: s.taps().map((x) => ({ ...x })) };
     }
     ledger = reconcile(ledger, input, t, mode);
-    const f = fades(ledger);
+    const f = fadesOf(ledger);
     // No backlog (resilience admission §1): what waits is exactly the store minus the field; and a frame
     // never ends idle with a change waiting once the spacing has passed.
     const live = new Set(f.placements.filter((p) => p.role === 'live').map((p) => p.id));
@@ -310,14 +326,59 @@ export function gridReport(
   deps: StormDeps,
   limits: Admission = ADMISSION,
   tail?: number,
-): { runs: number; failures: string[] } {
+): { runs: number; failures: string[]; outcomes: Outcome[] } {
   const failures: string[] = [];
+  const all: Outcome[] = [];
   let runs = 0;
   for (const every of grid.every) {
-    const outcomes = grid.span.map((span) => storm(id, mode, kind, every, span, deps, limits, false, tail));
+    const outcomes = grid.span.map((span) => storm(id, mode, kind, every, span, deps, { limits, tail }));
     runs += outcomes.length;
+    all.push(...outcomes);
     outcomes.forEach((o, i) => failures.push(...stormFailures(`${id} ${deps.face} ${mode} ${kind} every ${every} ms for ${grid.span[i]} ms`, kind, mode, o)));
     failures.push(...backlogBreaks(`${id} ${deps.face} ${mode} ${kind} every ${every} ms`, grid.span, outcomes));
   }
-  return { runs, failures };
+  return { runs, failures, outcomes: all };
 }
+
+// The planted fades drivers (resilience, law round 2 (d)): each wraps the ledger's own fades and breaks
+// exactly one of E3's fade clauses, so detectors D6–D9 each bite on a real storm. Each is a factory,
+// made fresh per storm: no state is shared between storms (the S10-1 parity class).
+
+/** D6: every placement's fade in quarter steps, round(4f)/4: 'a fade moved faster than its curve'. */
+export const plantQuarterStepFades = (): FadesOf => (ledger) => {
+  const f = fades(ledger);
+  return { ...f, placements: f.placements.map((p) => ({ ...p, fade: Math.round(4 * p.fade) / 4 })) };
+};
+
+/** D7: an id's first-seen fade is 0.005, below one ms of either curve's slope: 'an id entered above 0'. */
+export const plantEnterAboveZero = (): FadesOf => {
+  const seen = new Set<number>();
+  return (ledger) => {
+    const f = fades(ledger);
+    return {
+      ...f,
+      placements: f.placements.map((p) => {
+        if (seen.has(p.id)) return p;
+        seen.add(p.id);
+        return { ...p, fade: 0.005 };
+      }),
+    };
+  };
+};
+
+/**
+ * D8: a leaving placement with fade below 0.02 is cut, from placements and from ended, with demand
+ * reduced by the same count: 'an id left above 0'.
+ */
+export const plantCutLeaveEarly = (): FadesOf => (ledger) => {
+  const f = fades(ledger);
+  const cut = new Set(f.placements.filter((p) => p.role === 'leaving' && p.fade < 0.02).map((p) => p.id));
+  return { ...f, placements: f.placements.filter((p) => !cut.has(p.id)), ended: f.ended.filter((e) => !cut.has(e)), demand: f.demand - cut.size };
+};
+
+/** D9: the rest lobes' fades in quarter steps up, ceil(4·restFade)/4, so 0 stays 0: 'a rest-lobe fade moved faster than its curve'. */
+export const plantRestQuarterSteps = (): FadesOf => (ledger) => {
+  const f = fades(ledger);
+  const up = (r: number) => Math.ceil(4 * r) / 4;
+  return { ...f, restFade: up(f.restFade), restFades: f.restFades.map(up) };
+};

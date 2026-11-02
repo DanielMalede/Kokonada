@@ -4,6 +4,7 @@ jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
+import { NODE_SLOTS } from '../fieldLaw.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
 import { MODES, STORMS, STORM_GRIDS, gridReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -27,16 +28,37 @@ it('the fixture mock: fixture-outer exists, BASE and DIRECTIONS.abyss are the sh
   expect([deps(FIXTURE_OUTER).config.neutralLobe, deps('abyss' as DirectionId).config.neutralLobe]).toEqual([false, true]);
 });
 
+const cases = FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) => [face, mode, kind] as [Face, Mode, Storm])));
+// Each coarse case runs once: its own test and the coverage pins read the same report.
+const reports = new Map<string, ReturnType<typeof gridReport>>();
+const coarse = (face: Face, mode: Mode, kind: Storm) => {
+  const key = `${face} ${mode} ${kind}`;
+  if (!reports.has(key)) reports.set(key, gridReport(FIXTURE_OUTER, mode, kind, STORM_GRIDS.coarse, deps(FIXTURE_OUTER, face)));
+  return reports.get(key)!;
+};
+const coarseOutcomes = (keep: (c: [Face, Mode, Storm]) => boolean) => cases.filter(keep).flatMap(([face, mode, kind]) => coarse(face, mode, kind).outcomes);
+
 describe('E3 on fixture-outer, the coarse grid: every mode × storm, taps every 17, 143 and 250 ms for 3 s', () => {
-  it.each(FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) => [face, mode, kind] as [Face, Mode, Storm]))))(
+  it.each(cases)(
     'fixture-outer, %s face, %s, %s',
     (face, mode, kind) => {
-      const { runs, failures } = gridReport(FIXTURE_OUTER, mode, kind, STORM_GRIDS.coarse, deps(FIXTURE_OUTER, face));
-      expect(runs).toBe(3);
+      const { runs, failures, outcomes } = coarse(face, mode, kind);
+      expect([runs, outcomes.length]).toEqual([3, 3]);
       expect(failures).toEqual([]);
     },
     LONG,
   );
+
+  // E3's coverage pins (resilience, law round 2 (d)) that bind only here since Basin left: the default
+  // run's coarse grid reaches demand at NODE_SLOTS, and a settle storm lights a rest lobe beside three
+  // live placements (F8's three-crossfade allowance). The shipped grid's pins are in ledgerStorms.test.ts.
+  it('some coarse storm reaches demand NODE_SLOTS (6)', () => {
+    expect([NODE_SLOTS, Math.max(...coarseOutcomes(() => true).map((o) => o.maxDemand))]).toEqual([6, 6]);
+  }, LONG);
+
+  it('some settle storm of the coarse grid lights a rest lobe beside three live placements', () => {
+    expect(coarseOutcomes(([, mode]) => mode === 'settle').some((o) => o.restBesideThreeLive)).toBe(true);
+  }, LONG);
 
   it.each(FACES)('%s face: neutral3 binds here: some frame holds the rest lobes beside three live neutral placements', (face) => {
     expect(MODES.some((mode) => storm(FIXTURE_OUTER, mode, 'neutral3', 100, 3000, deps(FIXTURE_OUTER, face)).restBesideThreeLive)).toBe(true);
@@ -50,7 +72,7 @@ describe('E3’s planted controls that bind on neutral placements with no lobe, 
     // the spacing, 5 + the rest lobes, which overflow only where the face's table has two (law round 2,
     // item 6; UI-112: the light face), so the plant lands its taps in one frame on both faces.
     const three: Admission = { ...ADMISSION, entering: 3, leaving: 3, nodes: 99 };
-    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm(FIXTURE_OUTER, 'settle', 'neutral3', 0, 3000, deps(FIXTURE_OUTER, face), three));
+    const failures = stormFailures('three swaps', 'neutral3', 'settle', storm(FIXTURE_OUTER, 'settle', 'neutral3', 0, 3000, deps(FIXTURE_OUTER, face), { limits: three }));
     expect([has(failures, 'the builder threw'), has(failures, 'demand above NODE_SLOTS')]).toEqual([true, true]);
   });
 
