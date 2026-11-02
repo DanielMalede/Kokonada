@@ -426,18 +426,31 @@ describe('quiet-zone presence draws the law, and its ends are exact (±1 LSB, th
     const frame = frameFor('abyss', face, wide(face), { mask: { outside: 1, face: 1, ring: 1 } });
     return { ...frame, warp: { ...frame.warp, octaves }, quiet: { ...frame.quiet, rects, presence } };
   };
-  const CASES = (['dark', 'light'] as const).flatMap((face) => [3, 2].map((octaves) => [face, octaves] as const));
+  // Both faces at tier full's octaves; the low and still tiers are pinned byte for byte over every scene in the
+  // sweeps project (fieldScenes.sweeps.skia.test.ts), where the cost of more renders is paid once.
+  const CASES = (['dark', 'light'] as const).map((face) => [face, BASE.field.tiers.full.octaves] as const);
 
   it('today’s shader is the head’s with only the presence term taken out', () => {
     expect(FIELD_SKSL.split(TODAY_FIND)).toHaveLength(2);
     expect(today).toBeDefined();
   });
 
+  // Slot k's presence moves only the pixels where its own factor is below 1 (its grown rect and feather), so the
+  // law is read there; outside, the byte pins below and the agreement tests above hold every pixel.
+  const reach = (frame: FieldFrame, r: QuietRect) => {
+    const alone = { ...frame, quiet: { ...frame.quiet, rects: [r], presence: [1] } };
+    const at: Array<[number, number]> = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (quietFactor(alone, x + 0.5, y + 0.5) < 1) at.push([x, y]);
+    return at;
+  };
   it.each(CASES)('%s face, %i octaves: presence 0, 0.5 and 1 on each slot draws the law', (face, octaves) => {
     for (let k = 0; k < SIX.length; k++) {
+      const at = reach(zoned(face, octaves, SIX, [1, 1, 1, 1, 1, 1]), SIX[k]);
+      expect({ slot: k, reached: at.length > 20 }).toEqual({ slot: k, reached: true });
       for (const p of [0, 0.5, 1]) {
         const frame = zoned(face, octaves, SIX, SIX.map((_, j) => (j === k ? p : 1)));
-        const { delta } = worstDisagreement(frame, render(frame));
+        const pixels = render(frame);
+        const delta = Math.max(...at.map(([x, y]) => Math.max(...rgbAt(pixels, x, y).map((v, c) => Math.abs(v - fieldPixel(frame, x + 0.5, y + 0.5)[c])))));
         expect({ slot: k, p, delta: Math.min(delta, 2) }).toEqual({ slot: k, p, delta: Math.min(delta, 1) });
       }
     }
