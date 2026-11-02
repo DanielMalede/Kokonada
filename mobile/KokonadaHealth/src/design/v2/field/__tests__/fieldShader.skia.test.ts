@@ -106,7 +106,7 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
-    quiet: { rects: [], grow: 8 * (24 / rDp), feather: d.field.mask.quietFeather * (24 / rDp) },
+    quiet: { rects: [], presence: [], grow: 8 * (24 / rDp), feather: d.field.mask.quietFeather * (24 / rDp) },
     shadows: [inertShadow(), inertShadow()],
     nodes: [...nodes, ...Array.from({ length: NODE_SLOTS - nodes.length }, inertNode)],
     ...overrides,
@@ -360,7 +360,7 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
     '%s, %s face: four zones (feather or step path by direction), with the unused slots inert',
     (id, face) => {
       const frame = frameFor(id, face, wide(id, face), { mask: { outside: 1, face: 1, ring: 1 } });
-      const withZones = { ...frame, quiet: { ...frame.quiet, rects: RECTS } };
+      const withZones = { ...frame, quiet: { ...frame.quiet, rects: RECTS, presence: RECTS.map(() => 1) } };
       expect(worstDisagreement(withZones, render(withZones)).delta).toBeLessThanOrEqual(1);
       // Not vacuous: the zones change pixels, and the corner by the origin (an unused slot's zeros) is field.
       expect(Array.from(render(withZones))).not.toEqual(Array.from(render(frame)));
@@ -375,7 +375,7 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
   it('a planted rect: byte for byte the same across s, c, t and placements', () => {
     const rect: QuietRect = { cx: 32, cy: 5, hx: 14, hy: 2 };
     const r = DIRECTIONS.abyss.field.lobe.radius;
-    const quiet = (fr: FieldFrame) => ({ ...fr, quiet: { ...fr.quiet, rects: [rect] } });
+    const quiet = (fr: FieldFrame) => ({ ...fr, quiet: { ...fr.quiet, rects: [rect], presence: [1] } });
     const frames = [
       quiet(frameFor('abyss', 'dark', [bead(NODE.C, 'calm', 'dark', [0.1, 0.7], r)])),
       quiet(frameFor('abyss', 'dark', [bead(NODE.I, 'intense', 'dark', [-0.2, 0.6], 2), bead(NODE.J, 'joy', 'dark', [0.4, 0.5], 2)], { kField: 1.2, shimmer: { cos: Math.cos(0.1), sin: Math.sin(0.1) }, warp: { amount: 0.3, orbit: 0.6, cos: -0.5, sin: 0.866, octaves: 2 } })),

@@ -1,7 +1,7 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { buildFieldFrame, checkQuietRects, type FieldGeometry, type FieldState } from '../fieldFrame.ts';
-import { QUIET_SLOTS, fieldOklab, groundAt, quietFactor, regionOf, shadowFactor, type QuietRect } from '../fieldLaw.ts';
+import { QUIET_SLOTS, QUIET_ZONE, checkQuietPresence, fieldOklab, groundAt, quietFactor, regionOf, shadowFactor, type QuietRect } from '../fieldLaw.ts';
 import { blueNoiseValue } from '../blueNoise.ts';
 import { staticsFor } from '../statics.ts';
 
@@ -9,7 +9,7 @@ import { staticsFor } from '../statics.ts';
 //   q = abs(p − c_j) − h_j
 //   sd_j = length(max(q, 0)) + min(max(q.x, q.y), 0) − g
 //   factor_j = F > 0 ? smoothstep(0, F, sd_j) : (sd_j > 0 ? 1 : 0)
-//   extent = regionExtent · Π over j < count of factor_j
+//   extent = regionExtent · Π over j < count of (1 − p_j) + p_j·factor_j (presence, below)
 // c_j and h_j: the measured, ungrown bound's centre and half-size; g = quiet.grow and
 // F = field.mask.quietFeather, all in render pixels. Extent is exactly 0 on the grown boundary and
 // inside it. Unused slots are inert through count only: a zero-size rect is not empty, it carves a
@@ -165,5 +165,153 @@ describe('a planted quiet rect: nothing the field does reaches inside it', () =>
       }
     }
     expect(inside).toBeGreaterThan(100);
+  });
+});
+
+// Presence (law round 2 item 7, DSN-023 as amended 2026-10-07; architect option D; resilience's pins):
+//   factor_z = (1 − p_z) + p_z·q_z(x), p_z ∈ [0, 1]
+// p_z = 0 is no zone, and p_z = 1 is the zone bit for bit. The slots are fixed by a registry, so a zone keeps
+// its slot whether or not it shows, and a slot below the count whose presence is 0 (a hole) is exactly inert.
+// Presence is per frame (FieldState.quietPresence, aligned to the slots of FieldGeometry.quietRects): omitted, it
+// is 1 for each rect. Malformed presence (not finite, outside [0, 1], or a value for a slot with no rect) is a
+// RangeError in the law, the builder and the packing, in every build; the future FieldView sanitises at its
+// boundary (non-finite → 1).
+// The rects' own factor q_z, written out here as today's law draws it, so the pins below do not lean on the
+// code they pin.
+const todayOne = (f: { quiet: { grow: number; feather: number } }, r: QuietRect, x: number, y: number) => {
+  const qx = Math.abs(x - r.cx) - r.hx;
+  const qy = Math.abs(y - r.cy) - r.hy;
+  const sd = Math.sqrt(Math.max(qx, 0) ** 2 + Math.max(qy, 0) ** 2) + Math.min(Math.max(qx, qy), 0) - f.quiet.grow;
+  const F = f.quiet.feather;
+  if (F > 0) {
+    const t = Math.min(1, Math.max(0, sd / F));
+    return t * t * (3 - 2 * t);
+  }
+  return sd > 0 ? 1 : 0;
+};
+const todayProduct = (f: { quiet: { grow: number; feather: number } }, rects: readonly QuietRect[], x: number, y: number) => {
+  let product = 1;
+  for (const r of rects) product *= todayOne(f, r, x, y);
+  return product;
+};
+
+// Two zones whose feathers overlap, a zero-size one, and three more: all six slots, with points across every
+// feather, every grown boundary and the space between.
+const SIX: QuietRect[] = [
+  { cx: 100, cy: 100, hx: 40, hy: 10 },
+  { cx: 160, cy: 104, hx: 12, hy: 6 },
+  { cx: 60, cy: 170, hx: 0, hy: 0 },
+  { cx: 220, cy: 40, hx: 30, hy: 3 },
+  { cx: 30, cy: 30, hx: 8, hy: 8 },
+  { cx: 140, cy: 200, hx: 50, hy: 8 },
+];
+const POINTS: Array<[number, number]> = [];
+for (let y = 0.5; y < 260; y += 3.7) for (let x = 0.5; x < 300; x += 3.3) POINTS.push([x, y]);
+
+describe('presence: the slot registry', () => {
+  // Architect option D: fixed named slots, B4's constant under field/, imported by B6; one spare.
+  it('names the zones on fixed slots below QUIET_SLOTS, each once, with one spare', () => {
+    expect(QUIET_ZONE).toEqual({ avatar: 0, aiLine: 1, nav: 2, voiceBox: 3, cta: 4 });
+    const slots = Object.values(QUIET_ZONE);
+    expect(new Set(slots).size).toBe(slots.length);
+    expect(slots.every((k) => Number.isInteger(k) && k >= 0 && k < QUIET_SLOTS)).toBe(true);
+    expect(QUIET_SLOTS - slots.length).toBe(1);
+  });
+});
+
+describe('presence: the law', () => {
+  const base = frameOf('abyss', 'dark', SIX);
+  const withPresence = (rects: readonly QuietRect[], presence: readonly number[]) => ({ ...base, quiet: { ...base.quiet, rects, presence } });
+
+  it('the builder carries presence: omitted, 1 for each rect; given, as given', () => {
+    expect(base.quiet.presence).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(frameOf('abyss', 'dark', []).quiet.presence).toEqual([]);
+    const given = [1, 0.5, 0, 0.25, 1, 0.75];
+    expect(frameOf('abyss', 'dark', SIX, { quietPresence: given }).quiet.presence).toEqual(given);
+  });
+
+  it('p = 1 on every slot is today’s product, bit for bit (and the frame equals the one built without presence)', () => {
+    const ones = frameOf('abyss', 'dark', SIX, { quietPresence: [1, 1, 1, 1, 1, 1] });
+    let partial = 0;
+    for (const [x, y] of POINTS) {
+      const today = todayProduct(base, SIX, x, y);
+      if (today > 0 && today < 1) partial++;
+      expect(quietFactor(ones, x, y)).toBe(today);
+      expect(quietFactor(base, x, y)).toBe(today);
+      expect(fieldOklab(ones, x, y)).toEqual(fieldOklab(base, x, y));
+    }
+    expect(partial).toBeGreaterThan(200); // not vacuous: many points sit in a feather
+  });
+
+  it('p = 0 on a slot is that zone absent, bit for bit, wherever the slot sits: a hole below the count is inert', () => {
+    for (let k = 0; k < QUIET_SLOTS; k++) {
+      const presence = SIX.map((_, j) => (j === k ? 0 : 1));
+      const holed = withPresence(SIX, presence);
+      const absent = withPresence(SIX.filter((_, j) => j !== k), presence.filter((_, j) => j !== k));
+      let carved = 0;
+      for (const [x, y] of POINTS) {
+        if (todayOne(base, SIX[k], x, y) < 1) carved++;
+        expect(quietFactor(holed, x, y)).toBe(quietFactor(absent, x, y));
+        expect(fieldOklab(holed, x, y)).toEqual(fieldOklab(absent, x, y));
+      }
+      expect(carved).toBeGreaterThan(0); // not vacuous: the zone in slot k carves the field at p = 1
+    }
+    // Every slot at 0 is no zone at all: the factor is exactly 1 everywhere.
+    const none = withPresence(SIX, [0, 0, 0, 0, 0, 0]);
+    for (const [x, y] of POINTS) expect(quietFactor(none, x, y)).toBe(1);
+  });
+
+  it('in between, each slot’s factor is (1 − p) + p·q, the zones multiply, and the factor falls as p rises', () => {
+    const ps = [0, 0.25, 0.5, 0.75, 1];
+    for (let k = 0; k < QUIET_SLOTS; k++) {
+      for (const [x, y] of POINTS) {
+        const q = todayOne(base, SIX[k], x, y);
+        const rest = todayProduct(base, SIX.filter((_, j) => j !== k), x, y);
+        let previous = Infinity;
+        for (const p of ps) {
+          const presence = SIX.map((_, j) => (j === k ? p : 1));
+          const f = quietFactor(withPresence(SIX, presence), x, y);
+          expect(f).toBeCloseTo(((1 - p) + p * q) * rest, 14);
+          expect(f).toBeLessThanOrEqual(previous);
+          previous = f;
+        }
+      }
+    }
+  });
+
+  // The planted wrong factors, read on one point in slot 0's feather: each must miss the law's value.
+  it('not vacuous: 1 − p·q, p·q and q alone each give a different factor in a feather at p = 0.5', () => {
+    const r = SIX[0];
+    const x = r.cx + r.hx + base.quiet.grow + base.quiet.feather / 3;
+    const y = r.cy;
+    const q = todayOne(base, r, x, y);
+    expect(q).toBeGreaterThan(0.1);
+    expect(q).toBeLessThan(0.9);
+    const f = quietFactor(withPresence([r], [0.5]), x, y);
+    expect(f).toBeCloseTo(0.5 + 0.5 * q, 14);
+    for (const wrong of [1 - 0.5 * q, 0.5 * q, q]) expect(Math.abs(f - wrong)).toBeGreaterThan(0.01);
+  });
+
+  it('malformed presence is a RangeError in the law: not finite, outside [0, 1], or a value for a slot with no rect', () => {
+    const one = [SIX[0]];
+    for (const bad of [NaN, Infinity, -Infinity, -0.001, 1.001, -1, 2]) {
+      expect(() => quietFactor(withPresence(one, [bad]), 0, 0)).toThrow(RangeError);
+      expect(() => fieldOklab(withPresence(one, [bad]), 0, 0)).toThrow(RangeError);
+    }
+    expect(() => quietFactor(withPresence(one, [1, 1]), 0, 0)).toThrow(RangeError); // slot 1 has no rect
+    expect(() => quietFactor(withPresence(one, []), 0, 0)).toThrow(RangeError); // slot 0's presence is missing
+    expect(() => quietFactor(withPresence([], [0]), 0, 0)).toThrow(RangeError);
+    for (const ok of [0, 0.5, 1]) expect(() => quietFactor(withPresence(one, [ok]), 0, 0)).not.toThrow();
+  });
+
+  it('malformed presence is a RangeError in the builder, in every build', () => {
+    for (const bad of [[NaN], [1.5], [-0.5], [Infinity]]) {
+      expect(() => frameOf('abyss', 'dark', [SIX[0]], { quietPresence: bad })).toThrow(RangeError);
+    }
+    expect(() => frameOf('abyss', 'dark', [SIX[0]], { quietPresence: [1, 1] })).toThrow(RangeError);
+    expect(() => frameOf('abyss', 'dark', SIX, { quietPresence: [1, 1, 1] })).toThrow(RangeError);
+    expect(() => frameOf('abyss', 'dark', [], { quietPresence: [0] })).toThrow(RangeError);
+    expect(() => checkQuietPresence(2, [0, 1])).not.toThrow();
+    expect(() => checkQuietPresence(2, [0, NaN])).toThrow(RangeError);
   });
 });

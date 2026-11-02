@@ -31,8 +31,10 @@
 //              direction says), N = (mid L, 0, 0); the pair fades to N̄ = (Σ e_i·L_i / Σ e_i over the
 //              slots, 0, 0) by β = smoothstep(0, θ, r) near a third node, r = 3·√(d1² − d1·d2 + d2²)/
 //              (E1 + E2 + E3), d1 = E1 − E3, d2 = E2 − E3 (L4–L6, L6′ at UI-139);
-//   quiet      extent = regionExtent · Π over the quiet rects of smoothstep(0, F, sd) (a step where F = 0),
-//              sd the signed distance to the rect grown by g, rounded (designer r3 §1);
+//   quiet      extent = regionExtent · Π over the quiet rects of (1 − p_z) + p_z·q_z, q_z = smoothstep(0, F, sd)
+//              (a step where F = 0), sd the signed distance to the rect grown by g, rounded (designer r3 §1), and
+//              p_z ∈ [0, 1] the zone's presence (DSN-023 amended, law round 2 item 7): p_z = 0 is no zone, bit for
+//              bit, and p_z = 1 the zone, bit for bit;
 //   shadows    G.L ← G.L·(1 − Σ strength·smoothstep(−blur, blur, u)): outer u = R − |q − o| outside the
 //              rim, inner u = |q − o| − R_face on the face (designer 2.9);
 //   composite  route R4: L = mix(G.L, col.L, k); ab = k·col.ab + (1 − k)·(1 − smoothstep(0, kp, k))·G.ab;
@@ -98,6 +100,25 @@ export interface QuietRect {
 export const QUIET_SLOTS = 6;
 
 /**
+ * The quiet-zone slot registry (law round 2 item 7, architect option D): each zone keeps its slot whether or not it
+ * shows, so a zone's presence moves only its own factor and a slot whose presence is 0 is exactly inert. Slot 5 is
+ * the spare. The hero (B6) imports it.
+ */
+export const QUIET_ZONE = { avatar: 0, aiLine: 1, nav: 2, voiceBox: 3, cta: 4 } as const;
+
+/**
+ * Presence is aligned to the rects, one value per slot in use, each finite in [0, 1]: anything else is a
+ * RangeError in every build (law round 2 item 7). The future FieldView sanitises at its boundary (non-finite → 1).
+ */
+export function checkQuietPresence(count: number, presence: readonly number[]): void {
+  'worklet';
+  if (presence.length !== count) throw new RangeError(`quiet presence must hold one value per quiet rect: ${count} rects, ${presence.length} values`);
+  for (const p of presence) {
+    if (!(Number.isFinite(p) && p >= 0 && p <= 1)) throw new RangeError(`a quiet presence must be finite in [0, 1], got ${p}`);
+  }
+}
+
+/**
  * A plate shadow (designer 2.9), in plate units: its offset along y (y up: downward on screen is
  * negative), its blur, its signed strength (a negative one lifts), and its mode: 1 outer, outside the
  * rim; −1 inner, on the face; 0 none.
@@ -161,8 +182,11 @@ export interface FieldFrame {
   readonly grain: { readonly inside: number; readonly ground: number };
   /** The dither amplitude on L. */
   readonly dither: number;
-  /** Up to QUIET_SLOTS quiet zones, with quiet.grow and field.mask.quietFeather in render px. */
-  readonly quiet: { readonly rects: readonly QuietRect[]; readonly grow: number; readonly feather: number };
+  /**
+   * Up to QUIET_SLOTS quiet zones, with quiet.grow and field.mask.quietFeather in render px, and each zone's
+   * presence, aligned to the rects (checkQuietPresence).
+   */
+  readonly quiet: { readonly rects: readonly QuietRect[]; readonly presence: readonly number[]; readonly grow: number; readonly feather: number };
   /** SHADOW_SLOTS plate shadows. */
   readonly shadows: readonly PlateShadow[];
   readonly nodes: readonly FieldNodeFrame[];
@@ -296,19 +320,24 @@ function extentAt(region: Region, d: number, frame: FieldFrame, alpha: number): 
 }
 
 /**
- * The quiet zones' factor at the pixel centre (x, y), in render px (designer r3 §1): 0 on and inside
- * every grown rect, the product of each rect's factor elsewhere.
+ * The quiet zones' factor at the pixel centre (x, y), in render px (designer r3 §1): the product over the rects
+ * of (1 − p)·1 + p·q, q being 0 on and inside the grown rect (DSN-023 amended). Written so, p = 0 gives exactly 1
+ * and p = 1 exactly q, so the two ends are no zone and today's zone, bit for bit.
  */
 export function quietFactor(frame: FieldFrame, x: number, y: number): number {
-  const { rects, grow, feather } = frame.quiet;
+  const { rects, presence, grow, feather } = frame.quiet;
+  checkQuietPresence(rects.length, presence);
   let product = 1;
-  for (const r of rects) {
+  for (let k = 0; k < rects.length; k++) {
+    const r = rects[k];
     const qx = Math.abs(x - r.cx) - r.hx;
     const qy = Math.abs(y - r.cy) - r.hy;
     const ox = Math.max(qx, 0);
     const oy = Math.max(qy, 0);
     const sd = Math.sqrt(ox * ox + oy * oy) + Math.min(Math.max(qx, qy), 0) - grow;
-    product *= feather > 0 ? smoothstep(0, feather, sd) : sd > 0 ? 1 : 0;
+    const q = feather > 0 ? smoothstep(0, feather, sd) : sd > 0 ? 1 : 0;
+    const p = presence[k];
+    product *= (1 - p) + p * q;
   }
   return product;
 }
@@ -516,6 +545,8 @@ export function rankNodes(E: readonly number[]): [number, number, number] {
 
 /** The pixel's selection terms at (x, y), in pixels. */
 export function pixelTerms(frame: FieldFrame, x: number, y: number): PixelTerms {
+  // Malformed presence is refused on every pixel, also where the extent gate skips the quiet factor.
+  checkQuietPresence(frame.quiet.rects.length, frame.quiet.presence);
   const qx = (x - frame.centrePx[0]) / frame.radiusPx;
   const qy = -(y - frame.centrePx[1]) / frame.radiusPx;
   const d = Math.sqrt(qx * qx + qy * qy);

@@ -26,7 +26,7 @@ import type { Oklab } from '../color/oklab.ts';
 import { breathCycles, breathLevel } from '../motion/breathLaw.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
-import { NODE, NODE_SLOTS, QUIET_SLOTS, inertNode, inertShadow, type FieldFrame, type FieldNodeFrame, type PlateShadow, type QuietRect } from './fieldLaw.ts';
+import { NODE, NODE_SLOTS, QUIET_SLOTS, checkQuietPresence, inertNode, inertShadow, type FieldFrame, type FieldNodeFrame, type PlateShadow, type QuietRect } from './fieldLaw.ts';
 
 export type PlacementNode = 'J' | 'C' | 'R' | 'I' | 'neutral';
 
@@ -88,6 +88,12 @@ export interface FieldState {
   readonly restFade: number | readonly number[];
   /** The node slot of each rest lobe, from the ledger. Default: the lowest free slots, after the placements. */
   readonly restSlots?: readonly number[];
+  /**
+   * Each quiet zone's presence p_z in [0, 1] this frame (DSN-023 amended, law round 2 item 7), aligned to the
+   * slots of FieldGeometry.quietRects (QUIET_ZONE names them). Default: 1 for each rect. A value that is not
+   * finite or lies outside [0, 1], or a list that is not one value per rect, is a RangeError in every build.
+   */
+  readonly quietPresence?: readonly number[];
 }
 
 export interface FieldGeometry {
@@ -321,6 +327,9 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
   // Quiet zones in render px, refused above QUIET_SLOTS or when malformed, in every build.
   const quietRects = geometry.quietRects ?? [];
   checkQuietRects(quietRects);
+  // Their presence: 1 for each rect unless the frame gives it, refused when malformed, in every build.
+  const quietPresence = state.quietPresence ?? quietRects.map(() => 1);
+  checkQuietPresence(quietRects.length, quietPresence);
   // The plate's shadows (designer 2.9): outer where plate.depth > 0, inner where it is below 0, in plate
   // units; a shadow with no strength or no blur draws nothing.
   const mode = Math.sign(d.plate.depth);
@@ -357,7 +366,7 @@ export function buildFieldFrame(state: FieldState, geometry: FieldGeometry, stat
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
-    quiet: { rects: quietRects, grow: BASE.quiet.grow * geometry.pxPerDp, feather: d.field.mask.quietFeather * geometry.pxPerDp },
+    quiet: { rects: quietRects, presence: quietPresence, grow: BASE.quiet.grow * geometry.pxPerDp, feather: d.field.mask.quietFeather * geometry.pxPerDp },
     shadows: [shadowOf(d.plate.shadow[face]), shadowOf(d.plate.shadow2[face])],
     nodes,
   };

@@ -96,7 +96,7 @@ function frameFor(id: DirectionId, face: Face, nodes: FieldNodeFrame[], override
     restIntenseWaypoint: d.field.graph.restIntenseRoute === 'waypoint',
     grain: { inside: d.field.grain.inside, ground: d.field.grain.ground },
     dither: BASE.field.dither.amplitude,
-    quiet: { rects: [], grow: 8 * (24 / rDp), feather: d.field.mask.quietFeather * (24 / rDp) },
+    quiet: { rects: [], presence: [], grow: 8 * (24 / rDp), feather: d.field.mask.quietFeather * (24 / rDp) },
     shadows: [inertShadow(), inertShadow()],
     nodes: [...nodes, ...Array.from({ length: NODE_SLOTS - nodes.length }, inertNode)],
     ...overrides,
@@ -177,7 +177,7 @@ describe('the quiet step path on fixture-inner draws the law, pixel for pixel (Â
   it.each(['dark', 'light'] as Face[])('fixture-inner, %s face: four zones on the step path (feather 0), the unused slots inert', (face) => {
     const frame = frameFor(FIXTURE_INNER, face, wide(face), { mask: { outside: 1, face: 1, ring: 1 } });
     expect(frame.quiet.feather).toBe(0);
-    const withZones = { ...frame, quiet: { ...frame.quiet, rects: RECTS } };
+    const withZones = { ...frame, quiet: { ...frame.quiet, rects: RECTS, presence: RECTS.map(() => 1) } };
     expect(worstDisagreement(withZones)).toBeLessThanOrEqual(1);
     differs(withZones, frame);
   });
@@ -186,7 +186,7 @@ describe('the quiet step path on fixture-inner draws the law, pixel for pixel (Â
     for (const [id, face] of [[FIXTURE_INNER, 'dark'], [FIXTURE_OUTER, 'light']] as const) {
       const r = DIRECTIONS[id].field.lobe.radius;
       const base = frameFor(id, face, [bead(NODE.I, 'intense', face, [-0.6, 0.6], r), bead(NODE.J, 'joy', face, [0.5, -0.7], r)], { shadows: shadowsFor(id, face) });
-      const frame = { ...base, quiet: { ...base.quiet, rects: [{ cx: 32, cy: 60, hx: 20, hy: 3 }, { cx: 32, cy: 14, hx: 10, hy: 3 }] } };
+      const frame = { ...base, quiet: { ...base.quiet, rects: [{ cx: 32, cy: 60, hx: 20, hy: 3 }, { cx: 32, cy: 14, hx: 10, hy: 3 }], presence: [1, 1] } };
       expect(worstDisagreement(frame)).toBeLessThanOrEqual(1);
     }
   });

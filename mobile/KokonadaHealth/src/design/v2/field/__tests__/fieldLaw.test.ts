@@ -66,7 +66,7 @@ function frame(overrides: Partial<FieldFrame> = {}): FieldFrame {
     restIntenseWaypoint: false,
     grain: { inside: 0, ground: 0 },
     dither: 0,
-    quiet: { rects: [], grow: 0, feather: 0 },
+    quiet: { rects: [], presence: [], grow: 0, feather: 0 },
     shadows: [inertShadow(), inertShadow()],
     nodes: [
       { id: NODE.J, fade: 1, centre: [0, 0.9], radius: 0.95, field: J, halo: J, bead: [0, 0.9] },

@@ -60,7 +60,7 @@ function frame(face: Face, overrides: Partial<FieldFrame> = {}): FieldFrame {
     restIntenseWaypoint: false,
     grain: { inside: 0, ground: 0 },
     dither: 0,
-    quiet: { rects: [], grow: 0, feather: 0 },
+    quiet: { rects: [], presence: [], grow: 0, feather: 0 },
     shadows: [inertShadow(), inertShadow()],
     nodes: Array.from({ length: NODE_SLOTS }, inertNode),
     ...overrides,

@@ -40,7 +40,7 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
   restIntenseWaypoint: true,
   grain: { inside: 0.012, ground: 0.02 },
   dither: 1 / 255,
-  quiet: { rects: [{ cx: 11, cy: 12, hx: 13, hy: 14 }, { cx: 21, cy: 22, hx: 23, hy: 24 }], grow: 8, feather: 40 },
+  quiet: { rects: [{ cx: 11, cy: 12, hx: 13, hy: 14 }, { cx: 21, cy: 22, hx: 23, hy: 24 }], presence: [1, 1], grow: 8, feather: 40 },
   shadows: [{ offset: -0.02, blur: 0.05, strength: 0.18, mode: -1 }, inertShadow()],
   nodes: [node(NODE.J), node(NODE.C), node(NODE.I, { bead: null }), node(NODE.R0, { fade: 0 }), node(NODE.R0, { fade: 0.5 }), inertNode()],
   ...overrides,
@@ -121,7 +121,7 @@ describe('the field uniform layout', () => {
   it('refuses a frame that does not fill every node slot, or that holds more than six quiet rects or not two shadows', () => {
     expect(() => packFrame(frame({ nodes: [node(NODE.J)] }))).toThrow(RangeError);
     const seven = Array.from({ length: 7 }, () => ({ cx: 1, cy: 1, hx: 1, hy: 1 }));
-    expect(() => packFrame(frame({ quiet: { rects: seven, grow: 8, feather: 0 } }))).toThrow(RangeError);
+    expect(() => packFrame(frame({ quiet: { rects: seven, presence: seven.map(() => 1), grow: 8, feather: 0 } }))).toThrow(RangeError);
     expect(() => packFrame(frame({ shadows: [inertShadow()] }))).toThrow(RangeError);
   });
 
