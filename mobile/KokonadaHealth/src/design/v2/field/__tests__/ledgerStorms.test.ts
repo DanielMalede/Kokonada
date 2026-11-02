@@ -79,7 +79,37 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
 
   // E3's coverage pins (resilience, law round 2 (d)): the coarse grid still reaches what its clauses
   // guard. Demand at NODE_SLOTS and a rest lobe lit beside three live placements bind on fixture-outer
-  // (ledgerStorms.fixture.test.ts): Abyss, the only shipped direction, reaches neither (max demand 5).
+  // (ledgerStorms.fixture.test.ts): Abyss, the only shipped direction, reaches neither, and its reach is
+  // pinned below (law round 2 D9, RA-3), so a change that moves it goes red and the pins are re-ruled.
+  const abyssCoarse = (keep: (c: [DirectionId, Face, Mode, Storm]) => boolean) =>
+    cases.filter((c) => c[0] === 'abyss' && keep(c)).flatMap(([id, face, mode, kind]) => coarse(id, face, mode, kind).outcomes);
+
+  it('Abyss’s measured reach on the coarse grid: demand peaks at exactly 5, and no settle storm lights a rest lobe beside three live placements', () => {
+    expect(Math.max(...abyssCoarse(() => true).map((o) => o.maxDemand))).toBe(5);
+    expect(abyssCoarse(([, , mode]) => mode === 'settle').filter((o) => o.restBesideThreeLive)).toHaveLength(0);
+  }, LONG);
+
+  // The ledger's rest promise, which no clause of E3 reads (law round 2 D9, RA-2): wherever the ledger
+  // gives no lobe-bearing placement, every rest fade it gives is exactly 1. The builder draws the rest
+  // glow at 1 there whatever it is given (fieldFrame.ts), so a ledger leaving its rest lobes short of 1
+  // after the last leave passes every clause; only this pin sees it.
+  it('wherever the ledger gives no lobe-bearing placement, every rest fade it gives is exactly 1, at every frame of every coarse Abyss storm', () => {
+    const outcomes = abyssCoarse(() => true);
+    expect(outcomes).toHaveLength(FACES.length * MODES.length * STORMS.length * 3);
+    expect(outcomes.map((o) => o.restShortWithoutLobe)).toEqual(outcomes.map(() => 0));
+    // Not vacuous: the storms do reach frames with no lobe-bearing placement.
+    expect(outcomes.filter((o) => o.framesWithoutLobe > 0).length).toBeGreaterThan(0);
+  }, LONG);
+
+  it('the rest pin bites: a driver leaving the rest lobes at 0.99 where no lobe-bearing placement is given is counted, and passes every E3 clause', () => {
+    const short = (ledger: Ledger): LedgerFades => {
+      const f = fades(ledger);
+      return f.placements.length === 0 ? { ...f, restFades: f.restFades.map(() => 0.99) } : f;
+    };
+    const o = storm('abyss', 'settle', 'toggle', 250, 3000, deps('abyss', 'dark'), { fadesOf: short });
+    expect(o.restShortWithoutLobe).toBeGreaterThan(0);
+    expect(stormFailures('rest short', 'toggle', 'settle', o)).toEqual([]);
+  });
   it('the full grid holds the coarse one: every coarse cadence and span runs in the sweeps project too', () => {
     expect(STORM_GRIDS.coarse.every.filter((e) => !STORM_GRIDS.full.every.includes(e))).toEqual([]);
     expect(STORM_GRIDS.coarse.span.filter((s) => !STORM_GRIDS.full.span.includes(s))).toEqual([]);

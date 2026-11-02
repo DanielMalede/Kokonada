@@ -150,6 +150,9 @@ export interface Outcome {
   converged: number | null;
   restLitAfterLastTap: boolean;
   restBesideThreeLive: boolean;
+  /** Frames whose fades give no lobe-bearing placement, and of those, the frames with a rest fade other than 1 (RA-2). */
+  framesWithoutLobe: number;
+  restShortWithoutLobe: number;
   netBreaks: number;
   stalls: number;
   series: string[];
@@ -197,7 +200,7 @@ export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, s
   let ledger = emptyLedger(deps.config, limits);
   const o: Outcome = {
     starts: [], admittedAtStarts: [], maxDemand: 0, demandMismatch: 0, slopeBreaks: [], entersNotAtZero: [], leavesNotAtZero: [], restBreaks: 0,
-    threw: null, lastTap, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, netBreaks: 0, stalls: 0, series: [],
+    threw: null, lastTap, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, framesWithoutLobe: 0, restShortWithoutLobe: 0, netBreaks: 0, stalls: 0, series: [],
   };
   let previous = new Map<number, number>();
   let previousRest = -1;
@@ -249,6 +252,12 @@ export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, s
     previous = new Map([...now].filter(([pid]) => !f.ended.includes(pid)));
     if (t > lastTap && f.restFade > 0) o.restLitAfterLastTap = true;
     if (t > lastTap && f.restFade > 0 && f.placements.filter((p) => p.role === 'live').length === 3) o.restBesideThreeLive = true;
+    // The ledger's rest promise (law round 2 D9, RA-2): with no lobe-bearing placement given, every rest
+    // fade is exactly 1, as the builder draws it whatever it is given; no clause reads it, the test pins it.
+    if (!f.placements.some((p) => p.node !== 'neutral' || deps.config.neutralLobe)) {
+      o.framesWithoutLobe++;
+      if (!f.restFades.every((r) => r === 1)) o.restShortWithoutLobe++;
+    }
     // The built frame: it must build (never slice, never overflow), and its rest lobes obey the bound.
     // The builder is pure, so a frame whose ledger output is unchanged builds the same frame: it is
     // built again only when the output changes.
