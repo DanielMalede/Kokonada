@@ -90,3 +90,11 @@ describe('no line of the generated token modules reads as a generic-api-key leak
     expect(scan(generateExtensionsModule(real()))).toEqual([]);
   });
 });
+
+// UI-160's evidence stamp holds sha256 digests too; CI's gitleaks read its `"tokens": "<sha256>"` line as a leak at
+// f94f695, so the digest is keyed `valuesSha256`, which holds no keyword.
+describe('no line of the band evidence stamp reads as a generic-api-key leak (UI-160)', () => {
+  it('bandEvidence.stamp.json, as committed', () => {
+    expect(scan(fs.readFileSync(path.join(APP_ROOT, 'scripts/field/bandEvidence.stamp.json'), 'utf8'))).toEqual([]);
+  });
+});

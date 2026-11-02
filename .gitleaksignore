@@ -38,3 +38,5 @@ d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tok
 d351ad70d3681c8c28e85ea0032c7b7c568ad5ac:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:9
 fd37b063aa300130c0831fdbfabcf4cc1e3bc26b:mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts:generic-api-key:7
 fd37b063aa300130c0831fdbfabcf4cc1e3bc26b:mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts:generic-api-key:6
+# UI-160: the band evidence stamp's digest line at f94f695 (a sha256 of the law inputs' token values, keyed valuesSha256 since).
+f94f695ef4d30c5fde2828a76b0053028f292fe2:mobile/KokonadaHealth/scripts/field/bandEvidence.stamp.json:generic-api-key:5

@@ -115,6 +115,11 @@ const UI_104_FINGERPRINTS = [
   ['fd37b063aa300130c0831fdbfabcf4cc1e3bc26b', TOKENS, 6],
 ].map(([commit, file, line]) => `${commit}:${file}:generic-api-key:${line}`);
 
+// UI-160: the band evidence stamp's `"tokens": "<sha256>"` line (a digest of the law inputs' token values, not a
+// secret), as CI's gitleaks 8.24.3 run on PR #234 reported it at f94f695; the key is `valuesSha256` since.
+const UI_160_FINGERPRINT =
+  'f94f695ef4d30c5fde2828a76b0053028f292fe2:mobile/KokonadaHealth/scripts/field/bandEvidence.stamp.json:generic-api-key:5';
+
 // The one shape a UI-104 entry may take: a full commit SHA, one of the two generated token modules,
 // generic-api-key, a line number. Never a rule or a path alone.
 const UI_104_SHAPE =
@@ -272,7 +277,7 @@ function secretScanJob() {
 const commandsOf = (script) => script.split('\n').map((l) => l.trim()).filter((l) => l !== '' && !l.startsWith('#'));
 const stepNamed = (job, name) => (job ? job.steps.find((s) => s.name === name && typeof s.run === 'string') : undefined);
 
-describe('.gitleaksignore (OPS-107, UI-104)', () => {
+describe('.gitleaksignore (OPS-107, UI-104, UI-160)', () => {
   it('exists at the repository root, where gitleaks reads it', () => {
     expect(fs.existsSync(GITLEAKSIGNORE)).toBe(true);
   });
@@ -284,8 +289,8 @@ describe('.gitleaksignore (OPS-107, UI-104)', () => {
     .map((line) => line.trim())
     .filter((line) => line !== '' && !line.startsWith('#'));
 
-  it('holds exactly the OPS-107 fingerprint and the 29 UI-104 fingerprints, in that order, plus comment lines', () => {
-    expect(entries()).toEqual([OPS_107_FINGERPRINT, ...UI_104_FINGERPRINTS]);
+  it('holds exactly the OPS-107 fingerprint, the 29 UI-104 fingerprints and the UI-160 fingerprint, in that order, plus comment lines', () => {
+    expect(entries()).toEqual([OPS_107_FINGERPRINT, ...UI_104_FINGERPRINTS, UI_160_FINGERPRINT]);
   });
 
   it('lists 29 distinct UI-104 entries, each a full fingerprint of a generated token module line', () => {
