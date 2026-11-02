@@ -170,7 +170,7 @@ describe('E3’s fades driver: each fade detector bites on its own real plant, a
   // D8 under settle also breaks the rest-lobe slope, for real: where the cut leave was the frame's only
   // placement, the builder draws the rest glow at 1 (fieldFrame.ts, no placement carries a lobe) while
   // the ledger's rest lobe is at 0.9901, a 0.0099 step in one ms against settle's 0.00667. Under reduced
-  // the step is 0.00667, inside its 0.01333 (runs/d9-probe-d8-*.txt).
+  // the step is 0.00667, inside its 0.01333 (runs/d9-probe-d8-46e0324.txt, wip/d9-probe-d8.mts at 46e0324).
   const plants: Array<[string, () => (ledger: Ledger) => LedgerFades, Record<Mode, string[]>]> = [
     ['D6 plantQuarterStepFades', plantQuarterStepFades, { settle: [SLOPE_CLAUSE], reduced: [SLOPE_CLAUSE] }],
     ['D7 plantEnterAboveZero', plantEnterAboveZero, { settle: ['an id entered above 0'], reduced: ['an id entered above 0'] }],
