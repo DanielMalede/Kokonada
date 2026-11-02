@@ -49,7 +49,7 @@ describe('E3 on fixture-outer, the coarse grid: every mode × storm, taps every 
     LONG,
   );
 
-  // E3's coverage pins (resilience, law round 2 (d)) that bind only here since Basin left: the default
+  // E3's coverage pins (resilience, law round 2 (d)) that bind only here, Abyss reaching neither: the default
   // run's coarse grid reaches demand at NODE_SLOTS, and a settle storm lights a rest lobe beside three
   // live placements (F8's three-crossfade allowance). The shipped grid's pins are in ledgerStorms.test.ts.
   it('some coarse storm reaches demand NODE_SLOTS (6)', () => {

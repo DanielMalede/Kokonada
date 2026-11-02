@@ -79,7 +79,7 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
 
   // E3's coverage pins (resilience, law round 2 (d)): the coarse grid still reaches what its clauses
   // guard. Demand at NODE_SLOTS and a rest lobe lit beside three live placements bind on fixture-outer
-  // (ledgerStorms.fixture.test.ts): no shipped direction reaches either since Basin left.
+  // (ledgerStorms.fixture.test.ts): Abyss, the only shipped direction, reaches neither (max demand 5).
   it('the full grid holds the coarse one: every coarse cadence and span runs in the sweeps project too', () => {
     expect(STORM_GRIDS.coarse.every.filter((e) => !STORM_GRIDS.full.every.includes(e))).toEqual([]);
     expect(STORM_GRIDS.coarse.span.filter((s) => !STORM_GRIDS.full.span.includes(s))).toEqual([]);
