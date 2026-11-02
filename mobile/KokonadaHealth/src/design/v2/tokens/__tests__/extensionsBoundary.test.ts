@@ -23,8 +23,12 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 }
 
 const rel = (file: string) => path.relative(SRC, file).split(path.sep).join('/');
-/** Tests and the lab may import the extensions; nothing else under src/ may. */
-const allowed = (file: string) => /(^|\/)__tests__\//.test(file) || file.startsWith('design/lab/');
+/**
+ * Tests and the lab may import the extensions, and the dev-only field preview (design/v2/preview/), which
+ * index.js reaches only under __DEV__ and no release bundle holds (scripts/jest/__tests__/devPreviewExcluded.test.ts);
+ * nothing else under src/ may.
+ */
+const allowed = (file: string) => /(^|\/)__tests__\//.test(file) || file.startsWith('design/lab/') || file.startsWith('design/v2/preview/');
 const offenders = (files: Array<{ file: string; source: string }>) =>
   files.filter(({ file, source }) => MODULE.test(source) && !allowed(file)).map(({ file }) => file);
 
@@ -47,5 +51,7 @@ describe('only the lab, scripts and tests import tokens.extensions.generated.ts'
     const importLine = ["import { EXTENSIONS } from './tokens.extensions", ".generated.ts';"].join('');
     expect(offenders([{ file: 'design/v2/tokens/useTokens.ts', source: importLine }])).toEqual(['design/v2/tokens/useTokens.ts']);
     expect(offenders([{ file: 'design/lab/LabRoot.tsx', source: importLine }])).toEqual([]);
+    expect(offenders([{ file: 'design/v2/preview/FieldPreview.tsx', source: importLine }])).toEqual([]);
+    expect(offenders([{ file: 'design/v2/previewer/X.tsx', source: importLine }])).toEqual(['design/v2/previewer/X.tsx']);
   });
 });
