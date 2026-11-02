@@ -84,9 +84,14 @@ describe('E3 in the default run: the coarse grid, every direction × mode × sto
   const abyssCoarse = (keep: (c: [DirectionId, Face, Mode, Storm]) => boolean) =>
     cases.filter((c) => c[0] === 'abyss' && keep(c)).flatMap(([id, face, mode, kind]) => coarse(id, face, mode, kind).outcomes);
 
-  it('Abyss’s measured reach on the coarse grid: demand peaks at exactly 5, and no settle storm lights a rest lobe beside three live placements', () => {
+  it('Abyss’s measured reach on the coarse grid: demand peaks at exactly 5', () => {
     expect(Math.max(...abyssCoarse(() => true).map((o) => o.maxDemand))).toBe(5);
-    expect(abyssCoarse(([, , mode]) => mode === 'settle').filter((o) => o.restBesideThreeLive)).toHaveLength(0);
+  }, LONG);
+
+  it('Abyss’s measured reach on the coarse grid: no settle storm lights a rest lobe beside three live placements', () => {
+    const settle = abyssCoarse(([, , mode]) => mode === 'settle');
+    expect(settle).toHaveLength(FACES.length * STORMS.length * 3);
+    expect(settle.filter((o) => o.restBesideThreeLive)).toHaveLength(0);
   }, LONG);
 
   // The ledger's rest promise, which no clause of E3 reads (law round 2 D9, RA-2): wherever the ledger
