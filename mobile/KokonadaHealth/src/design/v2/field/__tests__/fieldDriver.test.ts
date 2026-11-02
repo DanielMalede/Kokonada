@@ -18,11 +18,8 @@ jest.mock('../uniforms.ts', () => {
   return { ...actual, packFrame: (...args: unknown[]) => { counts.pack += 1; return actual.packFrame(...args); } };
 });
 
-// eslint-disable-next-line import/first
 import { buildFieldFrame } from '../fieldFrame.ts';
-// eslint-disable-next-line import/first
 import { packFrame } from '../uniforms.ts';
-// eslint-disable-next-line import/first
 import { fieldStep, modeFor, renderGeometry, renderScaleFor, renderSize, sanitisePresence, stateFromLedger, type FieldLayout, type FrameParams } from '../fieldDriver.ts';
 
 // T12: FieldView's per-frame work, as pure worklets (architect rerule §4 item 12, T5 r1 §5; law round 2
