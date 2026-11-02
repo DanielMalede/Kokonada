@@ -399,6 +399,71 @@ describe('quiet zones and plate shadows draw the law, pixel for pixel (±1 LSB)'
   });
 });
 
+// Presence in real Skia (law round 2 item 7, DSN-023 amended; architect option D; resilience's pins): each slot's
+// factor is (1 − p)·1 + p·q, so p = 0 draws the zone absent and p = 1 draws today's zone, byte for byte. Today's
+// shader is the head's with the presence term taken out (each slot's factor back to q alone), checked to differ
+// from the head's source in that one function.
+describe('quiet-zone presence draws the law, and its ends are exact (±1 LSB, then byte for byte)', () => {
+  const wide = (face: Face): FieldNodeFrame[] => [bead(NODE.C, 'calm', face, [0.1, -0.1], 2.5)];
+  // All six slots in use, each carving the field somewhere on the canvas.
+  const SIX: QuietRect[] = [
+    { cx: 10, cy: 8, hx: 6, hy: 2 },
+    { cx: 15, cy: 13, hx: 5, hy: 3 },
+    { cx: 52, cy: 10, hx: 6, hy: 2 },
+    { cx: 50, cy: 50, hx: 0, hy: 0 },
+    { cx: 12, cy: 52, hx: 4, hy: 4 },
+    { cx: 32, cy: 30, hx: 7, hy: 1 },
+  ];
+  const TODAY_FIND = 'return (1.0 - pz) + pz * qz;';
+  let today: SkRuntimeEffect;
+  beforeAll(() => {
+    const source = FIELD_SKSL.replace(TODAY_FIND, 'return qz;');
+    const made = Skia.RuntimeEffect.Make(source);
+    if (!made) throw new Error('today’s shader did not compile');
+    today = made;
+  });
+  const zoned = (face: Face, octaves: number, rects: readonly QuietRect[], presence: readonly number[]) => {
+    const frame = frameFor('abyss', face, wide(face), { mask: { outside: 1, face: 1, ring: 1 } });
+    return { ...frame, warp: { ...frame.warp, octaves }, quiet: { ...frame.quiet, rects, presence } };
+  };
+  const CASES = (['dark', 'light'] as const).flatMap((face) => [3, 2].map((octaves) => [face, octaves] as const));
+
+  it('today’s shader is the head’s with only the presence term taken out', () => {
+    expect(FIELD_SKSL.split(TODAY_FIND)).toHaveLength(2);
+    expect(today).toBeDefined();
+  });
+
+  it.each(CASES)('%s face, %i octaves: presence 0, 0.5 and 1 on each slot draws the law', (face, octaves) => {
+    for (let k = 0; k < SIX.length; k++) {
+      for (const p of [0, 0.5, 1]) {
+        const frame = zoned(face, octaves, SIX, SIX.map((_, j) => (j === k ? p : 1)));
+        const { delta } = worstDisagreement(frame, render(frame));
+        expect({ slot: k, p, delta: Math.min(delta, 2) }).toEqual({ slot: k, p, delta: Math.min(delta, 1) });
+      }
+    }
+    // The architect's mix: presence {1, 0.5, 0, 1} with a hole below the count.
+    const mixed = zoned(face, octaves, SIX.slice(0, 4), [1, 0.5, 0, 1]);
+    expect(worstDisagreement(mixed, render(mixed)).delta).toBeLessThanOrEqual(1);
+  });
+
+  it.each(CASES)('%s face, %i octaves: p = 0 on a slot is that zone absent, byte for byte; p = 1 is today, byte for byte', (face, octaves) => {
+    const ones = zoned(face, octaves, SIX, [1, 1, 1, 1, 1, 1]);
+    const head = Array.from(render(ones));
+    expect(head).toEqual(Array.from(render(ones, today)));
+    for (let k = 0; k < SIX.length; k++) {
+      const presence = SIX.map((_, j) => (j === k ? 0 : 1));
+      const holed = render(zoned(face, octaves, SIX, presence));
+      const absent = render(zoned(face, octaves, SIX.filter((_, j) => j !== k), presence.filter((_, j) => j !== k)));
+      expect({ slot: k, same: Array.from(holed).every((v, i) => v === absent[i]) }).toEqual({ slot: k, same: true });
+      // Not vacuous: the zone in slot k changes pixels when present, and half presence is neither end.
+      const half = Array.from(render(zoned(face, octaves, SIX, SIX.map((_, j) => (j === k ? 0.5 : 1)))));
+      expect({ slot: k, carves: Array.from(holed).some((v, i) => v !== head[i]), between: half.some((v, i) => v !== head[i]) && half.some((v, i) => v !== holed[i]) }).toEqual({ slot: k, carves: true, between: true });
+    }
+    // Every slot at 0 is no zone at all.
+    expect(Array.from(render(zoned(face, octaves, SIX, [0, 0, 0, 0, 0, 0])))).toEqual(Array.from(render(zoned(face, octaves, [], []))));
+  });
+});
+
 // Law round 2, item 4 (designer §4, resilience §(c), UI-114): the ring's inner edge in real Skia. The ramp
 // is one field-canvas pixel, α = clamp((d − ringInner)·R + ½, 0, 1) with R = uGeom.z, so it is one render
 // pixel at every tier: the edge views take R at renderScale 0.5 and 0.33 (the largest plate, 2.625 px/dp).
@@ -569,11 +634,11 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
     const BETA_LINE = /float beta = clamp\(\(d - 1\.0\) \* uGeom\.z \+ 0\.5, 0\.0, 1\.0\);/;
     const QO_LINE = /float2 qo = d < 1\.0 \? q \* \(1\.0 \/ d\) : q;/;
 
-    it('the shader computes α, then β, from uGeom alone: the layout stays 159 floats in 46 declarations', () => {
+    it('the shader computes α, then β, from uGeom alone: no uniform of its own: the layout is 165 floats in 48 declarations, D7’s presence the only addition since', () => {
       const alphaIndex = FIELD_SKSL.search(ALPHA_LINE);
       const betaIndex = FIELD_SKSL.search(BETA_LINE);
       expect([alphaIndex >= 0, betaIndex > alphaIndex]).toEqual([true, true]);
-      expect([FIELD_UNIFORMS.length, FIELD_UNIFORM_FLOATS]).toEqual([46, 159]);
+      expect([FIELD_UNIFORMS.length, FIELD_UNIFORM_FLOATS]).toEqual([48, 165]);
     });
 
     it.each(VIEWS)('renderScale %s, the rim at %s rad: every row and column it crosses has a pixel at 0 < β < 1 in the law', (renderScale, theta) => {

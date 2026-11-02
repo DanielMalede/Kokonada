@@ -34,6 +34,8 @@ const either = (edges: ReadonlyArray<readonly [number, number]>) =>
 const declarations = FIELD_UNIFORMS.map((u) => `uniform ${typeOf(u.floats)} ${u.name};`).join('\n');
 const nodes = Array.from({ length: NODE_SLOTS }, (_, k) => k);
 const quietSlots = Array.from({ length: QUIET_SLOTS }, (_, k) => k);
+// Slot k's presence: uQuietOn0 holds slots 0–2 and uQuietOn1 slots 3–5 (uniforms.ts).
+const presenceOf = (k: number) => `uQuietOn${Math.floor(k / 3)}.${'xyz'[k % 3]}`;
 const shadowSlots = Array.from({ length: SHADOW_SLOTS }, (_, k) => k);
 
 export const FIELD_SKSL = `${declarations}
@@ -103,10 +105,16 @@ float quietOne(float4 r, float2 p) {
   return uQuietParams.y > 0.0 ? sstep(0.0, uQuietParams.y, sd) : (sd > 0.0 ? 1.0 : 0.0);
 }
 
-// The product over the zones in use: an unused slot is inert through the count only.
+// A zone's presence on its factor (DSN-023 amended, law round 2 item 7): (1 − p)·1 + p·q, so p = 0 is exactly 1
+// (no zone) and p = 1 exactly q (the zone, bit for bit).
+float quietOn(float pz, float qz) {
+  return (1.0 - pz) + pz * qz;
+}
+
+// The product over the zones in use: an unused slot is inert through the count, a slot at presence 0 by its factor.
 float quiet(float2 p) {
   float product = 1.0;
-${quietSlots.map((k) => `  if (uQuietParams.z > ${k}.5) { product *= quietOne(uQuiet${k}, p); }`).join('\n')}
+${quietSlots.map((k) => `  if (uQuietParams.z > ${k}.5) { product *= quietOn(${presenceOf(k)}, quietOne(uQuiet${k}, p)); }`).join('\n')}
   return product;
 }
 

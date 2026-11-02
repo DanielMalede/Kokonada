@@ -8,7 +8,7 @@
 // The nodes are unrolled (uNode0 … uNode5, one per NODE_SLOTS): SkSL's strict ES2 rules forbid indexing a uniform array
 // with a computed index, and separate uniforms keep each slot unambiguous.
 
-import { NODE_SLOTS, QUIET_SLOTS, SHADOW_SLOTS, type FieldFrame } from './fieldLaw.ts';
+import { NODE_SLOTS, QUIET_SLOTS, SHADOW_SLOTS, checkQuietPresence, type FieldFrame } from './fieldLaw.ts';
 
 export interface FieldUniform {
   readonly name: string;
@@ -43,6 +43,9 @@ export const FIELD_UNIFORMS: readonly FieldUniform[] = [
   // inert through the count only.
   ...Array.from({ length: QUIET_SLOTS }, (_, k) => ({ name: `uQuiet${k}`, floats: 4 })),
   { name: 'uQuietParams', floats: 3 }, // grow (px), feather (px), count
+  // Each zone's presence (law round 2 item 7, architect option D), one float per slot: slots 0–2, then 3–5.
+  { name: 'uQuietOn0', floats: 3 },
+  { name: 'uQuietOn1', floats: 3 },
   // Plate shadows (designer 2.9): offset (plate units, y up), blur (plate units), strength, mode.
   ...Array.from({ length: SHADOW_SLOTS }, (_, k) => ({ name: `uShadow${k}`, floats: 4 })),
   ...Array.from({ length: NODE_SLOTS }, (_, k) => NODE_UNIFORMS(k)).flat(),
@@ -64,6 +67,7 @@ export function packFrame(frame: FieldFrame): number[] {
   if (frame.quiet.rects.length > QUIET_SLOTS) {
     throw new RangeError(`a field frame holds at most ${QUIET_SLOTS} quiet rects, got ${frame.quiet.rects.length}`);
   }
+  checkQuietPresence(frame.quiet.rects.length, frame.quiet.presence);
   if (frame.shadows.length !== SHADOW_SLOTS) {
     throw new RangeError(`a field frame has ${SHADOW_SLOTS} shadow slots, got ${frame.shadows.length}`);
   }
@@ -73,6 +77,9 @@ export function packFrame(frame: FieldFrame): number[] {
     if (r === undefined) rects.push(0, 0, 0, 0);
     else rects.push(r.cx, r.cy, r.hx, r.hy);
   }
+  // A slot with no rect packs presence 0; the count keeps it inert regardless.
+  const presence: number[] = [];
+  for (let k = 0; k < QUIET_SLOTS; k++) presence.push(k < frame.quiet.presence.length ? frame.quiet.presence[k] : 0);
   const lab = (c: { L: number; a: number; b: number }) => [c.L, c.a, c.b];
   const values = [
     frame.centrePx[0], frame.centrePx[1], frame.radiusPx, frame.ringInner,
@@ -88,6 +95,7 @@ export function packFrame(frame: FieldFrame): number[] {
     frame.grain.inside, frame.grain.ground, frame.dither,
     ...rects,
     frame.quiet.grow, frame.quiet.feather, frame.quiet.rects.length,
+    ...presence,
     ...frame.shadows.flatMap((sh) => [sh.offset, sh.blur, sh.strength, sh.mode]),
     ...frame.nodes.flatMap((node) => [
       node.centre[0], node.centre[1], node.radius, node.fade,

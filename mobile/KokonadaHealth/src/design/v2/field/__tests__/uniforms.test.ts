@@ -40,7 +40,7 @@ const frame = (overrides: Partial<FieldFrame> = {}): FieldFrame => ({
   restIntenseWaypoint: true,
   grain: { inside: 0.012, ground: 0.02 },
   dither: 1 / 255,
-  quiet: { rects: [{ cx: 11, cy: 12, hx: 13, hy: 14 }, { cx: 21, cy: 22, hx: 23, hy: 24 }], presence: [1, 1], grow: 8, feather: 40 },
+  quiet: { rects: [{ cx: 11, cy: 12, hx: 13, hy: 14 }, { cx: 21, cy: 22, hx: 23, hy: 24 }], presence: [1, 0.25], grow: 8, feather: 40 },
   shadows: [{ offset: -0.02, blur: 0.05, strength: 0.18, mode: -1 }, inertShadow()],
   nodes: [node(NODE.J), node(NODE.C), node(NODE.I, { bead: null }), node(NODE.R0, { fade: 0 }), node(NODE.R0, { fade: 0.5 }), inertNode()],
   ...overrides,
@@ -50,15 +50,16 @@ describe('the field uniform layout', () => {
   // Architect re-rule §2 and the designer's final ruling (1): one pool of six node slots, with no
   // fixed live/shared split; each slot is 14 floats in 4 declarations.
   // With the quiet zones (six rects and their parameters) and the two plate shadows (architect
-  // re-rule §2): 157 floats in 46 declarations; law round 2 (D3) adds κ and θ to uSelect (159).
-  it('has one pool of six node slots, no live/shared split, six quiet rects and two shadows: 159 floats in 46 declarations', () => {
+  // re-rule §2): 157 floats in 46 declarations; law round 2 (D3) adds κ and θ to uSelect (159), and D7 the six
+  // zones' presence, uQuietOn0 and uQuietOn1, float3 each (165 in 48, architect option D).
+  it('has one pool of six node slots, no live/shared split, six quiet rects with their presence and two shadows: 165 floats in 48 declarations', () => {
     expect(NODE_SLOTS).toBe(6);
     expect([QUIET_SLOTS, SHADOW_SLOTS]).toEqual([6, 2]);
     expect(Object.keys(law).filter((k) => /LIVE_SLOTS|SHARED_SLOTS/.test(k))).toEqual([]);
-    expect(FIELD_UNIFORMS).toHaveLength(13 + QUIET_SLOTS + 1 + SHADOW_SLOTS + 4 * NODE_SLOTS);
-    expect(FIELD_UNIFORMS.length).toBe(46);
-    expect(FIELD_UNIFORM_FLOATS).toBe(40 + 4 * QUIET_SLOTS + 3 + 4 * SHADOW_SLOTS + 14 * NODE_SLOTS);
-    expect(FIELD_UNIFORM_FLOATS).toBe(159);
+    expect(FIELD_UNIFORMS).toHaveLength(13 + QUIET_SLOTS + 1 + 2 + SHADOW_SLOTS + 4 * NODE_SLOTS);
+    expect(FIELD_UNIFORMS.length).toBe(48);
+    expect(FIELD_UNIFORM_FLOATS).toBe(40 + 4 * QUIET_SLOTS + 3 + QUIET_SLOTS + 4 * SHADOW_SLOTS + 14 * NODE_SLOTS);
+    expect(FIELD_UNIFORM_FLOATS).toBe(165);
     expect(FIELD_UNIFORMS.slice(-4).map((u) => u.name)).toEqual(['uNode5', 'uNode5Bead', 'uNode5Field', 'uNode5Halo']);
   });
 
@@ -72,11 +73,12 @@ describe('the field uniform layout', () => {
   it('names every uniform once, in order, with its float count', () => {
     const names = FIELD_UNIFORMS.map((u) => u.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names.slice(0, 22)).toEqual([
+    expect(names.slice(0, 24)).toEqual([
       'uGeom', 'uGeom2', 'uMask', 'uGroundOutside', 'uGroundFace', 'uGroundRing', 'uFace', 'uWeight', 'uWarp', 'uOctaves',
       'uShimmer', 'uSelect', 'uNoise',
-      'uQuiet0', 'uQuiet1', 'uQuiet2', 'uQuiet3', 'uQuiet4', 'uQuiet5', 'uQuietParams', 'uShadow0', 'uShadow1',
+      'uQuiet0', 'uQuiet1', 'uQuiet2', 'uQuiet3', 'uQuiet4', 'uQuiet5', 'uQuietParams', 'uQuietOn0', 'uQuietOn1', 'uShadow0', 'uShadow1',
     ]);
+    expect(FIELD_UNIFORMS.filter((u) => u.name.startsWith('uQuietOn')).map((u) => u.floats)).toEqual([3, 3]);
     for (let k = 0; k < NODE_SLOTS; k++) {
       expect(names).toEqual(expect.arrayContaining([`uNode${k}`, `uNode${k}Bead`, `uNode${k}Field`, `uNode${k}Halo`]));
     }
@@ -114,6 +116,13 @@ describe('the field uniform layout', () => {
     expect(at('uQuiet1')).toEqual([21, 22, 23, 24]);
     for (const k of [2, 3, 4, 5]) expect(at(`uQuiet${k}`)).toEqual([0, 0, 0, 0]);
     expect(at('uQuietParams')).toEqual([8, 40, 2]);
+    // Presence, one float per slot in slot order (uQuietOn0 slots 0–2, uQuietOn1 slots 3–5); absent slots pack 0.
+    expect(at('uQuietOn0')).toEqual([1, 0.25, 0]);
+    expect(at('uQuietOn1')).toEqual([0, 0, 0]);
+    const six = Array.from({ length: 6 }, (_, k) => ({ cx: k, cy: k, hx: 1, hy: 1 }));
+    const all = packFrame(frame({ quiet: { rects: six, presence: [1, 0.5, 0, 0.25, 0.75, 0.125], grow: 8, feather: 40 } }));
+    const offsetOf = (name: string) => FIELD_UNIFORMS.slice(0, FIELD_UNIFORMS.findIndex((u) => u.name === name)).reduce((s, u) => s + u.floats, 0);
+    expect(all.slice(offsetOf('uQuietOn0'), offsetOf('uQuietOn0') + 6)).toEqual([1, 0.5, 0, 0.25, 0.75, 0.125]);
     expect(at('uShadow0')).toEqual([-0.02, 0.05, 0.18, -1]);
     expect(at('uShadow1')).toEqual([0, 0, 0, 0]);
   });
@@ -123,6 +132,15 @@ describe('the field uniform layout', () => {
     const seven = Array.from({ length: 7 }, () => ({ cx: 1, cy: 1, hx: 1, hy: 1 }));
     expect(() => packFrame(frame({ quiet: { rects: seven, presence: seven.map(() => 1), grow: 8, feather: 0 } }))).toThrow(RangeError);
     expect(() => packFrame(frame({ shadows: [inertShadow()] }))).toThrow(RangeError);
+  });
+
+  // Law round 2 item 7: presence that is not one finite value in [0, 1] per rect never reaches a uniform.
+  it('refuses malformed presence: not one value per rect, not finite, or outside [0, 1]', () => {
+    const rects = [{ cx: 1, cy: 1, hx: 1, hy: 1 }];
+    for (const presence of [[], [1, 1], [NaN], [Infinity], [-0.01], [1.01]]) {
+      expect(() => packFrame(frame({ quiet: { rects, presence, grow: 8, feather: 40 } }))).toThrow(RangeError);
+    }
+    expect(() => packFrame(frame({ quiet: { rects, presence: [0.5], grow: 8, feather: 40 } }))).not.toThrow();
   });
 
   // A NaN or an Infinity reaching a uniform makes the whole field black or garbage on the GPU.
