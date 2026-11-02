@@ -14,7 +14,7 @@
 
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, fixedFieldBreath, type FieldState, type FieldStatics, type Placement } from './fieldFrame.ts';
-import type { FieldFrame } from './fieldLaw.ts';
+import type { FieldFrame, QuietRect } from './fieldLaw.ts';
 import type { StormDeps } from './ledgerStorms.ts';
 import { emptyLedger, fades, reconcile, type Tap } from './placementLedger.ts';
 
@@ -134,13 +134,24 @@ export function beadsView(beads: readonly Bead[]): View {
 export const viewsOf = (d: Drawn): View[] => (d.beads.length > 0 ? [WHOLE, beadsView(d.beads)] : [WHOLE]);
 export const sizeOf = (view: View) => [Math.round(2 * view.half[0] * view.rPx), Math.round(2 * view.half[1] * view.rPx)] as const;
 
-export function frameIn(view: View, state: FieldState, statics: FieldStatics): FieldFrame {
+export function frameIn(view: View, state: FieldState, statics: FieldStatics, quietRects?: readonly QuietRect[]): FieldFrame {
   const [w, h] = sizeOf(view);
   return buildFieldFrame(
     state,
-    { centrePx: [w / 2 - view.centre[0] * view.rPx, h / 2 + view.centre[1] * view.rPx], radiusPx: view.rPx, pxPerDp: view.rPx / R_DP, fontScale: 1 },
+    { centrePx: [w / 2 - view.centre[0] * view.rPx, h / 2 + view.centre[1] * view.rPx], radiusPx: view.rPx, pxPerDp: view.rPx / R_DP, fontScale: 1, ...(quietRects ? { quietRects } : {}) },
     statics,
   );
+}
+
+/**
+ * Six quiet zones in a view, one per slot (law round 2 item 7, the presence pins): a heading and a subheading at the
+ * top, a corner control, a zero-size zone, one across the middle and a CTA below, as fractions of the view, so every
+ * view of every scene has zones where its field shows.
+ */
+export function zonesIn(view: View): QuietRect[] {
+  const [w, h] = sizeOf(view);
+  const at = (fx: number, fy: number, fhx: number, fhy: number): QuietRect => ({ cx: (w / 2) * (1 + fx), cy: (h / 2) * (1 - fy), hx: (w / 2) * fhx, hy: (h / 2) * fhy });
+  return [at(0, 0.75, 0.5, 0.05), at(0, 0.55, 0.35, 0.03), at(-0.8, 0.8, 0.06, 0.06), at(0.8, 0.8, 0, 0), at(0, -0.3, 0.25, 0.04), at(0, -0.75, 0.4, 0.06)];
 }
 
 /** The planted shader: every edge straight, J–I included. */

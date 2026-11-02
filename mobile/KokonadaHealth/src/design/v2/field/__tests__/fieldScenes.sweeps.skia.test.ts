@@ -7,7 +7,7 @@ import { BASE, type DirectionId, type Face } from '../../tokens/tokens.generated
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
 import type { FieldState } from '../fieldFrame.ts';
 import { fieldPixel, type FieldFrame } from '../fieldLaw.ts';
-import { IDS, frameIn, noWaypoint, sceneCatalogue, sizeOf, viewsOf, type Drawn } from '../fieldScenes.ts';
+import { IDS, frameIn, noWaypoint, sceneCatalogue, sizeOf, viewsOf, zonesIn, type Drawn } from '../fieldScenes.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
 import { stormDeps } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -151,6 +151,48 @@ describe('the planted shader (J–I straight) is caught on every dark face', () 
     (_id, d) => {
       const worst = worstOfFrame(d, d.heaviest().state, planted);
       expect(worst.chroma).toBeGreaterThanOrEqual(CHECK_BAND.chromaFloor);
+    },
+    LONG,
+  );
+});
+
+// Presence over the scenes (law round 2 item 7; resilience's pins): every scene's heaviest frame, in every view, on
+// both faces and every motion tier, with six quiet zones in the view (zonesIn), built by the uniform builder.
+// Presence 1 (and presence omitted, as every frame is built today) draws today's shader byte for byte; presence 0
+// draws the zones absent byte for byte. Today's shader is the head's with the presence term taken out.
+describe('quiet-zone presence over the scenes, in real Skia: p = 1 is today and p = 0 is no zone, byte for byte', () => {
+  const TODAY_FIND = 'return (1.0 - pz) + pz * qz;';
+  let today: SkRuntimeEffect;
+  beforeAll(() => {
+    expect(FIELD_SKSL.split(TODAY_FIND)).toHaveLength(2);
+    const made = Skia.RuntimeEffect.Make(FIELD_SKSL.replace(TODAY_FIND, 'return qz;'));
+    if (!made) throw new Error('today’s shader did not compile');
+    today = made;
+  });
+  const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+  it.each(CASES)(
+    '%s, %s, %s face, the heaviest frame, every tier',
+    (_id, _scene, _face, d) => {
+      const { state } = d.heaviest();
+      const statics = deps(d.id, d.face).statics;
+      for (const tier of ['full', 'low', 'still'] as const) {
+        for (const view of viewsOf(d)) {
+          const [w, h] = sizeOf(view);
+          const zones = zonesIn(view);
+          const at = (more: Partial<FieldState>, rects?: typeof zones) => frameIn(view, { ...state, tier, ...more }, statics, rects);
+          const omitted = render(at({}, zones), w, h, effect);
+          const ones = render(at({ quietPresence: zones.map(() => 1) }, zones), w, h, effect);
+          const todays = render(at({}, zones), w, h, today);
+          const zeros = render(at({ quietPresence: zones.map(() => 0) }, zones), w, h, effect);
+          const absent = render(at({}), w, h, effect);
+          const half = render(at({ quietPresence: zones.map(() => 0.5) }, zones), w, h, effect);
+          const label = `${tier}, ${view.name}`;
+          expect({ label, omitted: same(omitted, todays), ones: same(ones, todays), zeros: same(zeros, absent) }).toEqual({ label, omitted: true, ones: true, zeros: true });
+          // Not vacuous: the zones carve this view, and half presence is neither end.
+          expect({ label, carves: !same(ones, absent), between: !same(half, ones) && !same(half, absent) }).toEqual({ label, carves: true, between: true });
+        }
+      }
     },
     LONG,
   );

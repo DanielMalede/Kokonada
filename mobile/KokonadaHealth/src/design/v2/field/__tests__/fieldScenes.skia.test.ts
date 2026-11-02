@@ -6,8 +6,8 @@ import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureT
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { crossfade, overlapOmega } from '../crossfade.ts';
-import { regionOf, shadowFactor } from '../fieldLaw.ts';
-import { DEFERRED, FIELD_SCENES, HEAVIEST, IDS, SEAM, STEP_MS, WHOLE, frameIn, noWaypoint, sceneCatalogue, sizeOf, stateFor, still, throughLedger } from '../fieldScenes.ts';
+import { QUIET_SLOTS, regionOf, shadowFactor } from '../fieldLaw.ts';
+import { DEFERRED, FIELD_SCENES, HEAVIEST, IDS, SEAM, STEP_MS, WHOLE, frameIn, noWaypoint, sceneCatalogue, sizeOf, stateFor, still, throughLedger, viewsOf, zonesIn } from '../fieldScenes.ts';
 import { FIELD_SKSL } from '../fieldShader.ts';
 import { stormDeps } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -109,4 +109,24 @@ describe('the never-red scenes the designer named, and the two the plan adds', (
       expect(shadowed > 10).toBe(expected);
     },
   );
+});
+
+// Law round 2 item 7: the sweeps project pins presence over the scenes with six quiet zones in each view; here,
+// that the zones fill every slot, sit inside the view, and reach the builder's frame with their presence.
+describe('the scenes’ quiet zones (presence pins in the sweeps project)', () => {
+  it('every view of every drawn scene gets QUIET_SLOTS zones inside it, and the builder frames them', () => {
+    const views = drawn.flatMap((d) => viewsOf(d).map((view) => [d, view] as const));
+    expect(views.length).toBeGreaterThan(drawn.length);
+    for (const [d, view] of views) {
+      const [w, h] = sizeOf(view);
+      const zones = zonesIn(view);
+      expect(zones).toHaveLength(QUIET_SLOTS);
+      for (const z of zones) expect([z.cx >= 0 && z.cx <= w, z.cy >= 0 && z.cy <= h, z.hx >= 0, z.hy >= 0]).toEqual([true, true, true, true]);
+      const state = { ...d.heaviest().state, quietPresence: zones.map(() => 0.5) };
+      const frame = frameIn(view, state, deps(d.id, d.face).statics, zones);
+      expect(frame.quiet.rects).toEqual(zones);
+      expect(frame.quiet.presence).toEqual(zones.map(() => 0.5));
+      expect(frameIn(view, d.heaviest().state, deps(d.id, d.face).statics).quiet.rects).toEqual([]);
+    }
+  });
 });
