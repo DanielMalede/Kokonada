@@ -1,7 +1,7 @@
 jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedTokensModule());
 jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
 
-import { faceShadingGrounds, fieldSweepFor, plateShadowGrounds, type GraphEdges } from '../../tokens/neverRedSweeps.ts';
+import { edgeFamiliesFor, faceShadingGrounds, fieldSweepFor, plateShadowGrounds, type GraphEdges } from '../../tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { FIXTURE_IDS, FIXTURE_INNER, FIXTURE_OUTER, actualExtensions, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
@@ -432,5 +432,18 @@ describe('the never-red sampler enumerates the fixtures’ shadowed grounds', ()
       const g = plateShadowGrounds(id, face);
       expect([Object.keys(g.face), Object.keys(g.ground)]).toEqual([['face', ...Object.keys(faceShadingGrounds(id, face))], ['ground']]);
     }
+  });
+
+  // D10 (a mutant that survived): neverRed.edges.test.ts checks that the sweep really takes the shadowed grounds on
+  // Abyss only, which has none on the ground; fixture-outer's light face is the one outer-shadowed ground.
+  it('fixture-outer, light face: the edge sweep’s ground families really take its outer-shadowed grounds (more pixel blends than over the plain ground)', () => {
+    const grounds = plateShadowGrounds(FIXTURE_OUTER, 'light');
+    expect(Object.keys(grounds.ground)).toEqual(['ground', 'ground shadowed 0.5', 'ground shadowed 1']);
+    const plain = { face: grounds.face, ground: { ground: grounds.ground.ground } };
+    const blends = (g: typeof grounds) => Object.fromEntries(edgeFamiliesFor(FIXTURE_OUTER, 'light', 'coarse', g, {}, {}).map((f) => [f.family, f.pixelBlends]));
+    const [withShadows, without] = [blends(grounds), blends(plain)];
+    const overGround = Object.keys(withShadows).filter((f) => f.endsWith('· ground'));
+    expect(overGround.length).toBeGreaterThan(0);
+    for (const family of overGround) expect([family, withShadows[family] > without[family]]).toEqual([family, true]);
   });
 });
