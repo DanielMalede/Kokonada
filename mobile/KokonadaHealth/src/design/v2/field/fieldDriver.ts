@@ -126,7 +126,7 @@ export interface FieldStep {
   readonly error: string | null;
   /** A crossfade started on this frame. */
   readonly started: boolean;
-  /** The still tier has nothing left to draw: its frames may stop until an input changes. */
+  /** The still tier has nothing left to draw and no start to wait for (needsFrames): its frames may stop until an input changes. */
   readonly idle: boolean;
 }
 

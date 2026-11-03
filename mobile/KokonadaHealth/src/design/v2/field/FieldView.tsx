@@ -14,8 +14,9 @@
 //   · the builder runs exactly once per frame, and the JS thread never reads the ledger per frame: JS hears
 //     only of a start (onStart, the CTA's admitted count), the still tier's stop, and a failure;
 //   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life;
-//   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change, then stops its
-//     frames until an input changes; the moving tiers run every frame.
+//   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
+//     until the spacing since that start has passed (L19: the next change then starts on its first frame),
+//     then stops its frames until an input changes; the moving tiers run every frame.
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.

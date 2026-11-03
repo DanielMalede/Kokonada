@@ -518,8 +518,14 @@ export function fades(l: Ledger): LedgerFades {
   return { placements, ended: [...l.ended], restFade, restFades, restSlots, demand: placements.length + restSlots.length };
 }
 
-/** Does the field need frames? While a crossfade runs, or a change waits for its start. */
+/**
+ * Does the field need frames? While a crossfade runs, a change waits for its start, or the spacing since the
+ * last start has not passed (L19, architect T5 r1 §5). The still tier runs frames only while this holds, and
+ * across a pause its first frame moves the clock by one clamped step, so frames stopped at a ramp's end would
+ * keep the next change waiting for the spacing on its return; held to the spacing, the next change starts on
+ * its first frame. It costs at most motion.settle.duration less the ramp of frames per crossfade.
+ */
 export function needsFrames(l: Ledger): boolean {
   'worklet';
-  return l.running !== null || l.leaves.length > 0 || l.enters.length > 0;
+  return l.running !== null || l.leaves.length > 0 || l.enters.length > 0 || l.clock - l.lastStart < BASE.motion.settle.duration;
 }
