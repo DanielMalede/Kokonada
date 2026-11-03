@@ -304,6 +304,43 @@ describe('admission (designer final ruling (1)): the arrival-order prefix that f
     expect(frames.some((x) => x.f.demand === NODE_SLOTS)).toBe(true);
   });
 
+  // The swap is the admission unit (architect T5 r1 §2, resilience round 1 Q2b; T10's unit case). Three
+  // lobe-bearing placements, so no rest lobe is lit; three undos and three taps before the next start: three
+  // leaves and three enters, read as two swaps, then one. Two starts, inside 2·600 ms + the ramp. Admitted
+  // tap by tap (2 leaves; 1 leave and 2 enters; 1 enter) it would take three.
+  const D = tap(0.3, 0.7);
+  const E = tap(-0.7, -0.2);
+  const afterBatch = (frames: Array<{ t: number; f: LedgerFades; ledger: Ledger }>, from: number) =>
+    frames.filter((x, i) => i > 0 && x.t >= from && x.ledger.starts !== frames[i - 1].ledger.starts);
+  it.each(['settle', 'reduced'] as const)('%s: three undos then three taps inside one spacing, no rest lobe lit: two starts, two swaps then one', (mode) => {
+    const s = store([J, C]);
+    const first = reconcile(emptyLedger(ABYSS), s.input(), -1, mode);
+    const { frames, at } = run(first, s, 0, 3000, mode, {
+      0: () => s.add(R), // a start at 0: the batch below waits for the spacing
+      100: () => s.undo(), 150: () => s.undo(), 200: () => s.undo(),
+      250: () => s.add(I), 300: () => s.add(D), 350: () => s.add(E),
+    });
+    const starts = afterBatch(frames, 100);
+    expect(starts.map((x) => [x.t, x.ledger.admitted])).toEqual([[SETTLE, 2], [2 * SETTLE, 1]]);
+    // The leaves pair with the enters in arrival order: R with I, C with D, then J with E.
+    const nodes = (f: LedgerFades, role: 'live' | 'leaving', fade: (v: number) => boolean) => f.placements.filter((p) => p.role === role && fade(p.fade)).map((p) => p.node);
+    expect([nodes(at(SETTLE).f, 'leaving', () => true), nodes(at(SETTLE).f, 'live', (v) => v === 0)]).toEqual([['C', 'R'], ['I', 'J']]);
+    expect([nodes(at(2 * SETTLE).f, 'leaving', () => true), nodes(at(2 * SETTLE).f, 'live', (v) => v === 0)]).toEqual([['J'], ['R']]);
+    expect(frames.every((x) => x.f.restFade === 0)).toBe(true);
+    const done = at(350 + 2 * SETTLE + (mode === 'settle' ? SETTLE : BASE.motion.fadeReduced.duration)).f;
+    expect(done.placements.map((p) => [p.x, p.y, p.fade])).toEqual([I, D, E].map((p) => [p.x, p.y, 1]));
+  });
+
+  it.each(['settle', 'reduced'] as const)('%s: the same six changes seen in one frame read as their events: two starts, two swaps then one', (mode) => {
+    const s = store([J, C, R]);
+    const first = reconcile(emptyLedger(ABYSS), s.input(), -1, mode);
+    const { frames, at } = run(first, s, 0, 3000, mode, { 1000: () => { s.undo(); s.undo(); s.undo(); s.add(I); s.add(D); s.add(E); } });
+    expect(afterBatch(frames, 1000).map((x) => [x.t, x.ledger.admitted])).toEqual([[1000, 2], [1000 + SETTLE, 1]]);
+    expect(frames.every((x) => x.f.restFade === 0)).toBe(true);
+    const done = at(1000 + SETTLE + (mode === 'settle' ? SETTLE : BASE.motion.fadeReduced.duration)).f;
+    expect(done.placements.map((p) => [p.x, p.y, p.fade])).toEqual([I, D, E].map((p) => [p.x, p.y, 1]));
+  });
+
   it('every start admits at least one pending change', () => {
     const s = store();
     const { frames } = run(emptyLedger(NO_NEUTRAL_LOBE), s, -1, 4000, 'settle', Object.fromEntries([0, 30, 60, 90, 120, 150].map((t, k) => [t, () => s.add(k % 2 ? n(k) : [J, C, R, I][k % 4])])));
