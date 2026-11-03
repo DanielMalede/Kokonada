@@ -54,7 +54,7 @@
 import { BASE, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import { buildFieldFrame, type FieldGeometry, type FieldState, type FieldStatics } from './fieldFrame.ts';
 import { NODE, NODE_SLOTS } from './fieldLaw.ts';
-import { ADMISSION, emptyLedger, fades, ledgerConfig, reconcile, type Admission, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from './placementLedger.ts';
+import { ADMISSION, emptyLedger, fades, ledgerConfig, needsFrames, reconcile, type Admission, type Ledger, type LedgerConfig, type LedgerFades, type LedgerInput, type Tap } from './placementLedger.ts';
 import { packFrame } from './uniforms.ts';
 
 export type Mode = 'settle' | 'reduced';
@@ -294,8 +294,8 @@ export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, s
   return o;
 }
 
-/** E3's clauses on one storm's outcome: each broken clause, labelled. */
-export function stormFailures(label: string, kind: Storm, mode: Mode, o: Outcome): string[] {
+/** E3's clauses on one storm's outcome: each broken clause, labelled. The mixed storm (below) is held to them too. */
+export function stormFailures(label: string, kind: Storm | 'mixed', mode: Mode, o: Outcome): string[] {
   const out: string[] = [];
   const fail = (clause: string, detail: unknown) => out.push(`${label}: ${clause}: ${JSON.stringify(detail)}`);
   if (o.threw !== null) fail('the builder threw', o.threw);
@@ -352,6 +352,267 @@ export function gridReport(
     failures.push(...backlogBreaks(`${id} ${deps.face} ${mode} ${kind} every ${every} ms`, grid.span, outcomes));
   }
   return { runs, failures, outcomes: all };
+}
+
+// The mixed, lagged storm (T10: architect T5 r1 §5, "add/undo/clear, with the input seen every {1, 17, 50} ms";
+// resilience round 1 F3, the seeded property storm; reconciliation round 1: one test, R's generator with A's
+// input-seen-every dimension). E3 never puts two store changes in one frame (its frames are 1 ms, its taps at
+// least 17 ms apart), yet the ledger's reading by value rests on frames that see several. Here:
+//   · the generator: R's LCG, seed = (seed · 1664525 + 1013904223) >>> 0, read on [0, 1). Before the first
+//     frame the store takes 0–3 adds, so the first read is a reset; then each of MIXED_FRAMES frames applies
+//     0–3 store operations (MIXED_OPS: an add of a quadrant tap, a neutral, one exactly on
+//     placement.neutralRadius, one on the rim or one beyond it; an undo; a clear), its dt drawn from
+//     MIXED_DTS (a NaN dt gives the frame a NaN timestamp; −7 runs it back); odd seeds flip the mode once,
+//     mid-run;
+//   · the lag: the ledger reads the store only once `every` ms of wall time (the JS clock, which never runs
+//     back) have passed since its last read, every ∈ MIXED_EVERY; between reads it is given the last input,
+//     so one read can hold several frames' changes;
+//   · the tail: after the last operation, 16.667 ms frames until the ledger's clock is `tail` (MIXED_TAIL)
+//     past the read that saw the store's last change of value.
+// Every frame is held to E3's clauses (stormFailures), on the ledger's own clock: a fade moves at most SLOPE
+// of the mode of the crossfade that ran into the frame times the clock's step, and not at all where none ran;
+// rest lobes, the ledger's and the built frame's, the same; starts at least 600 apart on the clock; the
+// convergence bound from the last change's read, on the tail's mode. Two clauses of its own: the waiting
+// queue never holds more than six changes (the queue bound, architect T5 r1 §4: each side at most 3), and no
+// frame is needed once the tail has run (needsFrames, L19).
+
+/** The frame dts the mixed storm draws from, in ms (resilience round 1 F3). */
+export const MIXED_DTS: readonly number[] = [0, 1, 8.333, 16.667, 33.3, 120, 5000, -7, Number.NaN];
+/** How often the ledger reads the store, in ms of wall time (architect T5 r1 §5). */
+export const MIXED_EVERY: readonly number[] = [1, 17, 50];
+export type MixedOp = 'quadrant' | 'neutral' | 'onNeutralRadius' | 'rim' | 'beyond' | 'undo' | 'clear';
+export const MIXED_OPS: readonly MixedOp[] = ['quadrant', 'neutral', 'onNeutralRadius', 'rim', 'beyond', 'undo', 'clear'];
+/** The frames that apply store operations, per storm. */
+export const MIXED_FRAMES = 60;
+/** The tail past the last change's read, on the ledger's clock: three starts (3·600), one spacing more for L19, and 200 ms. */
+export const MIXED_TAIL = 4 * SETTLE + 200;
+
+export interface MixedGrid {
+  /** The seeds: each runs one storm per start mode and input cadence. */
+  readonly seeds: readonly number[];
+  readonly every: readonly number[];
+}
+const firstSeeds = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+/** The default run takes the coarse seeds; the sweeps project the full 200 per direction × mode (resilience round 1 F3). */
+export const MIXED_GRIDS: { readonly coarse: MixedGrid; readonly full: MixedGrid } = {
+  coarse: { seeds: firstSeeds(16), every: MIXED_EVERY },
+  full: { seeds: firstSeeds(200), every: MIXED_EVERY },
+};
+
+/** R's generator: an LCG, read on [0, 1). */
+export function lcg(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/** An add of one kind: a quadrant tap (one of QUAD, or anywhere between the neutral radius and the rim), a neutral, exactly on the neutral radius, on the rim, or beyond it. */
+function mixedTap(kind: MixedOp, next: () => number): Tap {
+  const pick = (n: number) => Math.min(n - 1, Math.floor(next() * n));
+  const axis = (r: number) => [tap(r, 0), tap(0, r), tap(-r, 0), tap(0, -r)][pick(4)];
+  const polar = (r: number) => {
+    const a = 2 * Math.PI * next();
+    return tap(r * Math.cos(a), r * Math.sin(a));
+  };
+  const NR = BASE.placement.neutralRadius;
+  if (kind === 'quadrant') return next() < 0.5 ? QUAD[pick(4)] : polar(NR + 0.01 + (0.98 - NR) * next());
+  if (kind === 'neutral') return neutral(pick(9));
+  if (kind === 'onNeutralRadius') return axis(NR);
+  if (kind === 'rim') return axis(1);
+  return polar(1.05 + 0.5 * next());
+}
+
+export interface MixedOutcome extends Outcome {
+  /** The mode at the end: the tail's, which the convergence bound reads. */
+  mode: Mode;
+  flipped: boolean;
+  /** needsFrames after the tail. */
+  framesNeededAtEnd: boolean;
+  /** The most changes waiting at a frame, leaves plus enters. */
+  queueMax: number;
+  /** Store changes per read: the most, and the reads that held two or more. */
+  maxChangesPerRead: number;
+  batchedReads: number;
+  reads: number;
+  frames: number;
+  /** Frames by dt, and operations by kind. */
+  dts: Record<string, number>;
+  ops: Record<MixedOp, number>;
+}
+
+export interface MixedOptions {
+  /** The admission limits; the planted controls pass others, the field uses the defaults. */
+  readonly limits?: Admission;
+  /** The fades driver: fades by default; a factory plant for the detectors' own controls. */
+  readonly fadesOf?: FadesOf;
+  /** The tail past the last change's read, on the ledger's clock (MIXED_TAIL). */
+  readonly tail?: number;
+}
+const MIXED_OPTIONS: ReadonlySet<string> = new Set(['limits', 'fadesOf', 'tail']);
+const sameTapsByValue = (a: readonly Tap[], b: readonly Tap[]) => a.length === b.length && a.every((t, i) => t.x === b[i].x && t.y === b[i].y);
+
+/** One mixed, lagged storm: one seed, one start mode, one input cadence, through the ledger and the builder. */
+export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every: number, deps: StormDeps, opts: MixedOptions = {}): MixedOutcome {
+  const unknown = Object.keys(opts).filter((k) => !MIXED_OPTIONS.has(k));
+  if (unknown.length > 0) throw new TypeError(`unknown mixed storm option: ${unknown.join(', ')}`);
+  const { limits = ADMISSION, fadesOf = fades, tail = MIXED_TAIL } = opts;
+  const next = lcg(seed);
+  const pick = (n: number) => Math.min(n - 1, Math.floor(next() * n));
+  const s = store();
+  const o: MixedOutcome = {
+    starts: [], admittedAtStarts: [], maxDemand: 0, demandMismatch: 0, slopeBreaks: [], entersNotAtZero: [], leavesNotAtZero: [], restBreaks: 0,
+    threw: null, lastTap: 0, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, framesWithoutLobe: 0, restShortWithoutLobe: 0, netBreaks: 0, stalls: 0, series: [],
+    mode: startMode, flipped: false, framesNeededAtEnd: false, queueMax: 0, maxChangesPerRead: 0, batchedReads: 0, reads: 0, frames: 0, dts: {},
+    ops: { quadrant: 0, neutral: 0, onNeutralRadius: 0, rim: 0, beyond: 0, undo: 0, clear: 0 },
+  };
+  const apply = (op: MixedOp) => {
+    o.ops[op]++;
+    if (op === 'undo') s.undo();
+    else if (op === 'clear') s.clear();
+    else s.add(mixedTap(op, next));
+  };
+  // Before the first frame: 0–3 adds, so the first read is a reset (its taps shown at once).
+  for (let k = pick(4); k > 0; k--) apply(MIXED_OPS[pick(5)]);
+  const flipAt = seed % 2 === 1 ? 1 + pick(MIXED_FRAMES - 1) : -1;
+  let mode = startMode;
+  let ts = 0;
+  let wall = 0;
+  let readAt = -Infinity;
+  let input: LedgerInput = { seq: s.seq(), taps: s.taps() };
+  let ledger = emptyLedger(deps.config, limits);
+  let previous = new Map<number, number>();
+  let previousRest: readonly number[] = [];
+  let builtRest = 0;
+  let lastKey = '';
+  // The ledger's clock at the read that saw the latest change of value; the clock since which the field has shown the store.
+  let seenAt = 0;
+  let sameSince: number | null = null;
+  for (let k = 0; k < MIXED_FRAMES + 4000; k++) {
+    const ops = k < MIXED_FRAMES;
+    if (!ops && input.seq === s.seq() && ledger.clock >= seenAt + tail) break;
+    const dt = k === 0 ? 0 : ops ? MIXED_DTS[pick(MIXED_DTS.length)] : 16.667;
+    o.dts[String(dt)] = (o.dts[String(dt)] ?? 0) + 1;
+    if (k === flipAt) {
+      mode = mode === 'settle' ? 'reduced' : 'settle';
+      o.flipped = true;
+    }
+    if (ops) for (let n = pick(4); n > 0; n--) apply(MIXED_OPS[pick(MIXED_OPS.length)]);
+    if (Number.isFinite(dt)) ts += dt;
+    if (Number.isFinite(dt) && dt > 0) wall += dt;
+    let changed = false;
+    if (k === 0 || wall - readAt >= every) {
+      const changes = s.seq() - input.seq;
+      o.reads++;
+      o.maxChangesPerRead = Math.max(o.maxChangesPerRead, changes);
+      if (changes >= 2) o.batchedReads++;
+      changed = !sameTapsByValue(input.taps, s.taps());
+      input = { seq: s.seq(), taps: s.taps() };
+      readAt = wall;
+    }
+    const before = ledger;
+    ledger = reconcile(ledger, input, Number.isNaN(dt) ? Number.NaN : ts, mode);
+    o.frames++;
+    const f = fadesOf(ledger);
+    // The slope bound into this frame: the mode of the crossfade that ran into it, times the clock's step.
+    const ran = before.running === null ? null : before.running.mode;
+    const bound = (ran === null ? 0 : SLOPE[ran] * (ledger.clock - before.clock)) * 1.001 + 1e-12;
+    // No backlog (E3, resilience round 1 F2) and the queue bound.
+    const live = new Set(f.placements.filter((p) => p.role === 'live').map((p) => p.id));
+    const inStore = new Set(ledger.store.map((p) => p.id));
+    const leaving = new Set(ledger.leaves.map((p) => p.id));
+    const entering = new Set(ledger.enters.map((p) => p.id));
+    const netted = ledger.leaves.length <= 3 && ledger.enters.length <= 3
+      && [...leaving].every((pid) => live.has(pid) && !inStore.has(pid))
+      && [...entering].every((pid) => !live.has(pid) && inStore.has(pid))
+      && [...inStore].every((pid) => (live.has(pid) && !leaving.has(pid)) || entering.has(pid))
+      && [...live].every((pid) => inStore.has(pid) || leaving.has(pid));
+    if (!netted) o.netBreaks++;
+    o.queueMax = Math.max(o.queueMax, ledger.leaves.length + ledger.enters.length);
+    if (ledger.running === null && (ledger.leaves.length > 0 || ledger.enters.length > 0) && ledger.clock - ledger.lastStart >= SETTLE) o.stalls++;
+    if (ledger.starts !== before.starts) {
+      o.starts.push(ledger.lastStart);
+      o.admittedAtStarts.push(ledger.admitted);
+    }
+    const demand = f.placements.length + f.restSlots.length;
+    if (demand !== f.demand) o.demandMismatch++;
+    o.maxDemand = Math.max(o.maxDemand, demand);
+    // Fades by id: within the bound; enter at 0 (the first frame's reset excepted); leave at 0.
+    const now = new Map<number, number>(f.placements.map((p) => [p.id, p.fade]));
+    for (const e of f.ended) now.set(e, 0);
+    for (const [pid, fade] of now) {
+      const was = previous.get(pid);
+      if (was === undefined) {
+        if (fade !== 0 && k > 0) o.entersNotAtZero.push(pid);
+      } else if (Math.abs(fade - was) > bound) {
+        o.slopeBreaks.push(`id ${pid} at clock ${ledger.clock}: ${was} → ${fade} (bound ${bound})`);
+      }
+    }
+    for (const [pid, was] of previous) if (!now.has(pid) && was !== 0) o.leavesNotAtZero.push(pid);
+    previous = new Map([...now].filter(([pid]) => !f.ended.includes(pid)));
+    // The ledger's rest lobes, by table index (one not drawn is at 0), within the same bound.
+    for (let i = 0; i < Math.max(f.restFades.length, previousRest.length); i++) {
+      if (k > 0 && Math.abs((f.restFades[i] ?? 0) - (previousRest[i] ?? 0)) > bound) o.restBreaks++;
+    }
+    previousRest = f.restFades;
+    if (!f.placements.some((p) => p.node !== 'neutral' || deps.config.neutralLobe)) {
+      o.framesWithoutLobe++;
+      if (!f.restFades.every((r) => r === 1)) o.restShortWithoutLobe++;
+    }
+    // The built frame, built again only when the ledger's output changes: it must build, hold no more than
+    // the demand, and its rest lobes obey the same bound.
+    const key = f.placements.map((p) => `${p.id}:${p.slot}:${p.fade}`).join(',') + '|' + f.restFades.join(',') + '|' + f.restSlots.join(',');
+    if (o.threw === null && key !== lastKey) {
+      lastKey = key;
+      try {
+        const frame = buildFieldFrame(frameState(id, deps.face, f), geometry, deps.statics);
+        packFrame(frame);
+        const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
+        if (occupied > f.demand) o.demandMismatch++;
+        const rest = Math.max(0, ...frame.nodes.filter((nd) => nd.id === NODE.R0 && nd.bead === null).map((nd) => nd.fade));
+        if (k > 0 && Math.abs(rest - builtRest) > bound) o.restBreaks++;
+        builtRest = rest;
+      } catch (error) {
+        o.threw = `${(error as Error).name} at clock ${ledger.clock}: ${(error as Error).message}`;
+      }
+    }
+    // Convergence, from the read that saw the last change of value: what is shown above 0 is exactly the
+    // store's taps, every one at 1. F8's allowance: a rest lobe lit beside three live placements after it.
+    if (changed) {
+      seenAt = ledger.clock;
+      o.restBesideThreeLive = false;
+      o.restLitAfterLastTap = false;
+    } else if (k > 0) {
+      if (f.restFade > 0) o.restLitAfterLastTap = true;
+      if (f.restFade > 0 && live.size === 3) o.restBesideThreeLive = true;
+    }
+    const lit = f.placements.filter((p) => p.fade > 0);
+    const same = lit.length === input.taps.length && lit.every((p, i) => p.fade === 1 && p.x === input.taps[i].x && p.y === input.taps[i].y);
+    if (!same) sameSince = null;
+    else if (sameSince === null) sameSince = ledger.clock;
+  }
+  o.lastTap = seenAt;
+  o.converged = sameSince === null ? null : Math.max(0, sameSince - seenAt);
+  o.framesNeededAtEnd = needsFrames(ledger);
+  o.mode = mode;
+  return o;
+}
+
+/** The mixed storm's clauses: E3's, on the tail's mode, then its own two. */
+export function mixedFailures(label: string, o: MixedOutcome): string[] {
+  const out = stormFailures(label, 'mixed', o.mode, o);
+  const fail = (clause: string, detail: unknown) => out.push(`${label}: ${clause}: ${JSON.stringify(detail)}`);
+  if (o.queueMax > 2 * ADMISSION.live) fail('the waiting queue held more than six changes', o.queueMax);
+  if (o.framesNeededAtEnd) fail('frames still needed after the tail', o.framesNeededAtEnd);
+  return out;
+}
+
+/** The mixed storm on every seed of a set, for one direction, start mode and input cadence: the runs made and every broken clause. */
+export function mixedReport(id: DirectionId, mode: Mode, every: number, seeds: readonly number[], deps: StormDeps, opts: MixedOptions = {}): { runs: number; failures: string[]; outcomes: MixedOutcome[] } {
+  const outcomes = seeds.map((seed) => mixedStorm(id, mode, seed, every, deps, opts));
+  const failures = outcomes.flatMap((o, i) => mixedFailures(`${id} ${deps.face} ${mode} mixed seed ${seeds[i]} every ${every} ms`, o));
+  return { runs: outcomes.length, failures, outcomes };
 }
 
 // The planted fades drivers (resilience, law round 2 (d)): each wraps the ledger's own fades and breaks

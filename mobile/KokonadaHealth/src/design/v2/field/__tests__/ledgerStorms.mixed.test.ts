@@ -22,6 +22,8 @@ const LONG = 600_000;
 const FACES: Face[] = ['dark', 'light'];
 const deps = (face: Face) => stormDeps(ID, staticsFor(ID, EXTENSIONS as never), face);
 const has = (failures: readonly string[], clause: string) => failures.some((f) => f.includes(clause));
+// The planted controls run on the first four coarse seeds.
+const CONTROL_SEEDS = MIXED_GRIDS.coarse.seeds.slice(0, 4);
 
 const cases = FACES.flatMap((face) => MODES.flatMap((mode) => MIXED_EVERY.map((every) => [face, mode, every] as [Face, Mode, number])));
 // Each coarse case runs once: its own test and the coverage pins read the same report.
@@ -109,17 +111,17 @@ describe('the coarse seeds reach what the mixed storm is for', () => {
   }, LONG);
 });
 
-// Each control asserts the harness's own clause output, on the coarse seeds.
+// Each control asserts the harness's own clause output, on CONTROL_SEEDS.
 describe('the mixed storm’s planted controls: each guard bites, through its own clauses', () => {
   const raw: Admission = { ...ADMISSION, netting: false };
   it('a raw first-in-first-out ledger breaks the netting identity and the queue bound', () => {
-    const failures = MIXED_EVERY.flatMap((every) => mixedReport(ID, 'settle', every, MIXED_GRIDS.coarse.seeds, deps('dark'), { limits: raw }).failures);
+    const failures = MIXED_EVERY.flatMap((every) => mixedReport(ID, 'settle', every, CONTROL_SEEDS, deps('dark'), { limits: raw }).failures);
     expect([has(failures, 'the netting identity broke'), has(failures, 'the waiting queue held more than six changes')]).toEqual([true, true]);
   }, LONG);
 
   it('a ledger whose node limit never fits a swap stalls', () => {
     const tight: Admission = { ...ADMISSION, nodes: deps('dark').config.restLobes };
-    const failures = mixedReport(ID, 'settle', 17, MIXED_GRIDS.coarse.seeds, deps('dark'), { limits: tight }).failures;
+    const failures = mixedReport(ID, 'settle', 17, CONTROL_SEEDS, deps('dark'), { limits: tight }).failures;
     expect(has(failures, 'a frame ended idle with a change waiting past the spacing')).toBe(true);
   }, LONG);
 
@@ -130,12 +132,12 @@ describe('the mixed storm’s planted controls: each guard bites, through its ow
     ['D9 plantRestQuarterSteps', plantRestQuarterSteps, 'a rest-lobe fade moved faster than its curve'],
   ];
   it.each(plants.flatMap(([name, plant, clause]) => MODES.map((mode) => [name, mode, plant, clause] as const)))('%s, starting %s: its clause fires', (_name, mode, plant, clause) => {
-    const failures = MIXED_GRIDS.coarse.seeds.flatMap((seed) => mixedFailures(`seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('dark'), { fadesOf: plant() })));
+    const failures = CONTROL_SEEDS.flatMap((seed) => mixedFailures(`seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('dark'), { fadesOf: plant() })));
     expect(has(failures, clause)).toBe(true);
   }, LONG);
 
   it('a tail cut at the last change’s read leaves frames needed, and the absolute bound unmet', () => {
-    const failures = MIXED_GRIDS.coarse.seeds.flatMap((seed) => mixedFailures(`no tail, seed ${seed}`, mixedStorm(ID, 'settle', seed, 17, deps('dark'), { tail: 0 })));
+    const failures = CONTROL_SEEDS.flatMap((seed) => mixedFailures(`no tail, seed ${seed}`, mixedStorm(ID, 'settle', seed, 17, deps('dark'), { tail: 0 })));
     expect([has(failures, 'frames still needed after the tail'), has(failures, 'did not converge')]).toEqual([true, true]);
   }, LONG);
 });
