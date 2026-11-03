@@ -6,7 +6,7 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/toke
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
-import { MODES, STORMS, STORM_GRIDS, gridReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
+import { MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, gridReport, mixedReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 
 // QA-068 E3's binding neutral3 case, on the test-only fixture-outer direction (__fixtures__/fixtureTokens.ts):
@@ -81,4 +81,33 @@ describe('E3’s planted controls that bind on neutral placements with no lobe, 
     const failures = stormFailures('wrong lobe rule', 'neutral3', 'settle', storm(FIXTURE_OUTER, 'settle', 'neutral3', 100, 3000, wrong));
     expect(has(failures, 'the demand and the built frame disagree')).toBe(true);
   });
+});
+
+// T10's mixed, lagged storm (ledgerStorms.ts; its pins, coverage and controls are in ledgerStorms.mixed.test.ts)
+// on fixture-outer, the coarse seeds: here neutral placements carry no lobe, so the rest lobes stay lit beside
+// them, the case that needs F8's third crossfade and fills every node slot. Shipped Abyss reaches neither.
+describe('the mixed storm on fixture-outer, the coarse seeds: every face × start mode × input cadence', () => {
+  const mixedCases = FACES.flatMap((face) => MODES.flatMap((mode) => MIXED_EVERY.map((every) => [face, mode, every] as [Face, Mode, number])));
+  const mixed = new Map<string, ReturnType<typeof mixedReport>>();
+  const mixedCoarse = (face: Face, mode: Mode, every: number) => {
+    const key = `${face} ${mode} ${every}`;
+    if (!mixed.has(key)) mixed.set(key, mixedReport(FIXTURE_OUTER, mode, every, MIXED_GRIDS.coarse.seeds, deps(FIXTURE_OUTER, face)));
+    return mixed.get(key)!;
+  };
+
+  it.each(mixedCases)(
+    'fixture-outer, %s face, starting %s, the input seen every %s ms: every clause on every seed',
+    (face, mode, every) => {
+      const { runs, failures } = mixedCoarse(face, mode, every);
+      expect(runs).toBe(MIXED_GRIDS.coarse.seeds.length);
+      expect(failures).toEqual([]);
+    },
+    LONG,
+  );
+
+  it('some seed fills every node slot, and some lights a rest lobe beside three live placements after its last change', () => {
+    const all = mixedCases.flatMap(([face, mode, every]) => mixedCoarse(face, mode, every).outcomes);
+    expect([NODE_SLOTS, Math.max(...all.map((o) => o.maxDemand))]).toEqual([6, 6]);
+    expect(all.some((o) => o.restBesideThreeLive)).toBe(true);
+  }, LONG);
 });
