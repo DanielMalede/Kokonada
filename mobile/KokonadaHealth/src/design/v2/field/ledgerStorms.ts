@@ -98,13 +98,18 @@ export const tap = (x: number, y: number): Tap => ({ x, y });
 export const QUAD = [tap(0.566, 0.566), tap(0.566, -0.566), tap(-0.566, -0.566), tap(-0.566, 0.566)];
 export const neutral = (k: number) => tap(0.01 * (k % 9) + 0.01, -0.02);
 
-/** The cold lane's taps as the storms drive them: at most three, with a seq bumped on every change. */
+/**
+ * The cold lane's taps as the storms drive them: at most three, with a seq bumped on every change. Its taps
+ * are the reducer's (emotionSlice addTap, undoTap, clearTaps), pinned by src/state/cold/__tests__/
+ * emotionSlice.stormModel.test.ts (T10).
+ */
 export function store(initial: Tap[] = []) {
   let taps = initial;
   let seq = 0;
   return {
     add(t: Tap) { taps = [...taps, t].slice(-3); seq++; },
     undo() { taps = taps.slice(0, -1); seq++; },
+    clear() { taps = []; seq++; },
     taps: () => taps,
     seq: () => seq,
   };
