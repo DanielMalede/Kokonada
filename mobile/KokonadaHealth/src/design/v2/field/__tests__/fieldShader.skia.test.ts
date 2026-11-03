@@ -5,7 +5,7 @@ import { AlphaType, ColorType, FilterMode, MipmapMode, Skia, TileMode, type SkRu
 import { mixOklab, oklabToSrgb, type Oklab } from '../../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../blueNoise.ts';
-import { NODE, NODE_SLOTS, encodeSrgb8, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, outerEdgeCoverage, quietFactor, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
+import { NODE, NODE_SLOTS, encodeSrgb8, fieldOklab, fieldPixel, inertNode, inertShadow, isWaypoint, outerEdgeCoverage, pixelTerms, quietFactor, ringEdgeCoverage, type FieldFrame, type FieldNodeFrame, type QuietRect } from '../fieldLaw.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { FIXTURE_IDS, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
@@ -302,6 +302,46 @@ describe('law round 2 (B5): the lobe core, the triple point and the same-spot sw
     const out = { ...bead(NODE.C, 'calm', face, [0.3, -0.3], r), fade: 1 - u * u };
     const into = { ...bead(NODE.C, 'calm', face, [0.3, -0.3], r), fade: u };
     const frame = frameFor('abyss', face, [out, bead(NODE.I, 'intense', face, [-0.4, 0.4], r), into]);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+});
+
+// Law round 2, D10 (the mutation run): paths the shipped tokens and the cases above never reach, held to the law.
+describe('law round 2 (D10): the exact triple tie and the ground pivot, pixel for pixel (±1 LSB)', () => {
+  const faces: Face[] = ['dark', 'light'];
+
+  // The architect's N3 in the shader: at an exact triple tie w1 = w2 = 0, and the guard keeps t finite (0/0 is NaN in
+  // SkSL as in TS). Three nodes at one spot, of one radius, fade and bead, tie exactly on every pixel they reach.
+  it.each(faces)('abyss, %s face: an exact triple tie (three nodes at one spot) draws the law’s finite neutral', (face) => {
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const at: [number, number] = [0.3, 0.2];
+    const frame = frameFor('abyss', face, [bead(NODE.J, 'joy', face, at, r), bead(NODE.C, 'calm', face, at, r), bead(NODE.R, 'reflective', face, at, r)]);
+    let ties = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const { e } = pixelTerms(frame, x + 0.5, y + 0.5);
+        if (e[0] > 0 && e[0] === e[1] && e[1] === e[2]) ties++;
+      }
+    }
+    expect(ties).toBeGreaterThan(1000);
+    expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
+  });
+
+  // Route R4's ground pivot kp: every shipped direction has field.pivot 0, so no case above draws kp > 0; a planted
+  // kp (0.2, fieldLaw.test.ts's value) holds the shader's share term to the law.
+  it.each(faces)('abyss, %s face: a planted ground pivot kp 0.2 composites as the law does', (face) => {
+    expect(DIRECTIONS.abyss.field.pivot).toBe(0);
+    const r = DIRECTIONS.abyss.field.lobe.radius;
+    const frame = frameFor('abyss', face, [bead(NODE.I, 'intense', face, [0.33, 0.24], r), bead(NODE.C, 'calm', face, [0.1, 0], 2)], { kp: 0.2 });
+    let moved = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const a = fieldPixel(frame, x + 0.5, y + 0.5);
+        const b = fieldPixel({ ...frame, kp: 0 }, x + 0.5, y + 0.5);
+        if (a[0] !== b[0] || a[1] !== b[1] || a[2] !== b[2]) moved++;
+      }
+    }
+    expect(moved).toBeGreaterThan(1000);
     expect(worstDisagreement(frame, render(frame)).delta).toBeLessThanOrEqual(1);
   });
 });
@@ -613,6 +653,21 @@ describe('law round 2 (UI-114): the ring’s inner edge over one render pixel, i
     const shadowAtQ = planted(/float2 qf = d > uGeom\.w \? q \* \(uGeom\.w \/ d\) : q;/, 'float2 qf = q;');
     expect(worstDisagreement(f, render(f, binaryExtent)).delta).toBeGreaterThan(1);
     expect(worstDisagreement(f, render(f, shadowAtQ)).delta).toBeGreaterThan(1);
+  });
+
+  // D10 (a mutant that survived on Abyss's own face): the band reads the face's shading at d_f = min(d, ringInner),
+  // never past ρ = 1. On Abyss's face the shading moves too little inside one canvas pixel to show, so a small plate
+  // (R 12 px, the band wider in plate units) carries a planted steep vignette and lift on a light neutral face.
+  it.each(['dark', 'light'] as Face[])('abyss, %s face: the band reads the face at d_f, so a planted steep vignette agrees ±1 LSB; d in its place breaks it', (face) => {
+    const R = 12;
+    const ri = 1 - 28 / 150;
+    const edge: [number, number] = [ri * Math.cos(1.2), ri * Math.sin(1.2)];
+    const base = frameFor('abyss', face, [], { radiusPx: R, centrePx: [32 - edge[0] * R, 32 + edge[1] * R], vignette: -0.9, centreLift: 0.3, grain: { inside: 0.03, ground: 0.004 } });
+    const f = { ...base, grounds: { ...base.grounds, face: { L: 0.85, a: 0, b: 0 } } };
+    expect(crossings(f).length).toBeGreaterThan(10);
+    expect(worstDisagreement(f, render(f)).delta).toBeLessThanOrEqual(1);
+    const atD = planted(/float df = min\(d, uGeom\.w\);/, 'float df = d;');
+    expect(worstDisagreement(f, render(f, atD)).delta).toBeGreaterThan(1);
   });
 
   // Law round 2, D6-1 (the designer's ruling at UI-151): the outer edge in real Skia, the same AA as the inner
