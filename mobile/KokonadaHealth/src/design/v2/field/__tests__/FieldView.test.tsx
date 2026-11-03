@@ -18,7 +18,8 @@ import { FIELD_UNIFORMS } from '../uniforms.ts';
 //   · one step per frame on the UI thread, the builder run exactly once per frame, and the JS thread never
 //     reads the ledger per frame (resilience T5 r1 Q5): JS hears of a start, a stop or a failure only;
 //   · a builder throw switches to FieldFallback (planted over-demand), as does an effect that cannot draw;
-//   · the still tier runs one fadeReduced ramp, then stops its frames until an input changes;
+//   · the still tier runs one fadeReduced ramp and its frames until the spacing since that start has passed
+//     (L19), then stops them until an input changes;
 //   · it draws through FieldSurface, an sRGB canvas that is not opaque (fork 2, C1).
 //
 // The Reanimated fake is stateful, as in fieldClock.test.tsx: SharedValues persist, a frame callback is
@@ -295,8 +296,8 @@ describe('FieldFallback when the field cannot draw (architect T5 r1 §5)', () =>
   });
 });
 
-describe('the still tier (reduced motion): one fadeReduced ramp, then stop', () => {
-  it('draws the still once and stops its frames; a taps change wakes it for one ramp, then it stops again', () => {
+describe('the still tier (reduced motion): one fadeReduced ramp, frames until the spacing has passed, then stop', () => {
+  it('draws the still once and stops its frames; a taps change wakes it for one ramp and the spacing after its start, then it stops again', () => {
     const r = mount(baseProps({ tier: 'still', taps: [A] }));
     frames(3);
     expect(reanimated.__active()).toBe(0);
@@ -306,12 +307,31 @@ describe('the still tier (reduced motion): one fadeReduced ramp, then stop', () 
     expect(counts.build).toBe(still);
     act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B] })} />));
     expect(reanimated.__active()).toBe(1);
-    frames(30);
+    frames(60);
     expect(reanimated.__active()).toBe(0);
     expect(placementFades(uniformsOf(r)!)).toEqual([1, 1]);
-    // One ramp of fadeReduced (150 ms) at 16 ms frames, a frame or two either side, then no more.
-    expect(counts.build - still).toBeGreaterThanOrEqual(10);
-    expect(counts.build - still).toBeLessThanOrEqual(13);
+    // L19 (architect T5 r1 §5): one ramp of fadeReduced (150 ms), then frames until the spacing since its start
+    // (motion.settle, 600 ms) has passed, at 16 ms frames: 38 or so, a frame either side, then no more.
+    expect(counts.build - still).toBeGreaterThanOrEqual(Math.floor(600 / 16));
+    expect(counts.build - still).toBeLessThanOrEqual(Math.ceil(600 / 16) + 2);
+  });
+
+  // L19: the frames that stop while the still is idle are skipped, so the first frame after a pause moves the
+  // ledger's clock by one clamped step; with the spacing passed before the stop, it starts the crossfade.
+  it('a taps change after a long pause starts its crossfade on the first frame', () => {
+    const C = { x: -0.5, y: 0.45 };
+    const starts: number[] = [];
+    const onStart = (n: number) => starts.push(n);
+    const r = mount(baseProps({ tier: 'still', taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B], onStart })} />));
+    frames(60);
+    expect(reanimated.__active()).toBe(0);
+    expect(starts).toEqual([1]);
+    frames(300);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B, C], onStart })} />));
+    frames(1);
+    expect(starts).toEqual([1, 1]);
   });
 
   it('the moving tiers never stop', () => {

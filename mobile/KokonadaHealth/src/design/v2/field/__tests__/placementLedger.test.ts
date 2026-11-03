@@ -135,6 +135,19 @@ describe('a push: the first placement crossfades in, the rest glow out (designer
     expect(needsFrames(at(650).ledger)).toBe(true);
     expect(needsFrames(at(1300).ledger)).toBe(false);
   });
+
+  // L19 (architect T5 r1 §5, the still tier): the still tier runs frames only while needsFrames, and across
+  // a pause its clock gains one clamped step, so needsFrames also holds until the spacing since the last
+  // start has passed. Under reduced motion that is 450 ms past the 150 ms ramp.
+  it('reduced: needsFrames holds past the ramp’s end until the spacing since the start has passed, and not after', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 700, 'reduced', { 0: () => s.add(C) });
+    expect(at(0).ledger.starts).toBe(1);
+    expect(at(BASE.motion.fadeReduced.duration).ledger.running).toBeNull();
+    expect(needsFrames(at(BASE.motion.fadeReduced.duration).ledger)).toBe(true);
+    expect(needsFrames(at(SETTLE - 1).ledger)).toBe(true);
+    expect(needsFrames(at(SETTLE).ledger)).toBe(false);
+  });
 });
 
 describe('serialized crossfades: starts at least motion.settle.duration apart, in every mode', () => {
@@ -391,6 +404,58 @@ describe('the clock behind u (resilience finding 9)', () => {
     expect(fades(ledger).placements.map((p) => p.id)).toEqual([0]);
     for (let t = 60_001; t <= 60_600; t++) ledger = reconcile(ledger, s.input(), t, 'settle');
     expect(ledger.starts).toBe(2);
+  });
+
+  /**
+   * The still tier's driver, as FieldView runs it: a frame every `frame` ms of wall time, skipped while it
+   * sleeps; a store change wakes it, and it sleeps from the first frame whose ledger needs no frames.
+   */
+  function stillTier(s: ReturnType<typeof store>, actions: Record<number, () => void>, to: number, frame = 16) {
+    let ledger = emptyLedger(ABYSS);
+    let awake = true;
+    let seen = s.input().seq;
+    const ran: number[] = [];
+    const startsAt: number[] = [];
+    const clockAtStarts: number[] = [];
+    for (let t = 0; t <= to; t += frame) {
+      for (const [when, act] of Object.entries(actions)) if (Number(when) > t - frame && Number(when) <= t) act();
+      if (s.input().seq !== seen) {
+        seen = s.input().seq;
+        awake = true;
+      }
+      if (!awake) continue;
+      const before = ledger.starts;
+      ledger = reconcile(ledger, s.input(), t, 'reduced');
+      ran.push(t);
+      if (ledger.starts > before) {
+        startsAt.push(t);
+        clockAtStarts.push(ledger.lastStart);
+      }
+      if (!needsFrames(ledger)) awake = false;
+    }
+    return { ledger, ran, startsAt, clockAtStarts };
+  }
+
+  // L19 (architect T5 r1 §5): after a pause the still tier's first frame advances the ledger's clock by one
+  // clamped step only. Were the frames to stop at the ramp's end, a tap 5 s later would wait about 400 ms for
+  // the spacing; they run on until the spacing has passed, at most 450 ms of frames per crossfade.
+  it('the still tier: frames skipped while needsFrames is false; a tap 5 s after the last crossfade starts on its first frame', () => {
+    const s = store();
+    const { ledger, ran, startsAt, clockAtStarts } = stillTier(s, { 1000: () => s.add(C), 6000: () => s.add(R) }, 8000);
+    // Each tap starts on the first frame that sees it: 1008 (frames every 16 ms) and 6000.
+    expect(startsAt).toEqual([1008, 6000]);
+    expect(clockAtStarts[1] - clockAtStarts[0]).toBeGreaterThanOrEqual(SETTLE);
+    // The frames run in bursts: the first frame, then one per tap, each no longer than the spacing.
+    const bursts: number[][] = [];
+    for (const t of ran) {
+      const last = bursts[bursts.length - 1];
+      if (last !== undefined && t - last[last.length - 1] === 16) last.push(t);
+      else bursts.push([t]);
+    }
+    expect(bursts.map((b) => b[0])).toEqual([0, 1008, 6000]);
+    for (const b of bursts.slice(1)) expect(b.length).toBeLessThanOrEqual(Math.ceil(SETTLE / 16) + 1);
+    expect(needsFrames(ledger)).toBe(false);
+    expect(fades(ledger).placements.map((p) => [p.node, p.fade])).toEqual([['C', 1], ['R', 1]]);
   });
 });
 

@@ -152,7 +152,9 @@ describe('one step per frame', () => {
     expect(starts[0]).toBe(true);
   });
 
-  it('the still tier runs one fadeReduced ramp, then is idle; the moving tiers are never idle', () => {
+  // L19 (architect T5 r1 §5): the ramp ends at fadeReduced, and the frames run on until the spacing since
+  // its start has passed (settle.duration), so the next change never waits on a clock stopped mid-spacing.
+  it('the still tier runs one fadeReduced ramp, then holds its frames until the spacing since the start has passed, then is idle; the moving tiers are never idle', () => {
     let l = ledgerFor('dark');
     l = fieldStep(l, { seq: 0, taps: [] }, 0, params({ tier: 'still' }), g, statics(), 0, 0.5).ledger;
     let ms = 1000;
@@ -162,17 +164,41 @@ describe('one step per frame', () => {
     expect(first.idle).toBe(false);
     l = first.ledger;
     let idleAt = -1;
-    for (let i = 1; i <= 40 && idleAt < 0; i++) {
+    let rampEndAt = -1;
+    for (let i = 1; i <= 60 && idleAt < 0; i++) {
       ms += 16;
       const step = fieldStep(l, { seq: 1, taps: [{ x: 0.5, y: 0.5 }] }, ms, params({ tier: 'still' }), g, statics(), 0, 0.5);
       l = step.ledger;
+      if (rampEndAt < 0 && l.running === null) rampEndAt = i * 16;
       if (step.idle) idleAt = i * 16;
     }
-    expect(idleAt).toBeGreaterThanOrEqual(BASE.motion.fadeReduced.duration);
-    expect(idleAt).toBeLessThan(BASE.motion.fadeReduced.duration + 16);
+    expect(rampEndAt).toBeGreaterThanOrEqual(BASE.motion.fadeReduced.duration);
+    expect(rampEndAt).toBeLessThan(BASE.motion.fadeReduced.duration + 16);
+    expect(idleAt).toBeGreaterThanOrEqual(BASE.motion.settle.duration);
+    expect(idleAt).toBeLessThan(BASE.motion.settle.duration + 16);
     expect(needsFrames(l)).toBe(false);
     const moving = fieldStep(l, { seq: 1, taps: [{ x: 0.5, y: 0.5 }] }, ms + 16, params({ tier: 'full' }), g, statics(), 0, 0.5);
     expect(moving.idle).toBe(false);
+  });
+
+  // The frame-skipping driver (architect T5 r1 §5, L19): FieldView runs no step while the still tier is idle,
+  // so the first step after a pause advances the ledger's clock by one clamped step; that step must start.
+  it('the still tier, idle, then a tap 5 s later: the first step that sees it starts its crossfade', () => {
+    const still = params({ tier: 'still' });
+    let step = fieldStep(ledgerFor('dark'), { seq: 0, taps: [] }, 0, still, g, statics(), 0, 0.5);
+    let ms = 1000;
+    step = fieldStep(step.ledger, { seq: 1, taps: [{ x: 0.5, y: 0.5 }] }, ms, still, g, statics(), 0, 0.5);
+    expect(step.started).toBe(true);
+    for (let i = 0; i < 100 && !step.idle; i++) {
+      ms += 16;
+      step = fieldStep(step.ledger, { seq: 1, taps: [{ x: 0.5, y: 0.5 }] }, ms, still, g, statics(), 0, 0.5);
+    }
+    expect(step.idle).toBe(true);
+    ms += 5000;
+    const next = fieldStep(step.ledger, { seq: 2, taps: [{ x: 0.5, y: 0.5 }, { x: -0.5, y: -0.4 }] }, ms, still, g, statics(), 0, 0.5);
+    expect(next.started).toBe(true);
+    expect(next.ledger.lastStart - step.ledger.lastStart).toBeGreaterThanOrEqual(BASE.motion.settle.duration);
+    expect(next.error).toBeNull();
   });
 });
 
