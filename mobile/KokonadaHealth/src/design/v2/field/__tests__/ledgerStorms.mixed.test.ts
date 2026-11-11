@@ -93,9 +93,11 @@ describe.each(cases)('the mixed storm on the coarse seeds: abyss, %s face, start
 // The coverage pins: the coarse seeds still reach what the storm is for, so a generator that quietly stops
 // batching, lagging, flipping or drawing a kind of frame goes red.
 describe('the coarse seeds reach what the mixed storm is for', () => {
-  it('at every cadence some read sees two or more store changes; at 50 ms some sees more than one frame applies (four or more)', () => {
-    for (const every of MIXED_EVERY) expect([every, outcomes((c) => c[2] === every).some((o) => o.batchedReads > 0)]).toEqual([every, true]);
-    expect(Math.max(...outcomes((c) => c[2] === 50).map((o) => o.maxChangesPerRead))).toBeGreaterThanOrEqual(4);
+  // RA-23 (resilience T10, UI-196): counted by value. An undo or clear of an empty list bumps seq and changes nothing,
+  // so a count of seq bumps could pass with no read holding two changes the ledger can see.
+  it('at every cadence some read holds two or more operations that change the taps; at 50 ms some holds more than one frame applies (four or more)', () => {
+    for (const every of MIXED_EVERY) expect([every, outcomes((c) => c[2] === every).some((o) => o.batchedValueReads > 0)]).toEqual([every, true]);
+    expect(Math.max(...outcomes((c) => c[2] === 50).map((o) => o.maxValueChangesPerRead))).toBeGreaterThanOrEqual(4);
   }, LONG);
 
   it('every operation and every frame dt is drawn, and some frames see no new input (the lag)', () => {
