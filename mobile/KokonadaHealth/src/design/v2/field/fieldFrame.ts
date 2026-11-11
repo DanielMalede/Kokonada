@@ -154,7 +154,8 @@ const lab = (c: { readonly oklab: readonly number[] }): Oklab => {
   'worklet';
   return { L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] };
 };
-const QUADRANT = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
+/** Each quadrant node's emotion anchor (field.graph.nodes); FieldFallback colours its gradient by the same map. */
+export const QUADRANT = { J: 'joy', C: 'calm', R: 'reflective', I: 'intense' } as const;
 /** The emotion tier each face draws (field.graph.nodeTier); graphConformance.test.ts holds it to the token. */
 export const NODE_TIER: Readonly<Record<Face, 'core' | 'deep'>> = { dark: 'core', light: 'deep' };
 
