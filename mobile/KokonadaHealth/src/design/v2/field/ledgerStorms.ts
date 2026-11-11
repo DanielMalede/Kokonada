@@ -372,7 +372,7 @@ export function gridReport(
 // Every frame is held to E3's clauses (stormFailures), on the ledger's own clock: a fade moves at most SLOPE
 // of the mode of the crossfade that ran into the frame times the clock's step, and not at all where none ran;
 // rest lobes, the ledger's and the built frame's, the same; starts at least 600 apart on the clock; the
-// convergence bound from the last change's read, on the tail's mode. Two clauses of its own: the waiting
+// convergence bound from the last change's read, on the tail's mode, plus the frame quantum (mixedBound, RA-21). Two clauses of its own: the waiting
 // queue never holds more than six changes (the queue bound, architect T5 r1 §4: each side at most 3), and no
 // frame is needed once the tail has run (needsFrames, L19).
 
@@ -440,6 +440,9 @@ export interface MixedOutcome extends Outcome {
   framesNeededAtEnd: boolean;
   /** The most changes waiting at a frame, leaves plus enters. */
   queueMax: number;
+  /** After the read that saw the last change: the starts on later frames, and the longest clock step (RA-21). */
+  startsAfterLastRead: number;
+  maxStepAfterLastRead: number;
   /** Store changes per read: the most, and the reads that held two or more. */
   maxChangesPerRead: number;
   batchedReads: number;
@@ -474,7 +477,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   const o: MixedOutcome = {
     starts: [], admittedAtStarts: [], maxDemand: 0, demandMismatch: 0, slopeBreaks: [], entersNotAtZero: [], leavesNotAtZero: [], restBreaks: 0,
     threw: null, lastTap: 0, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, framesWithoutLobe: 0, restShortWithoutLobe: 0, netBreaks: 0, stalls: 0, series: [],
-    mode: startMode, flipped: false, framesNeededAtEnd: false, queueMax: 0, maxChangesPerRead: 0, batchedReads: 0, reads: 0, frames: 0, dts: {},
+    mode: startMode, flipped: false, framesNeededAtEnd: false, startsAfterLastRead: 0, maxStepAfterLastRead: 0, queueMax: 0, maxChangesPerRead: 0, batchedReads: 0, reads: 0, frames: 0, dts: {},
     ops: { quadrant: 0, neutral: 0, onNeutralRadius: 0, rim: 0, beyond: 0, undo: 0, clear: 0 },
   };
   const apply = (op: MixedOp) => {
@@ -593,7 +596,11 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
       seenAt = ledger.clock;
       o.restBesideThreeLive = false;
       o.restLitAfterLastTap = false;
+      o.startsAfterLastRead = 0;
+      o.maxStepAfterLastRead = 0;
     } else if (k > 0) {
+      o.maxStepAfterLastRead = Math.max(o.maxStepAfterLastRead, ledger.clock - before.clock);
+      if (ledger.starts !== before.starts) o.startsAfterLastRead++;
       if (f.restFade > 0) o.restLitAfterLastTap = true;
       if (f.restFade > 0 && live.size === 3) o.restBesideThreeLive = true;
     }
@@ -609,10 +616,23 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   return o;
 }
 
-/** The mixed storm's clauses: E3's, on the tail's mode, then its own two. */
+/**
+ * The mixed storm's convergence bound (resilience T10 RA-21, ruling UI-191): E3's, on the tail's mode, plus one frame
+ * step for each start after the last change's read and one for the last ramp's end, the step being the longest clock
+ * step after that read, as the storm measured them. A start lands on the first frame past its spacing and a ramp ends
+ * on the first frame past its duration; E3, on 1 ms frames, stays absolute.
+ */
+export function mixedBound(o: MixedOutcome): number {
+  return (o.restBesideThreeLive ? 3 : 2) * SETTLE + RAMP[o.mode] + (o.startsAfterLastRead + 1) * o.maxStepAfterLastRead;
+}
+
+/** The mixed storm's clauses: E3's, on the tail's mode, but its convergence, which takes the frame quantum (mixedBound); then its own two. */
 export function mixedFailures(label: string, o: MixedOutcome): string[] {
-  const out = stormFailures(label, 'mixed', o.mode, o);
+  // E3's clauses with its absolute convergence clause stood down (a converged 0 meets every bound); the mixed one below.
+  const out = stormFailures(label, 'mixed', o.mode, { ...o, converged: 0 });
   const fail = (clause: string, detail: unknown) => out.push(`${label}: ${clause}: ${JSON.stringify(detail)}`);
+  const bound = mixedBound(o);
+  if (o.converged === null || o.converged > bound) fail(`did not converge within ${bound} ms of the last change's read`, o.converged);
   if (o.queueMax > 2 * ADMISSION.live) fail('the waiting queue held more than six changes', o.queueMax);
   if (o.framesNeededAtEnd) fail('frames still needed after the tail', o.framesNeededAtEnd);
   return out;
