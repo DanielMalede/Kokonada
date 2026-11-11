@@ -3,6 +3,7 @@ jest.mock('../../tokens/tokens.generated.ts', () => require('../../__tests__/__f
 jest.mock('../../tokens/tokens.extensions.generated.ts', () => require('../../__tests__/__fixtures__/fixtureTokens.ts').mockedExtensionsModule());
 import * as fs from 'fs';
 import * as path from 'path';
+import ts from 'typescript';
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../tokens/tokens.generated.ts';
@@ -510,7 +511,29 @@ describe('the ledger stays in the visual layer', () => {
 
   // The cold-lane Tap the ledger reads (architect rerule §3: no ordinal on Tap; resilience T10 RA-26, which accepts this
   // pin in place of the rerule §6 mutant "an ordinal added to Tap"): the problems with a source of emotionSlice.ts.
-  const tapContractProblems = (source: string): string[] => (/export interface Tap \{\s*x: number;\s*y: number;\s*\}/.test(source) ? [] : ['Tap is not exactly {x, y}']);
+  // Read with the TypeScript compiler, not a pattern: exactly one declaration of interface Tap, extending nothing, its
+  // members exactly 'x: number' and 'y: number' in that order; no type alias named Tap; EmotionState.taps typed Tap[].
+  const tapContractProblems = (source: string): string[] => {
+    const file = ts.createSourceFile('emotionSlice.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const problems: string[] = [];
+    const taps: ts.InterfaceDeclaration[] = [];
+    let state: ts.InterfaceDeclaration | undefined;
+    const visit = (node: ts.Node) => {
+      if (ts.isInterfaceDeclaration(node) && node.name.text === 'Tap') taps.push(node);
+      if (ts.isInterfaceDeclaration(node) && node.name.text === 'EmotionState') state = node;
+      if (ts.isTypeAliasDeclaration(node) && node.name.text === 'Tap') problems.push('a type alias named Tap');
+      ts.forEachChild(node, visit);
+    };
+    visit(file);
+    if (taps.length !== 1) problems.push(`${taps.length} declarations of interface Tap`);
+    if (taps.some((t) => (t.heritageClauses ?? []).length > 0)) problems.push('Tap extends another type');
+    const members = taps.flatMap((t) => t.members.map((m) => m.getText(file).replace(/[;,]$/, '').replace(/\s+/g, ' ')));
+    if (JSON.stringify(members) !== JSON.stringify(['x: number', 'y: number'])) problems.push(`Tap's members are ${JSON.stringify(members)}`);
+    const member = state?.members.find((m) => m.name !== undefined && ts.isIdentifier(m.name) && m.name.text === 'taps');
+    const typed = member !== undefined && ts.isPropertySignature(member) && member.type !== undefined ? member.type.getText(file) : null;
+    if (typed !== 'Tap[]') problems.push(`EmotionState.taps is typed ${typed}`);
+    return problems;
+  };
   const SLICE = fs.readFileSync(path.resolve(FIELD, '../../../state/cold/emotionSlice.ts'), 'utf8').replace(/\r\n/g, '\n');
   const TAP = 'export interface Tap {\n  x: number;\n  y: number;\n}';
   /** The slice's source with one edit; the edit must apply exactly once, so a variant can never be the source itself. */
