@@ -378,6 +378,11 @@ export function gridReport(
 
 /** The frame dts the mixed storm draws from, in ms (resilience round 1 F3). */
 export const MIXED_DTS: readonly number[] = [0, 1, 8.333, 16.667, 33.3, 120, 5000, -7, Number.NaN];
+/**
+ * The device regime (resilience T10 RA-20, UI-193): every frame dt positive, MIXED_DTS with 0 and NaN read as 16.667
+ * and −7 as 7 (the harness mutant H5's mapping), drawn the same way, so a seed applies the same operations.
+ */
+export const MIXED_DTS_POSITIVE: readonly number[] = MIXED_DTS.map((d) => Math.abs(d) || 16.667);
 /** How often the ledger reads the store, in ms of wall time (architect T5 r1 §5). */
 export const MIXED_EVERY: readonly number[] = [1, 17, 50];
 export type MixedOp = 'quadrant' | 'neutral' | 'onNeutralRadius' | 'rim' | 'beyond' | 'undo' | 'clear';
@@ -452,15 +457,17 @@ export interface MixedOptions {
   readonly fadesOf?: FadesOf;
   /** The tail past the last change's read, on the ledger's clock (MIXED_TAIL). */
   readonly tail?: number;
+  /** The frame dts drawn from, MIXED_DTS by default (MIXED_DTS_POSITIVE: the device regime, RA-20). */
+  readonly dts?: readonly number[];
 }
-const MIXED_OPTIONS: ReadonlySet<string> = new Set(['limits', 'fadesOf', 'tail']);
+const MIXED_OPTIONS: ReadonlySet<string> = new Set(['limits', 'fadesOf', 'tail', 'dts']);
 const sameTapsByValue = (a: readonly Tap[], b: readonly Tap[]) => a.length === b.length && a.every((t, i) => t.x === b[i].x && t.y === b[i].y);
 
 /** One mixed, lagged storm: one seed, one start mode, one input cadence, through the ledger and the builder. */
 export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every: number, deps: StormDeps, opts: MixedOptions = {}): MixedOutcome {
   const unknown = Object.keys(opts).filter((k) => !MIXED_OPTIONS.has(k));
   if (unknown.length > 0) throw new TypeError(`unknown mixed storm option: ${unknown.join(', ')}`);
-  const { limits = ADMISSION, fadesOf = fades, tail = MIXED_TAIL } = opts;
+  const { limits = ADMISSION, fadesOf = fades, tail = MIXED_TAIL, dts = MIXED_DTS } = opts;
   const next = lcg(seed);
   const pick = (n: number) => Math.min(n - 1, Math.floor(next() * n));
   const s = store();
@@ -495,7 +502,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   for (let k = 0; k < MIXED_FRAMES + 4000; k++) {
     const ops = k < MIXED_FRAMES;
     if (!ops && input.seq === s.seq() && ledger.clock >= seenAt + tail) break;
-    const dt = k === 0 ? 0 : ops ? MIXED_DTS[pick(MIXED_DTS.length)] : 16.667;
+    const dt = k === 0 ? 0 : ops ? dts[pick(dts.length)] : 16.667;
     o.dts[String(dt)] = (o.dts[String(dt)] ?? 0) + 1;
     if (k === flipAt) {
       mode = mode === 'settle' ? 'reduced' : 'settle';

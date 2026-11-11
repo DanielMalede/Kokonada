@@ -6,7 +6,7 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/toke
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
-import { MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, gridReport, mixedFailures, mixedReport, mixedStorm, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
+import { MIXED_DTS_POSITIVE, MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, gridReport, mixedFailures, mixedReport, mixedStorm, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 
 // QA-068 E3's binding neutral3 case, on the test-only fixture-outer direction (__fixtures__/fixtureTokens.ts):
@@ -116,5 +116,15 @@ describe('the mixed storm on fixture-outer, the coarse seeds: every face × star
     const wrong = { ...deps(FIXTURE_OUTER), config: { ...deps(FIXTURE_OUTER).config, neutralLobe: true } };
     const failures = MIXED_GRIDS.coarse.seeds.slice(0, 4).flatMap((seed) => mixedFailures(`wrong lobe rule, seed ${seed}`, mixedStorm(FIXTURE_OUTER, 'settle', seed, 17, wrong)));
     expect(has(failures, 'the demand and the built frame disagree')).toBe(true);
+  }, LONG);
+});
+
+// RA-20 (resilience T10, UI-193) on fixture-outer: the device regime, every frame dt positive, the store read on every
+// frame (every 1 ms), the coarse seeds, both faces, both start modes; a broken clause is printed whole by the diff.
+describe.each(FACES.flatMap((face) => MODES.map((mode) => [face, mode] as [Face, Mode])))('the mixed storm with positive frame dts only, the input seen every 1 ms: fixture-outer, %s face, starting %s', (face, mode) => {
+  it('every clause holds on every coarse seed', () => {
+    const { runs, failures } = mixedReport(FIXTURE_OUTER, mode, 1, MIXED_GRIDS.coarse.seeds, deps(FIXTURE_OUTER, face), { dts: MIXED_DTS_POSITIVE });
+    expect(runs).toBe(MIXED_GRIDS.coarse.seeds.length);
+    expect(failures).toEqual([]);
   }, LONG);
 });

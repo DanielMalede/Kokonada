@@ -1,9 +1,9 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
-import { ADMISSION, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
+import { ADMISSION, emptyLedger, fades, reconcile, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
 import {
-  MIXED_DTS, MIXED_EVERY, MIXED_FRAMES, MIXED_GRIDS, MIXED_OPS, MIXED_TAIL, MODES, SETTLE, lcg, mixedFailures, mixedReport, mixedStorm,
-  plantCutLeaveEarly, plantEnterAboveZero, plantLowRestQuarterSteps, plantNoPlacementsWhileRestRises, plantQuarterStepFades, plantRestQuarterSteps, stormDeps,
+  MIXED_DTS, MIXED_DTS_POSITIVE, MIXED_EVERY, MIXED_FRAMES, MIXED_GRIDS, MIXED_OPS, MIXED_TAIL, MODES, SETTLE, lcg, mixedFailures, mixedReport, mixedStorm,
+  plantCutLeaveEarly, plantEnterAboveZero, plantLowRestQuarterSteps, plantNoPlacementsWhileRestRises, plantQuarterStepFades, plantRestQuarterSteps, stormDeps, stormFailures, tap,
   type MixedOutcome, type Mode,
 } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -54,6 +54,12 @@ describe('the mixed storm’s generator and grids', () => {
   it('the operations: adds of five kinds (a quadrant, a neutral, exactly on the neutral radius, on the rim, beyond it), undos and clears', () => {
     expect(MIXED_OPS).toEqual(['quadrant', 'neutral', 'onNeutralRadius', 'rim', 'beyond', 'undo', 'clear']);
     expect(MIXED_FRAMES).toBeGreaterThanOrEqual(30);
+  });
+
+  // RA-20 (resilience T10, UI-193): the device regime, H5's mapping of the dts, drawn the same way.
+  it('the positive dts are MIXED_DTS with 0 and NaN read as 16.667 and −7 as 7: none is 0, below 0 or NaN', () => {
+    expect(MIXED_DTS_POSITIVE).toEqual([16.667, 1, 8.333, 16.667, 33.3, 120, 5000, 7, 16.667]);
+    expect(MIXED_DTS_POSITIVE.every((d) => Number.isFinite(d) && d > 0)).toBe(true);
   });
 
   it('the tail runs past the last change’s read for three starts and one spacing more (L19), then 200 ms', () => {
@@ -170,10 +176,81 @@ describe('the mixed storm’s own clauses: each fires on its own defect, and onl
   it.each<[string, Partial<MixedOutcome>, string]>([
     ['a queue of seven', { queueMax: 2 * ADMISSION.live + 1 }, 'the waiting queue held more than six changes'],
     ['frames still needed', { framesNeededAtEnd: true }, 'frames still needed after the tail'],
-    ['a late convergence (E3’s clause, on the tail’s mode)', { converged: 2 * SETTLE + SETTLE + 1, mode: 'settle', restBesideThreeLive: false }, 'did not converge within 1800 ms'],
+    ['a late convergence (past E3’s bound and the frame quantum)', { converged: 1e9, mode: 'settle', restBesideThreeLive: false }, 'did not converge within'],
   ])('%s', (_name, defect, clause) => {
     const failures = mixedFailures('planted', { ...clean, ...defect });
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain(clause);
+  });
+});
+
+// RA-20 (resilience T10, UI-193): the device regime. Every frame dt positive (MIXED_DTS_POSITIVE), the store read on
+// every frame (the input seen every 1 ms): the coarse seeds, both faces, both start modes. A broken clause is printed
+// whole by the diff below. Harness mutant H5 ran this regime and broke "every clause holds" at 1 ms on every face and
+// mode; this test keeps it in the default run.
+describe.each(FACES.flatMap((face) => MODES.map((mode) => [face, mode] as [Face, Mode])))('the mixed storm with positive frame dts only, the input seen every 1 ms: abyss, %s face, starting %s', (face, mode) => {
+  it('every clause holds on every coarse seed', () => {
+    const { runs, failures } = mixedReport(ID, mode, 1, MIXED_GRIDS.coarse.seeds, deps(face), { dts: MIXED_DTS_POSITIVE });
+    expect(runs).toBe(MIXED_GRIDS.coarse.seeds.length);
+    expect(failures).toEqual([]);
+  }, LONG);
+});
+
+// RA-21 (resilience T10, UI-194, ruling UI-191): the mixed storm's frames are real frame steps, so each start lands on
+// the first frame past its spacing and the last ramp ends on the first frame past its duration. Its convergence bound
+// is E3's plus (the starts after the last change's read + 1) × the longest clock step after it, both measured by the
+// storm; E3, on 1 ms frames, stays absolute.
+describe('RA-21: the mixed storm’s convergence takes one frame step per start after the last read, and one for the ramp’s end', () => {
+  let clean: MixedOutcome;
+  beforeAll(() => {
+    clean = mixedStorm(ID, 'settle', 2, 17, deps('dark'));
+  });
+  // The auditor's hand trace (Abyss dark, settle): a reset to [J, C] at 0; [J, C, R] at 16.667 starts R; [I, D, E]
+  // read 1 ms later; then a frame every 16.667 ms.
+  const trace = () => {
+    const [J, C, R, I, D, E] = [tap(0.566, 0.566), tap(0.566, -0.566), tap(-0.566, -0.566), tap(-0.566, 0.566), tap(0.3, 0.7), tap(-0.7, -0.2)];
+    let ledger = emptyLedger(deps('dark').config);
+    ledger = reconcile(ledger, { seq: 0, taps: [J, C] }, 0, 'settle');
+    ledger = reconcile(ledger, { seq: 1, taps: [J, C, R] }, 16.667, 'settle');
+    const rStarted = ledger.starts === 1;
+    ledger = reconcile(ledger, { seq: 2, taps: [I, D, E] }, 17.667, 'settle');
+    const seenAt = ledger.clock;
+    const starts: number[] = [];
+    let maxStep = 0;
+    let converged: number | null = null;
+    for (let k = 1; k <= 200 && converged === null; k++) {
+      const before = ledger;
+      ledger = reconcile(ledger, { seq: 2, taps: [I, D, E] }, 17.667 + k * 16.667, 'settle');
+      maxStep = Math.max(maxStep, ledger.clock - before.clock);
+      if (ledger.starts > before.starts) starts.push(ledger.lastStart - seenAt);
+      const lit = fades(ledger).placements.filter((p) => p.fade > 0);
+      if (lit.length === 3 && lit.every((p, i) => p.fade === 1 && p.x === [I, D, E][i].x && p.y === [I, D, E][i].y)) converged = ledger.clock - seenAt;
+    }
+    return { rStarted, starts, maxStep, converged: converged! };
+  };
+  const outcome = (converged: number, startsAfterLastRead: number, maxStepAfterLastRead: number): MixedOutcome =>
+    ({ ...clean, mode: 'settle', restBesideThreeLive: false, converged, startsAfterLastRead, maxStepAfterLastRead });
+
+  it('through the real ledger: the starts land at +600.012 and +1200.024 after the read, the last ramp ends at +1800.036', () => {
+    const r = trace();
+    expect(r.rStarted).toBe(true);
+    expect(r.starts.map((s) => s.toFixed(3))).toEqual(['600.012', '1200.024']);
+    expect(r.converged.toFixed(3)).toBe('1800.036');
+    expect(r.maxStep).toBeCloseTo(16.667, 9);
+  });
+
+  it('E3’s absolute bound rejects it; the mixed storm’s bound, 1800 + (2 + 1) × 16.667, accepts it', () => {
+    const r = trace();
+    const o = outcome(r.converged, r.starts.length, r.maxStep);
+    expect(stormFailures('trace', 'toggle', 'settle', o).some((f) => f.includes('did not converge within 1800 ms'))).toBe(true);
+    expect(mixedFailures('trace', o)).toEqual([]);
+  });
+
+  it('the allowance is exact: a convergence at it passes, one a frame step past it fails', () => {
+    const r = trace();
+    const allowed = 2 * SETTLE + SETTLE + (r.starts.length + 1) * r.maxStep;
+    expect(mixedFailures('at the allowance', outcome(allowed, r.starts.length, r.maxStep))).toEqual([]);
+    expect(mixedFailures('one step late', outcome(allowed + r.maxStep, r.starts.length, r.maxStep)).some((f) => f.includes('did not converge'))).toBe(true);
+    expect(mixedFailures('a hair late', outcome(allowed + 1e-6, r.starts.length, r.maxStep)).some((f) => f.includes('did not converge'))).toBe(true);
   });
 });
