@@ -24,8 +24,9 @@ import { FIELD_UNIFORMS } from '../uniforms.ts';
 //
 // The Reanimated fake is stateful, as in fieldClock.test.tsx: SharedValues persist, a frame callback is
 // registered per identity, only active callbacks run, and each frame carries a rising timestamp. runOnJS
-// is counted, so every crossing from the UI thread to JS is seen.
-const ui = { runOnJS: 0, timestamp: 0 };
+// is counted, so every crossing from the UI thread to JS is seen. A test may defer those crossings (ui.deferred), as
+// the real hop to JS can land after a JS effect has run (resilience T10 RA-22).
+const ui = { runOnJS: 0, timestamp: 0, deferred: null as null | Array<() => void> };
 jest.mock('react-native-reanimated', () => {
   const { useEffect, useRef } = require('react');
   const registry = new Map<number, { fn: (info: unknown) => void; active: boolean }>();
@@ -37,7 +38,11 @@ jest.mock('react-native-reanimated', () => {
       return ref.current;
     },
     useDerivedValue: (fn: () => unknown) => ({ get value() { return fn(); } }),
-    runOnJS: (fn: (...args: unknown[]) => void) => (...args: unknown[]) => { ui.runOnJS += 1; fn(...args); },
+    runOnJS: (fn: (...args: unknown[]) => void) => (...args: unknown[]) => {
+      ui.runOnJS += 1;
+      if (ui.deferred !== null) ui.deferred.push(() => fn(...args));
+      else fn(...args);
+    },
     useFrameCallback: (fn: (info: unknown) => void, autostart = true) => {
       const ref = useRef(null as null | { isActive: boolean; callbackId: number; setActive: (a: boolean) => void });
       if (ref.current === null) {
@@ -143,6 +148,7 @@ const uniformsOf = (r: ReactTestRenderer.ReactTestRenderer) => r.root.findByType
 beforeEach(() => {
   counts.build = 0;
   ui.runOnJS = 0;
+  ui.deferred = null;
   effectState.status = 'ready';
 });
 
@@ -332,6 +338,33 @@ describe('the still tier (reduced motion): one fadeReduced ramp, frames until th
     act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B, C], onStart })} />));
     frames(1);
     expect(starts).toEqual([1, 1]);
+  });
+
+  // RA-22 (resilience T10, UI-195): the lost wake-up. The UI thread decides idle on the input it has and queues the sleep
+  // to JS; a taps change lands first and wakes the field, though awake is still true, so setAwake(true) changes nothing;
+  // then the stale sleep lands. It must not stop the frames with the new taps unread.
+  it('a sleep queued before a wake does not stop the frames: the new taps start their crossfade, then the field sleeps again', () => {
+    const C = { x: -0.5, y: 0.45 };
+    const starts: number[] = [];
+    const onStart = (n: number) => starts.push(n);
+    const r = mount(baseProps({ tier: 'still', taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B], onStart })} />));
+    frames(30);
+    expect([starts, reanimated.__active()]).toEqual([[1], 1]);
+    // Every crossing to JS deferred: step until the UI thread decides idle and queues its sleep.
+    ui.deferred = [];
+    for (let i = 0; i < 20 && ui.deferred.length === 0; i++) act(() => reanimated.__frame(16));
+    expect(ui.deferred).toHaveLength(1);
+    // The taps change before the sleep lands, and wakes the field; then the stale sleep lands.
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A, B, C], onStart })} />));
+    const stale = ui.deferred;
+    ui.deferred = null;
+    act(() => { for (const land of stale) land(); });
+    frames(60);
+    expect(starts).toEqual([1, 1]);
+    expect(placementFades(uniformsOf(r)!)).toEqual([1, 1, 1]);
+    expect(reanimated.__active()).toBe(0);
   });
 
   it('the moving tiers never stop', () => {
