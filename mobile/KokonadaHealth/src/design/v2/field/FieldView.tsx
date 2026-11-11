@@ -16,7 +16,9 @@
 //   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life;
 //   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
 //     until the spacing since that start has passed (L19: the next change then starts on its first frame),
-//     then stops its frames until an input changes; the moving tiers run every frame.
+//     then stops its frames until an input changes; the moving tiers run every frame. A stop is decided on the UI
+//     thread and lands on JS later, so it carries the wake generation it was decided in, and JS drops one from
+//     an earlier generation: a change that wakes the field before a stale stop lands is never lost (RA-22).
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
@@ -88,11 +90,21 @@ function FieldViewMount(props: FieldViewProps) {
   const inputs = useSharedValue<FrameInputs>({ params, geometry, statics });
   const uniforms = useSharedValue<readonly number[] | null>(null);
   const asleep = useSharedValue(false);
+  // The wake generation (resilience T10 RA-22): wake() moves it on, here and on the UI thread. A stop carries the
+  // generation the UI thread decided it in and is applied only while that is still the current one.
+  const generation = useSharedValue(0);
+  const currentGeneration = useRef(0);
 
   const wake = useCallback(() => {
+    currentGeneration.current += 1;
+    generation.value = currentGeneration.current;
     asleep.value = false;
     setAwake(true);
-  }, [asleep]);
+  }, [asleep, generation]);
+
+  const sleep = useCallback((decidedIn: number) => {
+    if (decidedIn === currentGeneration.current) setAwake(false);
+  }, []);
 
   // Fork B: a new taps reference bumps seq; the ledger decides by value whether anything changed.
   const seq = useRef(0);
@@ -131,9 +143,9 @@ function FieldViewMount(props: FieldViewProps) {
     if (step.started && onStart !== undefined) runOnJS(onStart)(step.ledger.admitted);
     if (step.idle && !asleep.value) {
       asleep.value = true;
-      runOnJS(setAwake)(false);
+      runOnJS(sleep)(generation.value);
     }
-  }, [inputs, clock, breathPhase, ledger, input, uniforms, asleep, onStart]);
+  }, [inputs, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart]);
 
   const frame = useFrameCallback(onFrame, false);
   const running = failure === null && (tier !== 'still' || awake);
