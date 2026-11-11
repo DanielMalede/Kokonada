@@ -1,7 +1,7 @@
 import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
 import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
-import { MODES, STORMS, STORM_GRIDS, backlogBreaks, gridReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
+import { MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, backlogBreaks, gridReport, mixedReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 
 // QA-068, the event path: E3 on the full grid for one direction, in the sweeps project
@@ -21,6 +21,22 @@ describe.each(FACES.flatMap((face) => MODES.flatMap((mode) => STORMS.map((kind) 
     () => {
       const { runs, failures } = gridReport(ID, mode, kind, STORM_GRIDS.full, deps(face));
       expect(runs).toBe(12);
+      expect(failures).toEqual([]);
+    },
+    LONG,
+  );
+});
+
+// T10's mixed, lagged storm (ledgerStorms.ts) on the full seeds: 200 per face × start mode × input cadence
+// (resilience round 1 F3: 200 seeds per direction × mode). The coarse seeds, the pins, the coverage and the
+// planted controls run in the default run (ledgerStorms.mixed.test.ts, and fixture-outer's in
+// ledgerStorms.fixture.test.ts).
+describe.each(FACES.flatMap((face) => MODES.flatMap((mode) => MIXED_EVERY.map((every) => [face, mode, every] as [Face, Mode, number]))))(`the mixed storm on the full seeds: ${ID}, %s face, starting %s, the input seen every %s ms`, (face, mode, every) => {
+  it(
+    'every clause on each of the 200 seeds',
+    () => {
+      const { runs, failures } = mixedReport(ID, mode, every, MIXED_GRIDS.full.seeds, deps(face));
+      expect(runs).toBe(200);
       expect(failures).toEqual([]);
     },
     LONG,
