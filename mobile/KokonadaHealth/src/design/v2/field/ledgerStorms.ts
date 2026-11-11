@@ -242,14 +242,15 @@ export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, s
     const demand = f.placements.length + f.restSlots.length;
     if (demand !== f.demand) o.demandMismatch++;
     o.maxDemand = Math.max(o.maxDemand, demand);
-    // Fades by id: the steepest slope per ms; enter at 0 (a reset's are exempt: no animation); leave at 0.
+    // Fades by id: the steepest slope per ms; enter at 0 (a reset's are exempt: no animation); leave at 0. Each
+    // detector is written !(|a − b| <= bound), so a NaN breaks it (resilience T10 RA-25).
     const now = new Map<number, number>(f.placements.map((p) => [p.id, p.fade]));
     for (const e of f.ended) now.set(e, 0);
     for (const [pid, fade] of now) {
       const before = previous.get(pid);
       if (before === undefined) {
         if (fade !== 0 && t > 0) o.entersNotAtZero.push(pid);
-      } else if (Math.abs(fade - before) > SLOPE[mode] * 1.001 + 1e-12) {
+      } else if (!(Math.abs(fade - before) <= SLOPE[mode] * 1.001 + 1e-12)) {
         o.slopeBreaks.push(`id ${pid} at ${t} ms: ${before} → ${fade}`);
       }
     }
@@ -276,7 +277,7 @@ export function storm(id: DirectionId, mode: Mode, kind: Storm, every: number, s
         const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
         if (occupied > f.demand) o.demandMismatch++;
         const rest = Math.max(0, ...frame.nodes.filter((nd) => nd.id === NODE.R0 && nd.bead === null).map((nd) => nd.fade));
-        if (previousRest >= 0 && Math.abs(rest - previousRest) > SLOPE[mode] * 1.001 + 1e-12) o.restBreaks++;
+        if (previousRest >= 0 && !(Math.abs(rest - previousRest) <= SLOPE[mode] * 1.001 + 1e-12)) o.restBreaks++;
         previousRest = rest;
       } catch (error) {
         o.threw = `${(error as Error).name} at ${t} ms: ${(error as Error).message}`;
@@ -562,14 +563,15 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
     const demand = f.placements.length + f.restSlots.length;
     if (demand !== f.demand) o.demandMismatch++;
     o.maxDemand = Math.max(o.maxDemand, demand);
-    // Fades by id: within the bound; enter at 0 (the first frame's reset excepted); leave at 0.
+    // Fades by id: within the bound; enter at 0 (the first frame's reset excepted); leave at 0. Each detector is
+    // written !(|a − b| <= bound), so a NaN breaks it (RA-25).
     const now = new Map<number, number>(f.placements.map((p) => [p.id, p.fade]));
     for (const e of f.ended) now.set(e, 0);
     for (const [pid, fade] of now) {
       const was = previous.get(pid);
       if (was === undefined) {
         if (fade !== 0 && k > 0) o.entersNotAtZero.push(pid);
-      } else if (Math.abs(fade - was) > bound) {
+      } else if (!(Math.abs(fade - was) <= bound)) {
         o.slopeBreaks.push(`id ${pid} at clock ${ledger.clock}: ${was} → ${fade} (bound ${bound})`);
       }
     }
@@ -577,7 +579,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
     previous = new Map([...now].filter(([pid]) => !f.ended.includes(pid)));
     // The ledger's rest lobes, by table index (one not drawn is at 0), within the same bound.
     for (let i = 0; i < Math.max(f.restFades.length, previousRest.length); i++) {
-      if (k > 0 && Math.abs((f.restFades[i] ?? 0) - (previousRest[i] ?? 0)) > bound) o.restBreaks++;
+      if (k > 0 && !(Math.abs((f.restFades[i] ?? 0) - (previousRest[i] ?? 0)) <= bound)) o.restBreaks++;
     }
     previousRest = f.restFades;
     if (!f.placements.some((p) => p.node !== 'neutral' || deps.config.neutralLobe)) {
@@ -595,7 +597,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
         const occupied = frame.nodes.filter((nd) => nd.fade > 0 || nd.bead !== null).length;
         if (occupied > f.demand) o.demandMismatch++;
         const rest = Math.max(0, ...frame.nodes.filter((nd) => nd.id === NODE.R0 && nd.bead === null).map((nd) => nd.fade));
-        if (k > 0 && Math.abs(rest - builtRest) > bound) o.restBreaks++;
+        if (k > 0 && !(Math.abs(rest - builtRest) <= bound)) o.restBreaks++;
         builtRest = rest;
       } catch (error) {
         o.threw = `${(error as Error).name} at clock ${ledger.clock}: ${(error as Error).message}`;
