@@ -81,7 +81,7 @@ const reanimated = require('react-native-reanimated') as { __frame(dt: number): 
 // its real model runs on FieldView's real props. Its pixels are held in real Skia (FieldFallback.skia.test.tsx).
 jest.mock('@shopify/react-native-skia', () => {
   const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
-  const inert: unknown = new Proxy(function inert() {}, { get: () => inert, apply: () => inert });
+  const inert: unknown = new Proxy(function stub() {}, { get: () => inert, apply: () => inert });
   return {
     Canvas: Stub,
     Image: () => null,
@@ -315,20 +315,23 @@ describe('FieldFallback when the field cannot draw (architect T5 r1 §5)', () =>
 
   // T13 (the designer's Q2, Q5; UI-204): the fallback draws from the props themselves: the newest tap that carries a lobe,
   // the layout as the root measured it (every quiet rect, no clamp to six) and each presence as given (never sanitised).
+  // The effect's failure gives the fallback from the mount, whatever the taps (with taps, a planted over-demand of rest
+  // lobes would not throw: the rest lobes are faded out of the frame).
   it('the fallback is given what it draws from: the direction, face, statics, taps, the measured layout, pxPerDp and the presence as given', () => {
-    const planted: FieldStatics = { ...STATICS, restLobes: { dark: Array.from({ length: 7 }, (_, i) => [0.1 * i - 0.3, 0.2] as const), light: STATICS.restLobes.light } };
+    effectState.status = 'fallback';
+    const statics: FieldStatics = { ...STATICS };
     const quietRects = Array.from({ length: 8 }, (_, i) => ({ x: 10 + 20 * i, y: 10, width: 12, height: 12 }));
     const layout = { ...baseProps().layout, quietRects };
     const quietPresence = [Number.NaN, 1, 0, 1, 1, 1, 1, 1];
     const taps = [A, B];
-    const r = mount(baseProps({ statics: planted, taps, layout, quietPresence }));
-    frames(1);
+    const r = mount(baseProps({ face: 'light', statics, taps, layout, quietPresence }));
     const fallback = r.root.findByType(FieldFallback);
     expect(fallback.props.direction).toBe(ID);
-    expect(fallback.props.face).toBe('dark');
-    expect(fallback.props.statics).toBe(planted);
+    expect(fallback.props.face).toBe('light');
+    expect(fallback.props.statics).toBe(statics);
     expect(fallback.props.taps).toBe(taps);
     expect(fallback.props.layout).toBe(layout);
+    expect(fallback.props.layout.quietRects).toHaveLength(8);
     expect(fallback.props.pxPerDp).toBe(2.625);
     expect(fallback.props.quietPresence).toBe(quietPresence);
   });

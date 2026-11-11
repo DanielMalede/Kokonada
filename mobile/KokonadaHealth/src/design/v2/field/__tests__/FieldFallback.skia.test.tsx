@@ -30,6 +30,21 @@ import { staticsFor } from '../statics.ts';
 // on a surface of the view's device px, under the density's scale. The model's numbers are held in fallbackModel.test.ts;
 // here, the pixels.
 
+// Skia's jest environment loads CanvasKit in its own realm, and CanvasKit's gradient factory reads the colours with
+// instanceof Float32Array / Array, which arrays made in the test's realm (RN Skia's module included) fail; on the device
+// JSI takes them as they are. So, at CanvasKit's own door and nowhere else, the colours are re-homed into one flat
+// Float32Array of CanvasKit's realm, the form CanvasKit itself accepts. Every value passes unchanged.
+beforeAll(() => {
+  const ck = (globalThis as unknown as { CanvasKit: { HEAPF32: Float32Array; Shader: { MakeRadialGradient: (...args: unknown[]) => unknown } } }).CanvasKit;
+  const Home = ck.HEAPF32.constructor as Float32ArrayConstructor;
+  const make = ck.Shader.MakeRadialGradient.bind(ck.Shader);
+  ck.Shader.MakeRadialGradient = (centre: unknown, radius: unknown, colours: unknown, ...rest: unknown[]) =>
+    make(centre, radius, Array.isArray(colours) ? Home.from((colours as Float32Array[]).flatMap((c) => Array.from(c))) : colours, ...rest);
+});
+
+// Bound once: a global lookup is many times slower in jest's sandbox, and the scans below run millions of times.
+const { abs, atan2, ceil, cos, floor, max, min, round, sin, sqrt } = Math;
+
 const SK = { Skia, ClipOp, TileMode };
 const ABYSS = 'abyss' as DirectionId;
 const OUTER_FLAT = 'fixture-outer-flat' as DirectionId;
@@ -51,9 +66,14 @@ interface Drawn {
   readonly px: Uint8Array;
 }
 
+/** The surface's pixels, then the surface and its snapshot freed: CanvasKit's heap holds every phone-size canvas until then. */
 const read = (surface: ReturnType<typeof Skia.Surface.Make>, w: number, h: number) => {
   surface!.flush();
-  return surface!.makeImageSnapshot().readPixels(0, 0, { width: w, height: h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
+  const image = surface!.makeImageSnapshot();
+  const px = image.readPixels(0, 0, { width: w, height: h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
+  image.dispose();
+  surface!.dispose();
+  return px;
 };
 
 /** The picture as RN Skia's Canvas plays it: the view's device px, under the density's scale. */
@@ -66,9 +86,12 @@ function play(picture: SkPicture, w: number, h: number, k: number): Uint8Array {
 }
 
 function drawPlan(plan: FallbackPlan, layout: FieldLayout): Drawn {
-  const w = Math.round(layout.width * plan.pxPerDp);
-  const h = Math.round(layout.height * plan.pxPerDp);
-  return { plan, layout, w, h, px: play(recordFieldFallback(SK, plan, layout.width, layout.height), w, h, plan.pxPerDp) };
+  const w = round(layout.width * plan.pxPerDp);
+  const h = round(layout.height * plan.pxPerDp);
+  const picture = recordFieldFallback(SK, plan, layout.width, layout.height);
+  const px = play(picture, w, h, plan.pxPerDp);
+  picture.dispose();
+  return { plan, layout, w, h, px };
 }
 
 function draw(id: DirectionId, face: Face, taps: readonly Tap[], over: { layout?: FieldLayout; pxPerDp?: number; quietPresence?: readonly number[] } = {}): Drawn {
@@ -87,14 +110,18 @@ function groundAndField(d: Drawn): Uint8Array {
 
 const at = (d: { w: number; px: Uint8Array }, x: number, y: number) => [0, 1, 2].map((c) => d.px[4 * (y * d.w + x) + c]);
 /** A pixel's distance from the plate's centre, in device px, from the layout itself. */
-const radial = (d: Drawn, x: number, y: number) => Math.hypot(x + 0.5 - d.layout.centre[0] * d.plan.pxPerDp, y + 0.5 - d.layout.centre[1] * d.plan.pxPerDp);
+const radial = (d: Drawn, x: number, y: number) => {
+  const dx = x + 0.5 - d.layout.centre[0] * d.plan.pxPerDp;
+  const dy = y + 0.5 - d.layout.centre[1] * d.plan.pxPerDp;
+  return sqrt(dx * dx + dy * dy);
+};
 const R = (d: Drawn) => d.layout.radius * d.plan.pxPerDp;
 /** The ring's inner radius in device px, from the tokens and the layout (the builder's ringInner). */
-const ringInnerPx = (d: Drawn) => (1 - Math.max(BASE.plate.labelBand.min, BASE.plate.labelBand.min * d.layout.fontScale) / d.layout.radius) * R(d);
+const ringInnerPx = (d: Drawn) => (1 - max(BASE.plate.labelBand.min, BASE.plate.labelBand.min * d.layout.fontScale) / d.layout.radius) * R(d);
 
 /** The gradient at a pixel's centre as Skia draws a clamped radial gradient: t = distance / radius, linear between the stops. */
 function gradientAt(field: FallbackField, x: number, y: number, centre: readonly [number, number] = field.centre): number[] {
-  const t = Math.hypot(x + 0.5 - centre[0], y + 0.5 - centre[1]) / field.radius;
+  const t = dist(x, y, centre) / field.radius;
   const { positions: p, colours: c } = field;
   if (t <= p[0]) return c[0].map((v) => v * 255);
   for (let i = 0; i < p.length - 1; i++) {
@@ -105,42 +132,67 @@ function gradientAt(field: FallbackField, x: number, y: number, centre: readonly
   }
   return c[c.length - 1].map((v) => v * 255);
 }
-const near = (a: readonly number[], b: readonly number[], tol: number) => a.every((v, i) => Math.abs(v - Math.round(b[i])) <= tol);
+const near = (a: readonly number[], b: readonly number[], tol: number) => a.every((v, i) => abs(v - round(b[i])) <= tol);
 const same = (a: readonly number[], b: readonly number[]) => a.every((v, i) => v === b[i]);
 
 /** Every pixel in a region of the canvas, by a predicate on (x, y), within a bounding box. */
-function* pixels(d: Drawn, keep: (x: number, y: number) => boolean, box?: { x0: number; y0: number; x1: number; y1: number }) {
+function pixels(d: Drawn, keep: (x: number, y: number) => boolean, box?: { x0: number; y0: number; x1: number; y1: number }): Array<readonly [number, number]> {
   const b = box ?? { x0: 0, y0: 0, x1: d.w, y1: d.h };
-  for (let y = Math.max(0, b.y0); y < Math.min(d.h, b.y1); y++) for (let x = Math.max(0, b.x0); x < Math.min(d.w, b.x1); x++) if (keep(x, y)) yield [x, y] as const;
+  const out: Array<readonly [number, number]> = [];
+  for (let y = max(0, b.y0); y < min(d.h, b.y1); y++) for (let x = max(0, b.x0); x < min(d.w, b.x1); x++) if (keep(x, y)) out.push([x, y]);
+  return out;
 }
+const dist = (x: number, y: number, c: readonly [number, number]) => {
+  const dx = x + 0.5 - c[0];
+  const dy = y + 0.5 - c[1];
+  return sqrt(dx * dx + dy * dy);
+};
 /** The plate's bounding box with a margin, in device px. */
 const plateBox = (d: Drawn, margin: number) => {
   const [cx, cy] = [d.layout.centre[0] * d.plan.pxPerDp, d.layout.centre[1] * d.plan.pxPerDp];
   const r = R(d) + margin;
-  return { x0: Math.floor(cx - r), y0: Math.floor(cy - r), x1: Math.ceil(cx + r), y1: Math.ceil(cy + r) };
+  return { x0: floor(cx - r), y0: floor(cy - r), x1: ceil(cx + r), y1: ceil(cy + r) };
+};
+
+/** A zone's grown bounding box in device px, a pixel wider on each side. */
+const zoneBox = (zone: LayoutRect, k: number) => {
+  const g = BASE.quiet.grow;
+  return { x0: floor((zone.x - g) * k) - 1, y0: floor((zone.y - g) * k) - 1, x1: ceil((zone.x + zone.width + g) * k) + 1, y1: ceil((zone.y + zone.height + g) * k) + 1 };
 };
 
 /** A zone's signed distance at a pixel's centre (r3 §1, sdBox − grow), in device px, written out. */
 function sdOf(zone: LayoutRect, k: number, x: number, y: number): number {
-  const [cx, cy, hx, hy] = [(zone.x + zone.width / 2) * k, (zone.y + zone.height / 2) * k, (zone.width / 2) * k, (zone.height / 2) * k];
-  const qx = Math.abs(x + 0.5 - cx) - hx;
-  const qy = Math.abs(y + 0.5 - cy) - hy;
-  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - BASE.quiet.grow * k;
+  const qx = abs(x + 0.5 - (zone.x + zone.width / 2) * k) - (zone.width / 2) * k;
+  const qy = abs(y + 0.5 - (zone.y + zone.height / 2) * k) - (zone.height / 2) * k;
+  const ox = max(qx, 0);
+  const oy = max(qy, 0);
+  return sqrt(ox * ox + oy * oy) + min(max(qx, qy), 0) - BASE.quiet.grow * k;
 }
 
 describe('Q1: on Abyss the field shows only in the lens', () => {
   it.each(FACES.flatMap((face) => [1, 2].map((fs) => [face, fs] as const)))('%s, font scale %d, every hero scene: every pixel at d ≥ R + 1.5 px is the ground, exactly', (face, fontScale) => {
     const ground = rgbOf(DIRECTIONS[ABYSS].color[face].ground.hex);
+    const word = new Uint32Array(Uint8Array.of(ground[0], ground[1], ground[2], 255).buffer)[0];
     for (const scene of HERO_SCENES) {
       const d = draw(ABYSS, face, tapsOf(scene), { layout: hero(ABYSS, fontScale) });
       expect(d.plan.field).not.toBeNull();
+      const words = new Uint32Array(d.px.buffer, d.px.byteOffset, d.w * d.h);
+      const [cx, cy, reach] = [d.layout.centre[0] * d.plan.pxPerDp, d.layout.centre[1] * d.plan.pxPerDp, R(d) + 1.5];
       let checked = 0;
       let off = '';
       for (let y = 0; y < d.h; y++) {
+        const dy = y + 0.5 - cy;
+        // The row's pixels with d < R + 1.5 lie in [inLo, inHi); every other pixel of the row is checked.
+        const half = dy * dy < reach * reach ? sqrt(reach * reach - dy * dy) : -1;
+        const inLo = half < 0 ? d.w : max(0, floor(cx - half - 0.5));
+        const inHi = half < 0 ? d.w : min(d.w, ceil(cx + half - 0.5) + 1);
         for (let x = 0; x < d.w; x++) {
-          if (radial(d, x, y) < R(d) + 1.5) continue;
+          if (x >= inLo && x < inHi) {
+            const dx = x + 0.5 - cx;
+            if (dx * dx + dy * dy < reach * reach) continue;
+          }
           checked++;
-          if (!off && !same(at(d, x, y), ground)) off = `${scene}: (${x}, ${y}) ${at(d, x, y).join(', ')}`;
+          if (words[y * d.w + x] !== word && !off) off = `${scene}: (${x}, ${y}) ${at(d, x, y).join(', ')}`;
         }
       }
       expect(off).toBe('');
@@ -158,7 +210,7 @@ describe('Q1: no mixing at the clip edge (the ground and the clipped gradient on
       const bound = ringInnerPx(d) + d.plan.pxPerDp;
       let lit = 0;
       const bad: string[] = [];
-      for (const [x, y] of pixels(d, (x, y) => Math.abs(radial(d, x, y) - bound) <= 2, plateBox(d, 0))) {
+      for (const [x, y] of pixels(d, (i, j) => abs(radial(d, i, j) - bound) <= 2, plateBox(d, 0))) {
         const model = gradientAt(d.plan.field!, x, y);
         const got = at(px, x, y);
         if (near(got, ground, 1)) continue;
@@ -185,7 +237,7 @@ describe('Q1: a zone inside the lens', () => {
     let inside = 0;
     let edge = 0;
     const bad: string[] = [];
-    for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) < interior, plateBox(d, 0))) {
+    for (const [x, y] of pixels(d, (i, j) => radial(d, i, j) < interior, plateBox(d, 0))) {
       const sd = sdOf(zone, d.plan.pxPerDp, x, y);
       const got = at(d, x, y);
       if (sd <= 0) {
@@ -215,11 +267,11 @@ describe('the fixtures: fixture-inner draws its floor as the face; fixture-outer
       let dishes = 0;
       let moats = 0;
       for (const [x, y] of pixels(d, () => true, plateBox(d, moat - R(d) + 2))) {
-        const dist = radial(d, x, y);
-        if (dist < ringInnerPx(d) - 1.5) {
+        const r = radial(d, x, y);
+        if (r < ringInnerPx(d) - 1.5) {
           dishes++;
           if (!same(at(d, x, y), dish) && bad.length < 3) bad.push(`dish (${x}, ${y}) ${at(d, x, y).join(', ')}`);
-        } else if (dist > R(d) + 1.5 && dist <= moat) {
+        } else if (r > R(d) + 1.5 && r <= moat) {
           moats++;
           if (!same(at(d, x, y), ground) && bad.length < 3) bad.push(`moat (${x}, ${y}) ${at(d, x, y).join(', ')}`);
         }
@@ -234,11 +286,12 @@ describe('the fixtures: fixture-inner draws its floor as the face; fixture-outer
     let reached = 0;
     for (const scene of ['three', 'one.I']) {
       const d = draw(FIXTURE_OUTER, face, tapsOf(scene));
-      const zones = d.layout.quietRects!;
       const bad: string[] = [];
-      for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) > R(d) + 1.5 && zones.some((z) => sdOf(z, d.plan.pxPerDp, x, y) <= 0))) {
-        if (!near(gradientAt(d.plan.field!, x, y), ground, 3)) reached++;
-        if (!same(at(d, x, y), ground) && bad.length < 3) bad.push(`${scene} (${x}, ${y}) ${at(d, x, y).join(', ')}`);
+      for (const zone of d.layout.quietRects!) {
+        for (const [x, y] of pixels(d, (i, j) => sdOf(zone, d.plan.pxPerDp, i, j) <= 0 && radial(d, i, j) > R(d) + 1.5, zoneBox(zone, d.plan.pxPerDp))) {
+          if (reached <= 100 && !near(gradientAt(d.plan.field!, x, y), ground, 3)) reached++;
+          if (!same(at(d, x, y), ground) && bad.length < 3) bad.push(`${scene} (${x}, ${y}) ${at(d, x, y).join(', ')}`);
+        }
       }
       expect(bad).toEqual([]);
     }
@@ -258,7 +311,7 @@ describe('Q2: presence is hard (fixture-outer, region outside, scene three, the 
   const removed = (d: Drawn, zone: LayoutRect) => {
     let reached = 0;
     const bad: string[] = [];
-    for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) > R(d) + 1.5 && sdOf(zone, d.plan.pxPerDp, x, y) <= 0)) {
+    for (const [x, y] of pixels(d, (i, j) => sdOf(zone, d.plan.pxPerDp, i, j) <= 0 && radial(d, i, j) > R(d) + 1.5, zoneBox(zone, d.plan.pxPerDp))) {
       if (!near(gradientAt(d.plan.field!, x, y), ground, 3)) reached++;
       if (!same(at(d, x, y), ground) && bad.length < 3) bad.push(`(${x}, ${y}) ${at(d, x, y).join(', ')}`);
     }
@@ -322,7 +375,7 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
       const d = draw(id, face, tapsOf(scene));
       let n = 0;
       const bad: string[] = [];
-      for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) >= ringInnerPx(d) + 1.5 && radial(d, x, y) <= R(d) - 1.5, plateBox(d, 0))) {
+      for (const [x, y] of pixels(d, (i, j) => radial(d, i, j) >= ringInnerPx(d) + 1.5 && radial(d, i, j) <= R(d) - 1.5, plateBox(d, 0))) {
         n++;
         if (!same(at(d, x, y), ring) && bad.length < 3) bad.push(`${scene} (${x}, ${y}) ${at(d, x, y).join(', ')}`);
       }
@@ -337,7 +390,7 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
     const reach = 1.3338 * R(d) + 1;
     let n = 0;
     const bad: string[] = [];
-    for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) < ringInnerPx(d) - 1.5 && Math.hypot(x + 0.5 - d.plan.field!.centre[0], y + 0.5 - d.plan.field!.centre[1]) >= reach, plateBox(d, 0))) {
+    for (const [x, y] of pixels(d, (i, j) => radial(d, i, j) < ringInnerPx(d) - 1.5 && dist(i, j, d.plan.field!.centre) >= reach, plateBox(d, 0))) {
       n++;
       if (!same(at(d, x, y), flat) && bad.length < 3) bad.push(`(${x}, ${y}) ${at(d, x, y).join(', ')}`);
     }
@@ -350,7 +403,7 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
     for (const scene of ['rest', 'one.C.right']) {
       const d = draw(ABYSS, face, tapsOf(scene));
       const bad: string[] = [];
-      for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) < ringInnerPx(d) - 1.5 && Math.hypot(x + 0.5 - d.plan.field!.centre[0], y + 0.5 - d.plan.field!.centre[1]) >= 1.3338 * R(d), plateBox(d, 0))) {
+      for (const [x, y] of pixels(d, (i, j) => radial(d, i, j) < ringInnerPx(d) - 1.5 && dist(i, j, d.plan.field!.centre) >= 1.3338 * R(d), plateBox(d, 0))) {
         if (!same(at(d, x, y), flat) && bad.length < 3) bad.push(`${scene} (${x}, ${y}) ${at(d, x, y).join(', ')}`);
       }
       expect(bad).toEqual([]);
@@ -361,14 +414,14 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
   function innerArc(d: Drawn, band: number): Array<Array<readonly [number, number]>> {
     const [cx, cy] = [d.layout.centre[0] * d.plan.pxPerDp, d.layout.centre[1] * d.plan.pxPerDp];
     const rIn = ringInnerPx(d);
-    const lobe = Math.atan2(d.plan.field!.centre[1] - cy, d.plan.field!.centre[0] - cx);
+    const lobe = atan2(d.plan.field!.centre[1] - cy, d.plan.field!.centre[0] - cx);
     const span = (30 * Math.PI) / 180;
     const step = 8 / rIn;
-    const steps: Array<Array<readonly [number, number]>> = Array.from({ length: Math.floor((2 * span) / step) }, () => []);
-    for (const [x, y] of pixels(d, (x, y) => Math.abs(radial(d, x, y) - rIn) <= band, plateBox(d, 0))) {
-      let rel = Math.atan2(y + 0.5 - cy, x + 0.5 - cx) - lobe;
-      rel = Math.atan2(Math.sin(rel), Math.cos(rel));
-      const i = Math.floor((rel + span) / step);
+    const steps: Array<Array<readonly [number, number]>> = Array.from({ length: floor((2 * span) / step) }, () => []);
+    for (const [x, y] of pixels(d, (i, j) => abs(radial(d, i, j) - rIn) <= band, plateBox(d, 0))) {
+      let rel = atan2(y + 0.5 - cy, x + 0.5 - cx) - lobe;
+      rel = atan2(sin(rel), cos(rel));
+      const i = floor((rel + span) / step);
       if (i >= 0 && i < steps.length) steps[i].push([x, y]);
     }
     return steps;
@@ -383,7 +436,7 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
       .map((step, i) => ({ i, ok: step.some(([x, y]) => {
         const model = gradientAt(d.plan.field!, x, y).map(Math.round);
         const got = at(d, x, y);
-        return [0, 1, 2].some((c) => Math.abs(model[c] - ring[c]) >= 2 && got[c] > Math.min(model[c], ring[c]) && got[c] < Math.max(model[c], ring[c]));
+        return [0, 1, 2].some((c) => abs(model[c] - ring[c]) >= 2 && got[c] > min(model[c], ring[c]) && got[c] < max(model[c], ring[c]));
       }) }))
       .filter((s) => !s.ok)
       .map((s) => s.i);
@@ -396,11 +449,11 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
       const d = draw(id, face, tapsOf(scene));
       const bad: string[] = [];
       let n = 0;
-      for (const [x, y] of pixels(d, (x, y) => Math.abs(radial(d, x, y) - ringInnerPx(d)) <= 1.5, plateBox(d, 0))) {
+      for (const [x, y] of pixels(d, (i, j) => abs(radial(d, i, j) - ringInnerPx(d)) <= 1.5, plateBox(d, 0))) {
         n++;
         const model = gradientAt(d.plan.field!, x, y);
         const got = at(d, x, y);
-        const ok = [0, 1, 2].every((c) => got[c] >= Math.min(model[c], ring[c]) - 1 && got[c] <= Math.max(model[c], ring[c]) + 1);
+        const ok = [0, 1, 2].every((c) => got[c] >= min(model[c], ring[c]) - 1 && got[c] <= max(model[c], ring[c]) + 1);
         if (!ok && bad.length < 3) bad.push(`${scene} (${x}, ${y}) got ${got.join(', ')} ring ${ring.join(', ')} gradient ${model.map(Math.round).join(', ')}`);
       }
       expect(bad).toEqual([]);
@@ -411,14 +464,14 @@ describe('Q3: the plate surfaces, flat, the ring opaque and anti-aliased', () =>
   it.each(FACES)('Abyss %s, one.C at the right edge: the gradient is drawn undithered, each channel moving one way inside each stop interval along its row', (face) => {
     const d = draw(ABYSS, face, tapsOf('one.C.right'));
     const field = d.plan.field!;
-    const row = Math.floor(field.centre[1]);
-    const x0 = Math.floor(field.centre[0]);
+    const row = floor(field.centre[1]);
+    const x0 = floor(field.centre[0]);
     let varied = 0;
     for (const dir of [1, -1]) {
       const runs = new Map<number, number[][]>();
       for (let x = x0; x >= 0 && x < d.w; x += dir) {
         if (!(radial(d, x, row) < ringInnerPx(d) - 2)) continue;
-        const t =Math.hypot(x + 0.5 - field.centre[0], row + 0.5 - field.centre[1]) / field.radius;
+        const t = dist(x, row, field.centre) / field.radius;
         const interval = field.positions.findIndex((p, i) => i < field.positions.length - 1 && t >= p && t <= field.positions[i + 1]);
         if (interval < 0) continue;
         if (!runs.has(interval)) runs.set(interval, []);
@@ -460,7 +513,7 @@ describe('Q5 (iv) in pixels: Abyss light at rest is one gradient at the rest lob
     const centre: readonly [number, number] = [(d.layout.centre[0] + 0.025 * d.layout.radius) * k, (d.layout.centre[1] - 0.025 * d.layout.radius) * k];
     let n = 0;
     const bad: string[] = [];
-    for (const [x, y] of pixels(d, (x, y) => radial(d, x, y) < ringInnerPx(d) - 1.5, plateBox(d, 0))) {
+    for (const [x, y] of pixels(d, (i, j) => radial(d, i, j) < ringInnerPx(d) - 1.5, plateBox(d, 0))) {
       n++;
       const model = gradientAt(d.plan.field!, x, y, centre);
       if (!near(at(d, x, y), model, 1) && bad.length < 3) bad.push(`(${x}, ${y}) got ${at(d, x, y).join(', ')} want ${model.map(Math.round).join(', ')}`);
@@ -490,8 +543,8 @@ describe('FieldFallback: one sRGB canvas holding one picture, no React Native Vi
       return style.some((s) => s !== undefined && s !== null && 'backgroundColor' in s);
     });
     expect(coloured).toEqual([]);
-    const w = Math.round(layout.width * PHONE.pxPerDp);
-    const h = Math.round(layout.height * PHONE.pxPerDp);
+    const w = round(layout.width * PHONE.pxPerDp);
+    const h = round(layout.height * PHONE.pxPerDp);
     const shown = play(pictures[0].props.picture, w, h, PHONE.pxPerDp);
     const planned = drawPlan(fallbackPlan(props), layout);
     expect(Buffer.from(shown).equals(Buffer.from(planned.px))).toBe(true);

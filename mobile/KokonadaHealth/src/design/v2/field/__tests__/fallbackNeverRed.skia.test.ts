@@ -18,25 +18,46 @@ import { staticsFor } from '../statics.ts';
 // past the ring's inner circle) is held to QA-065's pass rule: a hue outside the check band, or a chroma below its floor.
 // A planted red stop is caught, so the check bites. The shipped tokens only: no fixture direction stands in here.
 
+// Skia's jest environment loads CanvasKit in its own realm, and its gradient factory reads the colours with instanceof,
+// which arrays from the test's realm fail (the device's JSI takes them as they are): re-home them at CanvasKit's door,
+// into one flat Float32Array of its realm, every value unchanged (as FieldFallback.skia.test.tsx does).
+beforeAll(() => {
+  const ck = (globalThis as unknown as { CanvasKit: { HEAPF32: Float32Array; Shader: { MakeRadialGradient: (...args: unknown[]) => unknown } } }).CanvasKit;
+  const Home = ck.HEAPF32.constructor as Float32ArrayConstructor;
+  const make = ck.Shader.MakeRadialGradient.bind(ck.Shader);
+  ck.Shader.MakeRadialGradient = (centre: unknown, radius: unknown, colours: unknown, ...rest: unknown[]) =>
+    make(centre, radius, Array.isArray(colours) ? Home.from((colours as Float32Array[]).flatMap((c) => Array.from(c))) : colours, ...rest);
+});
+
+// Bound once: a global lookup is many times slower in jest's sandbox, and the scan runs millions of times.
+const { ceil, floor, hypot, max, min, round } = Math;
+
 const ABYSS = Object.keys(DIRECTIONS)[0] as DirectionId;
 const FACES: readonly Face[] = ['dark', 'light'];
 const SK = { Skia, ClipOp, TileMode };
 const statics = staticsFor(ABYSS, EXTENSIONS as never);
 const layout: FieldLayout = heroLayout(ABYSS, PHONE.width, PHONE.height, 1);
 const k = PHONE.pxPerDp;
-const W = Math.round(layout.width * k);
-const H = Math.round(layout.height * k);
+const W = round(layout.width * k);
+const H = round(layout.height * k);
 const [CX, CY, R] = [layout.centre[0] * k, layout.centre[1] * k, layout.radius * k];
 const R_IN = (1 - BASE.plate.labelBand.min / layout.radius) * R;
 const LONG = 600_000;
 
+/** The fallback's picture played as RN Skia's Canvas plays it, its pixels read, and every CanvasKit object freed. */
 function render(plan: FallbackPlan): Uint8Array {
   const surface = Skia.Surface.Make(W, H)!;
   const canvas = surface.getCanvas();
+  const picture = recordFieldFallback(SK, plan, layout.width, layout.height);
   canvas.scale(k, k);
-  canvas.drawPicture(recordFieldFallback(SK, plan, layout.width, layout.height));
+  canvas.drawPicture(picture);
   surface.flush();
-  return surface.makeImageSnapshot().readPixels(0, 0, { width: W, height: H, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
+  const image = surface.makeImageSnapshot();
+  const px = image.readPixels(0, 0, { width: W, height: H, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
+  image.dispose();
+  picture.dispose();
+  surface.dispose();
+  return px;
 }
 
 /** Per 8-bit colour, its OKLCh chroma if its hue is in the check band, else −1. */
@@ -48,9 +69,9 @@ function worstInLens(px: Uint8Array): Worst {
   let worst: Worst = { chroma: -1, rgb: [], at: [-1, -1], pixels: 0 };
   let pixels = 0;
   const reach = R_IN + 1.5;
-  for (let y = Math.max(0, Math.floor(CY - reach)); y < Math.min(H, Math.ceil(CY + reach)); y++) {
-    for (let x = Math.max(0, Math.floor(CX - reach)); x < Math.min(W, Math.ceil(CX + reach)); x++) {
-      if (Math.hypot(x + 0.5 - CX, y + 0.5 - CY) >= reach) continue;
+  for (let y = max(0, floor(CY - reach)); y < min(H, ceil(CY + reach)); y++) {
+    for (let x = max(0, floor(CX - reach)); x < min(W, ceil(CX + reach)); x++) {
+      if (hypot(x + 0.5 - CX, y + 0.5 - CY) >= reach) continue;
       pixels++;
       const i = 4 * (y * W + x);
       const key = px[i] * 65536 + px[i + 1] * 256 + px[i + 2];
