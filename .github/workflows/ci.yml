@@ -416,10 +416,10 @@ jobs:
   mobile-sweeps:
     name: Mobile — never-red sweeps at full resolution
     runs-on: ubuntu-24.04
-    # About twice the measured run: at 3c3212c the jest step took 14 min 2 s on CI at two workers (the
-    # band's beta pass and the outer-edge families, law round 2) and the job 15 min 5 s with checkout,
-    # setup-node and npm ci. A hung sweep stops here, not after the default six hours of Actions minutes.
-    timeout-minutes: 30
+    # About twice the slowest measured run: at db4faf7 the job took 24 min 40 s on CI at two workers
+    # (jest 1396 s: neverRed.full 1101 s, flashCount 827 s, flashCount.near 569 s), and runner speed
+    # alone varies by about a tenth (OPS-391). A hung sweep stops here, not after the default six hours.
+    timeout-minutes: 50
     needs: sweeps-changes
     if: needs.sweeps-changes.outputs.sweeps == 'true'
     permissions:
