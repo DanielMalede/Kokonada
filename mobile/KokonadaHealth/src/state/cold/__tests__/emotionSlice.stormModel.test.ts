@@ -1,7 +1,8 @@
 /// <reference types="node" />
 import reducer, * as slice from '../emotionSlice';
 import { addTap, clearTaps, undoTap, type EmotionState, type Tap } from '../emotionSlice';
-import { store as stormStore } from '../../../design/v2/field/ledgerStorms.ts';
+// The storms' own generator (resilience round 1 F3's LCG) and store model.
+import { lcg, store as stormStore } from '../../../design/v2/field/ledgerStorms.ts';
 
 // The cold lane's contract with the field's storm harness (architect T5 r1 §5, T10). The ledger storms
 // (src/design/v2/field/ledgerStorms.ts) drive the placement ledger with a model of this slice's taps, never
@@ -18,15 +19,6 @@ type Op = { readonly kind: 'add'; readonly tap: Tap; readonly tapKind: number } 
 type Model = { add(t: Tap): void; undo(): void; clear(): void; taps(): readonly Tap[] };
 type Creator = (payload?: unknown) => { type: string; payload?: unknown };
 type Reducer = (state: EmotionState, action: { type: string; payload?: unknown }) => EmotionState;
-
-/** The generator the storms use (resilience round 1 F3): an LCG on [0, 1). */
-const lcg = (seed: number) => {
-  let s = seed >>> 0;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 4294967296;
-  };
-};
 
 /** Every kind of tap the storms add, and some the slice lets through: a random point, zero, NaN, ±Infinity. */
 const TAP_KINDS = 9;

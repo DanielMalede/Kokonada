@@ -399,11 +399,14 @@ export const MIXED_GRIDS: { readonly coarse: MixedGrid; readonly full: MixedGrid
   full: { seeds: firstSeeds(200), every: MIXED_EVERY },
 };
 
-/** R's generator: an LCG, read on [0, 1). */
+/**
+ * R's generator: an LCG, read on [0, 1), for a whole seed ≥ 0. Exact in doubles: for s < 2³² the step stays below
+ * 2⁵³, so the remainder mod 2³² is R's `>>> 0` without a bitwise operator (no-bitwise).
+ */
 export function lcg(seed: number): () => number {
-  let s = seed >>> 0;
+  let s = seed % 4294967296;
   return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
+    s = (s * 1664525 + 1013904223) % 4294967296;
     return s / 4294967296;
   };
 }
