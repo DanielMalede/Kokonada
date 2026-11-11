@@ -550,4 +550,32 @@ describe('FieldFallback: one sRGB canvas holding one picture, no React Native Vi
     expect(Buffer.from(shown).equals(Buffer.from(planned.px))).toBe(true);
     act(() => tree.unmount());
   });
+
+  // Q5: on a change of placement or presence the fallback redraws at once, and never crossfades.
+  it('a new tap, then a zone leaving the lens: each redraws at once, the picture its own props’ plan, byte for byte', () => {
+    const plain = hero(ABYSS);
+    const zone: LayoutRect = { x: plain.centre[0] - 40, y: plain.centre[1] - 10, width: 80, height: 20 };
+    const layout: FieldLayout = { ...plain, quietRects: [...(plain.quietRects ?? []), zone] };
+    const base = { direction: ABYSS, face: 'dark' as Face, statics: staticsOf(ABYSS), layout, pxPerDp: PHONE.pxPerDp, reason: 'planted' };
+    const steps = [
+      { taps: tapsOf('one.J'), quietPresence: [1, 1, 1, 1, 1, 1] },
+      { taps: tapsOf('one.C'), quietPresence: [1, 1, 1, 1, 1, 1] },
+      { taps: tapsOf('one.C'), quietPresence: [1, 1, 1, 1, 1, 0] },
+    ];
+    const w = round(layout.width * PHONE.pxPerDp);
+    const h = round(layout.height * PHONE.pxPerDp);
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = ReactTestRenderer.create(<FieldFallback {...base} {...steps[0]} />);
+    });
+    let previous: Uint8Array | null = null;
+    steps.forEach((step, i) => {
+      if (i > 0) act(() => tree.update(<FieldFallback {...base} {...step} />));
+      const shown = play(tree.root.findByType(Picture).props.picture, w, h, PHONE.pxPerDp);
+      expect(Buffer.from(shown).equals(Buffer.from(drawPlan(fallbackPlan({ ...base, ...step }), layout).px))).toBe(true);
+      if (previous !== null) expect(Buffer.from(shown).equals(Buffer.from(previous))).toBe(false);
+      previous = shown;
+    });
+    act(() => tree.unmount());
+  });
 });
