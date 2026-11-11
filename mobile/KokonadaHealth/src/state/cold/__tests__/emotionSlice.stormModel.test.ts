@@ -1,4 +1,6 @@
 /// <reference types="node" />
+import * as fs from 'fs';
+import * as path from 'path';
 import reducer, * as slice from '../emotionSlice';
 import { addTap, clearTaps, undoTap, type EmotionState, type Tap } from '../emotionSlice';
 // The storms' own generator (resilience round 1 F3's LCG) and store model.
@@ -13,7 +15,10 @@ import { lcg, store as stormStore } from '../../../design/v2/field/ledgerStorms.
 //     equal the reducer's;
 //   · the reading the ledger relies on (architect T5 r1 §1 (c): "The reading assumes the cold lane's
 //     operation set") holds: every other action of the slice leaves the taps as they were, so an operation
-//     the model lacks (a remove by index, say) fails here before a storm could pass without it.
+//     the model lacks (a remove by index, say) fails here before a storm could pass without it;
+//   · and the modelled operations themselves (resilience T10 RA-27): undoTap and clearTaps with any payload do
+//     exactly the model's undo and clear, addTap is the model's add for every kind of tap, the slice has exactly its
+//     seven actions and no extraReducers.
 
 type Op = { readonly kind: 'add'; readonly tap: Tap; readonly tapKind: number } | { readonly kind: 'undo' } | { readonly kind: 'clear' };
 type Model = { add(t: Tap): void; undo(): void; clear(): void; taps(): readonly Tap[] };
@@ -160,5 +165,70 @@ describe('the cold lane changes its taps only by the operations the model covers
     const planted: Reducer = (state, action) => (action.type === 'emotion/removeTapAt' ? { ...state, taps: state.taps.filter((_, i) => i !== Number(action.payload ?? 0)) } : reducer(state, action));
     const removeTapAt: Creator = (payload) => ({ type: 'emotion/removeTapAt', payload });
     expect(movers(planted, [...CREATORS, ['removeTapAt', removeTapAt]]).length).toBeGreaterThan(0);
+  });
+});
+
+// RA-27 (resilience T10, UI-200): the check above skips the modelled actions, so an undoTap that honoured an index
+// payload passed it; and extraReducers were never looked at. Each check runs on the real slice and on a plant.
+describe('the modelled operations take no payload, addTap is the model’s add, and the slice has nothing else', () => {
+  const PAYLOADS: unknown[] = [undefined, 0, 1, 2, -1, 'running', { index: 1 }, { x: 0.5, y: 0.5 }, { taps: [] }];
+  const STARTS: Tap[][] = [[], [{ x: 0.5, y: 0.5 }], [{ x: 0.5, y: 0.5 }, { x: -0.5, y: 0.2 }], [{ x: 0.5, y: 0.5 }, { x: -0.5, y: 0.2 }, { x: 0.1, y: -0.7 }]];
+  const stateOf = (taps: readonly Tap[]): EmotionState => ({ taps: taps.map((t) => ({ ...t })), activity: null, textPrompt: '' });
+  /** The model's taps after one operation from `taps`. */
+  const modelAfter = (taps: readonly Tap[], op: (m: Model) => void) => {
+    const m = stormStore(taps.map((t) => ({ ...t })));
+    op(m);
+    return m.taps();
+  };
+  /** Every start and payload where a reducer's undoTap(payload) or clearTaps(payload) differs from the model's undo or clear. */
+  const payloadMismatches = (run: Reducer): string[] => {
+    const out: string[] = [];
+    for (const taps of STARTS) {
+      for (const payload of PAYLOADS) {
+        if (!equalTaps(run(stateOf(taps), { type: undoTap.type, payload }).taps, modelAfter(taps, (m) => m.undo()))) out.push(`undoTap(${JSON.stringify(payload)}) from ${taps.length}`);
+        if (!equalTaps(run(stateOf(taps), { type: clearTaps.type, payload }).taps, modelAfter(taps, (m) => m.clear()))) out.push(`clearTaps(${JSON.stringify(payload)}) from ${taps.length}`);
+      }
+    }
+    return out;
+  };
+  const real = reducer as Reducer;
+
+  it('undoTap and clearTaps, whatever their payload, do exactly the model’s undo and clear, from 0 to 3 taps', () => {
+    expect(payloadMismatches(real)).toEqual([]);
+  });
+
+  it('planted: an undoTap that honours an index payload is caught, and a clearTaps that keeps the tap a payload names', () => {
+    const indexUndo: Reducer = (state, action) => (action.type === undoTap.type && typeof action.payload === 'number'
+      ? { ...state, taps: state.taps.filter((_, i) => i !== action.payload) } : real(state, action));
+    const keepingClear: Reducer = (state, action) => (action.type === clearTaps.type && typeof action.payload === 'number'
+      ? { ...state, taps: state.taps.filter((_, i) => i === action.payload) } : real(state, action));
+    expect([payloadMismatches(indexUndo).length > 0, payloadMismatches(keepingClear).length > 0]).toEqual([true, true]);
+  });
+
+  it('addTap is the model’s add for every kind of tap, NaN, ±Infinity and off the disc included, from 0 to 3 taps', () => {
+    const mismatches: string[] = [];
+    for (const taps of STARTS) {
+      for (let kind = 0; kind < TAP_KINDS; kind++) {
+        const t = tapFor(kind, 0.37);
+        if (!equalTaps(reducer(stateOf(taps), addTap({ ...t })).taps, modelAfter(taps, (m) => m.add({ ...t })))) mismatches.push(`addTap(${JSON.stringify(t)}) from ${taps.length}`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  const SEVEN = ['addTap', 'clearTaps', 'hydrate', 'resetEmotion', 'setActivity', 'setTextPrompt', 'undoTap'];
+  const exactlySeven = (names: readonly string[]) => JSON.stringify([...names].sort()) === JSON.stringify(SEVEN);
+  const extraReducersIn = (source: string) => /\bextraReducers\b/.test(source);
+  const SOURCE = fs.readFileSync(path.resolve(__dirname, '../emotionSlice.ts'), 'utf8');
+  const NAMES = Object.entries(slice).filter(([, v]) => typeof v === 'function' && typeof (v as { type?: unknown }).type === 'string').map(([name]) => name);
+
+  it('the slice’s actions are exactly the seven, and its source has no extraReducers', () => {
+    expect([exactlySeven(NAMES), extraReducersIn(SOURCE)]).toEqual([true, false]);
+  });
+
+  it('planted: an eighth action, or extraReducers in the slice, is caught by the same checks', () => {
+    const withExtra = SOURCE.replace("  name: 'emotion',", () => "  name: 'emotion',\n  extraReducers: (builder) => builder,");
+    expect(withExtra).not.toBe(SOURCE);
+    expect([exactlySeven([...NAMES, 'removeTapAt']), extraReducersIn(withExtra)]).toEqual([false, true]);
   });
 });
