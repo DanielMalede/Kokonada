@@ -443,9 +443,12 @@ export interface MixedOutcome extends Outcome {
   /** After the read that saw the last change: the starts on later frames, and the longest clock step (RA-21). */
   startsAfterLastRead: number;
   maxStepAfterLastRead: number;
-  /** Store changes per read: the most, and the reads that held two or more. */
-  maxChangesPerRead: number;
-  batchedReads: number;
+  /**
+   * Operations that changed the taps by value, per read after the first (a reset): the most, and the reads that held
+   * two or more (RA-23: an undo or clear of an empty list bumps seq and changes nothing).
+   */
+  maxValueChangesPerRead: number;
+  batchedValueReads: number;
   reads: number;
   frames: number;
   /** Frames by dt, and operations by kind. */
@@ -477,14 +480,19 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   const o: MixedOutcome = {
     starts: [], admittedAtStarts: [], maxDemand: 0, demandMismatch: 0, slopeBreaks: [], entersNotAtZero: [], leavesNotAtZero: [], restBreaks: 0,
     threw: null, lastTap: 0, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, framesWithoutLobe: 0, restShortWithoutLobe: 0, netBreaks: 0, stalls: 0, series: [],
-    mode: startMode, flipped: false, framesNeededAtEnd: false, startsAfterLastRead: 0, maxStepAfterLastRead: 0, queueMax: 0, maxChangesPerRead: 0, batchedReads: 0, reads: 0, frames: 0, dts: {},
+    mode: startMode, flipped: false, framesNeededAtEnd: false, startsAfterLastRead: 0, maxStepAfterLastRead: 0, queueMax: 0, maxValueChangesPerRead: 0, batchedValueReads: 0, reads: 0, frames: 0, dts: {},
     ops: { quadrant: 0, neutral: 0, onNeutralRadius: 0, rim: 0, beyond: 0, undo: 0, clear: 0 },
   };
+  // Operations that changed the taps by value, and how many of them the reads so far have seen.
+  let valueChanges = 0;
+  let valueChangesRead = 0;
   const apply = (op: MixedOp) => {
     o.ops[op]++;
+    const was = s.taps();
     if (op === 'undo') s.undo();
     else if (op === 'clear') s.clear();
     else s.add(mixedTap(op, next));
+    if (!sameTapsByValue(was, s.taps())) valueChanges++;
   };
   // Before the first frame: 0–3 adds, so the first read is a reset (its taps shown at once).
   for (let k = pick(4); k > 0; k--) apply(MIXED_OPS[pick(5)]);
@@ -516,10 +524,13 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
     if (Number.isFinite(dt) && dt > 0) wall += dt;
     let changed = false;
     if (k === 0 || wall - readAt >= every) {
-      const changes = s.seq() - input.seq;
+      const changes = valueChanges - valueChangesRead;
+      valueChangesRead = valueChanges;
       o.reads++;
-      o.maxChangesPerRead = Math.max(o.maxChangesPerRead, changes);
-      if (changes >= 2) o.batchedReads++;
+      if (k > 0) {
+        o.maxValueChangesPerRead = Math.max(o.maxValueChangesPerRead, changes);
+        if (changes >= 2) o.batchedValueReads++;
+      }
       changed = !sameTapsByValue(input.taps, s.taps());
       input = { seq: s.seq(), taps: s.taps() };
       readAt = wall;
