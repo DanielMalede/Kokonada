@@ -13,7 +13,9 @@
 //   · the statics come as a prop, memoised by the root, once per direction (fork 1, 1C);
 //   · the builder runs exactly once per frame, and the JS thread never reads the ledger per frame: JS hears
 //     only of a start (onStart, the CTA's admitted count), the still tier's stop, and a failure;
-//   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life;
+//   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life. It draws from the
+//     props as given (T13, the designer's Q2 and Q5): the taps, the layout as measured (every quiet rect, no clamp),
+//     pxPerDp and each presence unsanitised;
 //   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
 //     until the spacing since that start has passed (L19: the next change then starts on its first frame),
 //     then stops its frames until an input changes; the moving tiers run every frame. A stop is decided on the UI
@@ -154,7 +156,18 @@ function FieldViewMount(props: FieldViewProps) {
   }, [frame, running]);
 
   if (failure !== null || effect.status !== 'ready') {
-    return <FieldFallback direction={direction} face={face} statics={statics} width={layout.width} height={layout.height} reason={failure ?? 'the field effect is not ready'} />;
+    return (
+      <FieldFallback
+        direction={direction}
+        face={face}
+        statics={statics}
+        taps={taps}
+        layout={layout}
+        pxPerDp={pxPerDp}
+        quietPresence={quietPresence}
+        reason={failure ?? 'the field effect is not ready'}
+      />
+    );
   }
   return (
     <FieldSurface
