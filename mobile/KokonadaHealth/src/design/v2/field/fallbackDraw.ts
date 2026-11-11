@@ -47,8 +47,9 @@ export function drawFallbackFace(s: FallbackSkia, canvas: SkCanvas, plan: Fallba
 export function drawFallbackField(s: FallbackSkia, canvas: SkCanvas, plan: FallbackPlan): void {
   const field = plan.field;
   if (field === null) return;
-  const clip = s.Skia.Path.Make();
-  for (const [x, y, w, h] of field.clip) clip.addRect(s.Skia.XYWHRect(x, y, w, h));
+  const builder = s.Skia.PathBuilder.Make();
+  for (const [x, y, w, h] of field.clip) builder.addRect(s.Skia.XYWHRect(x, y, w, h));
+  const clip = builder.detach();
   const paint = s.Skia.Paint();
   paint.setAntiAlias(false);
   paint.setDither(false);
