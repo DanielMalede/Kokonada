@@ -508,9 +508,29 @@ describe('the ledger stays in the visual layer', () => {
     expect(sources.filter(({ s }) => /from\s+['"][^'"]*\/state\//.test(s) || /\bdispatch\s*\(/.test(s)).map((x) => x.f)).toEqual([]);
   });
 
+  // The cold-lane Tap the ledger reads (architect rerule §3: no ordinal on Tap; resilience T10 RA-26, which accepts this
+  // pin in place of the rerule §6 mutant "an ordinal added to Tap"): the problems with a source of emotionSlice.ts.
+  const tapContractProblems = (source: string): string[] => (/export interface Tap \{\s*x: number;\s*y: number;\s*\}/.test(source) ? [] : ['Tap is not exactly {x, y}']);
+  const SLICE = fs.readFileSync(path.resolve(FIELD, '../../../state/cold/emotionSlice.ts'), 'utf8').replace(/\r\n/g, '\n');
+  const TAP = 'export interface Tap {\n  x: number;\n  y: number;\n}';
+  /** The slice's source with one edit; the edit must apply exactly once, so a variant can never be the source itself. */
+  const variant = (from: string, to: string) => {
+    expect(SLICE.split(from)).toHaveLength(2);
+    return SLICE.replace(from, () => to);
+  };
+
   it('the cold-lane Tap is still exactly {x, y}', () => {
-    const slice = fs.readFileSync(path.resolve(FIELD, '../../../state/cold/emotionSlice.ts'), 'utf8');
-    expect(slice).toMatch(/export interface Tap \{\s*x: number;\s*y: number;\s*\}/);
+    expect(tapContractProblems(SLICE)).toEqual([]);
+  });
+
+  it.each<[string, () => string]>([
+    ['a member after y', () => variant(TAP, 'export interface Tap {\n  x: number;\n  y: number;\n  ordinal: number;\n}')],
+    ['a member before x', () => variant(TAP, 'export interface Tap {\n  ordinal: number;\n  x: number;\n  y: number;\n}')],
+    ['an optional member', () => variant(TAP, 'export interface Tap {\n  x: number;\n  y: number;\n  ordinal?: number;\n}')],
+    ['a second declaration merged into Tap', () => variant(TAP, `${TAP}\n\nexport interface Tap {\n  ordinal: number;\n}`)],
+    ['EmotionState.taps widened past Tap', () => variant('  taps: Tap[];', '  taps: Array<Tap & { ordinal: number }>;')],
+  ])('the Tap pin rejects %s', (_name, make) => {
+    expect(tapContractProblems(make()).length).toBeGreaterThan(0);
   });
 
   // Resilience round 1 F4: the ledger reads at most the cold lane's three taps (readTaps).
