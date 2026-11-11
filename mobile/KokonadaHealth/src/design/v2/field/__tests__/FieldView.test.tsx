@@ -385,3 +385,63 @@ describe('the quiet zones at the boundary', () => {
     expect(u[OFFSET.uQuietOn0]).toBe(1);
   });
 });
+
+// RA-28 (resilience T10 re-audit, UI-202): jest runs FieldView's frame worklet as plain JS, where a React ref is live,
+// so a worklet reading one passes every test here; on the device the worklet holds a frozen copy of it (the
+// generation's stop would always carry 0). So no function whose body opens with 'worklet' may name an identifier
+// that a useRef(…) binds; a property name (x.seq) is not a name. Read with the TypeScript compiler.
+describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
+  const isWorkletFn = (fn: ts.Node) => {
+    const body = (fn as ts.FunctionLikeDeclarationBase).body;
+    return body !== undefined && ts.isBlock(body) && body.statements.length > 0 && ts.isExpressionStatement(body.statements[0])
+      && ts.isStringLiteral(body.statements[0].expression) && body.statements[0].expression.text === 'worklet';
+  };
+  /** The names useRef(…) binds, the worklets, and each ref a worklet names, as `name at line n`. */
+  const refsInWorklets = (source: string) => {
+    const file = ts.createSourceFile('FieldView.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const refs = new Set<string>();
+    const worklets: ts.Node[] = [];
+    const collect = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && ts.isCallExpression(node.initializer)
+        && ts.isIdentifier(node.initializer.expression) && node.initializer.expression.text === 'useRef') refs.add(node.name.text);
+      if (ts.isFunctionLike(node) && isWorkletFn(node)) worklets.push(node);
+      ts.forEachChild(node, collect);
+    };
+    collect(file);
+    const isPropertyName = (id: ts.Identifier) => {
+      const up = id.parent;
+      return (ts.isPropertyAccessExpression(up) && up.name === id) || (ts.isPropertyAssignment(up) && up.name === id);
+    };
+    const offenders: string[] = [];
+    for (const w of worklets) {
+      const visit = (node: ts.Node) => {
+        if (ts.isIdentifier(node) && refs.has(node.text) && !isPropertyName(node)) {
+          offenders.push(`${node.text} at line ${file.getLineAndCharacterOfPosition(node.getStart(file)).line + 1}`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit((w as ts.FunctionLikeDeclarationBase).body!);
+    }
+    return { refs: [...refs].sort(), worklets: worklets.length, offenders };
+  };
+  const SOURCE = fs.readFileSync(path.resolve(__dirname, '../FieldView.tsx'), 'utf8');
+
+  it('the scan sees FieldView’s refs and its frame worklet, and no worklet names a ref', () => {
+    const scan = refsInWorklets(SOURCE);
+    expect(scan.refs).toEqual(['currentGeneration', 'mounted', 'seq', 'shownTaps']);
+    expect(scan.worklets).toBeGreaterThan(0);
+    expect(scan.offenders).toEqual([]);
+  });
+
+  it('planted: the stop sent with the ref’s generation instead of the SharedValue’s is flagged, and only it', () => {
+    const from = 'runOnJS(sleep)(generation.value);';
+    expect(SOURCE.split(from)).toHaveLength(2);
+    const line = SOURCE.slice(0, SOURCE.indexOf(from)).split('\n').length;
+    expect(refsInWorklets(SOURCE.replace(from, () => 'runOnJS(sleep)(currentGeneration.current);')).offenders).toEqual([`currentGeneration at line ${line}`]);
+  });
+
+  it('planted: a worklet reading a ref is flagged; a property of the same name is not', () => {
+    const tiny = "const seq = useRef(0);\nconst f = () => { 'worklet'; return seq.current + x.seq; };\n";
+    expect(refsInWorklets(tiny)).toEqual({ refs: ['seq'], worklets: 1, offenders: ['seq at line 2'] });
+  });
+});
