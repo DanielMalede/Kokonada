@@ -7,7 +7,7 @@ import { NODE_SLOTS } from '../fieldLaw.ts';
 import { buildFieldFrame } from '../fieldFrame.ts';
 import { ADMISSION, emptyLedger, fades, reconcile, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
 import {
-  MODES, QUAD, STORMS, STORM_GRIDS, frameState, geometry, gridReport, plantCutLeaveEarly, plantEnterAboveZero, plantQuarterStepFades, plantRestQuarterSteps,
+  MODES, QUAD, STORMS, STORM_GRIDS, frameState, geometry, gridReport, plantCutLeaveEarly, plantEnterAboveZero, plantNaNFadeMidRamp, plantQuarterStepFades, plantRestQuarterSteps,
   storm, store, stormDeps, stormFailures, type Mode, type Outcome, type Storm,
 } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -208,6 +208,12 @@ describe('E3’s fades driver: each fade detector bites on its own real plant, a
       expect(failures.map((f, i) => f.startsWith(`${label}: ${clauses[i]}: `))).toEqual(clauses.map(() => true));
     },
   );
+
+  // RA-25 (resilience T10, UI-198): |a − b| > bound is false for NaN; a NaN fade mid-ramp must still break the slope.
+  it.each(MODES)('%s: a NaN fade planted mid-ramp breaks "a fade moved faster than its curve"', (mode) => {
+    const failures = stormFailures('NaN', 'toggle', mode, storm('abyss', mode, 'toggle', 250, 3000, deps('abyss', 'dark'), { fadesOf: plantNaNFadeMidRamp() }));
+    expect(failures.some((f) => f.includes('a fade moved faster than its curve'))).toBe(true);
+  });
 
   // A plant that kept state between storms would bite on the first and pass the second (the S10-1
   // parity class): the same plant, made fresh, gives the same outcome again.

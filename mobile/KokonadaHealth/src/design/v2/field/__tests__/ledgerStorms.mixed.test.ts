@@ -3,7 +3,7 @@ import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
 import { ADMISSION, emptyLedger, fades, reconcile, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
 import {
   MIXED_DTS, MIXED_DTS_POSITIVE, MIXED_EVERY, MIXED_FRAMES, MIXED_GRIDS, MIXED_OPS, MIXED_TAIL, MODES, SETTLE, lcg, mixedFailures, mixedReport, mixedStorm,
-  plantCutLeaveEarly, plantEnterAboveZero, plantLowRestQuarterSteps, plantNoPlacementsWhileRestRises, plantQuarterStepFades, plantRestQuarterSteps, stormDeps, stormFailures, tap,
+  plantCutLeaveEarly, plantEnterAboveZero, plantLowRestQuarterSteps, plantNaNFadeMidRamp, plantNaNRestMidRise, plantNoPlacementsWhileRestRises, plantQuarterStepFades, plantRestQuarterSteps, stormDeps, stormFailures, tap,
   type MixedOutcome, type Mode,
 } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
@@ -154,6 +154,18 @@ describe('the mixed storm’s planted controls: each guard bites, through its ow
 
   it('no placement given while the rest lobes rise (the builder draws the rest glow at 1): the built frame’s rest detector fires', () => {
     const failures = FACES.flatMap((face) => CONTROL_SEEDS.flatMap((seed) => mixedFailures(`no placements, seed ${seed}`, mixedStorm(ID, 'settle', seed, 17, deps(face), { fadesOf: plantNoPlacementsWhileRestRises() }))));
+    expect(has(failures, 'a rest-lobe fade moved faster than its curve')).toBe(true);
+  }, LONG);
+
+  // RA-25 (resilience T10, UI-198): a detector written |a − b| > bound is false for NaN. Each plant gives one fade NaN
+  // on one frame, mid-ramp, seen by one detector only.
+  it.each(MODES)('%s: a NaN fade planted mid-ramp breaks "a fade moved faster than its curve"', (mode) => {
+    const failures = CONTROL_SEEDS.flatMap((seed) => mixedFailures(`NaN fade, seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('dark'), { fadesOf: plantNaNFadeMidRamp() })));
+    expect(has(failures, 'a fade moved faster than its curve')).toBe(true);
+  }, LONG);
+
+  it.each(MODES)('%s: a NaN rest fade planted mid-rise (two rest lobes) breaks "a rest-lobe fade moved faster than its curve"', (mode) => {
+    const failures = CONTROL_SEEDS.flatMap((seed) => mixedFailures(`NaN rest, seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('light'), { fadesOf: plantNaNRestMidRise() })));
     expect(has(failures, 'a rest-lobe fade moved faster than its curve')).toBe(true);
   }, LONG);
 

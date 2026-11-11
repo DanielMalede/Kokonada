@@ -723,3 +723,33 @@ export const plantNoPlacementsWhileRestRises = (): FadesOf => (ledger) => {
   const f = fades(ledger);
   return ledger.rest === 'in' ? { ...f, placements: [], demand: f.restSlots.length } : f;
 };
+
+// NaN (resilience T10 RA-25, UI-198): a detector written |a − b| > bound is false for NaN, so a NaN fade passes it. Each
+// plant gives one fade NaN on one frame, mid-ramp, and nothing else changes: the builder draws a NaN fade as 0 (its
+// finite(…, 0)), which moves no other clause.
+
+/** One placement's fade NaN for one frame, the first time any fade is strictly between 0 and 1: the fade slope detector must see it. */
+export const plantNaNFadeMidRamp = (): FadesOf => {
+  let done = false;
+  return (ledger) => {
+    const f = fades(ledger);
+    const at = done ? -1 : f.placements.findIndex((p) => p.fade > 0 && p.fade < 1);
+    if (at < 0) return f;
+    done = true;
+    return { ...f, placements: f.placements.map((p, i) => (i === at ? { ...p, fade: Number.NaN } : p)) };
+  };
+};
+
+/**
+ * The first rest lobe's fade NaN for one frame, the first time two or more rest lobes rise mid-ramp: they rise together,
+ * so the built frame's rest (their max) does not move, and only the ledger's per-lobe rest detector can see it.
+ */
+export const plantNaNRestMidRise = (): FadesOf => {
+  let done = false;
+  return (ledger) => {
+    const f = fades(ledger);
+    if (done || ledger.rest !== 'in' || f.restFades.length < 2 || !(f.restFades[0] > 0 && f.restFades[0] < 1)) return f;
+    done = true;
+    return { ...f, restFades: f.restFades.map((r, i) => (i === 0 ? Number.NaN : r)) };
+  };
+};
