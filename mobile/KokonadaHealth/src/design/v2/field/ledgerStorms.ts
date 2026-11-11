@@ -657,3 +657,28 @@ export const plantRestQuarterSteps = (): FadesOf => (ledger) => {
   const up = (r: number) => Math.ceil(4 * r) / 4;
   return { ...f, restFade: up(f.restFade), restFades: f.restFades.map(up) };
 };
+
+// The mixed storm reads the rest lobes twice: the ledger's, lobe by lobe, and the built frame's (their max, after the
+// builder's own rule). D9 steps both, so each detector covered for the other (T10's harness mutation run, H9a and
+// H9b); each of these two plants is seen by one of them only.
+
+/**
+ * The lowest of two or more drawn rest lobes in quarter steps down, floor(4·r)/4: the brightest is untouched, so
+ * the built frame's rest (their max) never moves; only the ledger's per-lobe rest detector sees it.
+ */
+export const plantLowRestQuarterSteps = (): FadesOf => (ledger) => {
+  const f = fades(ledger);
+  if (f.restFades.length < 2) return f;
+  const low = f.restFades.indexOf(Math.min(...f.restFades));
+  return { ...f, restFades: f.restFades.map((r, i) => (i === low ? Math.floor(4 * r) / 4 : r)) };
+};
+
+/**
+ * While the rest lobes rise, no placement is given (the demand follows): the builder, given no lobe-bearing
+ * placement, draws the rest glow at 1 from the rise's first frame, while the ledger's rest fades rise from 0 on
+ * their curve. Only the built frame's rest detector sees the step.
+ */
+export const plantNoPlacementsWhileRestRises = (): FadesOf => (ledger) => {
+  const f = fades(ledger);
+  return ledger.rest === 'in' ? { ...f, placements: [], demand: f.restSlots.length } : f;
+};

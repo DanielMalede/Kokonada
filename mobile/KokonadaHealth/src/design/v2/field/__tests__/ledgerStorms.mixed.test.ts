@@ -3,7 +3,8 @@ import type { DirectionId, Face } from '../../tokens/tokens.generated.ts';
 import { ADMISSION, type Admission, type Ledger, type LedgerFades } from '../placementLedger.ts';
 import {
   MIXED_DTS, MIXED_EVERY, MIXED_FRAMES, MIXED_GRIDS, MIXED_OPS, MIXED_TAIL, MODES, SETTLE, lcg, mixedFailures, mixedReport, mixedStorm,
-  plantCutLeaveEarly, plantEnterAboveZero, plantQuarterStepFades, plantRestQuarterSteps, stormDeps, type MixedOutcome, type Mode,
+  plantCutLeaveEarly, plantEnterAboveZero, plantLowRestQuarterSteps, plantNoPlacementsWhileRestRises, plantQuarterStepFades, plantRestQuarterSteps, stormDeps,
+  type MixedOutcome, type Mode,
 } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 
@@ -134,6 +135,18 @@ describe('the mixed storm’s planted controls: each guard bites, through its ow
   it.each(plants.flatMap(([name, plant, clause]) => MODES.map((mode) => [name, mode, plant, clause] as const)))('%s, starting %s: its clause fires', (_name, mode, plant, clause) => {
     const failures = CONTROL_SEEDS.flatMap((seed) => mixedFailures(`seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('dark'), { fadesOf: plant() })));
     expect(has(failures, clause)).toBe(true);
+  }, LONG);
+
+  // The two rest detectors, each with a plant only it sees: with D9's plant alone each covered for the other
+  // (T10's harness mutation run, H9a and H9b survived).
+  it('the lower of two rest lobes in quarter steps (the built max untouched): the ledger’s per-lobe rest detector fires', () => {
+    const failures = MODES.flatMap((mode) => CONTROL_SEEDS.flatMap((seed) => mixedFailures(`low rest, seed ${seed}`, mixedStorm(ID, mode, seed, 17, deps('light'), { fadesOf: plantLowRestQuarterSteps() }))));
+    expect(has(failures, 'a rest-lobe fade moved faster than its curve')).toBe(true);
+  }, LONG);
+
+  it('no placement given while the rest lobes rise (the builder draws the rest glow at 1): the built frame’s rest detector fires', () => {
+    const failures = FACES.flatMap((face) => CONTROL_SEEDS.flatMap((seed) => mixedFailures(`no placements, seed ${seed}`, mixedStorm(ID, 'settle', seed, 17, deps(face), { fadesOf: plantNoPlacementsWhileRestRises() }))));
+    expect(has(failures, 'a rest-lobe fade moved faster than its curve')).toBe(true);
   }, LONG);
 
   it('a tail cut at the last change’s read leaves frames needed, and the absolute bound unmet', () => {

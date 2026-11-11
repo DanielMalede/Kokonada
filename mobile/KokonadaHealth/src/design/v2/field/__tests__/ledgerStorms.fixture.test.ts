@@ -6,7 +6,7 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/toke
 import { FIXTURE_OUTER, actualTokens } from '../../__tests__/__fixtures__/fixtureTokens.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { ADMISSION, type Admission } from '../placementLedger.ts';
-import { MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, gridReport, mixedReport, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
+import { MIXED_EVERY, MIXED_GRIDS, MODES, STORMS, STORM_GRIDS, gridReport, mixedFailures, mixedReport, mixedStorm, storm, stormDeps, stormFailures, type Mode, type Storm } from '../ledgerStorms.ts';
 import { staticsFor } from '../statics.ts';
 
 // QA-068 E3's binding neutral3 case, on the test-only fixture-outer direction (__fixtures__/fixtureTokens.ts):
@@ -109,5 +109,12 @@ describe('the mixed storm on fixture-outer, the coarse seeds: every face × star
     const all = mixedCases.flatMap(([face, mode, every]) => mixedCoarse(face, mode, every).outcomes);
     expect([NODE_SLOTS, Math.max(...all.map((o) => o.maxDemand))]).toEqual([6, 6]);
     expect(all.some((o) => o.restBesideThreeLive)).toBe(true);
+  }, LONG);
+
+  // F7's cross-check in the mixed storm, on its own plant (T10's harness mutation run: H13 survived without it).
+  it('planted: a ledger whose lobe rule disagrees with the builder’s (fixture-outer read as if neutrals bore a lobe): the frame holds more than the demand', () => {
+    const wrong = { ...deps(FIXTURE_OUTER), config: { ...deps(FIXTURE_OUTER).config, neutralLobe: true } };
+    const failures = MIXED_GRIDS.coarse.seeds.slice(0, 4).flatMap((seed) => mixedFailures(`wrong lobe rule, seed ${seed}`, mixedStorm(FIXTURE_OUTER, 'settle', seed, 17, wrong)));
+    expect(has(failures, 'the demand and the built frame disagree')).toBe(true);
   }, LONG);
 });
