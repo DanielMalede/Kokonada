@@ -281,7 +281,7 @@ describe('the fixtures: fixture-inner draws its floor as the face; fixture-outer
     }
   });
 
-  it.each(FACES)('fixture-outer %s, three and one.I: every pixel inside every grown zone is the ground (r3’s Linen S6 test)', (face) => {
+  it.each(FACES)('fixture-outer %s, three and one.I: every pixel inside every grown zone is the ground (r3’s S6 zone test, on the fixture)', (face) => {
     const ground = rgbOf(DIRECTIONS[FIXTURE_OUTER].color[face].ground.hex);
     let reached = 0;
     for (const scene of ['three', 'one.I']) {

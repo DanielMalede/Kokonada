@@ -27,7 +27,7 @@ import { oklabToSrgb, type Oklab } from '../color/oklab.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../tokens/tokens.generated.ts';
 import type { FieldLayout, LayoutRect } from './fieldDriver.ts';
 import { NODE_TIER, QUADRANT, lobeAnchor, nodeAt, placementRamp, type FieldStatics } from './fieldFrame.ts';
-import { compositePixel, quietFactor, type QuietRect } from './fieldLaw.ts';
+import { compositePixel, quietFactor, type FieldFrame, type PixelTerms, type QuietRect } from './fieldLaw.ts';
 import type { Tap } from './placementLedger.ts';
 
 export type FallbackRegion = 'face' | 'outside' | 'none';
@@ -177,13 +177,16 @@ export function fallbackStops(id: DirectionId, face: Face, region: 'face' | 'out
   const d = DIRECTIONS[id];
   const ground = lab(region === 'face' ? d.color[face].plate.face : d.color[face].ground);
   const k = stillK(id, face) * (region === 'face' ? d.field.mask.face : d.field.mask.outside);
-  const noNoise = { kp: d.field.pivot, grain: { inside: 0, ground: 0 }, dither: 0 };
+  // compositePixel reads only kp, grain and dither of its frame, and ground, k and coverage of its terms: route R4 with
+  // no grain and no dither. fieldLaw.ts stays byte for byte as the band evidence stamped it (UI-160), so the partial
+  // objects are cast here rather than its signature widened.
+  const noNoise = { kp: d.field.pivot, grain: { inside: 0, ground: 0 }, dither: 0 } as unknown as FieldFrame;
   const { position, weight } = statics.fallbackStops;
   const positions: number[] = [];
   const colours: Rgb[] = [];
   for (let i = 0; i < Math.min(position.length, weight.length); i++) {
     positions.push(position[i]);
-    colours.push(srgb(compositePixel(noNoise, { ground, k: weight[i] * k, coverage: 0 }, colour, 0, 0)));
+    colours.push(srgb(compositePixel(noNoise, { ground, k: weight[i] * k, coverage: 0 } as unknown as PixelTerms, colour, 0, 0)));
   }
   return { positions, colours };
 }
@@ -246,7 +249,7 @@ function regionSpans(region: 'face' | 'outside', y: number, width: number, centr
 }
 
 /** The pixels of a row a grown zone removes, by the law's quietFactor at presence 1 with no feather (sd ≤ 0). */
-function zoneSpan(zone: QuietRect, frame: { readonly quiet: { readonly rects: readonly QuietRect[]; readonly presence: readonly number[]; readonly grow: number; readonly feather: number } }, y: number, width: number): Span | null {
+function zoneSpan(zone: QuietRect, frame: FieldFrame, y: number, width: number): Span | null {
   const py = y + 0.5;
   const grow = frame.quiet.grow;
   const qy = Math.abs(py - zone.cy) - zone.hy;
@@ -273,7 +276,8 @@ const sameSpans = (a: readonly Span[], b: readonly Span[]) => a.length === b.len
 
 /** The clip (the amended DEC): every device pixel decided at its centre, as whole-pixel rectangles, one per run of equal rows. */
 function fallbackClip(region: 'face' | 'outside', size: { readonly width: number; readonly height: number }, centre: readonly [number, number], bound: number, zones: readonly QuietRect[], grow: number): ClipRect[] {
-  const frames = zones.map((zone) => ({ zone, frame: { quiet: { rects: [zone], presence: [1], grow, feather: 0 } } }));
+  // quietFactor reads only frame.quiet (fieldLaw.ts, stamped as is: UI-160), so each zone's frame is that alone.
+  const frames = zones.map((zone) => ({ zone, frame: { quiet: { rects: [zone], presence: [1], grow, feather: 0 } } as unknown as FieldFrame }));
   const rects: ClipRect[] = [];
   let open: Span[] = [];
   let openedAt = 0;

@@ -322,10 +322,9 @@ function extentAt(region: Region, d: number, frame: FieldFrame, alpha: number): 
 /**
  * The quiet zones' factor at the pixel centre (x, y), in render px (designer r3 §1): the product over the rects
  * of (1 − p)·1 + p·q, q being 0 on and inside the grown rect (DSN-023 amended). Written so, p = 0 gives exactly 1
- * and p = 1 exactly q, so the two ends are no zone and today's zone, bit for bit. It reads only frame.quiet: FieldFallback
- * decides its clip's pixels with it (fallbackModel.ts), at presence 1 and no feather.
+ * and p = 1 exactly q, so the two ends are no zone and today's zone, bit for bit.
  */
-export function quietFactor(frame: Pick<FieldFrame, 'quiet'>, x: number, y: number): number {
+export function quietFactor(frame: FieldFrame, x: number, y: number): number {
   const { rects, presence, grow, feather } = frame.quiet;
   checkQuietPresence(rects.length, presence);
   let product = 1;
@@ -614,11 +613,8 @@ export function slotColours(frame: FieldFrame, terms: PixelTerms): Oklab[] {
   return frame.nodes.map((node) => nodeColour(node, terms.halos[node.id], terms.kField, frame.shimmer));
 }
 
-/**
- * The pixel from its terms and its selected colour: route R4's composite, then grain and dither on L. FieldFallback's
- * stops are this composite with no grain and no dither (fallbackModel.ts), so it reads only what it needs.
- */
-export function compositePixel(frame: Pick<FieldFrame, 'kp' | 'grain' | 'dither'>, terms: Pick<PixelTerms, 'ground' | 'k' | 'coverage'>, colour: Oklab, x: number, y: number): Oklab {
+/** The pixel from its terms and its selected colour: route R4's composite, then grain and dither on L. */
+export function compositePixel(frame: FieldFrame, terms: PixelTerms, colour: Oklab, x: number, y: number): Oklab {
   const { ground, k } = terms;
   const share = (1 - k) * (frame.kp > 0 ? 1 - smoothstep(0, frame.kp, k) : 1);
   const px = Math.floor(x);

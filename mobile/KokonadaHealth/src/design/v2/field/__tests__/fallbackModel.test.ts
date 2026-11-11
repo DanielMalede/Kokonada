@@ -269,7 +269,8 @@ function lawKeep(id: DirectionId, layout: FieldLayout, k: number, zones: readonl
   const R = layout.radius * k;
   const [cx, cy] = [layout.centre[0] * k, layout.centre[1] * k];
   const mask = DIRECTIONS[id].field.mask;
-  const zoneFrame = { quiet: { rects: zones, presence: zones.map(() => 1), grow: BASE.quiet.grow * k, feather: 0 } };
+  // quietFactor reads only frame.quiet (fieldLaw.ts is left as the band evidence stamped it, UI-160).
+  const zoneFrame = { quiet: { rects: zones, presence: zones.map(() => 1), grow: BASE.quiet.grow * k, feather: 0 } } as unknown as FieldFrame;
   return (x, y) => {
     const dx = x + 0.5 - cx;
     const dy = y + 0.5 - cy;
@@ -346,7 +347,7 @@ describe('the clip: each device pixel decided at its centre by the law’s step 
     const zone = removedZones([tie], undefined, K)![0];
     expect(zone.cx + zone.hx + g).toBe(TIE_X);
     expect(zone.cy + zone.hy + g).toBe(TIE_Y);
-    const zoneFrame = { quiet: { rects: [zone], presence: [1], grow: g, feather: 0 } };
+    const zoneFrame = { quiet: { rects: [zone], presence: [1], grow: g, feather: 0 } } as unknown as FieldFrame;
     const grid = clipGrid(plan);
     const at = (x: number, y: number) => grid[y * plan.size.width + x];
     const row = Math.floor(zone.cy);
