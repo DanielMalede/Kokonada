@@ -100,6 +100,13 @@ describe('the coarse seeds reach what the mixed storm is for', () => {
     expect(Math.max(...outcomes((c) => c[2] === 50).map((o) => o.maxValueChangesPerRead))).toBeGreaterThanOrEqual(4);
   }, LONG);
 
+  it('the value count leaves out the operations that change nothing (an undo or a clear of an empty list): fewer than all, more than none', () => {
+    const all = outcomes();
+    const ops = all.reduce((n, o) => n + Object.values(o.ops).reduce((a, b) => a + b, 0), 0);
+    const changed = all.reduce((n, o) => n + o.valueChanges, 0);
+    expect([changed > 0, changed < ops]).toEqual([true, true]);
+  }, LONG);
+
   it('every operation and every frame dt is drawn, and some frames see no new input (the lag)', () => {
     const all = outcomes();
     for (const op of MIXED_OPS) expect([op, all.some((o) => o.ops[op] > 0)]).toEqual([op, true]);
@@ -258,6 +265,12 @@ describe('RA-21: the mixed storm’s convergence takes one frame step per start 
     const o = outcome(r.converged, r.starts.length, r.maxStep);
     expect(stormFailures('trace', 'toggle', 'settle', o).some((f) => f.includes('did not converge within 1800 ms'))).toBe(true);
     expect(mixedFailures('trace', o)).toEqual([]);
+  });
+
+  it('the storm measures both itself: seed 3, positive dts, every 1 ms, Abyss dark, starting reduced (the tail settles): two starts after the last change’s read, a 16.667 ms step, converged at +1800.036, inside the bound', () => {
+    const o = mixedStorm(ID, 'reduced', 3, 1, deps('dark'), { dts: MIXED_DTS_POSITIVE });
+    expect([o.mode, o.startsAfterLastRead, o.maxStepAfterLastRead.toFixed(3), o.converged!.toFixed(3)]).toEqual(['settle', 2, '16.667', '1800.036']);
+    expect(mixedFailures('seed 3', o)).toEqual([]);
   });
 
   it('the allowance is exact: a convergence at it passes, one a frame step past it fails', () => {

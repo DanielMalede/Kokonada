@@ -205,15 +205,30 @@ describe('the modelled operations take no payload, addTap is the model’s add, 
     expect([payloadMismatches(indexUndo).length > 0, payloadMismatches(keepingClear).length > 0]).toEqual([true, true]);
   });
 
-  it('addTap is the model’s add for every kind of tap, NaN, ±Infinity and off the disc included, from 0 to 3 taps', () => {
-    const mismatches: string[] = [];
+  /** Every start and kind of tap where a reducer's addTap differs from the model's add. */
+  const addMismatches = (run: Reducer): string[] => {
+    const out: string[] = [];
     for (const taps of STARTS) {
       for (let kind = 0; kind < TAP_KINDS; kind++) {
         const t = tapFor(kind, 0.37);
-        if (!equalTaps(reducer(stateOf(taps), addTap({ ...t })).taps, modelAfter(taps, (m) => m.add({ ...t })))) mismatches.push(`addTap(${JSON.stringify(t)}) from ${taps.length}`);
+        if (!equalTaps(run(stateOf(taps), addTap({ ...t })).taps, modelAfter(taps, (m) => m.add({ ...t })))) out.push(`addTap(${JSON.stringify(t)}) from ${taps.length}`);
       }
     }
-    expect(mismatches).toEqual([]);
+    return out;
+  };
+
+  it('addTap is the model’s add for every kind of tap, NaN, ±Infinity and off the disc included, from 0 to 3 taps', () => {
+    expect(addMismatches(real)).toEqual([]);
+  });
+
+  it('planted: an addTap that reads a non-finite coordinate as 0 is caught', () => {
+    const fin = (v: number) => (Number.isFinite(v) ? v : 0);
+    const finiteAdd: Reducer = (state, action) => {
+      if (action.type !== addTap.type) return real(state, action);
+      const t = action.payload as Tap;
+      return real(state, addTap({ x: fin(t.x), y: fin(t.y) }));
+    };
+    expect(addMismatches(finiteAdd).length).toBeGreaterThan(0);
   });
 
   const SEVEN = ['addTap', 'clearTaps', 'hydrate', 'resetEmotion', 'setActivity', 'setTextPrompt', 'undoTap'];

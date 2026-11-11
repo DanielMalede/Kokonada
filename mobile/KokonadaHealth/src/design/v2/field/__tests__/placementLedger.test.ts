@@ -552,6 +552,14 @@ describe('the ledger stays in the visual layer', () => {
     ['an optional member', () => variant(TAP, 'export interface Tap {\n  x: number;\n  y: number;\n  ordinal?: number;\n}')],
     ['a second declaration merged into Tap', () => variant(TAP, `${TAP}\n\nexport interface Tap {\n  ordinal: number;\n}`)],
     ['EmotionState.taps widened past Tap', () => variant('  taps: Tap[];', '  taps: Array<Tap & { ordinal: number }>;')],
+    // One each for the checks the five above do not reach alone.
+    ['a second, empty declaration merged into Tap', () => variant(TAP, `${TAP}
+
+export interface Tap {}`)],
+    ['Tap extending another type', () => variant('export interface Tap {', 'export interface Tap extends Record<string, number> {')],
+    ['a type alias named Tap beside the interface', () => variant(TAP, `${TAP}
+
+export type Tap = { x: number; y: number };`)],
   ])('the Tap pin rejects %s', (_name, make) => {
     expect(tapContractProblems(make()).length).toBeGreaterThan(0);
   });

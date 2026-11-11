@@ -450,6 +450,8 @@ export interface MixedOutcome extends Outcome {
    */
   maxValueChangesPerRead: number;
   batchedValueReads: number;
+  /** Every operation that changed the taps by value, the first read's included. */
+  valueChanges: number;
   reads: number;
   frames: number;
   /** Frames by dt, and operations by kind. */
@@ -481,7 +483,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   const o: MixedOutcome = {
     starts: [], admittedAtStarts: [], maxDemand: 0, demandMismatch: 0, slopeBreaks: [], entersNotAtZero: [], leavesNotAtZero: [], restBreaks: 0,
     threw: null, lastTap: 0, converged: null, restLitAfterLastTap: false, restBesideThreeLive: false, framesWithoutLobe: 0, restShortWithoutLobe: 0, netBreaks: 0, stalls: 0, series: [],
-    mode: startMode, flipped: false, framesNeededAtEnd: false, startsAfterLastRead: 0, maxStepAfterLastRead: 0, queueMax: 0, maxValueChangesPerRead: 0, batchedValueReads: 0, reads: 0, frames: 0, dts: {},
+    mode: startMode, flipped: false, framesNeededAtEnd: false, startsAfterLastRead: 0, maxStepAfterLastRead: 0, queueMax: 0, maxValueChangesPerRead: 0, batchedValueReads: 0, valueChanges: 0, reads: 0, frames: 0, dts: {},
     ops: { quadrant: 0, neutral: 0, onNeutralRadius: 0, rim: 0, beyond: 0, undo: 0, clear: 0 },
   };
   // Operations that changed the taps by value, and how many of them the reads so far have seen.
@@ -626,6 +628,7 @@ export function mixedStorm(id: DirectionId, startMode: Mode, seed: number, every
   o.converged = sameSince === null ? null : Math.max(0, sameSince - seenAt);
   o.framesNeededAtEnd = needsFrames(ledger);
   o.mode = mode;
+  o.valueChanges = valueChanges;
   return o;
 }
 
