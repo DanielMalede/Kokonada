@@ -128,3 +128,15 @@ describe.each(FACES.flatMap((face) => MODES.map((mode) => [face, mode] as [Face,
     expect(failures).toEqual([]);
   }, LONG);
 });
+
+// RA-24 (resilience T10, UI-197): the mixed loop's build-and-catch and its demand maximum on their own plant. A ledger that
+// admits three swaps at once overflows the frame on fixture-outer, where the rest lobes stay lit beside neutral
+// placements: more than NODE_SLOTS nodes, so the builder throws. Measured: of the 192 coarse storms (faces × modes ×
+// cadences × seeds) the plant overflows two, both on the light face (two rest lobes) at 50 ms, seed 12; so the control
+// runs every coarse seed there, and goes red if the generator stops reaching the overflow.
+it('planted: a ledger that admits three swaps makes the mixed storm overflow on fixture-outer: the builder throws, and the demand passes NODE_SLOTS', () => {
+  const three: Admission = { ...ADMISSION, entering: 3, leaving: 3, nodes: 99 };
+  const failures = MODES.flatMap((mode) => MIXED_GRIDS.coarse.seeds.flatMap((seed) =>
+    mixedFailures(`three swaps, light ${mode} seed ${seed}`, mixedStorm(FIXTURE_OUTER, mode, seed, 50, deps(FIXTURE_OUTER, 'light'), { limits: three }))));
+  expect([has(failures, 'the builder threw'), has(failures, 'demand above NODE_SLOTS')]).toEqual([true, true]);
+}, LONG);
