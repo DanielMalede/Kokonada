@@ -77,9 +77,21 @@ jest.mock('react-native-reanimated', () => {
 });
 const reanimated = require('react-native-reanimated') as { __frame(dt: number): void; __active(): number };
 
+// FieldFallback records its picture through Skia on the JS thread: here every Skia call is taken and draws nothing, so
+// its real model runs on FieldView's real props. Its pixels are held in real Skia (FieldFallback.skia.test.tsx).
 jest.mock('@shopify/react-native-skia', () => {
   const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
-  return { Canvas: Stub, Image: () => null, FilterMode: { Nearest: 0, Linear: 1 }, MipmapMode: { None: 0, Nearest: 1, Linear: 2 }, Skia: {} };
+  const inert: unknown = new Proxy(function inert() {}, { get: () => inert, apply: () => inert });
+  return {
+    Canvas: Stub,
+    Image: () => null,
+    Picture: () => null,
+    FilterMode: { Nearest: 0, Linear: 1 },
+    MipmapMode: { None: 0, Nearest: 1, Linear: 2 },
+    ClipOp: { Difference: 0, Intersect: 1 },
+    TileMode: { Clamp: 0, Repeat: 1, Mirror: 2, Decal: 3 },
+    Skia: inert,
+  };
 });
 
 // The effect: ready, or (per test) the fallback effect.ts gives when the shader cannot draw.
@@ -299,6 +311,26 @@ describe('FieldFallback when the field cannot draw (architect T5 r1 §5)', () =>
     expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
     frames(5);
     expect(counts.build).toBe(0);
+  });
+
+  // T13 (the designer's Q2, Q5; UI-204): the fallback draws from the props themselves: the newest tap that carries a lobe,
+  // the layout as the root measured it (every quiet rect, no clamp to six) and each presence as given (never sanitised).
+  it('the fallback is given what it draws from: the direction, face, statics, taps, the measured layout, pxPerDp and the presence as given', () => {
+    const planted: FieldStatics = { ...STATICS, restLobes: { dark: Array.from({ length: 7 }, (_, i) => [0.1 * i - 0.3, 0.2] as const), light: STATICS.restLobes.light } };
+    const quietRects = Array.from({ length: 8 }, (_, i) => ({ x: 10 + 20 * i, y: 10, width: 12, height: 12 }));
+    const layout = { ...baseProps().layout, quietRects };
+    const quietPresence = [Number.NaN, 1, 0, 1, 1, 1, 1, 1];
+    const taps = [A, B];
+    const r = mount(baseProps({ statics: planted, taps, layout, quietPresence }));
+    frames(1);
+    const fallback = r.root.findByType(FieldFallback);
+    expect(fallback.props.direction).toBe(ID);
+    expect(fallback.props.face).toBe('dark');
+    expect(fallback.props.statics).toBe(planted);
+    expect(fallback.props.taps).toBe(taps);
+    expect(fallback.props.layout).toBe(layout);
+    expect(fallback.props.pxPerDp).toBe(2.625);
+    expect(fallback.props.quietPresence).toBe(quietPresence);
   });
 });
 
