@@ -74,6 +74,7 @@ describe('the fixture directions are Abyss plus their declared overrides, and no
 // Pin (a): the generated token modules are mocked only by the named files: the fixture files, which
 // mock both with the fixture factory, and one older mock, with its reason.
 const FIXTURE_MOCKS = [
+  'src/design/v2/field/__tests__/fallbackModel.test.ts',
   'src/design/v2/field/__tests__/fieldScenes.skia.test.ts',
   'src/design/v2/field/__tests__/fieldShader.skia.test.ts',
   'src/design/v2/field/__tests__/fixturePaths.skia.test.ts',
