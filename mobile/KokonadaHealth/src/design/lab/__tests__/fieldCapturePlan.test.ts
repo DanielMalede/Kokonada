@@ -2,6 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { validatePlan } from '../../../../scripts/lab/capture.mjs';
+import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import { FIELD_SCENES } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
@@ -48,6 +49,7 @@ describe('the v1 field capture plan', () => {
     const fieldIds = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field').map((s) => s.id);
     expect(fieldIds.filter((id) => !fixed.some((s) => s.scene === id))).toEqual([]);
     for (const shot of fixed) {
+      expect(shot.args.t).toBe(String(DIRECTIONS.abyss.field.stillTime)); // the hero's S1: a fixed clock at t*, the still's own time
       expect(shot.repeat).toBe(2);
       expect(shot.device.night).toBe(FIELD_SCENES[shot.scene].face === 'dark' ? 'yes' : 'no');
       expect([shot.device.fontScale, shot.device.animatorScale, shot.device.powerSave]).toEqual([1, 1, false]);
