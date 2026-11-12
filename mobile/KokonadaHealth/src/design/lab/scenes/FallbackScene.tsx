@@ -12,8 +12,8 @@ import React, { useMemo } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { FieldFallback } from '../../v2/field/FieldFallback';
 import { FIELD_STATICS, fieldSceneLayout, sceneSpec } from '../fieldScenes';
+import type { LabParams } from '../params';
 import { Probe } from '../probe/Probe';
-import type { SceneProps } from '../scenes';
 import { useMeasuredView } from './useMeasuredView';
 
 export const FALLBACK_SCENE_PROBES = ['stage'] as const;
@@ -21,7 +21,8 @@ export const FALLBACK_SCENE_PROBES = ['stage'] as const;
 /** Why the field is not drawn, for the lab's manifest (never reported anywhere, REG-066). */
 const REASON = 'the lab fallback scene: FieldFallback mounted directly';
 
-export function FallbackScene({ params }: SceneProps) {
+/** A lab scene's props, of which it reads only the launch's params: it never imports scenes.ts, so its closure never reaches FieldView. */
+export function FallbackScene({ params }: { readonly params: LabParams }) {
   const spec = sceneSpec(params.scene, 'fallback');
   const { size, onLayout } = useMeasuredView();
   const layout = useMemo(

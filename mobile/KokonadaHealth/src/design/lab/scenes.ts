@@ -4,7 +4,10 @@
 
 import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
+import { FIELD_SCENES } from './fieldScenes';
 import type { LabParams } from './params';
+import { FALLBACK_SCENE_PROBES, FallbackScene } from './scenes/FallbackScene';
+import { FIELD_SCENE_PROBES, FieldScene } from './scenes/FieldScene';
 import { SMOKE_PERIOD_MS, SMOKE_PROBES, SmokeScene } from './scenes/SmokeScene';
 
 export type SceneProps = {
@@ -21,6 +24,13 @@ export type Scene = {
   Component: ComponentType<SceneProps>;
 };
 
+// The field scenes (T14, fieldScenes.ts): FieldView for a field scene, FieldFallback for a fallback scene, each on the
+// field's master period.
+const fieldScenes: Record<string, Scene> = Object.fromEntries(Object.values(FIELD_SCENES).map((s) => [s.id, s.kind === 'field'
+  ? { periodMs: s.periodMs, probes: FIELD_SCENE_PROBES, Component: FieldScene }
+  : { periodMs: s.periodMs, probes: FALLBACK_SCENE_PROBES, Component: FallbackScene }]));
+
 export const SCENES: Readonly<Record<string, Scene>> = {
   smoke: { periodMs: SMOKE_PERIOD_MS, probes: SMOKE_PROBES, Component: SmokeScene },
+  ...fieldScenes,
 };
