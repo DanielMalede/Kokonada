@@ -8,7 +8,7 @@ import { importClosure } from '../../../../scripts/lab/importGraph.mjs';
 import { recordFieldFallback } from '../../v2/field/fallbackDraw';
 import { fallbackPlan } from '../../v2/field/fallbackModel';
 import { heroLayout } from '../../v2/field/fallbackScenes';
-import { FieldFallback } from '../../v2/field/FieldFallback';
+import { FieldFallback, type FieldFallbackProps } from '../../v2/field/FieldFallback';
 import { FIELD_SCENES, FIELD_STATICS } from '../fieldScenes';
 import { ProbeRegistry } from '../probe/Probe';
 import type { LabParams } from '../params';
@@ -39,7 +39,7 @@ function mount(scene: string) {
   act(() => {
     r = ReactTestRenderer.create(
       <ProbeRegistry onMeasure={() => {}}>
-        <FallbackScene clock={{ t: { value: 0 } } as never} t={0} params={paramsOf(scene)} />
+        <FallbackScene params={paramsOf(scene)} />
       </ProbeRegistry>,
     );
   });
@@ -101,7 +101,7 @@ describe('a lab fallback scene: FieldFallback, mounted directly', () => {
     const shown = (id: string) => {
       const r = mount(id);
       layoutAs(r);
-      const props = r.root.findByType(FieldFallback).props;
+      const props = r.root.findByType(FieldFallback).props as FieldFallbackProps;
       const px = play(r.root.findByType(Picture).props.picture, w, h, k);
       const planned = play(recordFieldFallback({ Skia, ClipOp, TileMode }, fallbackPlan(props), W, H), w, h, k);
       act(() => r.unmount());
