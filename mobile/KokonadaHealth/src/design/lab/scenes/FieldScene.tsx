@@ -12,35 +12,19 @@
 //   · The stage is the one probe, rendered before and after layout alike. No React Native View paints a colour: the
 //     field draws its own ground.
 
-import React, { useCallback, useMemo, useState } from 'react';
-import { PixelRatio, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
+import React, { useMemo } from 'react';
+import { PixelRatio, StyleSheet, View } from 'react-native';
 import { FieldView } from '../../v2/field/FieldView';
-import { FIELD_SCENES, FIELD_STATICS, fieldSceneLayout, type FieldSceneSpec } from '../fieldScenes';
+import { FIELD_STATICS, fieldSceneLayout, sceneSpec } from '../fieldScenes';
 import { Probe } from '../probe/Probe';
 import type { SceneProps } from '../scenes';
+import { useMeasuredView } from './useMeasuredView';
 
 export const FIELD_SCENE_PROBES = ['stage'] as const;
 
 const STRESS = 0;
 const CONFIDENCE = 1;
 const GENESIS = false;
-
-/** The scene's spec, by the launch's id: a lab scene id that is not in the catalogue is a programming error. */
-export function sceneSpec(id: string, kind: FieldSceneSpec['kind']): FieldSceneSpec {
-  const spec = Object.prototype.hasOwnProperty.call(FIELD_SCENES, id) ? FIELD_SCENES[id] : undefined;
-  if (spec === undefined || spec.kind !== kind) throw new Error(`"${id}" is not a lab ${kind} scene`);
-  return spec;
-}
-
-/** The measured size of the scene's view in dp, or null until it has one. */
-export function useMeasuredView() {
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  const onLayout = useCallback((e: LayoutChangeEvent) => {
-    const { width, height } = e.nativeEvent.layout;
-    setSize(width > 0 && height > 0 ? { width, height } : null);
-  }, []);
-  return { size, onLayout };
-}
 
 export function FieldScene({ clock, params }: SceneProps) {
   const spec = sceneSpec(params.scene, 'field');

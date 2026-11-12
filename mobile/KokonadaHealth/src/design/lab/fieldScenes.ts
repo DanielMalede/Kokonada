@@ -82,6 +82,13 @@ export function fieldSceneCatalogue(specs: readonly FieldSceneSpec[]): Readonly<
   return out;
 }
 
+/** A launch's scene, by id and kind: an id that is not a lab scene of that kind is a programming error. */
+export function sceneSpec(id: string, kind: FieldSceneSpec['kind']): FieldSceneSpec {
+  const spec = Object.prototype.hasOwnProperty.call(FIELD_SCENES, id) ? FIELD_SCENES[id] : undefined;
+  if (spec === undefined || spec.kind !== kind) throw new Error(`"${id}" is not a lab ${kind} scene`);
+  return spec;
+}
+
 function abyssSpecs(): FieldSceneSpec[] {
   const periodMs = BASE.field.clock.T;
   const field = FIELD_FACES.flatMap((face) => HERO_SCENES.flatMap((scene) => FIELD_TIERS.map((tier): FieldSceneSpec => ({
