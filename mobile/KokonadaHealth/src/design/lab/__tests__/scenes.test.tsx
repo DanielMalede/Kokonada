@@ -2,6 +2,8 @@ import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // MB-085. READY waits for every probe a scene DECLARES. A scene that renders fewer would stall
 // READY forever, and one that renders more would be refused at runtime, so the declaration and

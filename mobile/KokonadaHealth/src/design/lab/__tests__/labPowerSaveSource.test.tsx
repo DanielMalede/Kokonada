@@ -8,6 +8,8 @@ import type { PowerSaveSource, ReduceMotionSource } from '../../v2/motion/ports'
 import { useMotionPolicy, type MotionTier } from '../../v2/motion/useMotionPolicy';
 import { createLabPowerSaveSource, useLabPowerSaveSource } from '../adapters/labPowerSaveSource';
 import { LAB_EVENTS, LAB_PROPS, type LabEventSource } from '../LabRoot';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // MB-087's last part (F-9 A): battery saver in the lab comes from the activity, which reads
 // PowerManager and passes the state at launch (LAB_PROPS.powerSave) and on every change (the

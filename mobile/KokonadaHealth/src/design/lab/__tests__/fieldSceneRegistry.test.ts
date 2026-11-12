@@ -3,6 +3,8 @@ import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
 import { FallbackScene } from '../scenes/FallbackScene';
 import { FieldScene } from '../scenes/FieldScene';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // T14, S4: every field and fallback scene of the catalogue is a lab scene a launch can name, drawn by its own component,
 // with its period and its one probe; the launch parser takes each id and holds its clocks within [0, T).

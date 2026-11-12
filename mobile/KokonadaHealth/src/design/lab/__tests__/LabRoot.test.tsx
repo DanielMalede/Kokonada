@@ -6,6 +6,8 @@ import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
 import type { Scene } from '../scenes';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // MB-085. The lab runtime end to end, on stateful fakes with real semantics: a frame source that
 // draws one frame per tick, an event emitter standing in for the activity's device events, and host
