@@ -1,10 +1,7 @@
-/// <reference types="node" />
-import * as path from 'path';
 import React from 'react';
 import { PixelRatio } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { AlphaType, ColorType, Picture, Skia, ClipOp, TileMode, type SkPicture } from '@shopify/react-native-skia';
-import { importClosure } from '../../../../scripts/lab/importGraph.mjs';
 import { recordFieldFallback } from '../../v2/field/fallbackDraw';
 import { fallbackPlan } from '../../v2/field/fallbackModel';
 import { heroLayout } from '../../v2/field/fallbackScenes';
@@ -16,7 +13,9 @@ import { FallbackScene } from '../scenes/FallbackScene';
 
 // T14, S3: a lab fallback scene draws FieldFallback directly, never FieldView (a forced shader failure is not needed to see
 // the fallback), on T13's hero layout (UI-207), once its view is measured; the stage is its one probe. In real Skia
-// (CanvasKit): the picture it shows is its scene's plan, byte for byte, and not a flat ground.
+// (CanvasKit): the picture it shows is its scene's plan, byte for byte, and not a flat ground. That its import closure never
+// reaches FieldView is checked in the unit project (fieldSceneRegistry.test.ts), where a FieldView import cannot stop the
+// suite from loading.
 
 // As in FieldFallback.skia.test.tsx: CanvasKit's gradient factory reads the colours with instanceof checks that arrays
 // made in the test's realm fail; at CanvasKit's own door only, the colours are re-homed into CanvasKit's realm unchanged.
@@ -28,7 +27,6 @@ beforeAll(() => {
     make(centre, radius, Array.isArray(colours) ? Home.from((colours as Float32Array[]).flatMap((c) => Array.from(c))) : colours, ...rest);
 });
 
-const APP = path.resolve(__dirname, '../../../..');
 const W = 411;
 const H = 914;
 const FALLBACK_IDS = Object.values(FIELD_SCENES).filter((s) => s.kind === 'fallback').map((s) => s.id);
@@ -64,13 +62,6 @@ function play(picture: SkPicture, w: number, h: number, k: number): Uint8Array {
 }
 
 describe('a lab fallback scene: FieldFallback, mounted directly', () => {
-  it('reaches FieldFallback and never FieldView or FieldSurface (its import closure)', () => {
-    const closure = importClosure(path.join(APP, 'src/design/lab/scenes/FallbackScene.tsx')).map((f: string) => path.relative(APP, f).split(path.sep).join('/'));
-    expect(closure).toContain('src/design/v2/field/FieldFallback.tsx');
-    expect(closure).not.toContain('src/design/v2/field/FieldView.tsx');
-    expect(closure).not.toContain('src/design/v2/field/FieldSurface.tsx');
-  });
-
   it('before layout: the stage probe and nothing drawn (UI-175 at this root)', () => {
     const r = mount(FALLBACK_IDS[0]);
     expect(probes(r)).toEqual(['probe-stage']);

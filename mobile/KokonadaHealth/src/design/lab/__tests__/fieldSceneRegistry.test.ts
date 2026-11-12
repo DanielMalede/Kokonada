@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import * as path from 'path';
+import { importClosure } from '../../../../scripts/lab/importGraph.mjs';
 import { FIELD_SCENES } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
@@ -24,6 +27,22 @@ describe('the field scenes are registered in SCENES', () => {
     expect(scene.Component).toBe(spec.kind === 'field' ? FieldScene : FallbackScene);
     expect(scene.periodMs).toBe(spec.periodMs);
     expect(scene.probes).toEqual(['stage']);
+  });
+});
+
+describe('what each scene component reaches (the import scan of the lab exclusion checks)', () => {
+  const APP = path.resolve(__dirname, '../../../..');
+  const closureOf = (file: string): string[] => importClosure(path.join(APP, file)).map((f: string) => path.relative(APP, f).split(path.sep).join('/'));
+
+  it('FallbackScene reaches FieldFallback and never FieldView or FieldSurface: it mounts the fallback directly', () => {
+    const closure = closureOf('src/design/lab/scenes/FallbackScene.tsx');
+    expect(closure).toContain('src/design/v2/field/FieldFallback.tsx');
+    expect(closure).not.toContain('src/design/v2/field/FieldView.tsx');
+    expect(closure).not.toContain('src/design/v2/field/FieldSurface.tsx');
+  });
+
+  it('FieldScene reaches FieldView (the scan sees the edge it is asked about)', () => {
+    expect(closureOf('src/design/lab/scenes/FieldScene.tsx')).toContain('src/design/v2/field/FieldView.tsx');
   });
 });
 
