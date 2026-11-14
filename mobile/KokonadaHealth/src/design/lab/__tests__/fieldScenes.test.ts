@@ -1,4 +1,5 @@
 import { validatePlan } from '../../../../scripts/lab/capture.mjs';
+import { app as LAB_APP } from '../../../../scripts/lab/capture-plans/v1-field.json';
 import { QUIET_SLOTS } from '../../v2/field/fieldLaw';
 import { PHONE, fallbackScenes, heroLayout } from '../../v2/field/fallbackScenes';
 import type { FieldLayout, LayoutRect } from '../../v2/field/fieldDriver';
@@ -57,7 +58,7 @@ describe('the catalogue: Abyss × {dark, light} × the hero scenes × {full, low
     expect(new Set(ids).size).toBe(ids.length);
     expect(Object.keys(FIELD_SCENES).sort()).toEqual([...ids].sort());
     const plan = (scenes: string[]) => ({
-      id: 'ids', app: { package: 'com.kokonadahealth.lab', activity: 'com.kokonadahealth.lab.DesignLabActivity' }, readyTimeoutMs: 30000, settleMs: 0,
+      id: 'ids', app: LAB_APP, readyTimeoutMs: 30000, settleMs: 0,
       shots: scenes.map((scene, i) => ({ id: `s-${i}`, repeat: 1, scene, args: { clock: 'fixed', t: '0' }, device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'] })),
     });
     expect(validatePlan(plan(ids))).toEqual([]);
