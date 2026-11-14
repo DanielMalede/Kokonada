@@ -56,9 +56,10 @@ describe('the v1 field capture plan', () => {
     }
   });
 
-  it('draws the fallback scenes of the hero scenes, on both faces', () => {
+  // The hero scenes, and the two clip-edge scenes (UI-224: one.C.right and one.J.top, where RA-29 and RA-30 would show).
+  it('draws the fallback scenes of the hero scenes and the clip-edge scenes, on both faces', () => {
     for (const face of ['dark', 'light']) {
-      for (const scene of ['rest', 'one.J', 'three', 'one.I']) {
+      for (const scene of ['rest', 'one.J', 'three', 'one.I', 'one.C.right', 'one.J.top']) {
         expect(plan.shots.some((s) => s.scene === `fallback.abyss.${face}.${scene}`)).toBe(true);
       }
     }
