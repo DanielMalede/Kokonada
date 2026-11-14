@@ -17,6 +17,7 @@ import type { ProbeRect } from './probe/geometry';
 import { createCommandGate, createReadyGate, formatLine, parseCommand, type LineKind } from './protocol';
 import { SCENES, type Scene } from './scenes';
 import { LAB_SENTINEL } from './sentinel';
+import { ShaderReportContext, type ShaderReport, type ShaderStatus } from './shaderReport';
 
 /** The launch options DesignLabActivity passes as initial props (nativeContract.test.ts pins them). */
 export const LAB_PROPS = { args: 'labArgs', nonStringKeys: 'nonStringKeys', powerSave: 'powerSave' } as const;
@@ -68,6 +69,10 @@ type LabRootProps = {
   powerSave?: boolean;
   deps?: Partial<LabDeps>;
 };
+
+/** A reason short enough that READY stays one logcat line (a shader compile error can be long). */
+const MAX_REASON = 300;
+const clip = (reason: string | null) => (reason === null || reason.length <= MAX_REASON ? reason : `${reason.slice(0, MAX_REASON - 1)}…`);
 
 const timings = (scenes: Readonly<Record<string, Scene>>): Record<string, SceneTiming> =>
   Object.fromEntries(Object.entries(scenes).map(([id, s]) => [id, { periodMs: s.periodMs }]));
@@ -137,6 +142,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // What READY reports is what was committed last.
   const latest = useRef({ seq: step.seq, t: step.t, powerSave });
   latest.current = { seq: step.seq, t: step.t, powerSave };
+  // The surface the scene says drew it (UI-223), as it last reported, and the status the last READY sent (undefined
+  // until one is sent).
+  const shader = useRef<ShaderReport | null>(null);
+  const shown = useRef<ShaderStatus | null | undefined>(undefined);
 
   const say = useCallback((kind: LineKind, payload: unknown) => {
     let line: string;
@@ -165,12 +174,14 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
           // compares fontScale with the scale it set, only to confirm the setting took effect.
           isRTL: I18nManager.isRTL, fontScale: PixelRatio.getFontScale(),
           probes, sentinel: LAB_SENTINEL,
+          shaderStatus: shader.current?.status ?? null, shaderReason: clip(shader.current?.reason ?? null),
         });
       } catch (e) {
         fail((e as Error).message);
         return;
       }
       deps.emit(line);
+      shown.current = shader.current?.status ?? null;
       commands.settle();
     },
   }));
@@ -182,6 +193,16 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     failed.current = true;
     say('ERROR', { run: params.run, errors: [message] });
   }, [say, params.run]);
+
+  // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
+  // ERROR, so no capture of this run passes as the surface READY named.
+  const reportShader = useCallback((report: ShaderReport) => {
+    shader.current = report;
+    const said = shown.current;
+    if (said !== undefined && said !== report.status) {
+      fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
+    }
+  }, [fail]);
 
   // Frames are requested one at a time, only while READY is waiting for them. A frame that lands
   // after an ERROR, or after unmount, counts for nothing and asks for no other.
@@ -268,7 +289,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   const SceneComponent = scene.Component;
   return (
     <ProbeRegistry onMeasure={onMeasure}>
-      <SceneComponent clock={clock} t={step.t} params={params} />
+      <ShaderReportContext.Provider value={reportShader}>
+        <SceneComponent clock={clock} t={step.t} params={params} />
+      </ShaderReportContext.Provider>
     </ProbeRegistry>
   );
 }

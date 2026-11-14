@@ -6,14 +6,15 @@
 // 24 dp status bar, a 16 dp gesture bar, the AI line at three ui.legal lines, the CTA at most 288 dp wide, left to right,
 // no list-entry chip) laid over the lab's measured view, until B6 measures the real hero (UI-207). It measures, and
 // mounts FieldFallback only once its view has a size (UI-175). The stage is its one probe; no React Native View paints a
-// colour (UI-204): FieldFallback draws the ground.
+// colour (UI-204): FieldFallback draws the ground. It says it is the fallback by design (`fallback-scene`, UI-223).
 
-import React, { useMemo } from 'react';
+import React, { useContext, useLayoutEffect, useMemo } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { FieldFallback } from '../../v2/field/FieldFallback';
 import { FIELD_STATICS, fieldSceneLayout, sceneSpec } from '../fieldScenes';
 import type { LabParams } from '../params';
 import { Probe } from '../probe/Probe';
+import { ShaderReportContext } from '../shaderReport';
 import { useMeasuredView } from './useMeasuredView';
 
 export const FALLBACK_SCENE_PROBES = ['stage'] as const;
@@ -29,6 +30,10 @@ export function FallbackScene({ params }: { readonly params: LabParams }) {
     () => (size === null ? null : fieldSceneLayout(spec, size.width, size.height, PixelRatio.getFontScale())),
     [spec, size],
   );
+  const report = useContext(ShaderReportContext);
+  useLayoutEffect(() => {
+    report?.({ status: 'fallback-scene', reason: REASON });
+  }, [report]);
   return (
     <Probe id="stage" style={styles.stage}>
       <View testID="fallback-scene.view" style={styles.stage} onLayout={onLayout}>

@@ -6,13 +6,15 @@
 // opaque ring (fallbackModel.ts: what; fallbackDraw.ts: how). No React Native View paints a colour (UI-204).
 //
 // It redraws at once on a change of its props, and never crossfades (Q5): a crossfade of two opaque gradients would be
-// an alpha mix. Nothing here is reported anywhere (REG-066); `reason` is for the lab's manifest.
+// an alpha mix. Nothing here is reported anywhere (REG-066): `reason` goes only to the nearest FieldFallbackReport
+// listener (fallbackReport.ts), which the app never mounts and the lab's field scene does, for its manifest (UI-223).
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useContext, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Canvas, ClipOp, Picture, Skia, TileMode } from '@shopify/react-native-skia';
 import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import { recordFieldFallback, type FallbackSkia } from './fallbackDraw.ts';
 import { fallbackPlan } from './fallbackModel.ts';
+import { FieldFallbackReport } from './fallbackReport.ts';
 import type { FieldLayout } from './fieldDriver.ts';
 import type { FieldStatics } from './fieldFrame.ts';
 import type { Tap } from './placementLedger.ts';
@@ -35,7 +37,12 @@ export interface FieldFallbackProps {
 
 const SKIA: FallbackSkia = { Skia, ClipOp, TileMode };
 
-export function FieldFallback({ direction, face, statics, taps, layout, pxPerDp, quietPresence }: FieldFallbackProps) {
+export function FieldFallback({ direction, face, statics, taps, layout, pxPerDp, quietPresence, reason }: FieldFallbackProps) {
+  // Why it is drawn, to the listener if there is one, before the frame is shown (UI-223).
+  const report = useContext(FieldFallbackReport);
+  useLayoutEffect(() => {
+    report?.(reason);
+  }, [report, reason]);
   const picture = useMemo(
     () => recordFieldFallback(SKIA, fallbackPlan({ direction, face, statics, taps, layout, pxPerDp, quietPresence }), layout.width, layout.height),
     [direction, face, statics, taps, layout, pxPerDp, quietPresence],

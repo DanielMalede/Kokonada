@@ -124,6 +124,25 @@ export function checkBuild({ appRoot, apkPath, git }) {
 
 // ---- one shot ---------------------------------------------------------------------------
 
+// UI-223 (RA-36): the surface a shot must have been drawn by, by its scene's prefix. The lab's READY says which surface
+// drew the scene (src/design/lab/shaderReport.ts): a field.* shot drawn by anything but the field shader (an effect that
+// did not compile, a builder throw, or a READY that names no surface) is a picture of the fallback, never evidence of the
+// field; a fallback.* shot is FieldFallback mounted by design. A scene with no rule (smoke) draws no field.
+const SURFACES = [
+  { prefix: 'field.', status: 'ready', drawn: 'by the field shader, never its fallback' },
+  { prefix: 'fallback.', status: 'fallback-scene', drawn: 'by the lab fallback scene' },
+];
+
+/** Why READY's surface is not the one the shot's scene must be drawn by, or null. */
+export function surfaceProblem(scene, ready) {
+  const rule = SURFACES.find((r) => scene.startsWith(r.prefix));
+  if (!rule) return null;
+  const status = ready.shaderStatus ?? null;
+  if (status === rule.status) return null;
+  const why = typeof ready.shaderReason === 'string' && ready.shaderReason.length > 0 ? ` (${ready.shaderReason})` : '';
+  return `READY says shaderStatus ${JSON.stringify(status)}${why}: a ${rule.prefix}* shot must be drawn ${rule.drawn} (UI-223)`;
+}
+
 async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, sleep, now, signal }) {
   const observed = await applyShot(adb, shot.device);
   await adb.shell(['logcat', '-c']);
@@ -142,6 +161,8 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
     const readyAt = now();
     const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0, fontScale: shot.device.fontScale });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+    const surface = surfaceProblem(shot.scene, payload);
+    if (surface) throw new Error(`${shot.id}: ${surface}`);
     // The lab hears battery saver through an event that can be lost before React is ready, so its
     // READY is checked against the device itself, here and again after the grabs.
     const powerSaveAtReady = await readPowerSave(adb);

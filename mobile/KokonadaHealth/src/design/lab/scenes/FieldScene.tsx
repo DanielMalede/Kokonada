@@ -11,13 +11,20 @@
 //   · The stress, the confidence and genesis are the dev preview's (0, 1, off): the hero scenes name no other.
 //   · The stage is the one probe, rendered before and after layout alike. No React Native View paints a colour: the
 //     field draws its own ground.
+//   · It says which surface drew it (UI-223): `ready` while the process's one field effect (memoised in effect.ts) is
+//     ready, else `fallback` with the effect's reason, and `fallback` with FieldFallback's reason once FieldView has
+//     switched to it (a builder throw on the UI thread). It listens through FieldFallbackReport: FieldView itself takes
+//     no lab-only knob.
 
-import React, { useMemo } from 'react';
+import React, { useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
+import { fieldEffect } from '../../v2/field/effect';
+import { FieldFallbackReport } from '../../v2/field/fallbackReport';
 import { FieldView } from '../../v2/field/FieldView';
 import { FIELD_STATICS, fieldSceneLayout, sceneSpec } from '../fieldScenes';
 import { Probe } from '../probe/Probe';
 import type { SceneProps } from '../scenes';
+import { ShaderReportContext } from '../shaderReport';
 import { useMeasuredView } from './useMeasuredView';
 
 export const FIELD_SCENE_PROBES = ['stage'] as const;
@@ -33,7 +40,15 @@ export function FieldScene({ clock, params }: SceneProps) {
     () => (size === null ? null : fieldSceneLayout(spec, size.width, size.height, PixelRatio.getFontScale())),
     [spec, size],
   );
-  return (
+  const report = useContext(ShaderReportContext);
+  const [effect] = useState(fieldEffect);
+  const [fellBack, setFellBack] = useState<string | null>(null);
+  const status = fellBack !== null ? 'fallback' : effect.status;
+  const reason = fellBack ?? (effect.status === 'fallback' ? effect.reason : null);
+  useLayoutEffect(() => {
+    report?.({ status, reason });
+  }, [report, status, reason]);
+  const stage = (
     <Probe id="stage" style={styles.stage}>
       <View testID="field-scene.view" style={styles.stage} onLayout={onLayout}>
         {layout !== null && spec.tier !== null && (
@@ -55,6 +70,7 @@ export function FieldScene({ clock, params }: SceneProps) {
       </View>
     </Probe>
   );
+  return <FieldFallbackReport.Provider value={setFellBack}>{stage}</FieldFallbackReport.Provider>;
 }
 
 const styles = StyleSheet.create({
