@@ -613,6 +613,94 @@ describe('FieldFallback: one sRGB canvas holding one picture, no React Native Vi
   });
 });
 
+describe('RA-32 (UI-213): degenerate input draws no field and never throws (Q2: malformed input means no field)', () => {
+  const layout = hero(ABYSS);
+  const k = PHONE.pxPerDp;
+  const w = round(layout.width * k);
+  const h = round(layout.height * k);
+  const taps = tapsOf('one.J');
+  const statics = staticsOf(ABYSS);
+  type Input = Parameters<typeof fallbackPlan>[0];
+  const input = (over: Partial<Input> = {}): Input => ({ direction: ABYSS, face: 'dark', statics, taps, layout, pxPerDp: k, ...over });
+  /** The plan and its picture as FieldFallback makes them, played as RN Skia's Canvas plays it at the device's density. */
+  const shown = (i: Input) => {
+    const plan = fallbackPlan(i);
+    const picture = recordFieldFallback(SK, plan, i.layout.width, i.layout.height);
+    const px = i.layout.width > 0 && i.layout.height > 0 ? play(picture, w, h, k) : null;
+    picture.dispose();
+    return { plan, px };
+  };
+  /** The same scene with no field: the ground, the face material and the ring only. */
+  const plateOnly = () => drawPlan({ ...fallbackPlan(input()), field: null }, layout).px;
+  const face = rgbOf(DIRECTIONS[ABYSS].color.dark.plate.face.hex);
+
+  it.each([['0', 0], ['NaN', Number.NaN], ['−1', -1], ['+Infinity', Number.POSITIVE_INFINITY]] as const)('pxPerDp %s: no field; the ground, the face and the ring drawn in dp (to the pixel off their edges)', (_label, bad) => {
+    let got!: ReturnType<typeof shown>;
+    expect(() => {
+      got = shown(input({ pxPerDp: bad }));
+    }).not.toThrow();
+    expect(got.plan.field).toBeNull();
+    expect([Number.isFinite(got.plan.size.width), Number.isFinite(got.plan.size.height)]).toEqual([true, true]);
+    const want = plateOnly();
+    const R0 = layout.radius * k;
+    const edges = [got.plan.face.radius * k, got.plan.ring.inner * k, R0];
+    let compared = 0;
+    const off: string[] = [];
+    const [cx, cy] = [layout.centre[0] * k, layout.centre[1] * k];
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const r = dist(x, y, [cx, cy]);
+        if (edges.some((e) => abs(r - e) <= 2)) continue;
+        compared++;
+        const i = 4 * (y * w + x);
+        if ((got.px![i] !== want[i] || got.px![i + 1] !== want[i + 1] || got.px![i + 2] !== want[i + 2]) && off.length < 3) off.push(`(${x}, ${y}) ${[got.px![i], got.px![i + 1], got.px![i + 2]].join(', ')}`);
+      }
+    }
+    expect(off).toEqual([]);
+    expect(compared).toBeGreaterThan(w * h * 0.9);
+    expect(at({ w, px: got.px! }, round(cx), round(cy))).toEqual(face);
+  });
+
+  it.each([['width', { width: 0 }], ['height', { height: 0 }], ['width and height', { width: 0, height: 0 }]] as const)('layout %s 0: no field, a finite canvas, and the recording does not throw (the view has no area: nothing shows)', (_label, size) => {
+    let got!: ReturnType<typeof shown>;
+    expect(() => {
+      got = shown(input({ layout: { ...layout, ...size } }));
+    }).not.toThrow();
+    expect(got.plan.field).toBeNull();
+    expect([Number.isFinite(got.plan.size.width), Number.isFinite(got.plan.size.height)]).toEqual([true, true]);
+  });
+
+  it.each([['one stop', { position: [0], weight: [1] }], ['no stops', { position: [], weight: [] }]] as const)('%s: no field (the device throws on fewer than two gradient colours); byte for byte the plate-only render', (_label, stops) => {
+    let got!: ReturnType<typeof shown>;
+    expect(() => {
+      got = shown(input({ statics: { ...statics, fallbackStops: stops } }));
+    }).not.toThrow();
+    expect(got.plan.field).toBeNull();
+    expect(Buffer.from(got.px!).equals(Buffer.from(plateOnly()))).toBe(true);
+  });
+
+  it('NaN tap coordinates: the field at the tap read as 0 there (the builder’s own rule), byte for byte', () => {
+    let got!: ReturnType<typeof shown>;
+    expect(() => {
+      got = shown(input({ taps: [{ x: Number.NaN, y: 0.3 }, { x: 0.4, y: Number.NaN }] }));
+    }).not.toThrow();
+    expect(got.plan.field).not.toBeNull();
+    expect(got.plan.field!.centre.every(Number.isFinite)).toBe(true);
+    const zeroed = shown(input({ taps: [{ x: 0, y: 0.3 }, { x: 0.4, y: 0 }] }));
+    expect(Buffer.from(got.px!).equals(Buffer.from(zeroed.px!))).toBe(true);
+    expect(Buffer.from(got.px!).equals(Buffer.from(plateOnly()))).toBe(false);
+  });
+
+  it('a presence list longer than the rects: the extra entries read nowhere, byte for byte the list of the rects’ length', () => {
+    const n = layout.quietRects!.length;
+    let got!: ReturnType<typeof shown>;
+    expect(() => {
+      got = shown(input({ quietPresence: Array.from({ length: n + 6 }, (_, i) => (i < n ? 1 : 0)) }));
+    }).not.toThrow();
+    expect(Buffer.from(got.px!).equals(Buffer.from(shown(input({ quietPresence: Array.from({ length: n }, () => 1) })).px!))).toBe(true);
+  });
+});
+
 describe('RA-31 (UI-206): the fallback frees what it records', () => {
   /** The types RN Skia's API declares disposable (SkJSIInstance); rects, points and rrects are value types there. */
   const DISPOSABLE = new Set(['Paint', 'Shader', 'Path', 'PathBuilder', 'PictureRecorder', 'Picture']);
