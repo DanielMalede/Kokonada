@@ -101,6 +101,8 @@ describe('READY', () => {
         mark: { dp: { x: 120, y: 320, width: 160, height: 160 }, px: { x: 120 * ratio, y: 320 * ratio, width: 160 * ratio, height: 160 * ratio } },
       },
       sentinel: LAB_SENTINEL,
+      // The smoke scene draws no field, so it names no surface (UI-223: a field scene names its own).
+      shaderStatus: null, shaderReason: null,
     }]);
     h.tick(10);
     expect(h.of('READY')).toHaveLength(1);

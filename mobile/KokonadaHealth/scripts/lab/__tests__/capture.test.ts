@@ -377,3 +377,65 @@ describe('the shipped smoke plan', () => {
     expect(validatePlan({ ...PLAN, shots: [{ ...PLAN.shots[0], device: { ...PLAN.shots[0].device, night: 'auto' } }] }).join()).toMatch(/night/);
   });
 });
+
+// UI-223 (RA-36): a field shot says which surface drew it. The lab's READY carries the field effect's status, and the
+// harness refuses, loudly and with the phone restored, a field.* shot that was not drawn by the field shader (a shader
+// that did not compile, a builder throw, or a READY that names no status), and a fallback.* shot that is not the fallback
+// scene by design. The status is kept in the manifest row.
+describe('UI-223: the surface that drew a field shot', () => {
+  const shotOf = (id: string, scene: string) => ({
+    id, repeat: 1, scene, args: { clock: 'fixed', t: '11000', frames: '3' },
+    device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'],
+  });
+  const FIELD = { ...PLAN, id: 'field', shots: [shotOf('field-dark-three', 'field.abyss.dark.three.full')] };
+  const FALLBACK = { ...PLAN, id: 'fallback', shots: [shotOf('fallback-dark-three', 'fallback.abyss.dark.three')] };
+  const saying = (w: ReturnType<typeof world>, status: Record<string, unknown>) => {
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, status));
+  };
+  const refused = async (w: ReturnType<typeof world>, plan: unknown, why: RegExp) => {
+    await expect(w.run({ plan })).rejects.toThrow(why);
+    expect(w.device.state()).toEqual(w.before);
+    const manifest = JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8'));
+    expect(manifest.outcome).toBe('failed');
+    expect(manifest.failure).toMatch(why);
+    expect(manifest.rows).toEqual([]);
+    expect(fs.readdirSync(w.outDir).filter((f) => f.endsWith('.png'))).toEqual([]);
+  };
+
+  it('a field shot drawn by the field shader passes, and its row says ready', async () => {
+    const w = world();
+    saying(w, { shaderStatus: 'ready', shaderReason: null });
+    const { manifest } = await w.run({ plan: FIELD });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.rows.map((r: { shaderStatus: unknown }) => r.shaderStatus)).toEqual(['ready']);
+  });
+
+  it.each([
+    ['the effect fell back (the shader did not compile)', { shaderStatus: 'fallback', shaderReason: 'the field shader did not compile' }, /field-dark-three: READY says shaderStatus "fallback" \(the field shader did not compile\)/],
+    ['the builder threw on the UI thread', { shaderStatus: 'fallback', shaderReason: 'RangeError: over-demand' }, /field-dark-three: READY says shaderStatus "fallback" \(RangeError: over-demand\)/],
+    ['READY names no status', {}, /field-dark-three: READY says shaderStatus null/],
+    ['READY names the fallback scene', { shaderStatus: 'fallback-scene', shaderReason: 'x' }, /field-dark-three: READY says shaderStatus "fallback-scene"/],
+  ])('a field shot whose READY says the field did not draw it is refused: %s', async (_label, status, why) => {
+    const w = world();
+    saying(w, status);
+    await refused(w, FIELD, why);
+  });
+
+  it('a fallback shot is the fallback scene by design: it passes saying so, and is refused saying anything else', async () => {
+    const ok = world();
+    saying(ok, { shaderStatus: 'fallback-scene', shaderReason: 'the lab fallback scene' });
+    const { manifest } = await ok.run({ plan: FALLBACK });
+    expect(manifest.rows.map((r: { shaderStatus: unknown }) => r.shaderStatus)).toEqual(['fallback-scene']);
+    for (const status of [{ shaderStatus: 'ready' }, { shaderStatus: 'fallback' }, {}]) {
+      const w = world();
+      saying(w, status);
+      await refused(w, FALLBACK, /fallback-dark-three: READY says shaderStatus/);
+    }
+  });
+
+  it('a scene that draws no field (smoke) is held to nothing, and its row says null', async () => {
+    const w = world();
+    const { manifest } = await w.run();
+    expect(manifest.rows.map((r: { shaderStatus: unknown }) => r.shaderStatus)).toEqual([null, null, null]);
+  });
+});
