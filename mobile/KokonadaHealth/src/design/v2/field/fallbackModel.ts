@@ -311,13 +311,21 @@ function fallbackClip(region: 'face' | 'outside', size: { readonly width: number
   return rects;
 }
 
+/** Skia's largest surface side in px (RA-35): a canvas over it on either side draws no field and is drawn in dp. */
+export const MAX_CANVAS_PX = 16384;
+
+/** A finite side whose device px are over MAX_CANVAS_PX (a px size that is not finite is over too). */
+const overCanvas = (dp: number, k: number) => Number.isFinite(dp) && !(dp * k <= MAX_CANVAS_PX);
+
 /** Everything FieldFallback draws, from FieldView's props. */
 export function fallbackPlan(input: FallbackInput): FallbackPlan {
   const { direction, face, statics, taps, layout } = input;
   // Malformed input means no field (Q2; RA-32). A density that is not a finite positive number cannot place the clip on
   // device pixels, so the plan is drawn in dp (k = 1: RN Skia's canvas applies the density itself) with no field; a view
   // with no area, or a size that is not finite, has no pixel to keep either. Never an infinite canvas: the clip walks its rows.
-  const validK = Number.isFinite(input.pxPerDp) && input.pxPerDp > 0;
+  // A canvas over MAX_CANVAS_PX on either side is drawn as a bad density is (RA-35): Skia has no such surface, and its
+  // clip would walk every row on the JS thread.
+  const validK = Number.isFinite(input.pxPerDp) && input.pxPerDp > 0 && !overCanvas(layout.width, input.pxPerDp) && !overCanvas(layout.height, input.pxPerDp);
   const k = validK ? input.pxPerDp : 1;
   const sized = Number.isFinite(layout.width * k) && Number.isFinite(layout.height * k) && layout.width > 0 && layout.height > 0;
   const colours = DIRECTIONS[direction].color[face];
