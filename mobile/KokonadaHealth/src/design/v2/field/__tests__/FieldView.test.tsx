@@ -103,12 +103,14 @@ jest.mock('../effect.ts', () => ({
 }));
 
 // The real builder, every call counted.
-const counts = { build: 0 };
+const counts = { build: 0, tMs: [] as number[] };
 jest.mock('../fieldFrame.ts', () => {
   const actual = jest.requireActual('../fieldFrame.ts');
-  return { ...actual, buildFieldFrame: (...args: unknown[]) => { counts.build += 1; return actual.buildFieldFrame(...args); } };
+  return { ...actual, buildFieldFrame: (...args: unknown[]) => { counts.build += 1; counts.tMs.push((args[0] as { tMs: number }).tMs); return actual.buildFieldFrame(...args); } };
 });
 
+import { useRealtimeFieldClock } from '../../clock/fieldClock.ts';
+import { BASE } from '../../tokens/tokens.generated.ts';
 import { FieldFallback } from '../FieldFallback.tsx';
 import { FieldSurface } from '../FieldSurface.tsx';
 import { FieldView, type FieldViewProps } from '../FieldView.tsx';
@@ -159,6 +161,7 @@ const uniformsOf = (r: ReactTestRenderer.ReactTestRenderer) => r.root.findByType
 
 beforeEach(() => {
   counts.build = 0;
+  counts.tMs = [];
   ui.runOnJS = 0;
   ui.deferred = null;
   effectState.status = 'ready';
@@ -478,5 +481,91 @@ describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
   it('planted: a worklet reading a ref is flagged; a property of the same name is not', () => {
     const tiny = "const seq = useRef(0);\nconst f = () => { 'worklet'; return seq.current + x.seq; };\n";
     expect(refsInWorklets(tiny)).toEqual({ refs: ['seq'], worklets: 1, offenders: ['seq at line 2'] });
+  });
+});
+
+// UI-171, the owner's ruling of 2026-11-14: the frame callback skips frames to the tier's cap (field.tiers.<tier>.fpsCap:
+// full 120, low 60), and a skipped frame does no builder work. The field clock runs on its own frame callback, so the
+// motion's speed does not depend on the cap; the ledger takes each drawn frame's own timestamp, so a skipped frame's
+// time is never lost. The first frame after a mount, a tier change or a wake is always drawn.
+describe('the frame cap (UI-171)', () => {
+  const HZ120 = 1000 / 120;
+
+  it('120 Hz: full builds on every frame, low on every second one', () => {
+    mount(baseProps({ taps: [A] }));
+    frames(24, HZ120);
+    expect(counts.build).toBe(24);
+    for (const r of mounted.splice(0)) act(() => r.unmount());
+    counts.build = 0;
+    mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(24, HZ120);
+    expect(counts.build).toBe(12);
+  });
+
+  it('60 Hz: low builds on every frame', () => {
+    mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(30, 1000 / 60);
+    expect(counts.build).toBe(30);
+  });
+
+  it('the first frame after a tier change is drawn, though the old cadence would skip it', () => {
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    frames(1, HZ120);
+    expect(counts.build).toBe(2);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'full', taps: [A] })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(3);
+    frames(4, HZ120);
+    expect(counts.build).toBe(7);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A] })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(8);
+    frames(1, HZ120);
+    expect(counts.build).toBe(8);
+  });
+
+  it('the first frame after a wake (a taps change) is drawn, though the cadence would skip it', () => {
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A, B] })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(2);
+  });
+
+  // The real-time clock and FieldView on one display: after N seconds at 120 Hz, full and low draw the same field time
+  // and the same crossfade at a frame both draw.
+  function Live(props: FieldViewProps) {
+    const live = useRealtimeFieldClock(BASE.field.clock.T, true);
+    return <FieldView {...props} clock={live} />;
+  }
+  const liveRun = (tier: 'full' | 'low') => {
+    counts.tMs = [];
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { r = ReactTestRenderer.create(<Live {...baseProps({ tier, taps: [A] })} />); });
+    mounted.push(r);
+    frames(120, HZ120);
+    act(() => r.update(<Live {...baseProps({ tier, taps: [A, B] })} />));
+    // 37 frames: the last is one low draws too (the change's frame is drawn, then every second one)
+    frames(37, HZ120);
+    const out = { t: counts.tMs[counts.tMs.length - 1], fades: placementFades(uniformsOf(r)!), builds: counts.tMs.length };
+    for (const m of mounted.splice(0)) act(() => m.unmount());
+    return out;
+  };
+
+  it('after 1.3 s at 120 Hz, full and low stand at the same field time and the same crossfade', () => {
+    const full = liveRun('full');
+    const low = liveRun('low');
+    expect(full.builds).toBe(157);
+    expect(low.builds).toBeLessThan(full.builds);
+    expect(full.t).toBeGreaterThan(1000);
+    expect(low.t).toBeCloseTo(full.t, 6);
+    expect(full.fades.some((f) => f > 0 && f < 1)).toBe(true);
+    expect(low.fades).toHaveLength(full.fades.length);
+    low.fades.forEach((f, i) => expect(f).toBeCloseTo(full.fades[i], 6));
   });
 });

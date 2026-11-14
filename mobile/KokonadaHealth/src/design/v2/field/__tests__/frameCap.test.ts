@@ -1,0 +1,252 @@
+import { EXTENSIONS } from '../../tokens/tokens.extensions.generated.ts';
+import { BASE, DIRECTIONS, type DirectionId } from '../../tokens/tokens.generated.ts';
+import type { MotionTier } from '../../motion/useMotionPolicy.ts';
+import type { FieldStatics } from '../fieldFrame.ts';
+import { emptyLedger, fades, type Ledger, type LedgerInput } from '../placementLedger.ts';
+import { ledgerConfigFor, staticsFor } from '../statics.ts';
+
+// The builder behind a counter: the real function, every call counted, so a skipped frame that still built is seen.
+const counts = { build: 0 };
+jest.mock('../fieldFrame.ts', () => {
+  const actual = jest.requireActual('../fieldFrame.ts');
+  return { ...actual, buildFieldFrame: (...args: unknown[]) => { counts.build += 1; return actual.buildFieldFrame(...args); } };
+});
+
+import { capFrame, fieldStep, FRAME_CAP_TOLERANCE, fpsCapFor, frameCapStart, renderGeometry, type FieldLayout, type FrameCap, type FrameParams } from '../fieldDriver.ts';
+
+// UI-171, the owner's ruling of 2026-11-14: the full tier keeps the display's rate up to 120 frames a second, the low
+// (power-save) tier runs at 60; the still tier has no cap (it draws only its ramps). The cap is field.tiers.<tier>.fpsCap,
+// read from the token. A frame is drawn when its time has reached the next due time less a tolerance for timestamp
+// jitter (a quarter of the cap's period); each draw moves the due time on by one period from the last due time, never
+// from the frame's own time, so the drawn rate converges on the cap without drift; a frame later than a whole period
+// re-anchors the schedule on itself. A skipped frame does no work at all: no ledger step, no build. The first frame after
+// a mount, a tier change or a wake (a new generation) is always drawn. The ledger takes each drawn frame's own
+// timestamp, so the time of a skipped frame is never lost: the next drawn frame's dt holds it, under motion.dtClamp.
+
+const ID = Object.keys(DIRECTIONS)[0] as DirectionId;
+const STATICS: FieldStatics = staticsFor(ID, EXTENSIONS as never);
+const LAYOUT: FieldLayout = { width: 360, height: 640, centre: [180, 300], radius: 170, fontScale: 1 };
+const PX_PER_DP = 2.625;
+const GEOMETRY = renderGeometry(LAYOUT, PX_PER_DP, 0.5);
+const params = (tier: MotionTier): FrameParams => ({ direction: ID, face: 'dark', stress: 0, confidence: 1, genesis: false, tier });
+const ledger0 = (): Ledger => emptyLedger(ledgerConfigFor(ID, 'dark', STATICS, { radiusPx: LAYOUT.radius * PX_PER_DP * 0.5, pxPerDp: PX_PER_DP * 0.5 }));
+
+// A deterministic jitter in [-amp, amp] ms per frame (an LCG), so a run is the same on every machine.
+const jitter = (amp: number) => {
+  let s = 12345;
+  return () => {
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return (s / 2147483648) * 2 * amp - amp;
+  };
+};
+
+interface Run {
+  /** Each display frame: drawn or skipped. */
+  readonly drawn: boolean[];
+  /** The timestamps of the drawn frames. */
+  readonly at: number[];
+  /** The dt each drawn frame's ledger step took (the ledger clock's advance). */
+  readonly dt: number[];
+  readonly builds: number;
+  readonly ledger: Ledger;
+}
+
+/** Frames at `hz` for `frames` display frames, each through the cap and, when drawn, one real fieldStep. */
+function run(tier: MotionTier, hz: number, frames: number, amp = 0, input: (i: number) => LedgerInput = () => ({ seq: 0, taps: [] })): Run {
+  const next = jitter(amp);
+  const before = counts.build;
+  let cap: FrameCap = frameCapStart();
+  let ledger = ledger0();
+  const drawn: boolean[] = [];
+  const at: number[] = [];
+  const dt: number[] = [];
+  for (let i = 0; i < frames; i++) {
+    const now = 1000 + (i * 1000) / hz + (i === 0 ? 0 : next());
+    const gate = capFrame(cap, now, tier, 0);
+    cap = gate.cap;
+    drawn.push(gate.draw);
+    if (!gate.draw) continue;
+    const step = fieldStep(ledger, input(i), now, params(tier), GEOMETRY, STATICS, 0, 0.5);
+    if (at.length > 0) dt.push(step.ledger.clock - ledger.clock);
+    at.push(now);
+    ledger = step.ledger;
+  }
+  return { drawn, at, dt, builds: counts.build - before, ledger };
+}
+
+beforeEach(() => {
+  counts.build = 0;
+});
+
+describe('the cap is the tier’s token (UI-171, the owner’s ruling)', () => {
+  it('full 120, low 60, still 0 (no cap): field.tiers.<tier>.fpsCap', () => {
+    expect([BASE.field.tiers.full.fpsCap, BASE.field.tiers.low.fpsCap, BASE.field.tiers.still.fpsCap]).toEqual([120, 60, 0]);
+    expect(fpsCapFor('full')).toBe(BASE.field.tiers.full.fpsCap);
+    expect(fpsCapFor('low')).toBe(BASE.field.tiers.low.fpsCap);
+    expect(fpsCapFor('still')).toBe(BASE.field.tiers.still.fpsCap);
+  });
+
+  it('read from the token, never a number in the code: plant another cap and the skipping follows', () => {
+    let planted: { full: number; low: number; drawn: number } | null = null;
+    jest.isolateModules(() => {
+      jest.doMock('../../tokens/tokens.generated', () => {
+        const actual = jest.requireActual('../../tokens/tokens.generated');
+        const tiers = actual.BASE.field.tiers;
+        return { ...actual, BASE: { ...actual.BASE, field: { ...actual.BASE.field, tiers: { ...tiers, full: { ...tiers.full, fpsCap: 40 }, low: { ...tiers.low, fpsCap: 20 } } } } };
+      });
+      const d = require('../fieldDriver');
+      let cap = d.frameCapStart();
+      let drawn = 0;
+      for (let i = 0; i < 120; i++) {
+        const g = d.capFrame(cap, (i * 1000) / 120, 'full', 0);
+        cap = g.cap;
+        if (g.draw) drawn += 1;
+      }
+      planted = { full: d.fpsCapFor('full'), low: d.fpsCapFor('low'), drawn };
+    });
+    expect(planted).toEqual({ full: 40, low: 20, drawn: 40 });
+  });
+
+  it('the tolerance is a quarter of the cap’s period', () => {
+    expect(FRAME_CAP_TOLERANCE).toBe(0.25);
+  });
+});
+
+describe('frames skipped to the cap, counted at the builder', () => {
+  it('120 Hz, full: nothing is skipped, with ±0.5 ms of jitter', () => {
+    const r = run('full', 120, 240, 0.5);
+    expect(r.drawn.every(Boolean)).toBe(true);
+    expect(r.builds).toBe(240);
+  });
+
+  it('120 Hz, low: every second frame is skipped, exactly, with ±0.5 ms of jitter; a skipped frame builds nothing', () => {
+    const r = run('low', 120, 240, 0.5);
+    expect(r.drawn).toEqual(Array.from({ length: 240 }, (_, i) => i % 2 === 0));
+    expect(r.builds).toBe(120);
+  });
+
+  it('60 Hz: nothing is skipped at either tier, with ±0.5 ms of jitter (a frame 0.5 ms early is drawn)', () => {
+    for (const tier of ['full', 'low'] as const) {
+      const r = run(tier, 60, 180, 0.5);
+      expect(r.drawn.every(Boolean)).toBe(true);
+      expect(r.builds).toBe(180);
+    }
+  });
+
+  it('a frame 0.5 ms early at a display rate equal to the cap is drawn, at both caps', () => {
+    for (const [tier, hz] of [['full', 120], ['low', 60]] as const) {
+      const period = 1000 / hz;
+      let cap = frameCapStart();
+      cap = capFrame(cap, 0, tier, 0).cap;
+      const early = capFrame(cap, period - 0.5, tier, 0);
+      expect(early.draw).toBe(true);
+      // and the schedule holds: the next frame, on time, is drawn too
+      expect(capFrame(early.cap, 2 * period, tier, 0).draw).toBe(true);
+    }
+  });
+
+  it('90 Hz, full: nothing is skipped (90 is under the cap)', () => {
+    const r = run('full', 90, 270, 0.5);
+    expect(r.drawn.every(Boolean)).toBe(true);
+  });
+
+  it('90 Hz, low: two drawn of every three, never two skips in a row, and never faster than the cap', () => {
+    const exact = run('low', 90, 270);
+    // 0 drawn (due 16.7), 11.1 skipped, 22.2 drawn (due 33.3), 33.3 drawn (due 50), 44.4 skipped, …
+    expect(exact.drawn).toEqual(Array.from({ length: 270 }, (_, i) => i % 3 !== 1));
+    for (const amp of [0, 0.5]) {
+      const r = run('low', 90, 270, amp);
+      const period = 1000 / 60;
+      const frame = 1000 / 90;
+      // never two skips in a row: the cadence the cap implies at 90 Hz (60 of 90), no 45 Hz stutter
+      for (let i = 1; i < r.drawn.length; i++) expect(r.drawn[i] || r.drawn[i - 1]).toBe(true);
+      // never faster than the cap: k draws apart span at least k periods, less one display frame and the jitter
+      for (let j = 0; j < r.at.length; j++) {
+        for (let k = j + 1; k < r.at.length; k++) expect(r.at[k] - r.at[j]).toBeGreaterThanOrEqual((k - j) * period - frame - 2 * amp - 1e-9);
+      }
+      // 3 s at 60: 180 draws, one either side at the ends
+      expect(Math.abs(r.at.length - 180)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('the still tier is not capped: every frame it runs is drawn', () => {
+    const r = run('still', 120, 60);
+    expect(r.drawn.every(Boolean)).toBe(true);
+  });
+});
+
+describe('a skipped frame’s time is never lost: the dt law takes the real elapsed time between drawn frames', () => {
+  it('120 Hz, low: each drawn frame’s dt is the time since the last drawn frame (two display frames), under motion.dtClamp', () => {
+    const r = run('low', 120, 240, 0.5);
+    expect(r.dt.length).toBe(119);
+    for (let i = 0; i < r.dt.length; i++) {
+      expect(r.dt[i]).toBeCloseTo(r.at[i + 1] - r.at[i], 9);
+      expect(r.dt[i]).toBeGreaterThan(1000 / 60 - 1.01);
+      expect(r.dt[i]).toBeLessThan(BASE.motion.dtClamp);
+    }
+  });
+
+  it('the clamp still holds: a stall longer than motion.dtClamp moves the ledger by the clamp, and the next frame is drawn', () => {
+    let cap = capFrame(frameCapStart(), 0, 'low', 0).cap;
+    const l0 = fieldStep(ledger0(), { seq: 0, taps: [] }, 0, params('low'), GEOMETRY, STATICS, 0, 0.5).ledger;
+    const late = capFrame(cap, 400, 'low', 0);
+    expect(late.draw).toBe(true);
+    cap = late.cap;
+    const l1 = fieldStep(l0, { seq: 0, taps: [] }, 400, params('low'), GEOMETRY, STATICS, 0, 0.5).ledger;
+    expect(l1.clock - l0.clock).toBe(BASE.motion.dtClamp);
+    // the schedule re-anchors on the late frame: no burst of catch-up frames after a stall
+    expect(capFrame(cap, 400 + 1000 / 120, 'low', 0).draw).toBe(false);
+    expect(capFrame(cap, 400 + 1000 / 60, 'low', 0).draw).toBe(true);
+  });
+
+  it('after N seconds, 120 Hz full and 120 Hz low stand at the same place: the same ledger clock and the same crossfade', () => {
+    const taps = (i: number): LedgerInput => (i < 24 ? { seq: 0, taps: [{ x: 0.5, y: 0.5 }] } : { seq: 1, taps: [{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }] });
+    // 24 frames in, a change starts a crossfade; 36 frames (0.3 s) later both tiers draw that frame (an even index)
+    const full = run('full', 120, 61, 0, taps);
+    const low = run('low', 120, 61, 0, taps);
+    expect(full.at[full.at.length - 1]).toBe(low.at[low.at.length - 1]);
+    expect(low.ledger.clock).toBeCloseTo(full.ledger.clock, 9);
+    const fadesOf = (l: Ledger) => fades(l).placements.map((p) => p.fade);
+    const mid = fadesOf(full.ledger);
+    expect(mid.some((f) => f > 0 && f < 1)).toBe(true);
+    const lowFades = fadesOf(low.ledger);
+    expect(lowFades).toHaveLength(mid.length);
+    lowFades.forEach((f, i) => expect(f).toBeCloseTo(mid[i], 9));
+  });
+});
+
+describe('the first frame after a mount, a tier change or a wake is always drawn', () => {
+  it('a mount: the first frame is drawn at any tier', () => {
+    for (const tier of ['full', 'low', 'still'] as const) expect(capFrame(frameCapStart(), 5, tier, 0).draw).toBe(true);
+  });
+
+  it('a tier change: the next frame is drawn, though its cap would skip it', () => {
+    const low = capFrame(frameCapStart(), 0, 'low', 0).cap;
+    expect(capFrame(low, 1000 / 120, 'low', 0).draw).toBe(false);
+    expect(capFrame(low, 1000 / 120, 'full', 0).draw).toBe(true);
+    // full to low, one 120 Hz frame after a full draw: drawn, and then low's cadence from it
+    const full = capFrame(capFrame(frameCapStart(), 0, 'full', 0).cap, 1000 / 120, 'full', 0).cap;
+    const changed = capFrame(full, 2000 / 120, 'low', 0);
+    expect(changed.draw).toBe(true);
+    expect(capFrame(changed.cap, 3000 / 120, 'low', 0).draw).toBe(false);
+    expect(capFrame(changed.cap, 4000 / 120, 'low', 0).draw).toBe(true);
+  });
+
+  it('a wake (a new generation): the next frame is drawn, though its cap would skip it', () => {
+    const low = capFrame(frameCapStart(), 0, 'low', 3).cap;
+    expect(capFrame(low, 1000 / 120, 'low', 3).draw).toBe(false);
+    expect(capFrame(low, 1000 / 120, 'low', 4).draw).toBe(true);
+  });
+
+  it('time that runs backwards past a period re-anchors the schedule instead of skipping until it catches up', () => {
+    const cap = capFrame(frameCapStart(), 10_000, 'low', 0).cap;
+    expect(capFrame(cap, 100, 'low', 0).draw).toBe(true);
+  });
+
+  it('a non-finite timestamp is drawn, and the next frame is drawn too', () => {
+    const cap = capFrame(frameCapStart(), 0, 'low', 0).cap;
+    const bad = capFrame(cap, Number.NaN, 'low', 0);
+    expect(bad.draw).toBe(true);
+    expect(capFrame(bad.cap, 1000 / 120, 'low', 0).draw).toBe(true);
+  });
+});

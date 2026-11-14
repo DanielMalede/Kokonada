@@ -87,6 +87,7 @@ const FIXTURE_MOCKS = [
 const OTHER_MOCKS: Record<string, string> = {
   'src/design/v2/clock/__tests__/fieldClock.test.tsx': 'one dt law (B4 item 6): a planted motion.dtClamp in an isolated module registry, BASE only',
   'src/design/lab/__tests__/fieldScenes.test.ts': 'the hero period from the token (B4 item 7, T14): a planted field.clock.T in an isolated module registry, BASE only',
+  'src/design/v2/field/__tests__/frameCap.test.ts': 'the frame cap from the token (UI-171): a planted field.tiers fpsCap in an isolated module registry, BASE only',
 };
 const MOCK_ALLOW_LIST = [...FIXTURE_MOCKS, ...Object.keys(OTHER_MOCKS)].sort();
 const MOCK = /\bjest\.(?:mock|doMock|unstable_mockModule|setMock)\s*\(\s*(['"`])([^'"`\n]*tokens(?:\.extensions)?\.generated(?:\.ts)?)\1/g;
