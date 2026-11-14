@@ -76,6 +76,7 @@ describe('the fixture directions are Abyss plus their declared overrides, and no
 const FIXTURE_MOCKS = [
   'src/design/v2/field/__tests__/FieldFallback.skia.test.tsx',
   'src/design/v2/field/__tests__/fallbackModel.test.ts',
+  'src/design/v2/field/__tests__/fallbackStopBytes.test.ts',
   'src/design/v2/field/__tests__/fieldScenes.skia.test.ts',
   'src/design/v2/field/__tests__/fieldShader.skia.test.ts',
   'src/design/v2/field/__tests__/fixturePaths.skia.test.ts',

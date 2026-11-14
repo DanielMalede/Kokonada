@@ -211,9 +211,10 @@ describe('the stops (§2.5 as amended): composite(the region’s flat ground, th
       const stops = fallbackStops(id, face, region as 'face' | 'outside', statics(id), colour);
       expect(stops.positions).toEqual([...position]);
       expect(stops.colours).toHaveLength(weight.length);
+      // Each stop is the composite's nearest byte, k/255 exactly (RA-29: the byte the device's truncation draws too).
       stops.colours.forEach((c, i) => {
         const want = clampRgb(r4(ground, colour, weight[i] * kRegion, d.field.pivot));
-        for (let ch = 0; ch < 3; ch++) expect(Math.abs(c[ch] - want[ch])).toBeLessThan(1e-12);
+        for (let ch = 0; ch < 3; ch++) expect(c[ch]).toBe(Math.round(want[ch] * 255) / 255);
       });
       // The last stop is the region's ground itself, so beyond the radius the gradient is that token, byte for byte.
       const groundHex = region === 'face' ? d.color[face].plate.face.hex : d.color[face].ground.hex;
