@@ -543,6 +543,44 @@
       ]
     },
     {
+      "id": "fallback-dark-one-c-right",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.C.right",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ]
+    },
+    {
+      "id": "fallback-dark-one-j-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.J.top",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ]
+    },
+    {
       "id": "fallback-light-rest",
       "repeat": 2,
       "scene": "fallback.abyss.light.rest",
@@ -603,6 +641,44 @@
       "id": "fallback-light-one-i",
       "repeat": 2,
       "scene": "fallback.abyss.light.one.I",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ]
+    },
+    {
+      "id": "fallback-light-one-c-right",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.C.right",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ]
+    },
+    {
+      "id": "fallback-light-one-j-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.J.top",
       "args": {
         "clock": "fixed",
         "t": "11000",
