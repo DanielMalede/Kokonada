@@ -11,16 +11,21 @@
 //   · every frame input is a prop, measured by the root: the layout in dp, pxPerDp, the tier and
 //     renderScale (default: the tier's). No Dimensions or PixelRatio reads, no hidden tier logic (fork 2);
 //   · the statics come as a prop, memoised by the root, once per direction (fork 1, 1C);
-//   · the builder runs exactly once per frame, and the JS thread never reads the ledger per frame: JS hears
+//   · the builder runs exactly once per drawn frame, and the JS thread never reads the ledger per frame: JS hears
 //     only of a start (onStart, the CTA's admitted count), the still tier's stop, and a failure;
 //   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life. It draws from the
 //     props as given (T13, the designer's Q2 and Q5): the taps, the layout as measured (every quiet rect, no clamp),
 //     pxPerDp and each presence unsanitised;
 //   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
 //     until the spacing since that start has passed (L19: the next change then starts on its first frame),
-//     then stops its frames until an input changes; the moving tiers run every frame. A stop is decided on the UI
+//     then stops its frames until an input changes; the moving tiers run every frame, drawn to the tier's cap. A stop is decided on the UI
 //     thread and lands on JS later, so it carries the wake generation it was decided in, and JS drops one from
 //     an earlier generation: a change that wakes the field before a stale stop lands is never lost (RA-22).
+//
+//   · the frame cap (UI-171): a frame is drawn only when the tier's cap (field.tiers.<tier>.fpsCap) allows it
+//     (capFrame); a skipped frame does no work at all. The first frame of the mount, after a tier change or after a
+//     wake is always drawn. The field clock runs on its own frame callback and the ledger takes each drawn frame's own
+//     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap.
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
@@ -34,7 +39,7 @@ import { fieldEffect } from './effect.ts';
 import { FieldFallback } from './FieldFallback.tsx';
 import { fixedFieldBreath, type FieldGeometry, type FieldStatics } from './fieldFrame.ts';
 import { FieldSurface } from './FieldSurface.tsx';
-import { fieldStep, renderGeometry, renderScaleFor, renderSize, type FieldLayout, type FrameParams } from './fieldDriver.ts';
+import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, type FieldLayout, type FrameCap, type FrameParams } from './fieldDriver.ts';
 import { emptyLedger, type Ledger, type LedgerInput, type Tap } from './placementLedger.ts';
 import { ledgerConfigFor } from './statics.ts';
 
@@ -92,6 +97,7 @@ function FieldViewMount(props: FieldViewProps) {
   const inputs = useSharedValue<FrameInputs>({ params, geometry, statics });
   const uniforms = useSharedValue<readonly number[] | null>(null);
   const asleep = useSharedValue(false);
+  const cap = useSharedValue<FrameCap>(frameCapStart());
   // The wake generation (resilience T10 RA-22): wake() moves it on, here and on the UI thread. A stop carries the
   // generation the UI thread decided it in and is applied only while that is still the current one.
   const generation = useSharedValue(0);
@@ -132,6 +138,9 @@ function FieldViewMount(props: FieldViewProps) {
   const onFrame = useCallback((info: FrameInfo) => {
     'worklet';
     const f = inputs.value;
+    const gate = capFrame(cap.value, info.timestamp, f.params.tier, generation.value);
+    cap.value = gate.cap;
+    if (!gate.draw) return;
     const tMs = clock.t.value;
     const phase = breathPhase === undefined ? fixedFieldBreath(f.params.direction, f.params.stress, tMs).phase : breathPhase.value;
     const step = fieldStep(ledger.value, input.value, info.timestamp, f.params, f.geometry, f.statics, tMs, phase);
@@ -147,7 +156,7 @@ function FieldViewMount(props: FieldViewProps) {
       asleep.value = true;
       runOnJS(sleep)(generation.value);
     }
-  }, [inputs, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart]);
+  }, [inputs, cap, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart]);
 
   const frame = useFrameCallback(onFrame, false);
   const running = failure === null && (tier !== 'still' || awake);

@@ -59,6 +59,52 @@ export function renderScaleFor(tier: MotionTier): number {
   return tier === 'low' ? BASE.field.tiers.low.renderScale : BASE.field.tiers.full.renderScale;
 }
 
+/** The tier's frame cap, frames a second: field.tiers.<tier>.fpsCap (the owner's ruling on UI-171); 0 is no cap. */
+export function fpsCapFor(tier: MotionTier): number {
+  'worklet';
+  if (tier === 'low') return BASE.field.tiers.low.fpsCap;
+  if (tier === 'still') return BASE.field.tiers.still.fpsCap;
+  return BASE.field.tiers.full.fpsCap;
+}
+
+/** The share of the cap's period a frame may arrive early and still be drawn (timestamp jitter). */
+export const FRAME_CAP_TOLERANCE = 0.25;
+
+/** The cap's schedule, on the UI thread: when the next frame is due, and the tier and wake generation it was set under. */
+export interface FrameCap {
+  readonly dueMs: number | null;
+  readonly tier: MotionTier | null;
+  readonly generation: number;
+}
+
+/** No schedule yet: the next frame is drawn. */
+export function frameCapStart(): FrameCap {
+  'worklet';
+  return { dueMs: null, tier: null, generation: 0 };
+}
+
+/**
+ * One frame through the tier's cap (UI-171). A frame is drawn when its time has reached the due time less
+ * FRAME_CAP_TOLERANCE of the period; each draw moves the due time on by one period from the last due time, so the
+ * drawn rate converges on the cap (at 90 Hz under a 60 cap: two of every three frames, never two skips in a row). A
+ * frame a whole period late, or time that ran backwards past a period, re-anchors the schedule on the frame itself,
+ * so a stall never brings a burst of catch-up frames. The first frame of a mount, a tier change or a new wake
+ * generation is always drawn, and the still tier (cap 0) is never capped. A skipped frame changes nothing.
+ */
+export function capFrame(prev: FrameCap, nowMs: number, tier: MotionTier, generation: number): { draw: boolean; cap: FrameCap } {
+  'worklet';
+  const fps = fpsCapFor(tier);
+  if (!(fps > 0) || !Number.isFinite(nowMs)) return { draw: true, cap: frameCapStart() };
+  const period = 1000 / fps;
+  const due = prev.dueMs;
+  if (due === null || prev.tier !== tier || prev.generation !== generation || due - nowMs > period * (1 + FRAME_CAP_TOLERANCE)) {
+    return { draw: true, cap: { dueMs: nowMs + period, tier, generation } };
+  }
+  if (nowMs < due - period * FRAME_CAP_TOLERANCE) return { draw: false, cap: prev };
+  const next = due + period;
+  return { draw: true, cap: { dueMs: next > nowMs ? next : nowMs + period, tier, generation } };
+}
+
 /** The crossfade mode: reduced motion is the still tier, and takes motion.fadeReduced (designer 2.6). */
 export function modeFor(tier: MotionTier): FadeMode {
   'worklet';
