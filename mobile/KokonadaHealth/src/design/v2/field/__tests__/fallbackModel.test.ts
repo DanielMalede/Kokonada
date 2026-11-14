@@ -343,6 +343,34 @@ describe('the clip: each device pixel decided at its centre by the law’s step 
     }
   });
 
+  // RA-30: the clip is whole device pixels at every shipped density, not only at 2, with the plate off the pixel grid.
+  it.each([2.625, 2.75, 3, 3.5, 411 / 160])('pxPerDp %d, a fractional centre: every clip rect is whole pixels, none overlapping, and every kept pixel is the law’s', (density) => {
+    const off: FieldLayout = { ...base, centre: [80.3125 + 0.07, 60.1875 + 0.11], radius: 50.17 };
+    const zones = removedZones(rects, undefined, density)!;
+    for (const [id, region] of [[ABYSS, 'face'], [FIXTURE_OUTER, 'outside']] as const) {
+      const keep = lawKeep(id, off, density, zones);
+      const regionOnly = lawKeep(id, off, density, []);
+      const plan = planOf(id, 'dark', [{ x: 0.3, y: 0.2 }], { layout: off, pxPerDp: density });
+      expect(plan.region).toBe(region);
+      expect(Number.isInteger(plan.face.centre[0])).toBe(false);
+      const grid = clipGrid(plan);
+      let kept = 0;
+      let removedByZones = 0;
+      const wrong: string[] = [];
+      for (let y = 0; y < plan.size.height; y++) {
+        for (let x = 0; x < plan.size.width; x++) {
+          const want = keep(x, y);
+          if (regionOnly(x, y) && !want) removedByZones++;
+          if (want) kept++;
+          if ((grid[y * plan.size.width + x] === 1) !== want && wrong.length < 5) wrong.push(`(${x}, ${y}) law ${want}`);
+        }
+      }
+      expect(wrong).toEqual([]);
+      expect(kept).toBeGreaterThan(100);
+      expect(removedByZones).toBeGreaterThan(20);
+    }
+  });
+
   it('the tie: a pixel centred exactly on a zone’s grown boundary is removed, on its right and its bottom edge', () => {
     const plan = planOf(ABYSS, 'dark', [{ x: 0.3, y: 0.2 }], { layout: { ...base, quietRects: [tie] }, pxPerDp: K });
     const zone = removedZones([tie], undefined, K)![0];

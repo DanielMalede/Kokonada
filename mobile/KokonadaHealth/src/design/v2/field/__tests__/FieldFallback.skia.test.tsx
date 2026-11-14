@@ -100,11 +100,13 @@ function draw(id: DirectionId, face: Face, taps: readonly Tap[], over: { layout?
   return drawPlan(plan, layout);
 }
 
-/** Only the ground and the clipped gradient (the DEC's acceptance render), in device px. */
-function groundAndField(d: Drawn): Uint8Array {
+/** Only the ground and the clipped gradient (the DEC's acceptance render), in device px, translated by `shift` px on both axes. */
+function groundAndField(d: Drawn, shift = 0): Uint8Array {
   const surface = Skia.Surface.Make(d.w, d.h)!;
-  drawFallbackGround(SK, surface.getCanvas(), d.plan);
-  drawFallbackField(SK, surface.getCanvas(), d.plan);
+  const canvas = surface.getCanvas();
+  if (shift !== 0) canvas.translate(shift, shift);
+  drawFallbackGround(SK, canvas, d.plan);
+  drawFallbackField(SK, canvas, d.plan);
   return read(surface, d.w, d.h);
 }
 
@@ -221,6 +223,37 @@ describe('Q1: no mixing at the clip edge (the ground and the clipped gradient on
         if (bad.length < 3) bad.push(`${scene} (${x}, ${y}) got ${got.join(', ')} gradient ${model.map(Math.round).join(', ')} ground ${ground.join(', ')}`);
       }
       expect(bad).toEqual([]);
+      expect(lit).toBeGreaterThan(20);
+    }
+  });
+
+  // RA-30 (UI-212): on the shipped path every clip edge lies on a whole device pixel, so the clip's doAntiAlias flag cannot
+  // show there. A quarter-pixel translate puts each edge a quarter into a pixel: an aliased clip still decides every pixel
+  // whole, an anti-aliased one mixes the gradient with the ground along the whole boundary.
+  it.each([ABYSS, FIXTURE_INNER].flatMap((id) => FACES.map((face) => [id, face] as const)))('%s %s, translated by a quarter pixel: the clip edge holds only the ground or the gradient (mixed 0, lit > 20)', (id, face) => {
+    const SHIFT = 0.25;
+    for (const scene of ['one.C.right', 'one.J.top']) {
+      const d = draw(id, face, tapsOf(scene));
+      const px = { w: d.w, px: groundAndField(d, SHIFT) };
+      const ground = rgbOf(DIRECTIONS[id].color[face].ground.hex);
+      const bound = ringInnerPx(d) + d.plan.pxPerDp;
+      const centre: readonly [number, number] = [d.plan.field!.centre[0] + SHIFT, d.plan.field!.centre[1] + SHIFT];
+      const plate: readonly [number, number] = [d.layout.centre[0] * d.plan.pxPerDp + SHIFT, d.layout.centre[1] * d.plan.pxPerDp + SHIFT];
+      let lit = 0;
+      let mixed = 0;
+      const bad: string[] = [];
+      for (const [x, y] of pixels(d, (i, j) => abs(dist(i, j, plate) - bound) <= 2, plateBox(d, 1))) {
+        const model = gradientAt(d.plan.field!, x, y, centre);
+        const got = at(px, x, y);
+        if (near(got, ground, 1)) continue;
+        if (near(got, model, 1)) {
+          if (!near(model, ground, 4)) lit++;
+          continue;
+        }
+        mixed++;
+        if (bad.length < 3) bad.push(`${scene} (${x}, ${y}) got ${got.join(', ')} gradient ${model.map(Math.round).join(', ')} ground ${ground.join(', ')}`);
+      }
+      expect({ mixed, bad }).toEqual({ mixed: 0, bad: [] });
       expect(lit).toBeGreaterThan(20);
     }
   });
