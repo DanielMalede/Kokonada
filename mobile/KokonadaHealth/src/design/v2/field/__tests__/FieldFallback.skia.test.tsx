@@ -612,3 +612,85 @@ describe('FieldFallback: one sRGB canvas holding one picture, no React Native Vi
     act(() => tree.unmount());
   });
 });
+
+describe('RA-31 (UI-206): the fallback frees what it records', () => {
+  /** The types RN Skia's API declares disposable (SkJSIInstance); rects, points and rrects are value types there. */
+  const DISPOSABLE = new Set(['Paint', 'Shader', 'Path', 'PathBuilder', 'PictureRecorder', 'Picture']);
+  interface Made { readonly type: string; readonly dispose: jest.SpyInstance }
+
+  /** The real Skia behind a proxy that spies on every disposable it, or anything it made, hands out. */
+  function tracking(): { sk: typeof SK; made: Made[] } {
+    const made: Made[] = [];
+    const track = (v: unknown): unknown => {
+      if (v === null || typeof v !== 'object') return v;
+      const o = v as { __typename__?: unknown; dispose?: unknown } & Record<string, unknown>;
+      if (typeof o.__typename__ !== 'string' || typeof o.dispose !== 'function' || !DISPOSABLE.has(o.__typename__)) return v;
+      made.push({ type: o.__typename__, dispose: jest.spyOn(o as { dispose(): void }, 'dispose') });
+      for (const m of ['detach', 'finishRecordingAsPicture']) {
+        const f = o[m];
+        if (typeof f === 'function') o[m] = (...args: unknown[]) => track((f as (...a: unknown[]) => unknown).apply(o, args));
+      }
+      return v;
+    };
+    const api = (target: object): object =>
+      new Proxy(target, {
+        get(t, p) {
+          const v = Reflect.get(t, p);
+          if (typeof v === 'function') return (...args: unknown[]) => track((v as (...a: unknown[]) => unknown).apply(t, args));
+          if (v !== null && typeof v === 'object' && !('__typename__' in v) && !ArrayBuffer.isView(v)) return api(v);
+          return v;
+        },
+      });
+    return { sk: { Skia: api(Skia) as typeof Skia, ClipOp, TileMode }, made };
+  }
+
+  it.each([['three', false], ['three with no field', true]] as const)('recordFieldFallback, %s: every paint, shader, path, builder and the recorder disposed once before it returns; the picture not, and it plays the plan', (_label, noField) => {
+    const layout = hero(ABYSS);
+    const planned = fallbackPlan({ direction: ABYSS, face: 'dark', statics: staticsOf(ABYSS), taps: tapsOf('three'), layout, pxPerDp: PHONE.pxPerDp });
+    const plan = noField ? { ...planned, field: null } : planned;
+    const { sk, made } = tracking();
+    const picture = recordFieldFallback(sk, plan, layout.width, layout.height);
+    const count = (type: string) => made.filter((m) => m.type === type).length;
+    expect([count('Picture'), count('PictureRecorder')]).toEqual([1, 1]);
+    expect(count('Paint')).toBe(noField ? 3 : 4);
+    expect([count('Shader'), count('PathBuilder'), count('Path')]).toEqual(noField ? [0, 0, 0] : [1, 1, 1]);
+    const undisposed = made.filter((m) => m.type !== 'Picture' && m.dispose.mock.calls.length !== 1).map((m) => `${m.type} ×${m.dispose.mock.calls.length}`);
+    expect(undisposed).toEqual([]);
+    expect(made.find((m) => m.type === 'Picture')!.dispose).not.toHaveBeenCalled();
+    const w = round(layout.width * PHONE.pxPerDp);
+    const h = round(layout.height * PHONE.pxPerDp);
+    const shown = play(picture, w, h, PHONE.pxPerDp);
+    expect(Buffer.from(shown).equals(Buffer.from(drawPlan(plan, layout).px))).toBe(true);
+    picture.dispose();
+  });
+
+  it('FieldFallback disposes each replaced picture once, its last once on unmount, and never the picture it shows', () => {
+    const layout = hero(ABYSS);
+    const base = { direction: ABYSS, face: 'dark' as Face, statics: staticsOf(ABYSS), layout, pxPerDp: PHONE.pxPerDp, reason: 'planted' };
+    const w = round(layout.width * PHONE.pxPerDp);
+    const h = round(layout.height * PHONE.pxPerDp);
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    const shownPicture = () => tree.root.findByType(Picture).props.picture as SkPicture;
+    const spies: jest.SpyInstance[] = [];
+    act(() => {
+      tree = ReactTestRenderer.create(<FieldFallback {...base} taps={tapsOf('one.J')} />);
+    });
+    spies.push(jest.spyOn(shownPicture(), 'dispose'));
+    for (const scene of ['one.C', 'three']) {
+      const taps = tapsOf(scene);
+      act(() => tree.update(<FieldFallback {...base} taps={taps} />));
+      const current = shownPicture();
+      // The replaced picture freed exactly once; the one now shown untouched, and it still plays its plan.
+      expect(spies.map((s) => s.mock.calls.length)).toEqual(spies.map(() => 1));
+      spies.push(jest.spyOn(current, 'dispose'));
+      // A re-render with equal props keeps the same picture and frees nothing.
+      act(() => tree.update(<FieldFallback {...base} taps={taps} />));
+      expect(shownPicture()).toBe(current);
+      expect(spies[spies.length - 1]).not.toHaveBeenCalled();
+      expect(Buffer.from(play(current, w, h, PHONE.pxPerDp)).equals(Buffer.from(drawPlan(fallbackPlan({ ...base, taps }), layout).px))).toBe(true);
+    }
+    expect(spies).toHaveLength(3);
+    act(() => tree.unmount());
+    expect(spies.map((s) => s.mock.calls.length)).toEqual([1, 1, 1]);
+  });
+});
