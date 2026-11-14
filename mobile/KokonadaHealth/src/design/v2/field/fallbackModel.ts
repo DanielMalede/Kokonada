@@ -313,22 +313,30 @@ function fallbackClip(region: 'face' | 'outside', size: { readonly width: number
 
 /** Everything FieldFallback draws, from FieldView's props. */
 export function fallbackPlan(input: FallbackInput): FallbackPlan {
-  const { direction, face, statics, taps, layout, pxPerDp: k } = input;
+  const { direction, face, statics, taps, layout } = input;
+  // Malformed input means no field (Q2; RA-32). A density that is not a finite positive number cannot place the clip on
+  // device pixels, so the plan is drawn in dp (k = 1: RN Skia's canvas applies the density itself) with no field; a view
+  // with no area, or a size that is not finite, has no pixel to keep either. Never an infinite canvas: the clip walks its rows.
+  const validK = Number.isFinite(input.pxPerDp) && input.pxPerDp > 0;
+  const k = validK ? input.pxPerDp : 1;
+  const sized = Number.isFinite(layout.width * k) && Number.isFinite(layout.height * k) && layout.width > 0 && layout.height > 0;
   const colours = DIRECTIONS[direction].color[face];
   const still = fallbackStill(direction, face, layout);
   const R = layout.radius * k;
   const centre: readonly [number, number] = [layout.centre[0] * k, layout.centre[1] * k];
-  const size = { width: Math.max(1, Math.ceil(layout.width * k)), height: Math.max(1, Math.ceil(layout.height * k)) };
+  const size = sized ? { width: Math.ceil(layout.width * k), height: Math.ceil(layout.height * k) } : { width: 1, height: 1 };
   const faceBound = still.ringInner * R + k;
   const region = fallbackRegion(direction);
   const pose = fallbackPose(direction, face, statics, taps, layout.radius);
   const field = (): FallbackField | null => {
-    if (region === 'none' || pose === null) return null;
+    if (!validK || !sized || region === 'none' || pose === null) return null;
     const zones = removedZones(layout.quietRects, input.quietPresence, k);
     if (zones === null) return null;
     const radius = BASE.field.fallback.radiusScale * still.lobeRadius * R;
     if (!(radius > 0)) return null;
     const stops = fallbackStops(direction, face, region, statics, pose.colour);
+    // A gradient needs two stops: RN Skia throws on fewer (JsiSkShaderFactory.h), CanvasKit paints flat or black.
+    if (stops.positions.length < 2) return null;
     const bound = region === 'face' ? faceBound : still.moatOuter * R;
     return {
       centre: [centre[0] + pose.centre[0] * R, centre[1] - pose.centre[1] * R],
