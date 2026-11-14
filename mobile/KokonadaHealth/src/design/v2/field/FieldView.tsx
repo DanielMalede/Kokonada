@@ -18,10 +18,9 @@
 //     pxPerDp and each presence unsanitised;
 //   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
 //     until the spacing since that start has passed (L19: the next change then starts on its first frame),
-//     then stops its frames until an input changes; the moving tiers run every frame, drawn to the tier's cap. A stop is decided on the UI
+//     then stops its frames until an input changes; the moving tiers run every frame. A stop is decided on the UI
 //     thread and lands on JS later, so it carries the wake generation it was decided in, and JS drops one from
-//     an earlier generation: a change that wakes the field before a stale stop lands is never lost (RA-22).
-//
+//     an earlier generation: a change that wakes the field before a stale stop lands is never lost (RA-22);
 //   · the frame cap (UI-171): a frame is drawn only when the tier's cap (field.tiers.<tier>.fpsCap) allows it
 //     (capFrame); a skipped frame does no work at all. The first frame of the mount, after a tier change or after a
 //     wake is always drawn. The field clock runs on its own frame callback and the ledger takes each drawn frame's own
