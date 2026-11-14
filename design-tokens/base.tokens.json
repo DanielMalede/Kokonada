@@ -149,13 +149,13 @@
       "full": {
         "renderScale": {"$type":"number","$value":0.5},
         "octaves": {"$type":"number","$value":3},
-        "fpsCap": {"$type":"number","$value":60},
+        "fpsCap": {"$type":"number","$value":120},
         "shimmer": {"$type":"number","$value":1}
       },
       "low": {
         "renderScale": {"$type":"number","$value":0.33},
         "octaves": {"$type":"number","$value":2},
-        "fpsCap": {"$type":"number","$value":30},
+        "fpsCap": {"$type":"number","$value":60},
         "shimmer": {"$type":"number","$value":0}
       },
       "still": {"fpsCap":{"$type":"number","$value":0}},

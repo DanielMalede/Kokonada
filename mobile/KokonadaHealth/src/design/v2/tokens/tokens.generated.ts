@@ -3,7 +3,7 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  base: 'ce3d6b4c5e0c954b562ad6ba6c1e9b0ff3d74e3fb00243e7bd67e35f0b8a9497',
+  base: 'ebbb27ed166a9b1d8ce32e2cf34b976c36157866f5e68abe1bd984534c14ab2a',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
@@ -115,8 +115,8 @@ export const BASE = {
     dither: { amplitude: 0.003922, pattern: 'blueNoise64.static' },
     noise: { space: 'oklab.L', paintDither: 0 },
     tiers: {
-      full: { renderScale: 0.5, octaves: 3, fpsCap: 60, shimmer: 1 },
-      low: { renderScale: 0.33, octaves: 2, fpsCap: 30, shimmer: 0 },
+      full: { renderScale: 0.5, octaves: 3, fpsCap: 120, shimmer: 1 },
+      low: { renderScale: 0.33, octaves: 2, fpsCap: 60, shimmer: 0 },
       still: { fpsCap: 0 },
       reducedMotion: 'still',
       powerSave: 'low',

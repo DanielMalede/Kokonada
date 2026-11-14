@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: 'ce3d6b4c5e0c954b562ad6ba6c1e9b0ff3d74e3fb00243e7bd67e35f0b8a9497',
+  base: 'ebbb27ed166a9b1d8ce32e2cf34b976c36157866f5e68abe1bd984534c14ab2a',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
