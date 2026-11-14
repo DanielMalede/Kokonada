@@ -8,7 +8,7 @@
 // It redraws at once on a change of its props, and never crossfades (Q5): a crossfade of two opaque gradients would be
 // an alpha mix. Nothing here is reported anywhere (REG-066); `reason` is for the lab's manifest.
 
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Canvas, ClipOp, Picture, Skia, TileMode } from '@shopify/react-native-skia';
 import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import { recordFieldFallback, type FallbackSkia } from './fallbackDraw.ts';
@@ -40,6 +40,10 @@ export function FieldFallback({ direction, face, statics, taps, layout, pxPerDp,
     () => recordFieldFallback(SKIA, fallbackPlan({ direction, face, statics, taps, layout, pxPerDp, quietPresence }), layout.width, layout.height),
     [direction, face, statics, taps, layout, pxPerDp, quietPresence],
   );
+  // Each picture is freed once it is no longer shown (RA-31): when the next one replaces it, and on unmount. RN Skia's
+  // recorder takes its own reference to the picture when the canvas commits (PictureCmd holds an sk_sp), so the frame
+  // already sent to the UI thread still draws.
+  useEffect(() => () => picture.dispose(), [picture]);
   return (
     <Canvas style={{ width: layout.width, height: layout.height }} colorSpace="srgb">
       <Picture picture={picture} />
