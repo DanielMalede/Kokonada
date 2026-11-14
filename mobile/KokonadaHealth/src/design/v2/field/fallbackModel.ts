@@ -14,7 +14,8 @@
 //            R4 (compositePixel) with no grain and no dither. k = K × P_none × (1 − ampPresence/2), the builder's still
 //            kField at s 0 and c null, × the region's mask value. The ground is the region's flat token (the face's
 //            plate.face, the outside's ground): no vignette, no lift. Every stop is opaque, and the last (weight 0) is
-//            the region's ground itself;
+//            the region's ground itself. Each channel is its nearest byte, k/255, the byte the device's truncation
+//            and CanvasKit's float both draw (RA-29);
 //   clip     each device pixel decided at its centre by the law's step test: the face keeps it while d < ringInner·R
 //            + 1 dp (the 1 dp under the opaque ring), the outside while d > moatOuter·R, and a zone removes it where
 //            sd ≤ 0 (the law's quietFactor at presence 1 with no feather: rounded, a pixel on the grown boundary
@@ -172,7 +173,15 @@ export function fallbackPose(id: DirectionId, face: Face, statics: FieldStatics,
   return { node: 'R0', rest: true, centre: [sx / lobes.length, sy / lobes.length], colour: glow };
 }
 
-/** The stops: each composite(the region's flat ground, colour, weight × k × mask) through kp, as sRGB, opaque. */
+/**
+ * A channel as the byte both Skias draw (RA-29): k/255, the nearest byte. RN Skia on the device reads a gradient colour
+ * into an 8-bit SkColor by truncation (JsiSkColor::fromValue, SkColorSetARGB(v * 255) in float); it has no float route
+ * for gradient colours. CanvasKit keeps the float. At k/255 the two agree for every k: trunc(fround(fround(k/255) × 255))
+ * is k, and so is the rounding.
+ */
+const byte = (v: number) => Math.round(v * 255) / 255;
+
+/** The stops: each composite(the region's flat ground, colour, weight × k × mask) through kp, as sRGB, opaque, each channel its byte. */
 export function fallbackStops(id: DirectionId, face: Face, region: 'face' | 'outside', statics: FieldStatics, colour: Oklab): { positions: number[]; colours: Rgb[] } {
   const d = DIRECTIONS[id];
   const ground = lab(region === 'face' ? d.color[face].plate.face : d.color[face].ground);
@@ -186,7 +195,8 @@ export function fallbackStops(id: DirectionId, face: Face, region: 'face' | 'out
   const colours: Rgb[] = [];
   for (let i = 0; i < Math.min(position.length, weight.length); i++) {
     positions.push(position[i]);
-    colours.push(srgb(compositePixel(noNoise, { ground, k: weight[i] * k, coverage: 0 } as unknown as PixelTerms, colour, 0, 0)));
+    const [r, g, b] = srgb(compositePixel(noNoise, { ground, k: weight[i] * k, coverage: 0 } as unknown as PixelTerms, colour, 0, 0));
+    colours.push([byte(r), byte(g), byte(b)]);
   }
   return { positions, colours };
 }
