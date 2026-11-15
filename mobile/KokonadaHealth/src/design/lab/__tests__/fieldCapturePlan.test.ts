@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { validatePlan } from '../../../../scripts/lab/capture.mjs';
 import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
-import { FIELD_SCENES } from '../fieldScenes';
+import { FIELD_SCENES, NEAR_SCENES } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
@@ -45,9 +45,12 @@ describe('the v1 field capture plan', () => {
     }
   });
 
-  it('covers every field scene on a fixed clock, twice (determinism), with the system night mode on its face', () => {
+  // The near.* scenes are v1-near.json's (UI-210); that every scene is shot by some plan is capturePlans.test.ts's pin.
+  it('covers every field scene but the near.* ones on a fixed clock, twice (determinism), with the system night mode on its face', () => {
     const fixed = plan.shots.filter((s) => s.args.clock === 'fixed' && s.proof === undefined);
-    const fieldIds = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field').map((s) => s.id);
+    const near: readonly string[] = NEAR_SCENES;
+    const fieldIds = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field' && !near.includes(s.hero!)).map((s) => s.id);
+    expect(fieldIds.length).toBeGreaterThan(0); // has cases
     expect(fieldIds.filter((id) => !fixed.some((s) => s.scene === id))).toEqual([]);
     for (const shot of fixed) {
       expect(shot.args.t).toBe(String(DIRECTIONS.abyss.field.stillTime)); // the hero's S1: a fixed clock at t*, the still's own time
