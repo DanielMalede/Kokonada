@@ -312,6 +312,9 @@ describe('the S22+ spellings (the dry run, 2026-11-15)', () => {
     // the DisplayDeviceInfo spelling and a lone peakRefreshRate outside the active mode are not read
     expect(parseRefreshRate(S22_DEVICE_INFO)).toBeNull();
     expect(parseRefreshRate('peakRefreshRate=120.00001')).toBeNull();
+    // a key is read whole: one that only ends in refreshRate= is another key
+    expect(parseRefreshRate('preferredrefreshRate=90.0')).toBeNull();
+    expect(parseRefreshRate('x, refreshRate=90.0')).toBe(90);
     // a render rate below the mode's peak (the app throttled to 60 on a 120 Hz mode) is the render rate, by either key
     expect(parseRefreshRate(`${S22_ACTIVE_120}\n    mActiveRenderFrameRate=60.000004`)).toBe(60.000004);
     expect(parseRefreshRate('mActiveSfDisplayMode=DisplayMode{id=1, peakRefreshRate=120.0, renderFrameRate=60.0, vsyncRate=120.0}')).toBe(60);
