@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { capture, checkBuild, Refused, renderFacts, surfaceProblem, surfaceRule, tierProblem, validatePlan, witnessProblems, witnessSampleProblems } from '../capture.mjs';
+import { capture, checkBuild, Refused, renderFacts, surfaceProblem, surfaceRule, tierProblem, validatePlan, witnessInsetsFromReady, witnessProblems, witnessSampleProblems } from '../capture.mjs';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
 import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
@@ -1204,6 +1204,24 @@ describe('the witness row check', () => {
     expect(witnessSampleProblems(layout, probes.stage as { px: { x: number; y: number } }, { x: 0, y: 24, width: W.width, height: lowest - 2 - 24 }).join('\n'))
       .toMatch(/sample square is outside the app region/);
     expect(witnessSampleProblems(layout, probes.stage as { px: { x: number; y: number } }, { x: 0, y: 24, width: W.width, height: W.height - 72 })).toEqual([]);
+  });
+
+  it('a sample square even 1 px past the app region is outside it: samples have no tolerance', () => {
+    const { layout, probes } = probesOf();
+    const lowest = Math.max(...layout.patches.map((p) => p.sample.y + p.sample.height), layout.w1b.sample.y + layout.w1b.sample.height);
+    const stage = probes.stage as { px: { x: number; y: number } };
+    expect(witnessSampleProblems(layout, stage, { x: 0, y: 24, width: W.width, height: Math.ceil(lowest) - 1 - 24 }).join('\n')).toMatch(/sample square is outside/);
+    expect(witnessSampleProblems(layout, stage, { x: 0, y: 24, width: W.width, height: Math.ceil(lowest) - 24 })).toEqual([]);
+  });
+
+  it('the insets are READY\'s region against its stage, each rounded to whole px (the S22+: a 74 px status bar read as 73.99999 at 2.8125 px per dp)', () => {
+    const k = 2.8125;
+    const stage = { dp: { x: 0, y: 0, width: 1080 / k, height: 2340 / k }, px: { x: 0, y: 0, width: 1080, height: 2340 } };
+    const top = 73.99999 / k;
+    const region = { dp: { x: 0, y: top, width: 1080 / k, height: 2340 / k - top - 48 }, px: { x: 0, y: 73.99999, width: 1080, height: 2340 - 73.99999 - 48 * k } };
+    expect(witnessInsetsFromReady({ pixelRatio: k, probes: { stage, region } })).toEqual({ top: 74 / k, right: 0, bottom: 48, left: 0 });
+    const sideways = { dp: { x: 2.4 / k, y: 0, width: 1080 / k - 5.6 / k, height: 2340 / k }, px: {} };
+    expect(witnessInsetsFromReady({ pixelRatio: k, probes: { stage, region: sideways } })).toEqual({ top: 0, right: 3 / k, bottom: 0, left: 2 / k });
   });
 
   it('a READY with no region probe, or no pixel ratio, cannot be checked and is refused', () => {
