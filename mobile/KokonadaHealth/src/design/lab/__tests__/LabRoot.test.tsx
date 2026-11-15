@@ -6,6 +6,7 @@ import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
 import type { Scene } from '../scenes';
+import { ShaderReportContext } from '../shaderReport';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -159,6 +160,42 @@ describe('READY', () => {
     h.tick(5);
     expect(h.of('ERROR')).toEqual([{ run: 'r1', errors: ['probe "stray" is not declared by the scene'] }]);
     expect(h.of('READY')).toEqual([]);
+  });
+});
+
+// UI-232 (RA-42): a shader compile error can be thousands of characters, and a READY over MAX_LINE_BYTES cannot be sent
+// (logcat would truncate it): READY carries the reason cut to 300 characters, the last an ellipsis, and is still sent.
+describe('a long surface reason (UI-232)', () => {
+  const sceneReporting = (reason: string): Record<string, Scene> => {
+    const Reporting = () => {
+      const report = React.useContext(ShaderReportContext);
+      React.useLayoutEffect(() => { report?.({ status: 'fallback', reason }); }, [report]);
+      return <Probe id="stage"><Text>x</Text></Probe>;
+    };
+    return { smoke: { periodMs: 6000, probes: ['stage'], Component: Reporting } };
+  };
+  const readyReason = (reason: string) => {
+    const h = setup(FIXED, { scenes: sceneReporting(reason) });
+    h.layout();
+    h.tick(2);
+    expect(h.of('ERROR')).toEqual([]);
+    expect(h.of('READY')).toHaveLength(1);
+    return h.of('READY')[0].shaderReason as string;
+  };
+  // Each character distinct from its neighbours, so a cut at the wrong place shows.
+  const text = (n: number) => Array.from({ length: n }, (_, i) => String.fromCharCode(97 + (i % 26))).join('');
+
+  it('a 5000-character reason is cut to exactly 300, ending in an ellipsis; READY is sent and no ERROR', () => {
+    const long = text(5000);
+    const said = readyReason(long);
+    expect(said).toHaveLength(300);
+    expect(said.endsWith('…')).toBe(true);
+    expect(said).toBe(`${long.slice(0, 299)}…`);
+  });
+
+  it('at the boundary: 300 characters are kept whole, 301 are cut to 300', () => {
+    expect(readyReason(text(300))).toBe(text(300));
+    expect(readyReason(text(301))).toBe(`${text(299)}…`);
   });
 });
 
