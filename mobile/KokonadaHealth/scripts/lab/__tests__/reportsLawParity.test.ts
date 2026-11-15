@@ -82,7 +82,7 @@ describe('lawParity on a planted run within ±1', () => {
     expect(s[0]).toBe(`row ${shot} ${shot.startsWith('fb-') ? 'fallback' : 'field'}.abyss.${shot.includes('dark') ? 'dark' : 'light'}.${{ 'dark-one-joy-still.1': 'one.joy.still', 'light-three-low.1': 'three.low', 'fb-dark-one-c-right.1': 'one.C.right', 'fb-light-rest.1': 'rest' }[shot]}: ${twin}, ${N} px compared, max |Δ| 1, over 1: 0`);
     expect(s).toContain(`  |Δ| histogram (largest channel per pixel): 0: ${N - 12}, 1: 12`);
     expect(s).toContain(`  |Δ| histogram R: 0: ${N - 7}, 1: 7`);
-    expect(s).toContain(`  |Δ| histogram G: 0: ${N}`);
+    expect(s).toContain(`  |Δ| histogram G: 0: ${N}, 1: 0`); // every bin up to the row’s largest |Δ|
     expect(s).toContain(`  |Δ| histogram B: 0: ${N - 5}, 1: 5`);
     expect(s).toContain('  over 1 by region: plate face 0, ring 0, halo 0, quiet rect 0, ground 0');
     expect(s[s.length - 1]).toBe('  PASS');
