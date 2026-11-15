@@ -34,6 +34,8 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
+// FieldFallback records a Skia picture, which the headless stub cannot: only its props are read here.
+jest.mock('../../v2/field/FieldFallback', () => ({ FieldFallback: () => null }));
 const mockEffect: { current: unknown } = { current: null };
 jest.mock('../../v2/field/effect.ts', () => ({ fieldEffect: () => mockEffect.current }));
 const READY = { status: 'ready', effect: { name: 'effect' }, blueNoise: {}, blueNoiseShader: { name: 'noise' } };

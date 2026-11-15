@@ -76,15 +76,18 @@ describe.each(['grain.abyss.dark.full', 'grain.abyss.light.full', 'grain.abyss.d
     expect(d[0].mean).toBeGreaterThan(d[1].mean);
     expect(d[1].mean).toBeGreaterThan(d[2].mean);
     expect(d[2].mean).toBeGreaterThan(0);
-    // ±g on L is at most g·255/L' of a channel near black, where the slope of sRGB over L is steepest on these grounds:
-    // the grain moves L by at most its amplitude, so a channel moves by at most a few levels, and ×0.5 by fewer than ×1.
+    // The grain moves L by at most ±0.012 at ×1: a few 8-bit levels of a channel on these grounds. Measured at 08103b9's
+    // tokens: ×1 at most 4 (dark) and 5 (light) levels, ×0.5 at most 2 and 3; a bound of 6 leaves one level of margin.
     const amplitude = Math.max(base[GRAIN_INDICES[0]], base[GRAIN_INDICES[1]]);
     expect(amplitude).toBe(0.012);
-    expect(d[0].max).toBeLessThanOrEqual(8);
-    expect(d[2].max).toBeLessThanOrEqual(d[0].max);
-    // The ratio of the means follows the factors, roughly (rounding to 8 bits blurs it): ×0.5 is about half of ×1.
-    expect(d[2].mean / d[0].mean).toBeGreaterThan(0.3);
-    expect(d[2].mean / d[0].mean).toBeLessThan(0.7);
+    expect(d[0].max).toBeLessThanOrEqual(6);
+    expect(d[2].max).toBeLessThan(d[0].max);
+    // The means follow the factors, though not exactly (the encode and the rounding to 8 bits sit between L and a level):
+    // measured 0.565 of ×1's for ×0.5 and 0.75 for ×0.71, on both faces and tiers.
+    expect(d[2].mean / d[0].mean).toBeGreaterThan(0.45);
+    expect(d[2].mean / d[0].mean).toBeLessThan(0.65);
+    expect(d[1].mean / d[0].mean).toBeGreaterThan(0.65);
+    expect(d[1].mean / d[0].mean).toBeLessThan(0.85);
   });
 
   it('two strips at one strength draw the same bytes (the scene is deterministic)', () => {
