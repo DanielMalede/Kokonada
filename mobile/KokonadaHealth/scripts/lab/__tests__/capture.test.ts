@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, checkBuild, Refused, renderFacts, surfaceRule, validatePlan } from '../capture.mjs';
+import { capture, checkBuild, Refused, renderFacts, surfaceRule, tierProblem, validatePlan } from '../capture.mjs';
 import { decodePng } from '../lib/png.mjs';
 import { validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
@@ -1005,5 +1005,60 @@ describe('the shipped v1-field plan, end to end on the fake phone', () => {
     expect(manifest.proofs.map((p: { kind: string; passed: boolean }) => [p.kind, p.passed])).toEqual([['draws-frames', true], ['zero-frames', true]]);
     expect(manifest.determinism.every((d: { equal: boolean }) => d.equal)).toBe(true);
     expect(w.device.state()).toEqual(w.before);
+  });
+});
+
+// B8-6: a policy scene's tier comes from the device's motion policy, and READY says the tier it observed; a shot's
+// expect.tier is the tier its device state implies. A READY whose tier differs means the policy did not give that tier:
+// the shot is refused. A scene whose id names its tier is held the same way when READY names a tier; a READY with no
+// tier (a scene that draws no policy field) is held only on a policy scene.
+describe('B8-6: READY\'s observed tier against the shot\'s expect.tier', () => {
+  const policyShot = (tier: string, device: Record<string, unknown>) => fieldShot('p', 'field.abyss.dark.three.policy', {
+    expect: { ...FIELD_EXPECT, tier }, device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false, ...device },
+  });
+
+  it('a policy shot whose READY tier is the one its device state implies passes, and its row records the tier', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, tier: 'still' });
+    const { manifest } = await w.run({ plan: planOf(policyShot('still', { animatorScale: 0 })) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.rows[0].motion).toMatchObject({ tier: 'still', reduceMotionObserved: true });
+    expect(manifest.rows[0].expect.tier).toBe('still');
+  });
+
+  it.each([
+    ['another tier', 'low', /p: READY says tier "low" but the shot's expect\.tier is "still" \(the motion policy did not give the tier the device state implies\)/],
+    ['no tier at all', undefined, /p: READY says tier null but the shot's expect\.tier is "still"/],
+  ])('a policy shot whose READY names %s is refused, and no row is written', async (_label, tier, why) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, ...(tier === undefined ? {} : { tier }) });
+    const manifest = await refusedRun(w, planOf(policyShot('still', { animatorScale: 0 })), why);
+    expect(manifest.rows).toEqual([]);
+  });
+
+  it('an id-tier field shot whose READY tier equals its expect passes; one READY contradicts is refused', async () => {
+    const ok = world();
+    readyAs(ok, { shaderStatus: 'ready', shaderReason: null, tier: 'full' });
+    expect((await ok.run({ plan: planOf(fieldShot('f', 'field.abyss.dark.three.full')) })).manifest.outcome).toBe('passed');
+    const bad = world();
+    readyAs(bad, { shaderStatus: 'ready', shaderReason: null, tier: 'low' });
+    await refusedRun(bad, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: READY says tier "low" but the shot's expect\.tier is "full"/);
+  });
+
+  it('a READY with no tier is held only on a policy scene', () => {
+    expect(tierProblem('field.abyss.dark.three.full', {}, 'full')).toBeNull();
+    expect(tierProblem('smoke', {}, null)).toBeNull();
+    expect(tierProblem('smoke', { tier: null }, null)).toBeNull();
+    expect(tierProblem('field.abyss.dark.three.policy', {}, 'full')).toMatch(/READY says tier null/);
+    expect(tierProblem('field.abyss.dark.three.policy', { tier: 'full' }, 'full')).toBeNull();
+    expect(tierProblem('smoke', { tier: 'full' }, null)).toMatch(/READY says tier "full" but the shot's expect\.tier is null/);
+  });
+
+  it('reduced motion reaches React Native through transition_animation_scale: animatorScale 0 sets it, and battery saver through low_power', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, tier: 'still', powerSave: true });
+    await w.run({ plan: planOf(policyShot('still', { animatorScale: 0, powerSave: true })) });
+    expect(w.device.commands).toContain('settings put global transition_animation_scale 0');
+    expect(w.device.commands).toContain('settings put global low_power 1');
   });
 });
