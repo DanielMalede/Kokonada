@@ -88,6 +88,25 @@ describe('a manifest row is checked against its schema', () => {
     expect(validateRow({ ...ROW, gl: { renderer: null, gles: null, reason: 'no GLES line in dumpsys SurfaceFlinger' } })).toEqual([]);
     expect(validateRow({ ...ROW, display: { colorMode: null, wideColor: null, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: 'no colour mode line' } })).toEqual([]);
   });
+
+  it.each([
+    ['a missing field, by its path', { ...ROW, device: { ...ROW.device, fingerprint: undefined } }, /device\.fingerprint is required/],
+    ['a wrong type', { ...ROW, isRTL: 'yes' }, /isRTL must be a boolean or null/],
+    ['a font scale without the one the app reported at READY', { ...ROW, fontScale: { requested: 1, observed: 1 } }, /fontScale\.app is required/],
+    ['a wrong type in a required boolean', { ...ROW, forceDark: 'no' }, /forceDark must be a boolean/],
+    ['a build type other than lab (never G11 evidence)', { ...ROW, app: { ...ROW.app, buildType: 'release' } }, /app\.buildType must be "lab"/],
+    ['a dev bundle', { ...ROW, app: { ...ROW.app, dev: true } }, /app\.dev must be false/],
+    ['a hash that is not sha256 hex', { ...ROW, sha256: 'xyz' }, /sha256 must be 64 lowercase hex/],
+    ['a commit that is not a full sha', { ...ROW, commit: { ...ROW.commit, sha: 'abc' } }, /commit\.sha must be 40 lowercase hex/],
+    ['a dirty tree', { ...ROW, commit: { ...ROW.commit, porcelainEmpty: false } }, /commit\.porcelainEmpty must be true/],
+    ['a colour space other than sRGB', { ...ROW, colorSpace: 'Display P3' }, /colorSpace must be "sRGB"/],
+    ['an unknown clock mode', { ...ROW, clock: { ...ROW.clock, mode: 'wall' } }, /clock\.mode must be one of/],
+    ['a timestamp that is not ISO 8601', { ...ROW, timestamps: { ...ROW.timestamps, ready: 'yesterday' } }, /timestamps\.ready must be an ISO 8601/],
+    ['a field the schema does not know', { ...ROW, colour: 'red' }, /colour is not a manifest field/],
+    ['an excluded probe without its reason', { ...ROW, probes: { inside: {}, excluded: [{ id: 'x' }] } }, /probes\.excluded\[0\]\.reason is required/],
+  ])('fails %s', (_label, row, why) => {
+    expect(validateRow(row).join('\n')).toMatch(why);
+  });
 });
 
 describe('the Skia version, from the lockfile at HEAD', () => {
@@ -112,26 +131,6 @@ describe('the Skia version, from the lockfile at HEAD', () => {
     const r = readSkiaVersion(text);
     expect(r.version).toBeNull();
     expect(r.reason).toMatch(why);
-  });
-});
-
-  it.each([
-    ['a missing field, by its path', { ...ROW, device: { ...ROW.device, fingerprint: undefined } }, /device\.fingerprint is required/],
-    ['a wrong type', { ...ROW, isRTL: 'yes' }, /isRTL must be a boolean or null/],
-    ['a font scale without the one the app reported at READY', { ...ROW, fontScale: { requested: 1, observed: 1 } }, /fontScale\.app is required/],
-    ['a wrong type in a required boolean', { ...ROW, forceDark: 'no' }, /forceDark must be a boolean/],
-    ['a build type other than lab (never G11 evidence)', { ...ROW, app: { ...ROW.app, buildType: 'release' } }, /app\.buildType must be "lab"/],
-    ['a dev bundle', { ...ROW, app: { ...ROW.app, dev: true } }, /app\.dev must be false/],
-    ['a hash that is not sha256 hex', { ...ROW, sha256: 'xyz' }, /sha256 must be 64 lowercase hex/],
-    ['a commit that is not a full sha', { ...ROW, commit: { ...ROW.commit, sha: 'abc' } }, /commit\.sha must be 40 lowercase hex/],
-    ['a dirty tree', { ...ROW, commit: { ...ROW.commit, porcelainEmpty: false } }, /commit\.porcelainEmpty must be true/],
-    ['a colour space other than sRGB', { ...ROW, colorSpace: 'Display P3' }, /colorSpace must be "sRGB"/],
-    ['an unknown clock mode', { ...ROW, clock: { ...ROW.clock, mode: 'wall' } }, /clock\.mode must be one of/],
-    ['a timestamp that is not ISO 8601', { ...ROW, timestamps: { ...ROW.timestamps, ready: 'yesterday' } }, /timestamps\.ready must be an ISO 8601/],
-    ['a field the schema does not know', { ...ROW, colour: 'red' }, /colour is not a manifest field/],
-    ['an excluded probe without its reason', { ...ROW, probes: { inside: {}, excluded: [{ id: 'x' }] } }, /probes\.excluded\[0\]\.reason is required/],
-  ])('fails %s', (_label, row, why) => {
-    expect(validateRow(row).join('\n')).toMatch(why);
   });
 });
 
