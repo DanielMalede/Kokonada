@@ -40,8 +40,8 @@ describe('the catalogue: Abyss × {dark, light} × the hero scenes × {full, low
     // The policy scenes (B8-6): one per face and hero scene, the tier from the motion policy (policyScenes.test.tsx).
     const policy = FIELD.filter((s) => s.policy);
     expect(policy.map((s) => s.id).sort()).toEqual(FIELD_FACES.flatMap((face) => HERO_SCENES.map((scene) => `field.abyss.${face}.${scene}.policy`)).sort());
-    expect(FIELD.filter((s) => !near.includes(s)).map((s) => s.id).sort()).toEqual([...expected].sort());
-    for (const s of FIELD) {
+    expect(FIELD.filter((s) => !near.includes(s) && !s.policy).map((s) => s.id).sort()).toEqual([...expected].sort());
+    for (const s of FIELD.filter((x) => !x.policy)) {
       const [, direction, face, ...rest] = s.id.split('.');
       expect(s.direction).toBe(direction);
       expect(s.face).toBe(face);
