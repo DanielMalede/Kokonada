@@ -39,7 +39,10 @@ function run(args: string[], out?: string) {
   const p = spawnSync(process.execPath, ['--no-warnings', SCRIPT, ...args, '--out', file], { cwd: APP, encoding: 'utf8' });
   return { status: p.status, stdout: p.stdout, stderr: p.stderr, report: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null, file };
 }
-const onSet = (name: string, extra: string[] = []) => run(['--frames', path.join(sets, name), '--px-per-dp', '0.5', ...extra]);
+/** The marker from READY's marker probe in the planted manifest's row for the shot (the default), unless --marker is given. */
+const mark = (shot = 'planted') => ['--manifest', path.join(sets, 'manifest.json'), '--shot', shot];
+const onSet = (name: string, extra: string[] = []) =>
+  run(['--frames', path.join(sets, name), '--px-per-dp', '0.5', ...(extra.includes('--marker') || extra.includes('--shot') ? [] : mark()), ...extra]);
 const last = (report: string | null) => (report ?? '').trimEnd().split(/\r?\n/).pop();
 const lines = (report: string | null) => (report ?? '').split(/\r?\n/);
 
@@ -64,7 +67,7 @@ describe('S7: flashes per 24 dp cell', () => {
     expect(L[0]).toBe('flashTrace (B8-7: QA-068\'s S7 and UI-190), Abyss dark only; the CTA and voice-line regions need the hero (B6) and are not read');
     expect(L).toContain('frames: 240, 0 to 3983.333 ms; held to a 16.667 ms grid (each frame until the next, none dropped)');
     expect(L).toContain('grid: 24 dp cells of 12 px at 0.5 px per dp over 0,0 96x192 px: 128 cells, 1 under the marker left out');
-    expect(L).toContain('marker: 0,36 8x8 px, 1 change');
+    expect(L).toContain('marker: 0,36 8x8 px, from READY\'s marker probe 0,72 16x16 screen px in shot planted.1, scaled by 0.5; 1 change');
     expect(L).toContain('  worst: 2 in cell 4,8 (dp 96,192 24x24)');
     expect(L).toContain('  over 2: none');
     expect(last(r.report)).toBe('PASS: every cell at most 2 flashes in any 1 s window (worst 2); 1 marker change read');
@@ -116,7 +119,7 @@ describe('UI-190: latency from the marker\'s change to the first changed field c
     const r = onSet('latency');
     expect(r.status).toBe(0);
     const L = lines(r.report);
-    expect(L).toContain('marker: 0,36 8x8 px, 2 changes');
+    expect(L).toContain('marker: 0,36 8x8 px, from READY\'s marker probe 0,72 16x16 screen px in shot planted.1, scaled by 0.5; 2 changes');
     expect(L).toContain('  change 1 at frame 100 (1666.667 ms), quiet 1650 ms before: first field change at frame 102 (1700 ms), 2 frames, 33.333 ms, cell 5,10');
     expect(L).toContain('  change 2 at frame 200 (3333.333 ms), quiet 1616.667 ms before: first field change at frame 200 (3333.333 ms), 0 frames, 0 ms, cell 5,10');
     expect(L).toContain('  after at least 1000 ms quiet: 2 changes, 0 to 2 frames, 0 to 33.333 ms');
@@ -131,9 +134,32 @@ describe('UI-190: latency from the marker\'s change to the first changed field c
 
   it('the marker rect can be given in frame px (READY\'s marker probe, scaled to the recording)', () => {
     const r = onSet('latency', ['--marker', '0,36,8,8']);
-    expect(lines(r.report)).toContain('marker: 0,36 8x8 px, 2 changes');
+    expect(lines(r.report)).toContain('marker: 0,36 8x8 px, from --marker; 2 changes');
     const elsewhere = onSet('latency', ['--marker', '84,0,8,8']);
-    expect(lines(elsewhere.report)).toContain('marker: 84,0 8x8 px, 0 changes');
+    expect(lines(elsewhere.report)).toContain('marker: 84,0 8x8 px, from --marker; 0 changes');
+  });
+
+  it('READY decides where the marker is, never the dp constant: a probe READY put on the right edge is read there', () => {
+    const r = onSet('latency', mark('planted-right'));
+    expect(lines(r.report)).toContain('marker: 88,36 8x8 px, from READY\'s marker probe 176,72 16x16 screen px in shot planted-right.1, scaled by 0.5; 0 changes');
+    expect(r.status).toBe(1);
+    const src = fs.readFileSync(SCRIPT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1');
+    expect(src).not.toMatch(/STORM_MARKER_DP/);
+  });
+
+  it('no marker source, both, a shot not in the manifest, a marker READY left out, a stage scaled unequally: refused', () => {
+    const base = ['--frames', path.join(sets, 'latency'), '--px-per-dp', '0.5'];
+    const no = (args: string[], why: RegExp) => {
+      const r = run(args);
+      expect([r.status, r.report]).toEqual([2, null]);
+      expect(r.stderr).toMatch(why);
+    };
+    no(base, /give --manifest <manifest\.json> --shot <id> \(READY's marker probe\) or --marker x,y,w,h, exactly one/);
+    no([...base, ...mark(), '--marker', '0,36,8,8'], /exactly one/);
+    no([...base, '--manifest', path.join(sets, 'manifest.json')], /--manifest needs --shot/);
+    no([...base, ...mark('nowhere')], /no row for shot "nowhere" in .*manifest\.json/);
+    no([...base, ...mark('planted-under-bars')], /READY's marker probe in shot planted-under-bars\.1 was left out of the capture: partly under the system bars/);
+    no([...base, ...mark('planted-squashed')], /scales the 192x300 px stage to the 96x192 px frames unequally \(0\.5 by 0\.64\)/);
   });
 });
 
@@ -152,34 +178,34 @@ describe('inputs it cannot use: exit 2, no report', () => {
   it('no frames.json, a timestamp that does not rise, a frame of another size, a file that is not beside it', () => {
     const none = copySet('pass-2hz');
     fs.rmSync(path.join(none, 'frames.json'));
-    refused(run(['--frames', none, '--px-per-dp', '0.5']), /frames\.json/);
+    refused(run(['--frames', none, '--px-per-dp', '0.5', ...mark()]), /frames\.json/);
     const back = copySet('pass-2hz');
     const j = JSON.parse(fs.readFileSync(path.join(back, 'frames.json'), 'utf8'));
     j.frames[5].tMs = j.frames[4].tMs;
     fs.writeFileSync(path.join(back, 'frames.json'), JSON.stringify(j));
-    refused(run(['--frames', back, '--px-per-dp', '0.5']), /frames\[5\]\.tMs .*must rise/);
+    refused(run(['--frames', back, '--px-per-dp', '0.5', ...mark()]), /frames\[5\]\.tMs .*must rise/);
     const size = copySet('pass-2hz');
     fs.copyFileSync(path.join(sets, 'odd-size.png'), path.join(size, '00007.png'));
-    refused(run(['--frames', size, '--px-per-dp', '0.5']), /frames\[7\] .*48x48.*96x192/);
+    refused(run(['--frames', size, '--px-per-dp', '0.5', ...mark()]), /frames\[7\] .*48x48.*96x192/);
     const away = copySet('pass-2hz');
     const k = JSON.parse(fs.readFileSync(path.join(away, 'frames.json'), 'utf8'));
     k.frames[3].file = '../00003.png';
     fs.writeFileSync(path.join(away, 'frames.json'), JSON.stringify(k));
-    refused(run(['--frames', away, '--px-per-dp', '0.5']), /frames\[3\]\.file .*beside frames\.json/);
+    refused(run(['--frames', away, '--px-per-dp', '0.5', ...mark()]), /frames\[3\]\.file .*beside frames\.json/);
   });
 
   it('a missing or bad --px-per-dp, both inputs or neither, an unknown option', () => {
-    refused(run(['--frames', path.join(sets, 'pass-2hz')]), /--px-per-dp/);
-    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0']), /--px-per-dp/);
-    refused(run(['--px-per-dp', '0.5']), /--frames .* or --mp4/);
-    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--mp4', 'x.mp4', '--px-per-dp', '0.5']), /--frames .* or --mp4/);
-    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0.5', '--loud']), /unknown option --loud/);
+    refused(run(['--frames', path.join(sets, 'pass-2hz'), ...mark()]), /--px-per-dp/);
+    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0', ...mark()]), /--px-per-dp/);
+    refused(run(['--px-per-dp', '0.5', ...mark()]), /--frames .* or --mp4/);
+    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--mp4', 'x.mp4', '--px-per-dp', '0.5', ...mark()]), /--frames .* or --mp4/);
+    refused(run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0.5', ...mark(), '--loud']), /unknown option --loud/);
   });
 
   it('never overwrites a report', () => {
     const out = path.join(root, 'earlier.txt');
     fs.writeFileSync(out, 'an earlier report\n');
-    const r = run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0.5'], out);
+    const r = run(['--frames', path.join(sets, 'pass-2hz'), '--px-per-dp', '0.5', ...mark()], out);
     expect(r.status).toBe(2);
     expect(fs.readFileSync(out, 'utf8')).toBe('an earlier report\n');
     expect(r.stderr).toMatch(/refusing to overwrite/);
@@ -188,7 +214,7 @@ describe('inputs it cannot use: exit 2, no report', () => {
 
 describe('the mp4 route: screenrecord\'s mp4 through an ffmpeg the caller names', () => {
   it('no --ffmpeg: refused, naming the missing tool and that installing one is the owner\'s call', () => {
-    const r = run(['--mp4', path.join(root, 'storm.mp4'), '--size', '540x1170', '--px-per-dp', '1.40625']);
+    const r = run(['--mp4', path.join(root, 'storm.mp4'), '--size', '540x1170', '--px-per-dp', '1.40625', '--marker', '0,0,2,2']);
     expect(r.status).toBe(2);
     expect(r.report).toBeNull();
     expect(r.stderr).toMatch(/--mp4 needs --ffmpeg <path>: no ffmpeg was given/);
@@ -197,10 +223,10 @@ describe('the mp4 route: screenrecord\'s mp4 through an ffmpeg the caller names'
 
   it('an --ffmpeg path that does not exist, or no --size: refused, naming it', () => {
     const missing = path.join(root, 'no-such-ffmpeg.exe');
-    const r = run(['--mp4', path.join(root, 'storm.mp4'), '--ffmpeg', missing, '--size', '540x1170', '--px-per-dp', '1.40625']);
+    const r = run(['--mp4', path.join(root, 'storm.mp4'), '--ffmpeg', missing, '--size', '540x1170', '--px-per-dp', '1.40625', '--marker', '0,0,2,2']);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain(`ffmpeg not found at ${missing}`);
-    const s = run(['--mp4', path.join(root, 'storm.mp4'), '--ffmpeg', process.execPath, '--px-per-dp', '1.40625']);
+    const s = run(['--mp4', path.join(root, 'storm.mp4'), '--ffmpeg', process.execPath, '--px-per-dp', '1.40625', '--marker', '0,0,2,2']);
     expect(s.status).toBe(2);
     expect(s.stderr).toMatch(/--mp4 needs --size <width>x<height>/);
   });

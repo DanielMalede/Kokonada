@@ -9,7 +9,9 @@
 //     code values it stands well above a recording's noise.
 //   · No tap coordinate and no emotion value: the colour says only the parity of the count of changes.
 //
-// No dependency but the generated tokens, imported with their extension, so the report imports this file in plain node.
+// flashTrace reads where the marker is from READY's marker probe, never from this rect (the stage is ltr, but READY is
+// what the device did). No dependency but the generated tokens, imported with their extension, so the planted frames
+// (makeFlashFrames.mts) import this file in plain node.
 
 import { DIRECTIONS } from '../../v2/tokens/tokens.generated.ts';
 

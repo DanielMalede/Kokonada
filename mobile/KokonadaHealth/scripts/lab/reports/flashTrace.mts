@@ -28,9 +28,14 @@
 // to a grid of the smallest frame interval, each frame until the next, so no frame is dropped and flashCount reads a
 // uniform trace, as its definition takes it.
 //
+// The marker: --manifest <manifest.json> --shot <id> reads READY's marker probe from the shot's row (capture.mjs's
+// probes.inside.marker, screen px) and scales it by the frames' size over the row's stage (the app window, the whole
+// screen, UI-216); or --marker x,y,w,h gives it in frame px. Exactly one. Never the scene's dp constant: on a
+// right-to-left phone React Native swaps left and right unless the stage is ltr (stormSceneRtl.test.tsx), so where the
+// marker is, READY says.
+//
 // Options: --region x,y,w,h (frame px, default the whole frame: give the app region scaled to the recording to leave the
-// system bars out), --marker x,y,w,h (frame px, default the marker's dp rect × --px-per-dp; READY's marker probe scaled to
-// the recording is exact), --change-min <codes> (a field cell changed when a channel of its mean moved by at least this
+// system bars out), --change-min <codes> (a field cell changed when a channel of its mean moved by at least this
 // many 8-bit code values, default 1), --marker-min <codes> (the same for the marker, default 8; its two colours are about
 // 20 apart).
 //
@@ -42,7 +47,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { STORM_MARKER_DP } from '../../../src/design/lab/storm/stormMarker.ts';
 import { relY, worstFlashesPerSecond } from '../../../src/design/v2/field/flashCount.ts';
 import { decodePng } from '../lib/png.mjs';
 
@@ -85,11 +89,13 @@ interface Args {
   readonly out: string;
   readonly region: Rect | null;
   readonly marker: Rect | null;
+  readonly manifest: string | null;
+  readonly shot: string | null;
   readonly changeMin: number;
   readonly markerMin: number;
 }
 
-const OPTIONS = ['--frames', '--mp4', '--ffmpeg', '--size', '--px-per-dp', '--out', '--region', '--marker', '--change-min', '--marker-min'];
+const OPTIONS = ['--frames', '--mp4', '--ffmpeg', '--size', '--px-per-dp', '--out', '--region', '--marker', '--manifest', '--shot', '--change-min', '--marker-min'];
 
 function parseRect(v: string, name: string): Rect {
   const p = v.split(',').map(Number);
@@ -117,6 +123,11 @@ function parseArgs(argv: readonly string[]): Args {
   if (v['--out'] === undefined) throw new FlashInputError(`${REPORT}: --out <report> is required`);
   if ((v['--frames'] === undefined) === (v['--mp4'] === undefined)) throw new FlashInputError(`${REPORT}: give --frames <dir> or --mp4 <file>, exactly one`);
   const pxPerDp = positive(v['--px-per-dp'], '--px-per-dp (frame px per dp)', null);
+  const fromReady = v['--manifest'] !== undefined || v['--shot'] !== undefined;
+  if (fromReady === (v['--marker'] !== undefined)) {
+    throw new FlashInputError(`${REPORT}: give --manifest <manifest.json> --shot <id> (READY's marker probe) or --marker x,y,w,h, exactly one`);
+  }
+  if (fromReady && (v['--manifest'] === undefined || v['--shot'] === undefined)) throw new FlashInputError(`${REPORT}: --manifest needs --shot <id>, and --shot needs --manifest`);
   let size: Args['size'] = null;
   if (v['--size'] !== undefined) {
     const m = /^(\d+)x(\d+)$/.exec(v['--size']);
@@ -132,6 +143,8 @@ function parseArgs(argv: readonly string[]): Args {
     out: v['--out'],
     region: v['--region'] === undefined ? null : parseRect(v['--region'], '--region'),
     marker: v['--marker'] === undefined ? null : parseRect(v['--marker'], '--marker'),
+    manifest: v['--manifest'] ?? null,
+    shot: v['--shot'] ?? null,
     changeMin: positive(v['--change-min'], '--change-min', 1),
     markerMin: positive(v['--marker-min'], '--marker-min', 8),
   };
@@ -168,19 +181,13 @@ class Analyzer {
   readonly width: number;
   readonly height: number;
 
-  constructor(width: number, height: number, pxPerDp: number, region: Rect | null, marker: Rect | null) {
+  constructor(width: number, height: number, pxPerDp: number, region: Rect | null, marker: Rect) {
     this.width = width;
     this.height = height;
     this.region = region ?? { x: 0, y: 0, width, height };
     const r = this.region;
     if (r.x + r.width > width || r.y + r.height > height) throw new FlashInputError(`${REPORT}: --region ${rectText(r)} is not inside the ${width}x${height} px frame`);
-    const mx = Math.floor(STORM_MARKER_DP.left * pxPerDp);
-    const my = Math.floor(STORM_MARKER_DP.top * pxPerDp);
-    this.marker = marker ?? {
-      x: mx, y: my,
-      width: Math.ceil((STORM_MARKER_DP.left + STORM_MARKER_DP.size) * pxPerDp) - mx,
-      height: Math.ceil((STORM_MARKER_DP.top + STORM_MARKER_DP.size) * pxPerDp) - my,
-    };
+    this.marker = marker;
     const m = this.marker;
     if (m.x + m.width > width || m.y + m.height > height) throw new FlashInputError(`${REPORT}: the marker ${rectText(m)} is not inside the ${width}x${height} px frame`);
     this.cellPx = CELL_DP * pxPerDp;
@@ -275,7 +282,7 @@ function holdGrid(times: readonly number[]): { step: number; index: number[] } {
   return { step, index };
 }
 
-function analyse(an: Analyzer, times: readonly number[], a: Args, source: string): { text: string; code: number } {
+function analyse(an: Analyzer, times: readonly number[], a: Args, source: string, markerHow: string): { text: string; code: number } {
   if (times.length !== an.y.length) throw new FlashInputError(`${REPORT}: ${times.length} timestamps for ${an.y.length} frames`);
   const { step, index } = holdGrid(times);
   const lines: string[] = [
@@ -292,7 +299,7 @@ function analyse(an: Analyzer, times: readonly number[], a: Args, source: string
     const q = an.markerRgb[i];
     if (Math.max(Math.abs(q[0] - p[0]), Math.abs(q[1] - p[1]), Math.abs(q[2] - p[2])) >= a.markerMin) markerChanges.push(i);
   }
-  lines.push(`marker: ${rectText(an.marker)} px, ${plural(markerChanges.length, 'change', 'changes')}`);
+  lines.push(`marker: ${rectText(an.marker)} px, ${markerHow}; ${plural(markerChanges.length, 'change', 'changes')}`);
 
   // S7
   lines.push(`S7 flashes (WCAG 2.3.1 general flashes, by src/design/v2/field/flashCount.ts): at most ${MOST_FLASHES} per cell in any 1 s window`);
@@ -355,11 +362,52 @@ function analyse(an: Analyzer, times: readonly number[], a: Args, source: string
   return { text: `${lines.join('\n')}\n`, code: verdict.startsWith('PASS') ? 0 : 1 };
 }
 
+// ---------------------------------------------------------------------------------------- the marker
+
+type Json = Record<string, unknown>;
+const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isRect = (v: unknown): v is Rect => isObj(v) && ['x', 'y', 'width', 'height'].every((k) => typeof v[k] === 'number' && Number.isFinite(v[k] as number))
+  && (v.width as number) > 0 && (v.height as number) > 0;
+
+/** The marker rect in frame px and where it came from: --marker as given, or READY's marker probe scaled to the frames. */
+function markerFor(a: Args, width: number, height: number): { rect: Rect; how: string } {
+  if (a.marker !== null) return { rect: a.marker, how: 'from --marker' };
+  const file = a.manifest!;
+  if (!fs.existsSync(file)) throw new FlashInputError(`${REPORT}: no manifest at ${file}`);
+  let m: unknown;
+  try {
+    m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new FlashInputError(`${REPORT}: ${file} is not JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const rows = isObj(m) && Array.isArray(m.rows) ? m.rows.filter((r): r is Json => isObj(r) && r.shot === a.shot) : [];
+  if (rows.length === 0) throw new FlashInputError(`${REPORT}: no row for shot ${JSON.stringify(a.shot)} in ${file}`);
+  // The shot's last launch: the record proof runs on it.
+  const row = rows.reduce((p, r) => ((r.repeat as number) > (p.repeat as number) ? r : p));
+  const name = `${a.shot}.${String(row.repeat)}`;
+  const stage = row.stage;
+  if (!isRect(stage)) throw new FlashInputError(`${REPORT}: shot ${name} in ${file} has no stage rect`);
+  const probes = isObj(row.probes) ? row.probes : {};
+  const left = Array.isArray(probes.excluded) ? probes.excluded.find((x) => isObj(x) && x.id === 'marker') as Json | undefined : undefined;
+  if (left !== undefined) throw new FlashInputError(`${REPORT}: READY's marker probe in shot ${name} was left out of the capture: ${String(left.reason)}`);
+  const probe = isObj(probes.inside) ? probes.inside.marker : undefined;
+  if (!isRect(probe)) throw new FlashInputError(`${REPORT}: shot ${name} in ${file} has no marker probe: is it a storm shot?`);
+  const sx = width / stage.width;
+  const sy = height / stage.height;
+  if (Math.abs(sx - sy) > 0.01 * sx) {
+    throw new FlashInputError(`${REPORT}: shot ${name} scales the ${stage.width}x${stage.height} px stage to the ${width}x${height} px frames unequally (${fmt(sx)} by ${fmt(sy)})`);
+  }
+  const x0 = Math.floor(probe.x * sx);
+  const y0 = Math.floor(probe.y * sy);
+  const rect = { x: x0, y: y0, width: Math.ceil((probe.x + probe.width) * sx) - x0, height: Math.ceil((probe.y + probe.height) * sy) - y0 };
+  return { rect, how: `from READY's marker probe ${rectText(probe)} screen px in shot ${name}, scaled by ${fmt(sx)}` };
+}
+
 // ---------------------------------------------------------------------------------------- input 1: PNG frames
 
 const sha256 = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
-async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times: number[]; source: string }> {
+async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string }> {
   const listFile = path.join(dir, 'frames.json');
   if (!fs.existsSync(listFile)) throw new FlashInputError(`${REPORT}: no frames.json in ${dir}`);
   const raw = fs.readFileSync(listFile);
@@ -375,6 +423,7 @@ async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times
   // One hash over the list and every frame in its order: the list alone names only file names and times.
   const hash = crypto.createHash('sha256').update(raw);
   let an: Analyzer | null = null;
+  let markerHow = '';
   for (let i = 0; i < frames.length; i++) {
     const f = frames[i] as { file?: unknown; tMs?: unknown };
     if (typeof f?.file !== 'string' || f.file !== path.basename(f.file) || !f.file.endsWith('.png')) {
@@ -393,13 +442,17 @@ async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times
     } catch (e) {
       throw new FlashInputError(`${REPORT}: frames[${i}] (${f.file}): ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (an === null) an = new Analyzer(png.width, png.height, a.pxPerDp, a.region, a.marker);
+    if (an === null) {
+      const mk = markerFor(a, png.width, png.height);
+      markerHow = mk.how;
+      an = new Analyzer(png.width, png.height, a.pxPerDp, a.region, mk.rect);
+    }
     else if (png.width !== an.width || png.height !== an.height) {
       throw new FlashInputError(`${REPORT}: frames[${i}] (${f.file}) is ${png.width}x${png.height} px, frames[0] is ${an.width}x${an.height} px`);
     }
     an.add(png.rgba, `frames[${i}] (${f.file})`);
   }
-  return { an: an!, times, source: `frames ${dir} (frames.json and its ${frames.length} PNGs, sha256 ${hash.digest('hex')})` };
+  return { an: an!, times, markerHow, source: `frames ${dir} (frames.json and its ${frames.length} PNGs, sha256 ${hash.digest('hex')})` };
 }
 
 // ---------------------------------------------------------------------------------------- input 2: screenrecord's mp4
@@ -468,9 +521,10 @@ function checkMp4Args(a: Args): { mp4: string; ffmpeg: string; size: { width: nu
   return { mp4: a.mp4!, ffmpeg: a.ffmpeg, size: a.size };
 }
 
-async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source: string }> {
+async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string }> {
   const { mp4, ffmpeg, size } = checkMp4Args(a);
-  const an = new Analyzer(size.width, size.height, a.pxPerDp, a.region, a.marker);
+  const mk = markerFor(a, size.width, size.height);
+  const an = new Analyzer(size.width, size.height, a.pxPerDp, a.region, mk.rect);
   const split = new RawFrameSplitter(size.width, size.height);
   let stderr = '';
   let count = 0;
@@ -499,7 +553,7 @@ async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source
     if (i > 0 && !(x.tMs > info[i - 1].tMs)) throw new FlashInputError(`${REPORT}: frame ${i}'s time ${x.tMs} ms must rise: frame ${i - 1}'s is ${info[i - 1].tMs} ms`);
   });
   if (count < 2) throw new FlashInputError(`${REPORT}: the mp4 holds ${count} frame${count === 1 ? '' : 's'}, at least 2 are needed`);
-  return { an, times: info.map((x) => x.tMs), source: `mp4 ${mp4} (sha256 ${sha256(fs.readFileSync(mp4))}) through ${ffmpeg}` };
+  return { an, times: info.map((x) => x.tMs), markerHow: mk.how, source: `mp4 ${mp4} (sha256 ${sha256(fs.readFileSync(mp4))}) through ${ffmpeg}` };
 }
 
 // ---------------------------------------------------------------------------------------- the run
@@ -508,7 +562,7 @@ async function main(): Promise<number> {
   const a = parseArgs(process.argv.slice(2));
   if (fs.existsSync(a.out)) throw new FlashInputError(`${REPORT}: refusing to overwrite ${a.out}: a report never replaces an earlier one`);
   const input = a.frames !== null ? await readFrameDir(a.frames, a) : await readMp4(a);
-  const { text, code } = analyse(input.an, input.times, a, input.source);
+  const { text, code } = analyse(input.an, input.times, a, input.source, input.markerHow);
   fs.writeFileSync(a.out, text, { flag: 'wx' });
   process.stdout.write(text);
   return code;
