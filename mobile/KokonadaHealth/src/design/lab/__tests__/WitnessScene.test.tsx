@@ -31,9 +31,11 @@ jest.mock('@shopify/react-native-skia', () => {
   const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
   return { Canvas: Stub, Rect: () => null, Image: () => null, FilterMode: { Nearest: 0, Linear: 1 }, MipmapMode: { None: 0, Nearest: 1, Linear: 2 }, Skia: {} };
 });
-jest.mock('../../v2/field/effect.ts', () => ({
-  fieldEffect: () => ({ status: 'ready', effect: { name: 'effect' }, blueNoise: {}, blueNoiseShader: { name: 'noise' } }),
-}));
+// The process's one field effect: ready, unless a test plants the fallback (a shader that did not compile).
+const READY = { status: 'ready', effect: { name: 'effect' }, blueNoise: {}, blueNoiseShader: { name: 'noise' } };
+const mockEffect: { current: unknown } = { current: READY };
+jest.mock('../../v2/field/effect.ts', () => ({ fieldEffect: () => mockEffect.current }));
+afterEach(() => { mockEffect.current = READY; });
 
 import { Canvas, Rect } from '@shopify/react-native-skia';
 import { FieldSurface } from '../../v2/field/FieldSurface';
@@ -173,6 +175,20 @@ describe.each(['dark', 'light'] as const)('once measured, the %s face', (face) =
     layoutAs(r);
     const painted = r.root.findAll((n) => typeof n.type === 'string' && flat(n.props.style).backgroundColor !== undefined).map((n) => n.props.testID);
     expect(painted.sort()).toEqual(layout.patches.filter((p) => p.kind === 'W3').map((p) => `witness.W3.${p.colour}`).sort());
+  });
+});
+
+describe('when the field effect cannot draw', () => {
+  it('reports `fallback` with the effect reason and draws no patch at all, so the harness refuses the shot', () => {
+    mockEffect.current = { status: 'fallback', reason: 'the field shader did not compile' };
+    const reports: ShaderReport[] = [];
+    const r = mount('witness.abyss.dark', (x) => reports.push(x));
+    layoutAs(r);
+    expect(reports.at(-1)).toEqual({ status: 'fallback', reason: 'the field shader did not compile' });
+    expect(r.root.findAllByType(FieldSurface)).toHaveLength(0);
+    expect(r.root.findAllByType(Canvas)).toHaveLength(0);
+    expect(r.root.findAll((n) => typeof n.type === 'string' && typeof n.props.testID === 'string' && n.props.testID.startsWith('witness.W'))).toHaveLength(0);
+    expect(probes(r)).toEqual(['probe-stage']);
   });
 });
 
