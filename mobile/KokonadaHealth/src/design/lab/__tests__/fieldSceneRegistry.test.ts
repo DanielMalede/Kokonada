@@ -3,7 +3,7 @@ import * as path from 'path';
 import { importClosure } from '../../../../scripts/lab/importGraph.mjs';
 import { FIELD_SCENES } from '../fieldScenes';
 import { parseLabArgs } from '../params';
-import { SCENES } from '../scenes';
+import { SCENE_GROUP_FACES, SCENE_GROUPS, SCENES } from '../scenes';
 import { FallbackScene } from '../scenes/FallbackScene';
 import { FieldScene } from '../scenes/FieldScene';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
@@ -16,9 +16,21 @@ const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, 
 const IDS = Object.keys(FIELD_SCENES);
 
 describe('the field scenes are registered in SCENES', () => {
-  it('every catalogue id, and the smoke scene still', () => {
+  // The B8 groups (witness, grain, cost, storm) compose into SCENES under their own `<group>.abyss.` prefix
+  // (sceneGroups.test.ts pins that composition); this test owns everything outside those prefixes. The prefixes come
+  // from scenes.ts's own group table, never from a second list here.
+  const GROUP_PREFIXES = Object.keys(SCENE_GROUP_FACES).map((group) => `${group}.abyss.`);
+  const inGroup = (id: string) => GROUP_PREFIXES.some((p) => id.startsWith(p));
+
+  it('every catalogue id, and the smoke scene still (outside the B8 groups)', () => {
     expect(IDS.length).toBeGreaterThan(0);
-    expect(Object.keys(SCENES).sort()).toEqual(['smoke', ...IDS].sort());
+    expect(Object.keys(SCENES).filter((id) => !inGroup(id)).sort()).toEqual(['smoke', ...IDS].sort());
+  });
+
+  it('the prefix filter sets aside exactly the groups\' own scenes: nothing else hides behind a prefix', () => {
+    const grouped = Object.values(SCENE_GROUPS).flatMap((g) => Object.keys(g));
+    expect(Object.keys(SCENES).filter(inGroup).sort()).toEqual(grouped.sort());
+    expect(IDS.filter(inGroup)).toEqual([]);
   });
 
   it.each(IDS)('%s: its component, its period and the stage probe', (id) => {
