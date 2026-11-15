@@ -96,6 +96,13 @@ describe('UI-217: no root mounts the fallback under StrictMode or a hidden <Acti
       ["import { unstable_Activity as Keep } from 'react';", 'e.tsx'],
       ['const x = React.Activity;', 'f.ts'],
       ["AppRegistry.registerComponent('k', () => App, { useOffscreen: true });", 'g.js'],
+      // RA-45: the option named by a string literal or a computed key, or hidden in an options object the scan cannot read.
+      ["AppRegistry.registerComponent('k', () => App, { 'useOffscreen': true });", 'g2.js'],
+      ["AppRegistry.registerComponent('k', () => App, { ['useOffscreen']: true });", 'g3.js'],
+      ["options['useOffscreen'] = true;", 'g4.js'],
+      ["import { keepAlive } from './opts';\nAppRegistry.registerComponent('k', () => App, { ...keepAlive });", 'g5.js'],
+      ["import { keepAlive } from './opts';\nAppRegistry.registerComponent('k', () => App, keepAlive);", 'g6.js'],
+      ['AppRegistry.registerComponent(...registration);', 'g7.js'],
     ];
     for (const [text, name] of bites) expect([name, keepAliveUses(text, name).length > 0]).toEqual([name, true]);
     const quiet: Array<[string, string]> = [
@@ -103,8 +110,33 @@ describe('UI-217: no root mounts the fallback under StrictMode or a hidden <Acti
       ["import type { Activity } from './activities';\nconst list: Activity[] = [];\nconst [a] = useState<Activity | null>(null);", 'i.tsx'],
       ['export interface Activity { key: string }', 'j.ts'],
       ["// StrictMode would run each cleanup twice; <Activity> too.\nconst s = 'useOffscreen';", 'k.ts'],
+      ["AppRegistry.registerComponent('k', () => App);\nconst o = { offscreen: 'useOffscreen' };", 'l.js'],
     ];
     for (const [text, name] of quiet) expect([name, keepAliveUses(text, name)]).toEqual([name, []]);
+  });
+
+  // RA-45: the three entries are where an app registers, so there the option is refused in any spelling, even in a
+  // comment or a string built from parts: their text never names an offscreen anything.
+  const OFFSCREEN = /off[^a-z0-9]{0,8}screen/i;
+  it('the entries name no offscreen option in any spelling, and the two that register pass exactly two arguments', () => {
+    for (const spelling of ['useOffscreen', 'useOffScreen', 'unstable_Offscreen', 'use_off_screen', "'use' + 'Off' + 'screen'"]) {
+      expect([spelling, OFFSCREEN.test(spelling)]).toEqual([spelling, true]);
+    }
+    for (const root of ROOTS) {
+      const text = fs.readFileSync(path.join(APP, root), 'utf8');
+      expect([root, OFFSCREEN.exec(text)?.[0] ?? null]).toEqual([root, null]);
+    }
+    const registrations = ['index.js', 'index.lab.js'].map((r) => {
+      const file = ts.createSourceFile(r, fs.readFileSync(path.join(APP, r), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+      const calls: number[] = [];
+      const visit = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && n.expression.getText(file).endsWith('registerComponent')) calls.push(n.arguments.length);
+        ts.forEachChild(n, visit);
+      };
+      visit(file);
+      return [r, calls];
+    });
+    expect(registrations).toEqual([['index.js', [2]], ['index.lab.js', [2]]]);
   });
 
   it('nothing in the app or the lab uses StrictMode, Activity or the offscreen option', () => {
