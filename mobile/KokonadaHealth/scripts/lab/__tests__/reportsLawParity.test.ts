@@ -238,8 +238,7 @@ describe('lawParity refuses what it cannot use, and never overwrites', () => {
     const r = run(dir);
     expect(r.status).toBe(0);
     expect(r.report).toContain('not compared: light-three-low.1 field.abyss.light.three.low (clock realtime: no fixed frame time, so no twin)');
-    expect(r.report!.trimEnd().split(/?
-/).pop()).toBe('PASS: 3 rows within ±1 of their twins (1 field, 2 fallback); 1 row not compared, named above');
+    expect(r.report!.trimEnd().split(/\r?\n/).pop()).toBe('PASS: 3 rows within ±1 of their twins (1 field, 2 fallback); 1 row not compared, named above');
   });
 
   it('a run with no field or fallback row proves nothing: exit 1, and the other rows are named, not compared', () => {
