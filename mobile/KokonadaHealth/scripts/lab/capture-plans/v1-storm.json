@@ -1,0 +1,146 @@
+{
+  "id": "v1-storm",
+  "app": {
+    "package": "com.kokonadahealth.lab",
+    "activity": "com.kokonadahealth.lab.DesignLabActivity"
+  },
+  "readyTimeoutMs": 30000,
+  "settleMs": 300,
+  "session": {
+    "stayOn": true
+  },
+  "shots": [
+    {
+      "id": "storm-dark-first-full",
+      "repeat": 1,
+      "scene": "storm.abyss.dark.first-full",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "marker"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      },
+      "proof": {
+        "kind": "record",
+        "seconds": 20,
+        "size": {
+          "width": 540,
+          "height": 1170
+        }
+      }
+    },
+    {
+      "id": "storm-dark-first-still",
+      "repeat": 1,
+      "scene": "storm.abyss.dark.first-still",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 0,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "marker"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      },
+      "proof": {
+        "kind": "record",
+        "seconds": 20,
+        "size": {
+          "width": 540,
+          "height": 1170
+        }
+      }
+    },
+    {
+      "id": "storm-dark-toggle-still",
+      "repeat": 1,
+      "scene": "storm.abyss.dark.toggle-still",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 0,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "marker"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      },
+      "proof": {
+        "kind": "record",
+        "seconds": 24,
+        "size": {
+          "width": 540,
+          "height": 1170
+        }
+      }
+    },
+    {
+      "id": "storm-dark-idle-still",
+      "repeat": 1,
+      "scene": "storm.abyss.dark.idle-still",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 0,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "marker"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      },
+      "proof": {
+        "kind": "record",
+        "seconds": 8,
+        "size": {
+          "width": 540,
+          "height": 1170
+        }
+      }
+    }
+  ]
+}
