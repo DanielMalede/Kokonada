@@ -160,6 +160,38 @@ describe('fieldCost refuses what it cannot use', () => {
     expect(r.stderr).toContain('"proofs"');
   });
 
+  it('a manifest with no results list (where the harness keeps the RESULT lines): exit 2, naming "results"', () => {
+    const c = costRun();
+    const r = run({ plan: c.plan, manifest: set(c.manifest, 'results', undefined) });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('"results"');
+    expect(r.report).toBeNull();
+  });
+
+  it('a RESULT kept as a proof field (the assumed shape, not the harness\'s): exit 2, naming the field', () => {
+    const c = costRun();
+    const proofs = (c.manifest.proofs as Json[]).map((p) => (p.shot === 'cost-full' ? { ...p, result: costRun().manifest.results } : p));
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, proofs } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('"result"');
+  });
+
+  it('a RESULT for a shot whose result proof is missing: exit 2, the manifest does not hold together', () => {
+    const c = costRun();
+    const proofs = (c.manifest.proofs as Json[]).filter((p) => p.shot !== 'cost-low');
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, proofs } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('cost-low');
+  });
+
+  it('a plan the harness would refuse (a cost shot without expect): exit 2, with the harness\'s sentence', () => {
+    const c = costRun();
+    const shots = (c.plan.shots as Json[]).map((s) => (s.id === 'cost-low' ? (({ expect: _e, ...rest }) => rest)(s) : s));
+    const r = run({ plan: { ...c.plan, shots }, manifest: c.manifest });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/validatePlan.*shots\[4\]\.expect must be/);
+  });
+
   it('a planned cost scene that is not cost.<direction>.<face>.<scene>.<tier>[.storm|.heavy|.empty]: exit 2, naming the shot', () => {
     const c = costRun();
     const shots = (c.plan.shots as Json[]).map((s) => (s.id === 'cost-low' ? { ...s, scene: 'cost.abyss.dim.three.low' } : s));

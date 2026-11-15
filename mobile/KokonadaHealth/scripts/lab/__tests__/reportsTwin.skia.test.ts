@@ -115,8 +115,7 @@ const stageRow = (id: string) => {
   const field = s.kind === 'field';
   return row({
     shot: 's', scene: id, expect: { direction: s.direction, face: s.face, hero: s.hero, tier: s.tier }, file: 'x.png', sha256: 'b'.repeat(64),
-    region: { x: 0, y: 0, ...PX }, stage: { x: 0, y: 0, ...PX }, pxPerDp: K, t: T,
-    renderScale: field ? renderScaleFor(s.tier!) : undefined, shaderStatus: field ? 'ready' : 'fallback-scene',
+    screen: PX, density: K * 160, clock: { mode: 'fixed', t: T }, shaderStatus: field ? 'ready' : 'fallback-scene',
   });
 };
 

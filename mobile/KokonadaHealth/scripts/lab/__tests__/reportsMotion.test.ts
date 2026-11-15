@@ -80,7 +80,7 @@ describe('motion on a sound run', () => {
       '  rate-low: 598 frames in 10 s = 59.8 fps, band 55 to 62 (PASS)',
       '  rate-full: 1190 frames in 10 s = 119 fps, band 110 to 125 (PASS)',
     ]);
-    expect(after('framestats (informational, never judged)', 1)).toEqual(['  stats-full: seconds 10, frames 1190, jankPercent 1.5, p90Ms 9, p99Ms 14 (informational)']);
+    expect(after('framestats (informational, never judged)', 1)).toEqual(['  stats-full: seconds 10, frames 1190, janky 18, jankPercent 1.5 (informational)']);
   });
 });
 
@@ -121,13 +121,13 @@ describe('motion fails on a broken proof', () => {
     ['rate-low', 540, '  rate-low: 540 frames in 10 s = 54 fps, band 55 to 62 (FAIL)'],
     ['rate-full', 900, '  rate-full: 900 frames in 10 s = 90 fps, band 110 to 125 (FAIL)'],
   ])('a rate outside its band (%s at %i frames): exit 1', (shot, frames, line) => {
-    const r = run(withProof(shot, (p) => ({ ...p, frames })));
+    const r = run(withProof(shot, (p) => ({ ...p, frames, fps: frames / 10, passed: false })));
     expect(r.status).toBe(1);
     expect(r.report).toContain(line);
   });
 
   it('a rate on the band’s edge passes (the band is inclusive)', () => {
-    const r = run(withProof('rate-low', (p) => ({ ...p, frames: 620 })));
+    const r = run(withProof('rate-low', (p) => ({ ...p, frames: 620, fps: 62 })));
     expect(r.status).toBe(0);
   });
 
@@ -138,7 +138,7 @@ describe('motion fails on a broken proof', () => {
   });
 
   it('framestats is informational: any numbers pass', () => {
-    const r = run(withProof('stats-full', (p) => ({ ...p, jankPercent: 80, p99Ms: 900, passed: false })));
+    const r = run(withProof('stats-full', (p) => ({ ...p, janky: 952, jankPercent: 80 })));
     expect(r.status).toBe(0);
     expect(r.report).toContain('jankPercent 80');
   });
@@ -163,12 +163,34 @@ describe('motion refuses what it cannot use', () => {
     expect(r.report).toBeNull();
   });
 
-  it('a planned rate proof without its band: exit 2, naming "proof.band"', () => {
+  it('a planned rate proof without its band, which the harness’s validatePlan refuses: exit 2, with its sentence', () => {
     const m = motionRun();
     const shots = (m.plan.shots as Json[]).map((s) => (s.id === 'rate-full' ? { ...s, proof: { kind: 'rate', seconds: 10 } } : s));
     const r = run({ plan: { ...m.plan, shots }, manifest: m.manifest });
     expect(r.status).toBe(2);
-    expect(r.stderr).toContain('"proof.band"');
+    expect(r.stderr).toMatch(/validatePlan.*shots\[4\]\.proof\.band must be \{ min, max \}/);
+    expect(r.report).toBeNull();
+  });
+
+  it('a plan the harness would refuse (a shot without expect): exit 2, with the harness’s sentence', () => {
+    const m = motionRun();
+    const shots = (m.plan.shots as Json[]).map((s) => (s.id === 'stats-full' ? (({ expect: _e, ...rest }) => rest)(s) : s));
+    const r = run({ plan: { ...m.plan, shots }, manifest: m.manifest });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/validatePlan.*shots\[5\]\.expect must be/);
+  });
+
+  it.each([
+    ['a rate proof whose fps is not its frames over its seconds', 'rate-low', (p: Json) => ({ ...p, fps: 61 }), '"fps"'],
+    ['a rate proof whose band is not the plan’s', 'rate-low', (p: Json) => ({ ...p, band: { min: 0, max: 1000 } }), '"band"'],
+    ['a proof whose seconds are not the plan’s', 'dark-rest-full', (p: Json) => ({ ...p, seconds: 5 }), '"seconds"'],
+    ['a proof field the harness does not write', 'dark-rest-still', (p: Json) => ({ ...p, p99Ms: 14 }), '"p99Ms"'],
+    ['a framestats proof without its janky count', 'stats-full', (p: Json) => (({ janky: _j, ...rest }) => rest)(p), '"janky"'],
+  ])('%s: exit 2, naming the field', (_, shot, edit, field) => {
+    const r = run(withProof(shot, edit));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(field);
+    expect(r.report).toBeNull();
   });
 
   it('a determinism record without hashes: exit 2, naming "hashes"', () => {

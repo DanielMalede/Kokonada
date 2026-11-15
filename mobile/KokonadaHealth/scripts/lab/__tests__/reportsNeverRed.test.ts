@@ -17,7 +17,7 @@ jest.setTimeout(180000);
 const APP = path.resolve(__dirname, '../../..');
 const SCRIPT = path.join(APP, 'scripts/lab/reports/neverRed.mts');
 const MAKE = path.join(APP, 'scripts/lab/reports/__fixtures__/makeFixtures.mts');
-const PX = 103 * 235; // a whole capture: the app region
+const PX = 103 * 229; // a whole capture: the app region the system bars leave
 
 let root: string;
 let fixtures: string;
@@ -87,12 +87,13 @@ describe('neverRed flags planted red', () => {
     expect(lastLine(r.report)).toBe('FAIL: 1 of 1 rows have pixels in the check band (dark-one-joy-still.1): 1 px');
   });
 
-  it('reads only what it needs: a row without expect or stage is still checked', () => {
+  it('a row the harness would not have written (no expect, no stage) is not evidence: exit 2, naming the fields, no report', () => {
     const dir = copySet('neverred-200');
     editManifest(dir, (rows) => rows.map((x) => without(without(x, 'expect'), 'stage')));
     const r = run(dir);
-    expect(r.status).toBe(1);
-    expect(r.report).toContain('in the check band: 1');
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/validateRow.*"expect" is required.*"stage" is required/);
+    expect(r.report).toBeNull();
   });
 });
 

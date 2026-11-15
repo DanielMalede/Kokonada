@@ -3,10 +3,12 @@
 //
 //   node scripts/lab/reports/__fixtures__/makeFixtures.mts <out folder>
 //
-// Each set is a folder holding manifest.json and its PNGs, laid out as capture.mjs writes a run: every PNG is the app
-// region, here 103 × 235 px, whose top 6 rows lie outside the stage (a white strip the reports must not compare), and the
-// stage below them, 103 × 229 px at 0.25 px per dp (412 × 916 dp). A capture is the law twin of its scene, drawn by
-// evidence.mts, placed by plain array copies at the stage's offset, with planted changes:
+// Each set is a folder holding manifest.json and its PNGs, laid out as capture.mjs writes a run (rows.ts builds each row
+// with the harness's own functions and its validateRow): the screen is 103 × 241 px at density 40 (0.25 px per dp, so
+// 412 × 964 dp), its status bar the top 6 rows and its navigation bar the bottom 6, so every PNG is the app region between
+// them, 103 × 229 px from y 6; READY's stage is the app window, the whole screen (UI-216), so its top and bottom 6 rows are
+// under the bars and not in the PNG (the reports must not compare them). A capture is the law twin of its scene over the
+// stage, drawn by evidence.mts and cropped to the app region by plain array copies, with planted changes:
 //
 //   parity-pass   four shots (field dark one.joy still, field light three low, fallback dark one.C.right, fallback light
 //                 rest), each with 7 pixels at R + 1 and 5 others at B − 1 (all within ±1), so every |Δ| is 0 or 1;
@@ -33,33 +35,39 @@ if (!given) {
 }
 const out: string = given;
 
-const REGION: Rect = { x: 0, y: 24, width: 103, height: 235 };
-const STAGE: Rect = { x: 0, y: 30, width: 103, height: 229 };
+const SCREEN = { width: 103, height: 241 };
+const BARS: Rect[] = [{ x: 0, y: 0, width: 103, height: 6 }, { x: 0, y: 235, width: 103, height: 6 }];
+const REGION: Rect = { x: 0, y: 6, width: 103, height: 229 };
+const DENSITY = 40;
 const K = 0.25;
-const OFFSET = { x: STAGE.x - REGION.x, y: STAGE.y - REGION.y };
+/** The stage's top left on the PNG: the window starts 6 rows above the app region. */
+const OFFSET = { x: 0 - REGION.x, y: 0 - REGION.y };
 
 type Planted = { shot: string; x: number; y: number; delta: number; region: string };
 
 const SHOTS = [
-  { shot: 'dark-one-joy-still', scene: 'field.abyss.dark.one.joy.still', expect: { direction: 'abyss', face: 'dark', hero: 'one.joy', tier: 'still' }, renderScale: 0.5, shaderStatus: 'ready' },
-  { shot: 'light-three-low', scene: 'field.abyss.light.three.low', expect: { direction: 'abyss', face: 'light', hero: 'three', tier: 'low' }, renderScale: 0.33, shaderStatus: 'ready' },
+  { shot: 'dark-one-joy-still', scene: 'field.abyss.dark.one.joy.still', expect: { direction: 'abyss', face: 'dark', hero: 'one.joy', tier: 'still' }, shaderStatus: 'ready' },
+  { shot: 'light-three-low', scene: 'field.abyss.light.three.low', expect: { direction: 'abyss', face: 'light', hero: 'three', tier: 'low' }, shaderStatus: 'ready' },
   { shot: 'fb-dark-one-c-right', scene: 'fallback.abyss.dark.one.C.right', expect: { direction: 'abyss', face: 'dark', hero: null, tier: null }, shaderStatus: 'fallback-scene' },
   { shot: 'fb-light-rest', scene: 'fallback.abyss.light.rest', expect: { direction: 'abyss', face: 'light', hero: null, tier: null }, shaderStatus: 'fallback-scene' },
 ] as const;
 
 const sha256 = (b: Uint8Array) => crypto.createHash('sha256').update(b).digest('hex');
 
-/** The app region: a white strip above the stage, the twin's pixels copied in at the stage's offset. */
+/** The app region: the twin's rows that lie in it, copied in at the stage's offset (the rows under the bars are not). */
 function compose(twin: Rgba): Uint8Array {
   const rgba = new Uint8Array(REGION.width * REGION.height * 4).fill(255);
   for (let y = 0; y < twin.height; y++) {
-    rgba.set(twin.rgba.subarray(y * twin.width * 4, (y + 1) * twin.width * 4), ((y + OFFSET.y) * REGION.width + OFFSET.x) * 4);
+    const to = y + OFFSET.y;
+    if (to < 0 || to >= REGION.height) continue;
+    rgba.set(twin.rgba.subarray(y * twin.width * 4, (y + 1) * twin.width * 4), (to * REGION.width + OFFSET.x) * 4);
   }
   return rgba;
 }
 
 /** Moves one channel of the PNG pixel at stage (x, y) by delta, away from the end of the byte range it would cross. */
 function nudge(rgba: Uint8Array, x: number, y: number, channel: number, delta: number): number {
+  if (y + OFFSET.y < 0 || y + OFFSET.y >= REGION.height) throw new Error(`the planted pixel at stage y ${y} is under a system bar, not in the PNG`);
   const i = ((y + OFFSET.y) * REGION.width + (x + OFFSET.x)) * 4 + channel;
   const v = rgba[i] + delta;
   rgba[i] = v > 255 || v < 0 ? rgba[i] - delta : v;
@@ -80,7 +88,8 @@ async function writeSet(name: string, shots: Array<{ row: Record<string, unknown
 }
 
 const baseRow = (s: (typeof SHOTS)[number]) =>
-  row({ shot: s.shot, scene: s.scene, expect: s.expect, file: `${s.shot}.1.png`, sha256: '0'.repeat(64), region: REGION, stage: STAGE, pxPerDp: K, renderScale: 'renderScale' in s ? s.renderScale : undefined, shaderStatus: s.shaderStatus });
+  row({ shot: s.shot, scene: s.scene, expect: s.expect, file: `${s.shot}.1.png`, sha256: '0'.repeat(64), screen: SCREEN, bars: BARS, density: DENSITY, shaderStatus: s.shaderStatus });
+if (JSON.stringify(baseRow(SHOTS[0]).region) !== JSON.stringify(REGION)) throw new Error('the harness app region is not the REGION of the fixtures');
 
 // ---- the twins
 
@@ -96,11 +105,11 @@ for (const s of SHOTS) {
   }
 }
 
-// ---- parity-pass: 7 pixels at R + 1 and 5 at B − 1, each a different pixel, on a diagonal through the stage
+// ---- parity-pass: 7 pixels at R + 1 and 5 at B − 1, each a different pixel, on a diagonal through the app region
 
 function withinOne(rgba: Uint8Array) {
-  for (let i = 0; i < 7; i++) nudge(rgba, 4 + 13 * i, 10 + 29 * i, 0, 1);
-  for (let i = 0; i < 5; i++) nudge(rgba, 96 - 17 * i, 20 + 37 * i, 2, -1);
+  for (let i = 0; i < 7; i++) nudge(rgba, 4 + 13 * i, 16 + 29 * i, 0, 1);
+  for (let i = 0; i < 5; i++) nudge(rgba, 96 - 17 * i, 26 + 37 * i, 2, -1);
 }
 
 await writeSet('parity-pass', twins.map(({ r, twin }) => {

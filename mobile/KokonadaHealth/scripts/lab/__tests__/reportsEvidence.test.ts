@@ -1,9 +1,11 @@
 /// <reference types="node" />
 // B8-8c (the architect's B8 plan at 199b138; TASKS UI-071): the reports' common library, scripts/lab/reports/lib/
 // evidence.mts. It reads a capture run's manifest and PNGs (lib/png.mjs), crops by probe, and builds the law twin of a
-// shot from its manifest row: the scene from `expect` {direction, face, hero, tier} (fork F4: never from tap coordinates
-// on a lab line), the frame time from the plan's args (`t`), and READY's device facts (the stage rect, pxPerDp, the font
-// scale, renderScale, sampling). A row that lacks what a report needs is refused, naming the field: never a default.
+// shot from its manifest row, in the harness's own row schema (scripts/lab/lib/manifest.mjs, the authority): the scene
+// from `expect` {direction, face, hero, tier} (fork F4: never from tap coordinates on a lab line), the frame time from the
+// fixed clock READY reports (`clock.t`), the device's px per dp from its density (`device.density`, Android's own
+// definition), and READY's stage rect, the font scale, renderScale and sampling. A row the harness's validateRow refuses
+// is refused, and so is a row that lacks what a report needs, each naming the field: never a default.
 //
 // The library is an ES module the reports run under node (type-stripped .mts, as scripts/field/bandEvidence.mts), so
 // these tests call it in a child node process. The pins below hold its twin inputs to the lab's own scenes: the props the
@@ -18,6 +20,7 @@ import React from 'react';
 import { PixelRatio } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { decodePng, encodePng } from '../lib/png.mjs';
+import { validateRow } from '../lib/manifest.mjs';
 import { row, withValue, without, type Rect } from '../reports/__fixtures__/rows';
 import { srgbToOklab } from '../../../src/design/v2/color/oklab';
 import { isRed } from '../../../src/design/v2/color/redBand';
@@ -58,20 +61,24 @@ catch (e) { process.stdout.write(JSON.stringify({ error: { name: e?.name ?? null
 }
 type Result<T> = { ok?: T; error?: { name: string | null; message: string; isInput: boolean } };
 
-const REGION: Rect = { x: 0, y: 24, width: 103, height: 235 };
-const STAGE: Rect = { x: 0, y: 30, width: 103, height: 229 };
+// A small phone as the harness sees it: 103 × 241 px at density 40 (0.25 px per dp), its status bar the top 6 rows and its
+// navigation bar the bottom 6. The app region is what the bars leave; READY's stage is the app window, the whole screen
+// (UI-216), so on the PNG the stage starts 6 rows above it.
+const SCREEN = { width: 103, height: 241 };
+const BARS: Rect[] = [{ x: 0, y: 0, width: 103, height: 6 }, { x: 0, y: 235, width: 103, height: 6 }];
+const REGION: Rect = { x: 0, y: 6, width: 103, height: 229 };
+const ON_PNG: Rect = { x: 0, y: -6, width: 103, height: 241 };
 const fieldRow = (over: Partial<Parameters<typeof row>[0]> = {}) =>
   row({
     shot: 'dark-one-joy-still', scene: 'field.abyss.dark.one.joy.still',
     expect: { direction: 'abyss', face: 'dark', hero: 'one.joy', tier: 'still' },
-    file: 'dark-one-joy-still.1.png', sha256: 'b'.repeat(64), region: REGION, stage: STAGE, pxPerDp: 0.25,
-    renderScale: 0.5, shaderStatus: 'ready', ...over,
+    file: 'dark-one-joy-still.1.png', sha256: 'b'.repeat(64), screen: SCREEN, bars: BARS, density: 40, shaderStatus: 'ready', ...over,
   });
 const fallbackRow = (over: Partial<Parameters<typeof row>[0]> = {}) =>
   row({
     shot: 'fb-dark-one-c-right', scene: 'fallback.abyss.dark.one.C.right',
     expect: { direction: 'abyss', face: 'dark', hero: null, tier: null },
-    file: 'fb-dark-one-c-right.1.png', sha256: 'c'.repeat(64), region: REGION, stage: STAGE, pxPerDp: 0.25,
+    file: 'fb-dark-one-c-right.1.png', sha256: 'c'.repeat(64), screen: SCREEN, bars: BARS, density: 40,
     shaderStatus: 'fallback-scene', shaderReason: 'the lab fallback scene: FieldFallback mounted directly', ...over,
   });
 
@@ -81,23 +88,45 @@ const fallbackRow = (over: Partial<Parameters<typeof row>[0]> = {}) =>
 const FIELD_NEEDS = [
   'file', 'sha256', 'scene', 'region', 'region.x', 'region.y', 'region.width', 'region.height',
   'expect', 'expect.direction', 'expect.face', 'expect.hero', 'expect.tier',
-  'args', 'args.clock', 'args.t', 'renderScale', 'sampling', 'sampling.filter', 'sampling.mipmap',
-  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'pxPerDp', 'shaderStatus', 'fontScale', 'fontScale.app',
+  'clock', 'clock.mode', 'clock.t', 'renderScale', 'sampling', 'sampling.filter', 'sampling.mipmap',
+  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app',
 ];
 const FALLBACK_NEEDS = [
   'file', 'sha256', 'scene', 'region', 'expect', 'expect.direction', 'expect.face',
-  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'pxPerDp', 'shaderStatus', 'fontScale', 'fontScale.app',
+  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app',
 ];
 
 describe('B8-8c: the typed reader of a manifest row', () => {
-  it('reads a field row: the scene from expect, t from the plan args, the stage relative to the PNG', () => {
+  it('the fixture rows are rows the harness writes: its validateRow passes them, and the region is what the bars leave', () => {
+    expect(validateRow(fieldRow())).toEqual([]);
+    expect(validateRow(fallbackRow())).toEqual([]);
+    expect(fieldRow().region).toEqual(REGION);
+    expect(() => fieldRow({ density: 0 })).toThrow(/not one the harness writes.*device\.density/);
+  });
+
+  it('reads a field row: the scene from expect, t from READY’s fixed clock, px per dp from the density, the stage on the PNG', () => {
     const r = lib<Result<unknown>>('return E.readFieldShot(input, "lawParity");', fieldRow());
     expect(r.error).toBeUndefined();
     expect(r.ok).toEqual({
       name: 'dark-one-joy-still.1', scene: 'field.abyss.dark.one.joy.still', file: 'dark-one-joy-still.1.png', sha256: 'b'.repeat(64),
       region: REGION, direction: 'abyss', face: 'dark', hero: 'one.joy', tier: 'still', renderScale: 0.5, pxPerDp: 0.25, fontScale: 1,
-      tMs: 11000, stage: { x: 0, y: 6, width: 103, height: 229 },
+      tMs: 11000, stage: ON_PNG,
     });
+  });
+
+  // Android's DisplayMetrics.density is densityDpi × (1f / 160) in float arithmetic, and RN's PixelRatio.get() is that
+  // float: at 411 dpi it is 2.5687501430511475, not 411 / 160 = 2.56875. The reader takes Android's value.
+  it.each([[40, 0.25], [420, 2.625], [450, 2.8125], [411, 2.5687501430511475], [393, 2.456249952316284]])('px per dp at %i dpi is Android’s float density %d', (density, k) => {
+    const r = lib<Result<{ pxPerDp: number }>>('return E.readFieldShot(input, "lawParity");', fieldRow({ density }));
+    expect(r.error).toBeUndefined();
+    expect(r.ok!.pxPerDp).toBe(k);
+  });
+
+  it('a stage READY measured as dp × the ratio (float noise, far under a pixel) is placed on whole pixels', () => {
+    const noisy = fieldRow({ stage: { x: 0.00004, y: -0.00003, width: 102.99996, height: 241.00002 } });
+    const r = lib<Result<{ stage: Rect }>>('return E.readFieldShot(input, "lawParity");', noisy);
+    expect(r.error).toBeUndefined();
+    expect(r.ok!.stage).toEqual({ x: 0, y: -6, width: 102.99996, height: 241.00002 });
   });
 
   it('reads a fallback row: the fallback scene from the id, direction and face from expect', () => {
@@ -106,12 +135,12 @@ describe('B8-8c: the typed reader of a manifest row', () => {
     expect(r.ok).toEqual({
       name: 'fb-dark-one-c-right.1', scene: 'fallback.abyss.dark.one.C.right', file: 'fb-dark-one-c-right.1.png', sha256: 'c'.repeat(64),
       region: REGION, direction: 'abyss', face: 'dark', fallbackScene: 'one.C.right', pxPerDp: 0.25, fontScale: 1,
-      stage: { x: 0, y: 6, width: 103, height: 229 },
+      stage: ON_PNG,
     });
   });
 
   it('the guard: the need lists are not empty, and every listed field is in the planted rows', () => {
-    expect(FIELD_NEEDS.length).toBeGreaterThanOrEqual(25);
+    expect(FIELD_NEEDS.length).toBeGreaterThanOrEqual(29);
     expect(FALLBACK_NEEDS.length).toBeGreaterThanOrEqual(14);
     for (const p of FIELD_NEEDS) expect(() => without(fieldRow(), p)).not.toThrow();
   });
@@ -140,27 +169,35 @@ describe('B8-8c: the typed reader of a manifest row', () => {
     ['a hero scene that is not a lab scene', withValue(withValue(fieldRow(), 'expect.hero', 'two'), 'scene', 'field.abyss.dark.two.still'), 'expect.hero'],
     ['a scene id that is not the one expect names', withValue(fieldRow(), 'scene', 'field.abyss.dark.three.still'), 'scene'],
     ['a face that is not dark or light', withValue(fieldRow(), 'expect.face', 'dim'), 'expect.face'],
-    ['a clock that is not fixed', withValue(fieldRow(), 'args.clock', 'realtime'), 'args.clock'],
-    ['a frame time that is not a number', withValue(fieldRow(), 'args.t', 'soon'), 'args.t'],
-    ['READY drew another time than the plan asked', withValue(fieldRow(), 'clock.t', 7000), 'clock.t'],
+    ['a clock that is not fixed', fieldRow({ clock: { mode: 'realtime', t: null } }), 'clock.mode'],
+    ['a fixed clock with no frame time', fieldRow({ clock: { mode: 'fixed', t: null } }), 'clock.t'],
+    ['a frame time that is not a number', withValue(fieldRow(), 'clock.t', '11000'), 'clock.t'],
     ['a renderScale that is not the tier’s', withValue(fieldRow(), 'renderScale', 0.33), 'renderScale'],
     ['a renderScale that is a string', withValue(fieldRow(), 'renderScale', '0.5'), 'renderScale'],
     ['a nearest upscale', withValue(fieldRow(), 'sampling.filter', 'nearest'), 'sampling'],
     ['mipmaps on the upscale', withValue(fieldRow(), 'sampling.mipmap', 'linear'), 'sampling'],
     ['a field drawn by its fallback', withValue(fieldRow(), 'shaderStatus', 'fallback'), 'shaderStatus'],
-    ['a stage not on whole pixels of the PNG', withValue(fieldRow(), 'stage.y', 30.5), 'stage'],
-    ['a stage outside the app region', withValue(fieldRow(), 'stage.height', 400), 'stage'],
-    ['a density that is not a positive number', withValue(fieldRow(), 'pxPerDp', 0), 'pxPerDp'],
+    ['a stage not on whole pixels of the PNG', withValue(fieldRow(), 'stage.y', 0.5), 'stage'],
+    ['a stage with no pixel in the app region', withValue(fieldRow(), 'stage.y', 5000), 'stage'],
+    ['a density that is not a positive number', withValue(fieldRow(), 'device.density', 0), 'device.density'],
     ['a font scale that is not a positive number', withValue(fieldRow(), 'fontScale.app', -1), 'fontScale.app'],
+    // Rows the harness's validateRow refuses: a reader never accepts a row the harness would not have written.
+    ['a field the harness does not write (pxPerDp)', withValue(fieldRow(), 'pxPerDp', 0.25), 'pxPerDp'],
+    ['a field the harness does not write (args)', withValue(fieldRow(), 'args', { clock: 'fixed', t: '11000' }), 'args'],
+    ['sampling in Skia’s enum values (the harness writes names)', withValue(fieldRow(), 'sampling', { filter: 1, mipmap: 0 }), 'sampling.filter'],
+    ['a sampling with no render scale', withValue(fieldRow(), 'renderScale', null), 'renderScale'],
+    ['a row with no GPU facts', without(fieldRow(), 'gl'), 'gl'],
+    ['a GPU fact null with no reason', withValue(fieldRow(), 'gl.renderer', null), 'gl.reason'],
+    ['a commit that is not a full sha', withValue(fieldRow(), 'commit.sha', 'abc'), 'commit.sha'],
   ];
   it.each(BAD_FIELD)('a field row with %s is refused, naming the field', (_, bad, field) => {
     const r = lib<Result<unknown>>('return E.readFieldShot(input, "lawParity");', bad);
     expect(r.error).toEqual({ name: expect.anything(), message: expect.stringContaining(`"${field}"`), isInput: true });
   });
 
-  it('sampling may be written as Skia’s enum values (FilterMode.Linear 1, MipmapMode.None 0)', () => {
-    const r = lib<Result<{ renderScale: number }>>('return E.readFieldShot(input, "lawParity");', withValue(fieldRow(), 'sampling', { filter: 1, mipmap: 0 }));
-    expect(r.error).toBeUndefined();
+  it('a row the harness would not write is refused by every reader, saying so (readCaptureRow, which neverRed uses)', () => {
+    const r = lib<Result<unknown>>('return E.readCaptureRow(input, "neverRed");', withValue(fieldRow(), 'pxPerDp', 0.25));
+    expect(r.error).toEqual({ name: 'EvidenceInputError', message: expect.stringMatching(/^neverRed: row dark-one-joy-still\.1: .*validateRow.*"pxPerDp" is not a manifest field/), isInput: true });
   });
 
   const BAD_FALLBACK: Array<[string, Record<string, unknown>, string]> = [
@@ -202,7 +239,15 @@ describe('B8-8c: the capture behind a row, and its crops', () => {
     fs.writeFileSync(path.join(dir, 'shot.1.png'), png);
     return require('node:crypto').createHash('sha256').update(png).digest('hex') as string;
   }
-  const captureRow = (sha: string, region: Rect) => ({ shot: 'shot', repeat: 1, file: 'shot.1.png', sha256: sha, region, scene: 'smoke' });
+  // A smoke row as the harness writes it, on a screen whose bars leave the given app region.
+  const captureRow = (sha: string, region: Rect) => {
+    const screen = { width: region.x + region.width, height: region.y + region.height + 2 };
+    const bars = [
+      { x: 0, y: 0, width: screen.width, height: region.y }, { x: 0, y: region.y + region.height, width: screen.width, height: 2 },
+      { x: 0, y: 0, width: region.x, height: screen.height },
+    ].filter((b) => b.width > 0 && b.height > 0);
+    return row({ shot: 'shot', scene: 'smoke', expect: { direction: null, face: null, hero: null, tier: null }, file: 'shot.1.png', sha256: sha, screen, bars, density: 160, shaderStatus: null });
+  };
 
   it('loads the PNG of a row, checked against its sha256 and its region’s size, and crops a rect of it', async () => {
     const sha = await plant(6, 5, (x, y) => [x, y, 7]);
@@ -326,8 +371,8 @@ describe('B8-8c: the twin is built from the lab’s own scene, for every lab fie
       const s = FIELD_SCENES[id];
       return row({
         shot: 's', scene: id, expect: { direction: s.direction, face: s.face, hero: s.hero, tier: s.tier }, file: 'x.png', sha256: 'b'.repeat(64),
-        region: { x: 0, y: 0, width: size.width * size.k, height: size.height * size.k }, stage: { x: 0, y: 0, width: size.width * size.k, height: size.height * size.k },
-        pxPerDp: size.k, fontScale: size.fontScale, renderScale: renderScaleFor(s.tier as never), shaderStatus: 'ready',
+        screen: { width: size.width * size.k, height: size.height * size.k },
+        density: size.k * 160, fontScale: size.fontScale, shaderStatus: 'ready',
       });
     });
     const got = lib<Result<Array<Record<string, unknown>>>>('return input.map((r) => E.fieldTwinInputs(E.readFieldShot(r, "test")));', rows);
@@ -347,8 +392,8 @@ describe('B8-8c: the twin is built from the lab’s own scene, for every lab fie
       const s = FIELD_SCENES[id];
       return row({
         shot: 's', scene: id, expect: { direction: s.direction, face: s.face, hero: null, tier: null }, file: 'x.png', sha256: 'b'.repeat(64),
-        region: { x: 0, y: 0, width: size.width * size.k, height: size.height * size.k }, stage: { x: 0, y: 0, width: size.width * size.k, height: size.height * size.k },
-        pxPerDp: size.k, fontScale: size.fontScale, shaderStatus: 'fallback-scene',
+        screen: { width: size.width * size.k, height: size.height * size.k },
+        density: size.k * 160, fontScale: size.fontScale, shaderStatus: 'fallback-scene',
       });
     });
     const got = lib<Result<Array<Record<string, unknown>>>>('return input.map((r) => E.fallbackTwinInputs(E.readFallbackShot(r, "test")));', rows);
