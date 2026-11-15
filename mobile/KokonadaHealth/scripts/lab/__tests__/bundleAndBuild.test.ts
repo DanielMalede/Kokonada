@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { bundleLab } from '../bundleLab.mjs';
-import { buildLabApk, gradleSpawn, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
+import { buildLabApk, gradleSpawn, nativeJobPoolsInitScript, parseBuildArgs, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
 import { Refused } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { zip } from '../__fixtures__/zipWriter';
@@ -130,7 +130,7 @@ describe('buildLabApk', () => {
     const autolinking = path.join(a.appRoot, 'android/build/generated/autolinking/autolinking.json');
     const real = JSON.stringify({ root: path.join(a.repoRoot, 'mobile', 'App'), project: { android: { packageName: 'x' } } }, null, 2);
     const drives = new Map<string, string>();
-    const calls: Array<{ cwd: string; args: string[]; env?: Record<string, string>; autolinking: string | null }> = [];
+    const calls: Array<{ cwd: string; args: string[]; env?: Record<string, string>; autolinking: string | null; init: string | null }> = [];
     const keystore = path.join(a.repoRoot, 'shared-debug.keystore');
     if (keystorePresent) fs.writeFileSync(keystore, 'keystore bytes');
     const signer = { apkCertificate: () => apkCert, keystoreCertificate: () => ({ sha256: DEBUG_CERT.sha256 }) };
@@ -140,7 +140,9 @@ describe('buildLabApk', () => {
       remove: (letter: string) => { drives.delete(letter); },
     };
     const gradle = ({ cwd, args, env }: { cwd: string; args: string[]; env?: Record<string, string> }) => {
-      calls.push({ cwd, args, env, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null });
+      const i = args.indexOf('-I');
+      const init = i >= 0 && fs.existsSync(args[i + 1]) ? fs.readFileSync(args[i + 1], 'utf8') : null;
+      calls.push({ cwd, args, env, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null, init });
       if (args[0] === 'help') {
         fs.mkdirSync(path.dirname(autolinking), { recursive: true });
         fs.writeFileSync(autolinking, real);
@@ -154,8 +156,8 @@ describe('buildLabApk', () => {
         { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(stamp, null, 2)) },
       ]));
     };
-    const run = (git = cleanGit) => buildLabApk({
-      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {}, keystore, signer,
+    const run = (git = cleanGit, extra: Record<string, unknown> = {}) => buildLabApk({
+      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {}, keystore, signer, ...extra,
     });
     return { ...a, autolinking, real, drives, calls, run, keystore };
   }
@@ -214,6 +216,82 @@ describe('buildLabApk', () => {
   it('refuses an APK signed by any other certificate than the shared debug key', async () => {
     await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
+  });
+
+  // The dry run on a 14 GB machine needed Gradle's workers and the native build's ninja jobs capped (28m51s through an
+  // outside driver). The route now takes both caps itself; without them every call is exactly as before.
+  describe('the caps on Gradle workers and native build jobs', () => {
+    it('adds --max-workers to every Gradle call', async () => {
+      const r = rig();
+      await r.run(cleanGit, { limits: { maxWorkers: 2 } });
+      expect(r.calls.map((c) => c.args.slice(-1))).toEqual([['--max-workers=2'], ['--max-workers=2']]);
+      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+    });
+
+    it('caps the ninja job pools of every CMake module through an init script, which it removes after the build', async () => {
+      const r = rig();
+      await r.run(cleanGit, { limits: { maxWorkers: 2, nativeJobs: { compile: 3, link: 1 } } });
+      for (const call of r.calls) {
+        const i = call.args.indexOf('-I');
+        expect(i).toBeGreaterThan(-1);
+        expect(call.init).toBe(nativeJobPoolsInitScript({ compile: 3, link: 1 }));
+      }
+      const script = r.calls[1].args[r.calls[1].args.indexOf('-I') + 1];
+      expect(fs.existsSync(script)).toBe(false);
+    });
+
+    it('removes the init script when Gradle fails too', async () => {
+      const r = rig({ gradleFails: true });
+      await expect(r.run(cleanGit, { limits: { nativeJobs: { compile: 2, link: 1 } } })).rejects.toThrow(/assembleLab failed/);
+      const script = r.calls[1].args[r.calls[1].args.indexOf('-I') + 1];
+      expect(fs.existsSync(script)).toBe(false);
+    });
+
+    it('the init script sets the job pools on the CMake arguments of every Android module', () => {
+      const text = nativeJobPoolsInitScript({ compile: 3, link: 1 });
+      expect(text).toContain("'-DCMAKE_JOB_POOLS=kk_compile=3;kk_link=1'");
+      expect(text).toContain("'-DCMAKE_JOB_POOL_COMPILE=kk_compile'");
+      expect(text).toContain("'-DCMAKE_JOB_POOL_LINK=kk_link'");
+      expect(text).toContain("['com.android.library', 'com.android.application']");
+      expect(text).toContain('externalNativeBuild.cmake.arguments(*kkArgs)');
+    });
+
+    it.each([
+      ['no workers', { maxWorkers: 0 }, /maxWorkers must be an integer from 1 to 64/],
+      ['a fraction of a worker', { maxWorkers: 1.5 }, /maxWorkers must be an integer from 1 to 64/],
+      ['no compile jobs', { nativeJobs: { compile: 0, link: 1 } }, /nativeJobs must be \{ compile, link \}, integers from 1 to 64/],
+      ['no link count', { nativeJobs: { compile: 3 } }, /nativeJobs must be/],
+      ['a key it does not know', { maxWorkers: 2, ninja: 3 }, /ninja is not a build limit/],
+    ])('refuses %s before any drive or Gradle', async (_label, limits, why) => {
+      const r = rig();
+      await expect(r.run(cleanGit, { limits })).rejects.toThrow(why);
+      await expect(r.run(cleanGit, { limits })).rejects.toBeInstanceOf(Refused);
+      expect(r.calls).toEqual([]);
+      expect(r.drives.size).toBe(0);
+    });
+
+    it('refuses a temporary folder the Windows command line would split (a space in its path)', async () => {
+      const r = rig();
+      const spaced = fs.mkdtempSync(path.join(os.tmpdir(), 'lab tmp '));
+      await expect(r.run(cleanGit, { limits: { nativeJobs: { compile: 3, link: 1 } }, tmpDir: spaced })).rejects.toThrow(/init script path .* space/);
+      expect(r.calls).toEqual([]);
+    });
+  });
+});
+
+describe('the command line of buildLabApk', () => {
+  it('takes no option to mean no cap (the old behaviour), and reads both caps', () => {
+    expect(parseBuildArgs([])).toEqual({});
+    expect(parseBuildArgs(['--max-workers', '2', '--native-jobs', '3:1'])).toEqual({ maxWorkers: 2, nativeJobs: { compile: 3, link: 1 } });
+  });
+
+  it.each([
+    [['--max-workers'], /--max-workers needs a number/],
+    [['--max-workers', 'two'], /--max-workers needs a number/],
+    [['--native-jobs', '3'], /--native-jobs needs <compile>:<link>/],
+    [['--jobs', '3'], /unknown argument: --jobs/],
+  ])('refuses %j', (argv, why) => {
+    expect(() => parseBuildArgs(argv)).toThrow(why);
   });
 });
 

@@ -23,14 +23,24 @@ const SURFACE_FLINGER = [
 ].join('\n');
 class LabDevice extends FakeDevice {
   surfaceFlinger = SURFACE_FLINGER;
-  recording: Buffer = Buffer.from(Array.from({ length: 64 }, (_, i) => i));
+  // What screenrecord writes: an mp4 (its box `ftyp` at offset 4). The phone's own files, by path, with real state:
+  // screenrecord writes one, pull reads it, rm removes it.
+  recording: Buffer = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(52, 7)]);
   recorded: string[][] = [];
+  files = new Map<string, Buffer>();
   // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
-  // were logged, a little later. `pending` is a line the lab logged that has not been delivered yet: it goes first.
+  // were logged, a little later.
   logDelayMs = 2;
   marksLost = false;
   async shell(args: string[]): Promise<string> {
     if (args.join(' ') === 'dumpsys SurfaceFlinger') { this.commands.push('dumpsys SurfaceFlinger'); return this.surfaceFlinger; }
+    if (args[0] === 'screenrecord') {
+      this.commands.push(args.join(' '));
+      this.recorded.push(args);
+      this.files.set(args[args.length - 1], this.recording);
+      return '';
+    }
+    if (args[0] === 'rm' && args[1] === '-f') { this.commands.push(args.join(' ')); this.files.delete(args[2]); return ''; }
     if (args[0] === 'log' && args[1] === '-t' && args[2] === 'ReactNativeJS') {
       this.commands.push(args.join(' '));
       if (!this.marksLost) setTimeout(() => this.emit(args.slice(3).join(' ')), this.logDelayMs);
@@ -40,9 +50,13 @@ class LabDevice extends FakeDevice {
   }
   /** A line the lab logs now, which logcat delivers after `ms`. */
   logLater(line: string, ms = 1) { setTimeout(() => this.emit(line), ms); }
-  async execOut(args: string[]): Promise<Buffer> {
-    if (args[0] === 'screenrecord') { this.commands.push(`exec-out ${args.join(' ')}`); this.recorded.push(args); return this.recording; }
-    return super.execOut(args);
+  async pull(remote: string, local: string): Promise<string> {
+    const file = this.files.get(remote);
+    if (file === undefined && remote.startsWith('/data/local/tmp/')) throw new Error(`adb pull ${remote} failed (exit 1): adb: error: remote object '${remote}' does not exist`);
+    if (file === undefined) return super.pull(remote, local);
+    this.commands.push(`pull ${remote}`);
+    fs.writeFileSync(local, file);
+    return '';
   }
 }
 const TOKENS = fs.readFileSync(path.resolve(__dirname, '../../../../../design-tokens/base.tokens.json'), 'utf8');
@@ -519,7 +533,7 @@ describe('B8-5a/5b: the facts each row states', () => {
     expect(row.expect).toEqual(NO_SCENE);
     expect([row.direction, row.face, row.renderScale, row.sampling]).toEqual([null, null, null, null]);
     expect(row.gl).toEqual({ renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65', reason: null });
-    expect(row.display).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null });
+    expect(row.display).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'renderFrameRate 120 Hz, vsyncRate 120 Hz', reason: null });
     expect(row.skiaVersion).toBe('2.6.9');
     expect(row.stage).toEqual({ x: 0, y: 0, width: SCREEN.width, height: SCREEN.height });
     expect(row.shaderReason).toBeNull();
@@ -824,25 +838,46 @@ describe('the new proofs', () => {
     });
   });
 
-  describe('record: screenrecord frames (F6)', () => {
+  // The S22+ dry run: this build's screenrecord (v1.4) has no --output-format, so it writes only an mp4, and an mp4 is
+  // written to a seekable file, never to stdout. So the harness records to the phone's /data/local/tmp, pulls the file,
+  // and removes it; the storm report decodes the frames (a PNG directory, or the mp4 through an ffmpeg path it is given).
+  describe('record: the phone\'s mp4 (F6)', () => {
     const RECORD = { kind: 'record', seconds: 5, size: { width: 360, height: 780 } };
 
-    it('records raw frames at the plan\'s reduced size, keeps them beside the PNGs, and hashes them', async () => {
+    it('records an mp4 at the plan\'s reduced size on the phone, pulls it beside the PNGs, hashes it and removes it from the phone', async () => {
       const w = world();
       readyAs(w, { shaderStatus: 'ready', shaderReason: null });
       const { manifest } = await w.run({ plan: planOf(moving(RECORD)) });
-      expect(w.device.recorded).toEqual([['screenrecord', '--output-format=frames', '--size', '360x780', '--time-limit', '5', '-']]);
-      const bytes = fs.readFileSync(path.join(w.outDir, 'm.frames'));
+      expect(w.device.recorded).toHaveLength(1);
+      const [args] = w.device.recorded;
+      expect(args.slice(0, 5)).toEqual(['screenrecord', '--size', '360x780', '--time-limit', '5']);
+      expect(args[5]).toMatch(/^\/data\/local\/tmp\/kokonada-lab-m-1-[a-z0-9]+\.mp4$/);
+      expect(args).not.toContain('--output-format=frames');
+      const bytes = fs.readFileSync(path.join(w.outDir, 'm.mp4'));
       expect(bytes.equals(w.device.recording)).toBe(true);
-      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.frames', bytes: 64, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
+      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.mp4', format: 'mp4', bytes: w.device.recording.length, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
       expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
+      expect(w.device.files.size).toBe(0);
+      expect(w.device.commands).toContain(`rm -f ${args[5]}`);
     });
 
-    it('refuses an empty recording', async () => {
+    it.each([
+      ['an empty recording', Buffer.alloc(0), /m: screenrecord wrote no video/],
+      ['a file that is not an mp4', Buffer.from('not a video at all, just text'), /m: the recording is not an mp4/],
+    ])('refuses %s, and still removes the phone\'s file', async (_label, recording, why) => {
       const w = world();
       readyAs(w, { shaderStatus: 'ready', shaderReason: null });
-      w.device.recording = Buffer.alloc(0);
-      await refusedRun(w, planOf(moving(RECORD)), /m: screenrecord returned no frame/);
+      w.device.recording = recording;
+      await refusedRun(w, planOf(moving(RECORD)), why);
+      expect(w.device.files.size).toBe(0);
+    });
+
+    it('refuses a recording the phone never wrote: there is nothing to pull', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      const shell = w.device.shell.bind(w.device);
+      w.device.shell = async (args: string[]) => (args[0] === 'screenrecord' ? '' : shell(args));
+      await refusedRun(w, planOf(moving(RECORD)), /m: .*does not exist/);
     });
   });
 });
