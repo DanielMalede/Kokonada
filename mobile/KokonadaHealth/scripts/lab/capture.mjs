@@ -63,7 +63,8 @@ const numIn = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >=
 // rate (UI-171): the frames gfxinfo counts per second, inside the plan's band (the tier's cap on the device).
 // framestats: gfxinfo's jank summary, recorded and never judged (informational, DEC-082 is open).
 // result: the bench's RESULT line for this run, held to the plan's contract (lib/protocol.mjs checkResult).
-// record: screenrecord's raw frames at a reduced size (F6), kept beside the PNGs for the reports.
+// record: the phone's mp4 from screenrecord at a reduced size (F6), kept beside the PNGs with its sha256; the storm
+// report decodes it (this Android 16 build's screenrecord has no raw-frames output).
 const PROOFS = ['zero-frames', 'draws-frames', 'rate', 'framestats', 'result', 'record'];
 const PROOF_KEYS = {
   'zero-frames': ['kind', 'seconds'], 'draws-frames': ['kind', 'seconds'], rate: ['kind', 'seconds', 'band'],
@@ -71,6 +72,8 @@ const PROOF_KEYS = {
 };
 // screenrecord's own limit.
 const RECORD_MAX_SECONDS = 180;
+// Where the phone's shell may write a file the harness then pulls and removes.
+const RECORD_DIR = '/data/local/tmp';
 // The keys the harness reads, by object: any other is an error, so a check it would ignore cannot look like one (UI-215).
 const KEYS = {
   plan: ['id', 'app', 'readyTimeoutMs', 'settleMs', 'session', 'shots'],
@@ -352,13 +355,25 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
     return;
   }
   if (proof.kind === 'record') {
+    // The S22+ dry run (Android 16, screenrecord v1.4): no --output-format, so screenrecord writes only an mp4, and its
+    // mp4 muxer needs a seekable file, so not stdout. The harness records to the phone's /data/local/tmp, pulls the file
+    // beside the PNGs and always removes it from the phone. The frames are decoded by the storm report, not here.
     const { width, height } = proof.size;
-    const bytes = await adb.execOut(['screenrecord', '--output-format=frames', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), '-'],
-      { timeoutMs: (proof.seconds + 30) * 1000 });
-    if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord returned no frame in ${proof.seconds} s`);
-    const file = `${shot.id}.frames`;
-    fs.writeFileSync(path.join(outDir, file), bytes);
-    out.records.push({ shot: shot.id, file, bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
+    const remote = `${RECORD_DIR}/kokonada-lab-${run}.mp4`;
+    const file = `${shot.id}.mp4`;
+    const local = path.join(outDir, file);
+    try {
+      await adb.shell(['screenrecord', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), remote], { timeoutMs: (proof.seconds + 30) * 1000 });
+      await adb.pull(remote, local);
+    } catch (e) {
+      throw new Error(`${shot.id}: the recording could not be taken: ${e.message}`);
+    } finally {
+      await adb.shell(['rm', '-f', remote]);
+    }
+    const bytes = fs.readFileSync(local);
+    if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord wrote no video in ${proof.seconds} s`);
+    if (bytes.length < 12 || bytes.subarray(4, 8).toString('latin1') !== 'ftyp') throw new Error(`${shot.id}: the recording is not an mp4 (no ftyp box at its start)`);
+    out.records.push({ shot: shot.id, file, format: 'mp4', bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
     out.proofs.push({ shot: shot.id, kind: 'record', seconds: proof.seconds, passed: true });
     return;
   }

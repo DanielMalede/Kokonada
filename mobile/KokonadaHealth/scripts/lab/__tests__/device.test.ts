@@ -203,7 +203,7 @@ describe('the display colour facts, from dumpsys SurfaceFlinger and dumpsys disp
     expect(parseRefreshMode('  mActiveSfDisplayMode=DisplayMode{id=1, width=1080, height=2340, renderFrameRate=120.0, vsyncRate=120.0}\n'))
       .toEqual({ refreshMode: 'renderFrameRate 120 Hz, vsyncRate 120 Hz', reason: null });
     expect(parseRefreshMode('mActiveSfDisplayMode=DisplayMode{id=2, renderFrameRate=60.0, vsyncRate=120.0}').refreshMode).toBe('renderFrameRate 60 Hz, vsyncRate 120 Hz');
-    expect(parseRefreshMode('nothing')).toEqual({ refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate and vsyncRate in dumpsys display' });
+    expect(parseRefreshMode('nothing')).toEqual({ refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate or peakRefreshRate, and vsyncRate, in dumpsys display' });
     expect(parseRefreshMode('mActiveSfDisplayMode=DisplayMode{id=1, renderFrameRate=abc, vsyncRate=120.0}').refreshMode).toBeNull();
     const two = parseRefreshMode('mActiveSfDisplayMode=DisplayMode{renderFrameRate=60.0, vsyncRate=60.0}\nmActiveSfDisplayMode=DisplayMode{renderFrameRate=120.0, vsyncRate=120.0}');
     expect(two.refreshMode).toBeNull();
