@@ -41,7 +41,8 @@ jest.mock('../../v2/field/fieldImage', () => {
     }),
   };
 });
-jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
+// The headless stub, with the two enums the GPU sync's pixel names (Skia's own values).
+jest.mock('@shopify/react-native-skia', () => ({ ...require('./__fixtures__/skiaHeadless').skiaHeadless(), ColorType: { RGBA_8888: 4 }, AlphaType: { Unpremul: 3 } }));
 
 import { benchBody, benchFrame, benchStart, clockProblem, costBenchConfig, COST_COUNTS, type BenchConfig } from '../cost/costBench';
 import { formatCostResult } from '../cost/costResult';
@@ -102,6 +103,7 @@ const STORM = 'cost.abyss.dark.three.full.storm';
 const realPerformance = globalThis.performance;
 let nowSpy: jest.SpyInstance;
 beforeEach(() => {
+  jest.clearAllMocks(); // the wrapped exports keep their implementations; their calls start again per test
   clock.ms = 0;
   Object.assign(costs, { step: [], stepAt: 0, render: 1.5, gpuWait: 4 });
   Object.assign(calls, { step: [], render: 0, reads: 0, disposed: 0, images: 0 });

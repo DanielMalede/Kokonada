@@ -67,7 +67,7 @@ describe('formatCostResult', () => {
   it.each(RESULT_KEYS)('a RESULT without %s is refused', (key) => {
     const partial: Record<string, unknown> = { ...RESULT };
     delete partial[key];
-    expect(() => formatCostResult(partial as CostResult)).toThrow(new RegExp(key));
+    expect(() => formatCostResult(partial as unknown as CostResult)).toThrow(new RegExp(key));
   });
 
   it.each([
