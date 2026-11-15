@@ -5,7 +5,7 @@ import { PHONE, fallbackScenes, heroLayout } from '../../v2/field/fallbackScenes
 import type { FieldLayout, LayoutRect } from '../../v2/field/fieldDriver';
 import { EXTENSIONS } from '../../v2/tokens/tokens.extensions.generated';
 import { BASE } from '../../v2/tokens/tokens.generated';
-import { FIELD_FACES, FIELD_SCENES, FIELD_TIERS, HERO_SCENES, fieldSceneCatalogue, fieldSceneLayout, type FieldSceneSpec } from '../fieldScenes';
+import { FIELD_FACES, FIELD_SCENES, FIELD_TIERS, HERO_SCENES, NEAR_SCENES, fieldSceneCatalogue, fieldSceneLayout, type FieldSceneSpec } from '../fieldScenes';
 
 // T14 (handoff items 7 and 9; the architect's T14 plan at c8ff246, forks F1–F6 at A): the Design Lab's field scenes. Abyss,
 // both faces, the hero scenes rest, one.joy, three and one.intense at the tiers full, low and still (FieldView), and the
@@ -34,7 +34,10 @@ describe('the catalogue: Abyss × {dark, light} × the hero scenes × {full, low
     expect(HERO_SCENES).toEqual(['rest', 'one.joy', 'three', 'one.intense']);
     expect(FIELD_TIERS).toEqual(['full', 'low', 'still']);
     const expected = FIELD_FACES.flatMap((face) => HERO_SCENES.flatMap((scene) => FIELD_TIERS.map((tier) => `field.abyss.${face}.${scene}.${tier}`)));
-    expect(FIELD.map((s) => s.id).sort()).toEqual([...expected].sort());
+    // The near.* scenes (UI-210) are the only others, at the full tier on both faces: nearScenes.test.ts pins them.
+    const near = FIELD.filter((s) => s.hero!.startsWith('near.'));
+    expect(near.map((s) => s.id).sort()).toEqual(FIELD_FACES.flatMap((face) => NEAR_SCENES.map((scene) => `field.abyss.${face}.${scene}.full`)).sort());
+    expect(FIELD.filter((s) => !near.includes(s)).map((s) => s.id).sort()).toEqual([...expected].sort());
     for (const s of FIELD) {
       const [, direction, face, ...rest] = s.id.split('.');
       expect(s.direction).toBe(direction);
