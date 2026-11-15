@@ -37,7 +37,7 @@ import {
 } from './lib/device.mjs';
 import { readSkiaVersion, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
-import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, waitForLab } from './lib/protocol.mjs';
+import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, PROBE_TOLERANCE_PX, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
 import { readZipEntries } from './lib/zip.mjs';
 
@@ -343,6 +343,73 @@ export function stageProblem(ready, screen) {
   return `READY's stage ${px.x},${px.y} ${px.width}x${px.height} px is not the app window 0,0 ${screen.width}x${screen.height} within ${STAGE_TOLERANCE_PX} px: the scene's layout would be offset (UI-216)`;
 }
 
+// ---- the witness row check (the designer's witness BLOCK, 2026-11-15; the witness developer's spec) ------------------
+// A witness shot's Views are laid out by React Native, which can mirror them under RTL, while the field canvas draws at
+// the layout's own coordinates; and its patches must sit inside what the capture keeps. So the harness rebuilds the
+// witness layout from READY and refuses the row unless READY's probes show it and every sample square is in the app
+// region. The layout and the probe check are the lab's own TypeScript (src/design/lab/witness/), never restated here:
+// jest passes them in, and the CLI loads them through scripts/lab/reports/lib/tsResolve.mjs (loadWitness).
+
+const WITNESS_PROBED = /^(W1a|W3)\./;
+
+/** The lab's witness modules for node: witnessLayout and witnessProbeProblems. */
+export async function loadWitness(appRoot) {
+  const { pathToFileURL } = await import('node:url');
+  const { registerTsResolve } = await import(pathToFileURL(path.join(appRoot, 'scripts/lab/reports/lib/tsResolve.mjs')).href);
+  registerTsResolve();
+  const { witnessLayout } = await import(pathToFileURL(path.join(appRoot, 'src/design/lab/witness/witnessLayout.ts')).href);
+  const { witnessProbeProblems } = await import(pathToFileURL(path.join(appRoot, 'src/design/lab/witness/witnessProbes.ts')).href);
+  return { witnessLayout, witnessProbeProblems };
+}
+
+const insideWithin = (r, region, t) => r.x >= region.x - t && r.y >= region.y - t
+  && r.x + r.width <= region.x + region.width + t && r.y + r.height <= region.y + region.height + t;
+
+/** Every sample square of the layout (each patch's and W1b's) that lies outside the app region, in screen px. */
+export function witnessSampleProblems(layout, stage, region) {
+  const k = layout.pxPerDp;
+  const samples = [['W1b', layout.w1b.sample], ...layout.patches.map((p) => [`${p.kind}.${p.colour}`, p.sample])];
+  const problems = [];
+  for (const [id, s] of samples) {
+    const px = { x: stage.px.x + s.x * k, y: stage.px.y + s.y * k, width: s.width * k, height: s.height * k };
+    if (!insideWithin(px, region, 0)) problems.push(`the ${id} sample square is outside the app region`);
+  }
+  return problems;
+}
+
+/**
+ * Why a witness row's READY does not show its layout inside the app region, or []. The layout is rebuilt from READY: the
+ * stage in dp, READY's pixel ratio and font scale, and the insets the region probe leaves inside the stage, each rounded
+ * to whole px (the scene's StatusBar.currentHeight is a float32: 74 px reads 73.99999…).
+ */
+export function witnessProblems({ face, ready, region, witness }) {
+  const k = ready.pixelRatio;
+  if (!(typeof k === 'number' && Number.isFinite(k) && k > 0)) return ['READY has no pixelRatio: the witness layout cannot be rebuilt'];
+  const stage = ready.probes?.stage;
+  const box = ready.probes?.region;
+  if (!stage || !box) return [`READY has no ${stage ? 'region' : 'stage'} probe: the witness layout cannot be rebuilt`];
+  const whole = (dp) => Math.round(dp * k) / k;
+  const insets = {
+    top: whole(box.dp.y - stage.dp.y),
+    right: whole(stage.dp.x + stage.dp.width - (box.dp.x + box.dp.width)),
+    bottom: whole(stage.dp.y + stage.dp.height - (box.dp.y + box.dp.height)),
+    left: whole(box.dp.x - stage.dp.x),
+  };
+  let layout;
+  try {
+    layout = witness.witnessLayout(face, stage.dp.width, stage.dp.height, k, ready.fontScale, insets);
+  } catch (e) {
+    return [`the witness layout cannot be rebuilt from READY: ${e.message}`];
+  }
+  const problems = [...witness.witnessProbeProblems(layout, ready.probes)];
+  for (const [id, probe] of Object.entries(ready.probes)) {
+    if ((id === 'region' || WITNESS_PROBED.test(id)) && !insideWithin(probe.px, region, PROBE_TOLERANCE_PX)) {
+      problems.push(`probe ${id} is not inside the app region within ${PROBE_TOLERANCE_PX} px`);
+    }
+  }
+  return [...problems, ...witnessSampleProblems(layout, stage, region)];
+}
+
 /** The whole pixels of a probe's rect inside the app region, or null when it has none. */
 function probeCrop(px, region) {
   const x0 = Math.max(Math.floor(px.x), region.x);
@@ -444,7 +511,7 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
   if (!still && frames === 0) throw new Error(`${shot.id}: the positive control drew no frame in ${proof.seconds} s, so a zero-frames proof beside it would prove nothing`);
 }
 
-async function captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, outDir, sleep, now, signal, out }) {
+async function captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, witness, outDir, sleep, now, signal, out }) {
   const observed = await applyShot(adb, shot.device);
   await adb.shell(['logcat', '-c']);
   const stream = adb.logcat();
@@ -501,6 +568,10 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     await judgeLines({ adb, lab, token: `${run}-grabs`, shot, plan, signal });
     const stage = stageProblem(payload, screen);
     if (stage) throw new Error(`${shot.id}: ${stage}`);
+    if (shot.scene.startsWith('witness.')) {
+      const seen = witnessProblems({ face: shot.expect.face, ready: payload, region, witness });
+      if (seen.length) throw new Error(`${shot.id}: the witness row does not show its layout: ${seen.join('; ')}`);
+    }
     const checks = [];
     const notFlat = shot.checks?.notFlat;
     if (notFlat) {
@@ -571,10 +642,11 @@ const isInside = (parent, child) => {
  * and manifest.json written on every exit path.
  * @param {{ plan: any, appRoot: string, repoRoot: string, outDir: string, apkPath: string, adb: any,
  *           git: { head(): string, porcelain(): string }, sleep?: (ms: number) => Promise<unknown>,
- *           now?: () => Date, signal?: AbortSignal, log?: (message: string) => void }} options
+ *           now?: () => Date, signal?: AbortSignal, log?: (message: string) => void,
+ *           witness?: { witnessLayout: Function, witnessProbeProblems: Function } }} options
  */
 export async function capture({
-  plan, appRoot, repoRoot, outDir, apkPath, adb, git,
+  plan, appRoot, repoRoot, outDir, apkPath, adb, git, witness = undefined,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => new Date(), signal, log = console.log,
 }) {
   const planErrors = validatePlan(plan);
@@ -584,6 +656,11 @@ export async function capture({
   }
   const build = { ...checkBuild({ appRoot, apkPath, git }), skiaVersion: readSkia(appRoot) };
   const tiers = readTiers(repoRoot);
+  // The witness modules, before the phone is touched: given (tests) or loaded from the lab's TypeScript (the CLI).
+  let witnessModules = witness;
+  if (!witnessModules && plan.shots.some((s) => s.scene.startsWith('witness.'))) {
+    try { witnessModules = await loadWitness(appRoot); } catch (e) { throw new Refused(`the witness modules cannot be loaded: ${e.message}`); }
+  }
 
   // Read-only checks on the phone.
   const installedPath = (await adb.shell(['pm', 'path', plan.app.package])).split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith('package:'));
@@ -617,7 +694,7 @@ export async function capture({
       const hashes = [];
       for (let repeat = 1; repeat <= shot.repeat; repeat += 1) {
         if (signal?.aborted) throw new Error('interrupted');
-        const row = await captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, outDir, sleep, now, signal, out });
+        const row = await captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, witness: witnessModules, outDir, sleep, now, signal, out });
         rows.push(row);
         hashes.push(row.appRegionHash);
         log(`${shot.id}.${repeat}: ${row.appRegionHash.slice(0, 12)} (${row.probes.excluded.length} probe(s) excluded)`);
