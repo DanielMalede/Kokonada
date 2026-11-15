@@ -319,3 +319,42 @@ describe('ready means FieldView drew a frame (UI-233, RA-44)', () => {
     act(() => tree.unmount());
   });
 });
+
+// B8 (item 4): the builder-throw fallback belongs to the scene it fell back in, as the drawn frame does. A scene change
+// on the same mount mounts a fresh FieldView; an old scene's fallback reason must not stay on the new scene, which says
+// `pending` until its own first frame and then `ready`.
+describe('a fallback is the scene\'s own (B8)', () => {
+  it('a builder throw in scene A, then scene B: pending, then ready, never A\'s reason', () => {
+    const reports: ShaderReport[] = [];
+    const clock = { t: { value: 11000 } } as never;
+    const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 11000, stepMs: 0, frames: 3 });
+    const element = (scene: string) => (
+      <ProbeRegistry onMeasure={() => {}}>
+        <ShaderReportContext.Provider value={(r) => reports.push(r)}>
+          <FieldScene clock={clock} t={11000} params={paramsOf(scene)} />
+        </ShaderReportContext.Provider>
+      </ProbeRegistry>
+    );
+    const last = () => reports[reports.length - 1];
+    planted.throw = true;
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { tree = ReactTestRenderer.create(element('field.abyss.dark.one.intense.full')); });
+    act(() => {
+      tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+    });
+    act(() => reanimated.__frame(16));
+    expect(tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(last()).toEqual({ status: 'fallback', reason: 'RangeError: planted builder throw' });
+
+    planted.throw = false;
+    const before = reports.length;
+    act(() => tree.update(element('field.abyss.dark.one.joy.full')));
+    expect(tree.root.findAllByType(FieldFallback)).toHaveLength(0);
+    expect(reports.slice(before)).toEqual([{ status: 'pending', reason: null }]);
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    expect(reports.slice(before).map((r) => r.reason)).not.toContain('RangeError: planted builder throw');
+    expect(reports.slice(before).map((r) => r.status)).not.toContain('fallback');
+    act(() => tree.unmount());
+  });
+});
