@@ -1,10 +1,15 @@
 // Where the colour-path witness draws its patches (B8-2; the designer's 3c amendment 4), in dp, in the stage's own
-// coordinates. Lab only. A pure function of the face and the measured stage, so a report rebuilds it from the manifest.
+// coordinates. Lab only. A pure function of the face, the measured stage and the window's insets, so a report rebuilds it
+// from the manifest (the insets are the stage minus READY's region probe).
+//
+// The capture region (the designer's witness BLOCK, 2026-11-15): the lab window is edge to edge, so the stage runs under
+// the system bars, and the capture harness crops every grab to the app region, the screen minus those bars. So the patches
+// are laid out in the stage minus the insets, the region the capture keeps; with no insets it is the stage.
 //
 // The stage is the hero's layout (heroLayout, through the lab's one.joy scene): W1b, the production field, covers it, and
 // every other patch is laid over it. Each patch is PATCH_DP square and is sampled over its central SAMPLE_DP square. The
 // rules, for every patch and for W1b:
-//   · at least GAP_DP from the stage's edges, from every other patch and from every quiet rect (the hero's text and
+//   · at least GAP_DP from the capture region's edges, from every other patch and from every quiet rect (the hero's text and
 //     controls), so no patch sits where a quiet zone dims the field;
 //   · away from the ring and the halos: wholly on the plate's face, GAP_DP inside the ring's inner edge, or wholly beyond
 //     the moat, GAP_DP outside it; and GAP_DP clear of every bead's halo.
@@ -30,6 +35,14 @@ const W1B_STEP_DP = 8;
 const SAMPLE_POINTS: ReadonlyArray<readonly [number, number]> = [[0.5, 0.5], [0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0], [0, 0.5], [1, 0.5], [0.5, 1]];
 
 export type Rect = LayoutRect;
+/** The window's insets over the stage, in dp: the system bars the capture leaves out. */
+export interface Insets {
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+  readonly left: number;
+}
+export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
 
 export interface WitnessPatch {
   readonly kind: PatchKind;
@@ -48,6 +61,9 @@ export interface WitnessLayout {
   readonly face: Face;
   readonly width: number;
   readonly height: number;
+  /** The insets it was laid out with, and the capture region they leave: the stage minus them. */
+  readonly insets: Insets;
+  readonly region: Rect;
   readonly pxPerDp: number;
   /** The field's renderScale, W1b's and W1a's: the production tier's (field.tiers). */
   readonly renderScale: number;
@@ -68,8 +84,13 @@ const nearest = (r: Rect, px: number, py: number) => Math.hypot(Math.max(r.x - p
 const farthest = (r: Rect, px: number, py: number) => Math.hypot(Math.max(Math.abs(r.x - px), Math.abs(r.x + r.width - px)), Math.max(Math.abs(r.y - py), Math.abs(r.y + r.height - py)));
 const square = (x: number, y: number): Rect => ({ x, y, width: PATCH_DP, height: PATCH_DP });
 
-/** The witness layout of a face on a measured stage (dp), at the device's px per dp and font scale. */
-export function witnessLayout(face: Face, width: number, height: number, pxPerDp: number, fontScale: number): WitnessLayout {
+/** The witness layout of a face on a measured stage (dp), at the device's px per dp and font scale, inside the insets. */
+export function witnessLayout(face: Face, width: number, height: number, pxPerDp: number, fontScale: number, insets: Insets = NO_INSETS): WitnessLayout {
+  const edges = [insets.top, insets.right, insets.bottom, insets.left];
+  const region = { x: insets.left, y: insets.top, width: width - insets.left - insets.right, height: height - insets.top - insets.bottom };
+  if (!edges.every((v) => Number.isFinite(v) && v >= 0) || !(region.width > 0 && region.height > 0)) {
+    throw new RangeError(`witness layout: insets ${JSON.stringify(insets)} leave no capture region on a ${width}×${height} dp stage`);
+  }
   const field = sceneSpec(`field.${WITNESS_DIRECTION}.${face}.${WITNESS_HERO}.${WITNESS_TIER}`, 'field').layout(width, height, fontScale);
   const { frame, renderScale } = w1bFrame(face, field, pxPerDp);
   const R = field.radius;
@@ -80,10 +101,11 @@ export function witnessLayout(face: Face, width: number, height: number, pxPerDp
   const beads = frame.nodes.filter((n) => n.fade > 0 && n.bead !== null).map((n) => [cx + n.bead![0] * R, cy - n.bead![1] * R] as const);
   const quiet = field.quietRects ?? [];
 
-  const onStage = (r: Rect) => r.x >= GAP_DP && r.y >= GAP_DP && r.x + r.width <= width - GAP_DP && r.y + r.height <= height - GAP_DP;
+  const inRegion = (r: Rect) =>
+    r.x >= region.x + GAP_DP && r.y >= region.y + GAP_DP && r.x + r.width <= region.x + region.width - GAP_DP && r.y + r.height <= region.y + region.height - GAP_DP;
   const onFace = (r: Rect) => farthest(r, cx, cy) <= faceDp;
   const clear = (r: Rect) =>
-    onStage(r) && quiet.every((q) => gapBetween(r, q) >= GAP_DP) && (onFace(r) || nearest(r, cx, cy) >= moatDp) && beads.every(([bx, by]) => nearest(r, bx, by) >= haloDp);
+    inRegion(r) && quiet.every((q) => gapBetween(r, q) >= GAP_DP) && (onFace(r) || nearest(r, cx, cy) >= moatDp) && beads.every(([bx, by]) => nearest(r, bx, by) >= haloDp);
 
   // W1b: the face's square whose sample's worst point has the highest k, where the field is.
   const k = pxPerDp * renderScale;
@@ -135,5 +157,5 @@ export function witnessLayout(face: Face, width: number, height: number, pxPerDp
       });
     }
   }
-  return { face, width, height, pxPerDp, renderScale, field, w1b: { rect: w1b.rect, sample: sampleOf(w1b.rect) }, patches };
+  return { face, width, height, insets: { ...insets }, region, pxPerDp, renderScale, field, w1b: { rect: w1b.rect, sample: sampleOf(w1b.rect) }, patches };
 }
