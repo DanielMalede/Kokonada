@@ -114,6 +114,12 @@ describe('B8-8c: the typed reader of a manifest row', () => {
     });
   });
 
+  it('the frame time is the one READY’s fixed clock reports, whatever it is', () => {
+    const r = lib<Result<{ tMs: number }>>('return E.readFieldShot(input, "lawParity");', fieldRow({ clock: { mode: 'fixed', t: 7250.5 } }));
+    expect(r.error).toBeUndefined();
+    expect(r.ok!.tMs).toBe(7250.5);
+  });
+
   // Android's DisplayMetrics.density is densityDpi × (1f / 160) in float arithmetic, and RN's PixelRatio.get() is that
   // float: at 411 dpi it is 2.5687501430511475, not 411 / 160 = 2.56875. The reader takes Android's value.
   it.each([[40, 0.25], [420, 2.625], [450, 2.8125], [411, 2.5687501430511475], [393, 2.456249952316284]])('px per dp at %i dpi is Android’s float density %d', (density, k) => {
