@@ -351,9 +351,22 @@ describe('RA-41: every display rate, both tiers, with jitter (UI-231)', () => {
         const again = capFrame(drawn.cap, earliest, tier, 0);
         expect([tier, n, again.draw]).toEqual([tier, n, false]);
         expect(again.cap).toBe(drawn.cap);
-        // and the next frame on time is drawn once the period has passed
-        expect(capFrame(again.cap, earliest + period, tier, 0).draw).toBe(true);
+        // and the next frame, at its due time, is drawn
+        expect(capFrame(again.cap, again.cap.dueMs!, tier, 0).draw).toBe(true);
       }
+    }
+  });
+
+  it('the re-anchor sits one tolerance beyond the farthest lead a draw can set: time back by less is skipped, by more is drawn', () => {
+    for (const tier of ['full', 'low'] as const) {
+      const period = 1000 / fpsCapFor(tier);
+      const onTime = capFrame(frameCapStart(), 1000, tier, 0).cap;
+      // due 1000 + period: a frame back to 1000 − 0.4 periods stands 1.4 periods short of it (skipped, the schedule kept);
+      // one back to 1000 − 0.6 periods stands 1.6 short (re-anchored on itself and drawn)
+      const short = capFrame(onTime, 1000 - 0.4 * period, tier, 0);
+      expect([tier, short.draw, short.cap]).toEqual([tier, false, onTime]);
+      const far = capFrame(onTime, 1000 - 0.6 * period, tier, 0);
+      expect([tier, far.draw, far.cap.dueMs]).toEqual([tier, true, 1000 - 0.6 * period + period]);
     }
   });
 });

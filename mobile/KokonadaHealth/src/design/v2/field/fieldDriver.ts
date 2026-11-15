@@ -126,7 +126,7 @@ export function frameCapStart(): FrameCap {
  * One frame through the tier's cap (UI-171). A frame is drawn when its time has reached the due time less
  * FRAME_CAP_TOLERANCE of the period; each draw moves the due time on by one period from the last due time, so the
  * drawn rate converges on the cap (at 90 Hz under a 60 cap: two of every three frames, never two skips in a row). A
- * frame a whole period late, or time that ran backwards past a period, re-anchors the schedule on the frame itself,
+ * frame a whole period late, or time that ran backwards past the farthest lead a draw can set, re-anchors the schedule on the frame itself,
  * so a stall never brings a burst of catch-up frames. The first frame of a mount, a tier change or a new forced-draw
  * generation is always drawn (FieldView moves it on a taps or a layout change only, RA-39), and the still tier (cap 0)
  * is never capped and leaves no schedule behind, so the first capped frame after it is drawn: only the still tier
@@ -138,7 +138,10 @@ export function capFrame(prev: FrameCap, nowMs: number, tier: MotionTier, genera
   if (!(fps > 0) || !Number.isFinite(nowMs)) return { draw: true, cap: frameCapStart() };
   const period = 1000 / fps;
   const due = prev.dueMs;
-  if (due === null || prev.tier !== tier || prev.generation !== generation || due - nowMs > period * (1 + FRAME_CAP_TOLERANCE)) {
+  // A draw sets the next due time at most 1 + FRAME_CAP_TOLERANCE periods ahead of its own frame (the earliest draw the
+  // tolerance allows), so only time that ran backwards stands farther ahead. The re-anchor sits one tolerance beyond that
+  // lead, never on it: on it, rounding drew a repeated timestamp twice (RA-41).
+  if (due === null || prev.tier !== tier || prev.generation !== generation || due - nowMs > period * (1 + 2 * FRAME_CAP_TOLERANCE)) {
     return { draw: true, cap: { dueMs: nowMs + period, tier, generation } };
   }
   if (nowMs < due - period * FRAME_CAP_TOLERANCE) return { draw: false, cap: prev };
