@@ -12,7 +12,7 @@ jest.mock('../fieldFrame.ts', () => {
   return { ...actual, buildFieldFrame: (...args: unknown[]) => { counts.build += 1; return actual.buildFieldFrame(...args); } };
 });
 
-import { capFrame, fieldStep, FRAME_CAP_TOLERANCE, fpsCapFor, frameCapStart, renderGeometry, type FieldLayout, type FrameCap, type FrameParams } from '../fieldDriver.ts';
+import { capFrame, fieldStep, FRAME_CAP_TOLERANCE, fpsCapFor, frameCapStart, renderGeometry, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams } from '../fieldDriver.ts';
 
 // UI-171, the owner's ruling of 2026-11-14: the full tier keeps the display's rate up to 120 frames a second, the low
 // (power-save) tier runs at 60; the still tier has no cap (it draws only its ramps). The cap is field.tiers.<tier>.fpsCap,
@@ -248,5 +248,125 @@ describe('the first frame after a mount, a tier change or a wake is always drawn
     const bad = capFrame(cap, Number.NaN, 'low', 0);
     expect(bad.draw).toBe(true);
     expect(capFrame(bad.cap, 1000 / 120, 'low', 0).draw).toBe(true);
+  });
+});
+
+// RA-39 (the designer's ruling): a layout pass that changed by value forces a draw (FieldView), so the comparison is by
+// value over every field the rim, the words and the beads are placed from, and never true for two different passes.
+describe('sameLayoutPass: the layout passes compared by value (RA-39)', () => {
+  const QUIET = [{ x: 20, y: 20, width: 40, height: 20 }, { x: 200, y: 500, width: 60, height: 30 }];
+  const pass = (over: Partial<FieldLayout> = {}, pxPerDp = PX_PER_DP, renderScale = 0.5) => ({ layout: { ...LAYOUT, quietRects: QUIET, ...over }, pxPerDp, renderScale });
+
+  it('the same values in new objects are the same pass; omitted quiet rects are none', () => {
+    expect(sameLayoutPass(pass(), { ...pass(), layout: { ...pass().layout, centre: [180, 300], quietRects: QUIET.map((q) => ({ ...q })) } })).toBe(true);
+    expect(sameLayoutPass(pass({ quietRects: undefined }), pass({ quietRects: [] }))).toBe(true);
+  });
+
+  it('NaN equals NaN, so a poisoned value rebuilt on every render is not a change on every render', () => {
+    expect(sameLayoutPass(pass({ radius: Number.NaN }), pass({ radius: Number.NaN }))).toBe(true);
+    expect(sameLayoutPass(pass({}, Number.NaN), pass({}, Number.NaN))).toBe(true);
+  });
+
+  it('each field alone is a change', () => {
+    const changed = [
+      pass({ width: 361 }), pass({ height: 641 }), pass({ centre: [181, 300] }), pass({ centre: [180, 301] }), pass({ radius: 171 }),
+      pass({ fontScale: 1.3 }), pass({}, 3), pass({}, PX_PER_DP, 0.4), pass({ quietRects: [QUIET[0]] }),
+      pass({ quietRects: [{ ...QUIET[0], x: 21 }, QUIET[1]] }), pass({ quietRects: [{ ...QUIET[0], y: 21 }, QUIET[1]] }),
+      pass({ quietRects: [QUIET[0], { ...QUIET[1], width: 61 }] }), pass({ quietRects: [QUIET[0], { ...QUIET[1], height: 31 }] }),
+    ];
+    changed.forEach((c, i) => {
+      expect([i, sameLayoutPass(pass(), c)]).toEqual([i, false]);
+      expect([i, sameLayoutPass(c, pass())]).toEqual([i, false]);
+    });
+  });
+});
+
+describe('sameTapValues: the taps compared by value (RA-39)', () => {
+  it('the same values in a new array are the same; NaN equals NaN', () => {
+    expect(sameTapValues([{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }], [{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }])).toBe(true);
+    expect(sameTapValues([], [])).toBe(true);
+    expect(sameTapValues([{ x: Number.NaN, y: 0 }], [{ x: Number.NaN, y: 0 }])).toBe(true);
+  });
+
+  it('a tap added, removed, moved in x or in y, or the order changed, is a change', () => {
+    const t = [{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }];
+    for (const c of [[t[0]], [...t, { x: 0, y: 0 }], [{ x: 0.51, y: 0.5 }, t[1]], [t[0], { x: -0.4, y: 0.31 }], [t[1], t[0]]]) {
+      expect(sameTapValues(t, c)).toBe(false);
+      expect(sameTapValues(c, t)).toBe(false);
+    }
+  });
+});
+
+// RA-41 (resilience B4 re-audit, UI-231): every display rate a phone ships, at both tiers, with ±0.5 ms of timestamp
+// jitter over 4 s. The drawn count is the lower of the display rate and the cap, a gap between two draws is never longer
+// than one cap period (or one display frame, when the display is slower) plus one display frame, and no 10 draws ever
+// run faster than the cap allows, less one display frame of phase and the jitter.
+describe('RA-41: every display rate, both tiers, with jitter (UI-231)', () => {
+  const RATES = [30, 48, 60, 90, 96, 120, 144, 165];
+  const AMP = 0.5;
+  /** The timestamps drawn over `seconds` at `hz`, through the cap alone. */
+  const drawnAt = (tier: MotionTier, hz: number, seconds: number) => {
+    const next = jitter(AMP);
+    let cap = frameCapStart();
+    const at: number[] = [];
+    for (let i = 0; i < hz * seconds; i++) {
+      const now = 1000 + (i * 1000) / hz + (i === 0 ? 0 : next());
+      const gate = capFrame(cap, now, tier, 0);
+      cap = gate.cap;
+      if (gate.draw) at.push(now);
+    }
+    return at;
+  };
+
+  for (const tier of ['full', 'low'] as const) {
+    for (const hz of RATES) {
+      it(`${tier} at ${hz} Hz: min(${hz}, cap)·4 draws within 2, no long gap, never faster than the cap over 10 draws`, () => {
+        const fps = fpsCapFor(tier);
+        const period = 1000 / fps;
+        const frame = 1000 / hz;
+        const at = drawnAt(tier, hz, 4);
+        expect(Math.abs(at.length - Math.min(hz, fps) * 4)).toBeLessThanOrEqual(2);
+        let longest = 0;
+        for (let k = 1; k < at.length; k++) longest = Math.max(longest, at[k] - at[k - 1]);
+        expect(longest).toBeLessThanOrEqual(Math.max(period, frame) + frame + 1);
+        let shortest = Infinity;
+        for (let k = 10; k < at.length; k++) shortest = Math.min(shortest, at[k] - at[k - 10]);
+        expect(shortest).toBeGreaterThanOrEqual(10 * period - frame - 2 * AMP);
+      });
+    }
+  }
+
+  // The earliest draw the tolerance allows sets the next due time 1 + FRAME_CAP_TOLERANCE periods ahead of itself, the
+  // farthest ahead a schedule ever stands without time running backwards. A frame repeating that timestamp (a display
+  // that reports one vsync twice) is the same frame: it is not drawn again, and the schedule stands.
+  it('a repeated timestamp right after the earliest draw the tolerance allows is drawn once, at both tiers and many phases', () => {
+    for (const tier of ['full', 'low'] as const) {
+      const period = 1000 / fpsCapFor(tier);
+      for (let n = 0; n < 2000; n++) {
+        const t0 = 1000 + n * 7.31 + (n % 13) * 0.0137;
+        const first = capFrame(frameCapStart(), t0, tier, 0).cap;
+        const earliest = first.dueMs! - period * FRAME_CAP_TOLERANCE;
+        const drawn = capFrame(first, earliest, tier, 0);
+        expect([tier, n, drawn.draw]).toEqual([tier, n, true]);
+        const again = capFrame(drawn.cap, earliest, tier, 0);
+        expect([tier, n, again.draw]).toEqual([tier, n, false]);
+        expect(again.cap).toBe(drawn.cap);
+        // and the next frame, at its due time, is drawn
+        expect(capFrame(again.cap, again.cap.dueMs!, tier, 0).draw).toBe(true);
+      }
+    }
+  });
+
+  it('the re-anchor sits one tolerance beyond the farthest lead a draw can set: time back by less is skipped, by more is drawn', () => {
+    for (const tier of ['full', 'low'] as const) {
+      const period = 1000 / fpsCapFor(tier);
+      const onTime = capFrame(frameCapStart(), 1000, tier, 0).cap;
+      // due 1000 + period: a frame back to 1000 − 0.4 periods stands 1.4 periods short of it (skipped, the schedule kept);
+      // one back to 1000 − 0.6 periods stands 1.6 short (re-anchored on itself and drawn)
+      const short = capFrame(onTime, 1000 - 0.4 * period, tier, 0);
+      expect([tier, short.draw, short.cap]).toEqual([tier, false, onTime]);
+      const far = capFrame(onTime, 1000 - 0.6 * period, tier, 0);
+      expect([tier, far.draw, far.cap.dueMs]).toEqual([tier, true, 1000 - 0.6 * period + period]);
+    }
   });
 });

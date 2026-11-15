@@ -3,6 +3,12 @@
 // clamped dt: the field clock (fieldClock.ts), the breath, and the placement ledger's crossfades
 // (placementLedger.ts). A pure module (no React, no Reanimated), so the ledger stays pure and loads in
 // every jest project; fieldClock.ts re-exports both names for its callers.
+//
+// The clamp is taken per frame, so a capped tier that skips frames (UI-171) clamps the ledger's dt per drawn frame and
+// the clock's per display frame (RA-40). At a capped tier, each stall over motion.dtClamp that directly follows a
+// skipped frame may leave the placement ledger up to one display frame behind the field clock. The lag adds up over
+// stalls but is never observable, because nothing reads ledger time against clock time: it only lengthens a crossfade
+// in progress by that much, and a settled ledger is unaffected.
 
 import { BASE } from '../tokens/tokens.generated.ts';
 

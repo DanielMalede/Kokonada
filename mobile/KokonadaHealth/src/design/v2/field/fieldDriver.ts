@@ -20,7 +20,7 @@ import { BASE, type DirectionId, type Face } from '../tokens/tokens.generated.ts
 import type { FadeMode } from './crossfade.ts';
 import { buildFieldFrame, type FieldGeometry, type FieldState, type FieldStatics } from './fieldFrame.ts';
 import { QUIET_SLOTS, type QuietRect } from './fieldLaw.ts';
-import { fades, needsFrames, reconcile, type Ledger, type LedgerFades, type LedgerInput } from './placementLedger.ts';
+import { fades, needsFrames, reconcile, type Ledger, type LedgerFades, type LedgerInput, type Tap } from './placementLedger.ts';
 import { packFrame } from './uniforms.ts';
 
 /** A measured bound, in dp, in the field view's own coordinates (its top left is 0, 0). */
@@ -67,10 +67,49 @@ export function fpsCapFor(tier: MotionTier): number {
   return BASE.field.tiers.full.fpsCap;
 }
 
+/** What one layout pass moves together: the view's layout in dp, pxPerDp and the render scale. */
+export interface LayoutPass {
+  readonly layout: FieldLayout;
+  readonly pxPerDp: number;
+  readonly renderScale: number;
+}
+
+/**
+ * Two layout passes by value (RA-39, the designer's ruling): the size, pxPerDp, the render scale, the plate's centre
+ * and radius, the font scale and every quiet rect. A root that rebuilds the same layout on every render is the same
+ * pass; NaN equals NaN (Object.is), so a poisoned value is not a change on every render. Omitted quiet rects are none.
+ */
+export function sameLayoutPass(a: LayoutPass, b: LayoutPass): boolean {
+  'worklet';
+  const p = a.layout;
+  const q = b.layout;
+  if (!Object.is(a.pxPerDp, b.pxPerDp) || !Object.is(a.renderScale, b.renderScale)) return false;
+  if (!Object.is(p.width, q.width) || !Object.is(p.height, q.height) || !Object.is(p.radius, q.radius) || !Object.is(p.fontScale, q.fontScale)) return false;
+  if (!Object.is(p.centre[0], q.centre[0]) || !Object.is(p.centre[1], q.centre[1])) return false;
+  const pr = p.quietRects ?? [];
+  const qr = q.quietRects ?? [];
+  if (pr.length !== qr.length) return false;
+  for (let i = 0; i < pr.length; i++) {
+    if (!Object.is(pr[i].x, qr[i].x) || !Object.is(pr[i].y, qr[i].y) || !Object.is(pr[i].width, qr[i].width) || !Object.is(pr[i].height, qr[i].height)) return false;
+  }
+  return true;
+}
+
+/**
+ * Two taps lists by value (RA-39): the same length and the same x and y at each place (Object.is). The ledger reads
+ * by value too, so a root that rebuilds the same taps on every render changes nothing it draws, and forces no draw.
+ */
+export function sameTapValues(a: readonly Tap[], b: readonly Tap[]): boolean {
+  'worklet';
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i].x, b[i].x) || !Object.is(a[i].y, b[i].y)) return false;
+  return true;
+}
+
 /** The share of the cap's period a frame may arrive early and still be drawn (timestamp jitter). */
 export const FRAME_CAP_TOLERANCE = 0.25;
 
-/** The cap's schedule, on the UI thread: when the next frame is due, and the tier and wake generation it was set under. */
+/** The cap's schedule, on the UI thread: when the next frame is due, and the tier and forced-draw generation it was set under. */
 export interface FrameCap {
   readonly dueMs: number | null;
   readonly tier: MotionTier | null;
@@ -87,9 +126,11 @@ export function frameCapStart(): FrameCap {
  * One frame through the tier's cap (UI-171). A frame is drawn when its time has reached the due time less
  * FRAME_CAP_TOLERANCE of the period; each draw moves the due time on by one period from the last due time, so the
  * drawn rate converges on the cap (at 90 Hz under a 60 cap: two of every three frames, never two skips in a row). A
- * frame a whole period late, or time that ran backwards past a period, re-anchors the schedule on the frame itself,
- * so a stall never brings a burst of catch-up frames. The first frame of a mount, a tier change or a new wake
- * generation is always drawn, and the still tier (cap 0) is never capped. A skipped frame changes nothing.
+ * frame a whole period late, or time that ran backwards past the farthest lead a draw can set, re-anchors the schedule on the frame itself,
+ * so a stall never brings a burst of catch-up frames. The first frame of a mount, a tier change or a new forced-draw
+ * generation is always drawn (FieldView moves it on a taps or a layout change only, RA-39), and the still tier (cap 0)
+ * is never capped and leaves no schedule behind, so the first capped frame after it is drawn: only the still tier
+ * sleeps, so this is the first frame after a wake from sleep. A skipped frame changes nothing.
  */
 export function capFrame(prev: FrameCap, nowMs: number, tier: MotionTier, generation: number): { draw: boolean; cap: FrameCap } {
   'worklet';
@@ -97,7 +138,10 @@ export function capFrame(prev: FrameCap, nowMs: number, tier: MotionTier, genera
   if (!(fps > 0) || !Number.isFinite(nowMs)) return { draw: true, cap: frameCapStart() };
   const period = 1000 / fps;
   const due = prev.dueMs;
-  if (due === null || prev.tier !== tier || prev.generation !== generation || due - nowMs > period * (1 + FRAME_CAP_TOLERANCE)) {
+  // A draw sets the next due time at most 1 + FRAME_CAP_TOLERANCE periods ahead of its own frame (the earliest draw the
+  // tolerance allows), so only time that ran backwards stands farther ahead. The re-anchor sits one tolerance beyond that
+  // lead, never on it: on it, rounding drew a repeated timestamp twice (RA-41).
+  if (due === null || prev.tier !== tier || prev.generation !== generation || due - nowMs > period * (1 + 2 * FRAME_CAP_TOLERANCE)) {
     return { draw: true, cap: { dueMs: nowMs + period, tier, generation } };
   }
   if (nowMs < due - period * FRAME_CAP_TOLERANCE) return { draw: false, cap: prev };
