@@ -66,10 +66,9 @@ describe('witnessProbeProblems: a row whose probe misses its layout rect by more
   });
 
   it('a missing probe is refused (a dropped probe never reads as a passing one)', () => {
-    const { 'W1a.intense': _gone, ...rest } = landed();
-    expect(witnessProbeProblems(layout, rest)).toEqual(['probe W1a.intense is missing from READY']);
-    const { stage: _s, ...noStage } = landed();
-    expect(witnessProbeProblems(layout, noStage)[0]).toMatch(/^probe stage is missing/);
+    const without = (id: string) => Object.fromEntries(Object.entries(landed()).filter(([k]) => k !== id));
+    expect(witnessProbeProblems(layout, without('W1a.intense'))).toEqual(['probe W1a.intense is missing from READY']);
+    expect(witnessProbeProblems(layout, without('stage'))[0]).toMatch(/^probe stage is missing/);
   });
 
   it('a region probe that is not the layout\'s capture region is refused: READY must carry the insets the layout used', () => {
