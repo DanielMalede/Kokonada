@@ -17,6 +17,7 @@ import {
   w1bFrame, witnessColours, witnessFace, witnessSceneId,
 } from '../witness/witnessFrames';
 import { GAP_DP, PATCH_DP, SAMPLE_DP, sampleOf, witnessLayout, type WitnessLayout } from '../witness/witnessLayout';
+import { WITNESS_PROBES } from '../witness/witnessProbes';
 
 // B8-2 (the architect's B8 plan; B4 fork 2E; the designer's 3c amendments): the colour-path witness's frames and layout,
 // on the JS law. Per face: the four anchors at the face's tier (joy and intense among them) and the face's ground; W1a is
@@ -248,12 +249,12 @@ describe('the witness capture plan (scripts/lab/capture-plans/v1-witness.json)',
     expect(plan.shots.map((s) => s.scene).sort()).toEqual(Object.keys(WITNESS_SCENE_FACTS).sort());
   });
 
-  it('each shot: its expect is the catalogue\'s facts, the night mode its face, a fixed clock the lab parses, the stage probe', () => {
+  it('each shot: its expect is the catalogue\'s facts, the night mode its face, a fixed clock the lab parses, every witness probe (so checkReady refuses a READY without one)', () => {
     for (const shot of plan.shots) {
       const facts = WITNESS_SCENE_FACTS[shot.scene];
       expect(shot.expect).toEqual({ direction: facts.direction, face: facts.face, hero: facts.hero, tier: facts.tier });
       expect(shot.device).toEqual({ fontScale: 1, night: facts.face === 'dark' ? 'yes' : 'no', animatorScale: 1, powerSave: false });
-      expect(shot.probes).toEqual(['stage']);
+      expect(shot.probes).toEqual(WITNESS_PROBES);
       expect(shot.repeat).toBe(2);
       const parsed = parseLabArgs({ ...shot.args, run: 'plan-check', scene: shot.scene }, [], timings);
       expect(parsed).toMatchObject({ ok: true, params: { clock: 'fixed' } });

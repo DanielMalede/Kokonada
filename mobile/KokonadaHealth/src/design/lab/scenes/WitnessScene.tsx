@@ -9,6 +9,12 @@
 // never mounts FieldView (the witness needs no ledger, and FieldView takes no lab-only knob) and never imports scenes.ts,
 // so its closure reaches FieldSurface and not FieldView. It reports which surface drew it (UI-223): `ready` while the
 // process's one field effect is ready, else `fallback` with the effect's reason, and then it draws no field at all.
+//
+// Where it draws (the designer's witness BLOCK, dry run 2026-11-15): React Native on Android swaps left and right under
+// RTL, which mirrored W1a and W3 onto the canvas's patches, so the stage is laid out left to right whatever the locale
+// (`direction: 'ltr'`), as the canvas draws. The patches sit inside the capture region (witnessInsets.ts), and the scene
+// proves both on the device: a probe for that region and for every W1a and W3 patch (witnessProbes.ts), placed even when
+// it falls back, so READY always comes and says what drew it.
 
 import React, { useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
@@ -22,10 +28,12 @@ import type { LabParams } from '../params';
 import { Probe } from '../probe/Probe';
 import { ShaderReportContext } from '../shaderReport';
 import { w1aFrame, w1bFrame, witnessColours, witnessFace, type WitnessColour } from '../witness/witnessFrames';
-import { witnessLayout, type Rect as PatchRect, type WitnessLayout } from '../witness/witnessLayout';
+import { witnessInsets } from '../witness/witnessInsets';
+import { witnessLayout, type Rect as PatchRect, type WitnessLayout, type WitnessPatch } from '../witness/witnessLayout';
+import { PROBED_KINDS, WITNESS_PROBES, witnessProbeId } from '../witness/witnessProbes';
 import { useMeasuredView } from './useMeasuredView';
 
-export const WITNESS_SCENE_PROBES = ['stage'] as const;
+export const WITNESS_SCENE_PROBES: readonly string[] = WITNESS_PROBES;
 
 type ReadyEffect = Extract<ReturnType<typeof fieldEffect>, { status: 'ready' }>;
 
@@ -35,7 +43,8 @@ export function WitnessScene({ params }: { readonly params: LabParams }) {
   const { size, onLayout } = useMeasuredView();
   const pxPerDp = PixelRatio.get();
   const fontScale = PixelRatio.getFontScale();
-  const layout = useMemo(() => (size === null ? null : witnessLayout(face, size.width, size.height, pxPerDp, fontScale)), [face, size, pxPerDp, fontScale]);
+  const [insets] = useState(witnessInsets);
+  const layout = useMemo(() => (size === null ? null : witnessLayout(face, size.width, size.height, pxPerDp, fontScale, insets)), [face, size, pxPerDp, fontScale, insets]);
   const report = useContext(ShaderReportContext);
   const [effect] = useState(fieldEffect);
   const reason = effect.status === 'fallback' ? effect.reason : null;
@@ -45,7 +54,8 @@ export function WitnessScene({ params }: { readonly params: LabParams }) {
   return (
     <Probe id="stage" style={styles.stage}>
       <View testID="witness-scene.view" style={styles.stage} onLayout={onLayout}>
-        {layout !== null && effect.status === 'ready' && <Witness layout={layout} effect={effect} />}
+        {layout === null ? <UnplacedProbes /> : <Probe id="region" style={at(layout.region)} />}
+        {layout !== null && (effect.status === 'ready' ? <Witness layout={layout} effect={effect} /> : <PatchProbes layout={layout} />)}
       </View>
     </Probe>
   );
@@ -59,7 +69,9 @@ function Witness({ layout, effect }: { layout: WitnessLayout; effect: ReadyEffec
     <>
       <W1b layout={layout} effect={effect} />
       {layout.patches.filter((p) => p.kind === 'W1a').map((p) => (
-        <W1a key={p.colour} rect={p.rect} colour={colourOf(p.colour)} layout={layout} effect={effect} />
+        <PatchProbe key={p.colour} patch={p}>
+          <W1a rect={p.rect} colour={colourOf(p.colour)} layout={layout} effect={effect} />
+        </PatchProbe>
       ))}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Canvas style={styles.fill} colorSpace="srgb">
@@ -67,10 +79,28 @@ function Witness({ layout, effect }: { layout: WitnessLayout; effect: ReadyEffec
         </Canvas>
       </View>
       {layout.patches.filter((p) => p.kind === 'W3').map((p) => (
-        <View key={p.colour} testID={`witness.W3.${p.colour}`} pointerEvents="none" style={[at(p.rect), { backgroundColor: colourOf(p.colour).hex }]} />
+        <PatchProbe key={p.colour} patch={p}>
+          <View testID={`witness.W3.${p.colour}`} pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colourOf(p.colour).hex }]} />
+        </PatchProbe>
       ))}
     </>
   );
+}
+
+/** A probed patch's own View, where the layout puts it: what READY's probe of the patch measures. */
+function PatchProbe({ patch, children }: { patch: WitnessPatch; children?: React.ReactNode }) {
+  return <Probe id={witnessProbeId(patch.kind, patch.colour)} style={at(patch.rect)}>{children}</Probe>;
+}
+
+/** The fallback draws no patch, yet places every probe, so READY is sent and says the shader did not draw. */
+function PatchProbes({ layout }: { layout: WitnessLayout }) {
+  const probed = layout.patches.filter((p) => (PROBED_KINDS as readonly string[]).includes(p.kind));
+  return <>{probed.map((p) => <PatchProbe key={`${p.kind}.${p.colour}`} patch={p} />)}</>;
+}
+
+/** Every declared probe is rendered at all times (READY waits for each, scenes.test.tsx): 0 × 0 until the layout places it. */
+function UnplacedProbes() {
+  return <>{WITNESS_PROBES.filter((id) => id !== 'stage').map((id) => <Probe key={id} id={id} style={at(UNPLACED)} />)}</>;
 }
 
 function W1b({ layout, effect }: { layout: WitnessLayout; effect: ReadyEffect }) {
@@ -97,7 +127,7 @@ function W1a({ rect, colour, layout, effect }: { rect: PatchRect; colour: Witnes
   const size = renderSize({ ...layout.field, width: rect.width, height: rect.height }, layout.pxPerDp, renderScale);
   const uniforms = useSharedValue<readonly number[] | null>(packFrame(w1aFrame(layout.face, colour, size)));
   return (
-    <View testID={`witness.W1a.${colour.name}`} pointerEvents="none" style={at(rect)}>
+    <View testID={`witness.W1a.${colour.name}`} pointerEvents="none" style={StyleSheet.absoluteFill}>
       <FieldSurface
         uniforms={uniforms}
         effect={effect.effect}
@@ -112,9 +142,11 @@ function W1a({ rect, colour, layout, effect }: { rect: PatchRect; colour: Witnes
   );
 }
 
+const UNPLACED: PatchRect = { x: 0, y: 0, width: 0, height: 0 };
 const at = (r: PatchRect) => ({ position: 'absolute' as const, left: r.x, top: r.y, width: r.width, height: r.height });
 
 const styles = StyleSheet.create({
-  stage: { flex: 1 },
+  // Left to right whatever the locale: React Native would mirror every `left` under RTL, and the canvas never mirrors.
+  stage: { flex: 1, direction: 'ltr' },
   fill: { flex: 1 },
 });

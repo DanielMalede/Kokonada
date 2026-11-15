@@ -26,7 +26,18 @@
     "powerSave": false
    },
    "probes": [
-    "stage"
+    "stage",
+    "region",
+    "W1a.joy",
+    "W1a.calm",
+    "W1a.reflective",
+    "W1a.intense",
+    "W1a.ground",
+    "W3.joy",
+    "W3.calm",
+    "W3.reflective",
+    "W3.intense",
+    "W3.ground"
    ],
    "expect": {
     "direction": "abyss",
@@ -51,7 +62,18 @@
     "powerSave": false
    },
    "probes": [
-    "stage"
+    "stage",
+    "region",
+    "W1a.joy",
+    "W1a.calm",
+    "W1a.reflective",
+    "W1a.intense",
+    "W1a.ground",
+    "W3.joy",
+    "W3.calm",
+    "W3.reflective",
+    "W3.intense",
+    "W3.ground"
    ],
    "expect": {
     "direction": "abyss",
