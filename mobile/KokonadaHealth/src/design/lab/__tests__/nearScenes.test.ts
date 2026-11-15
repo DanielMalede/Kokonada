@@ -69,6 +69,7 @@ describe('the lab draws them: Abyss, both faces, the full tier (S1)', () => {
   });
 
   it('each scene\'s face, hero, tier and taps come from its id and the token, and the lab registers it as a field scene', () => {
+    expect(nearIds).toHaveLength(8); // has cases
     for (const id of nearIds) {
       const s = FIELD_SCENES[id];
       const [, direction, face, ...rest] = id.split('.');
@@ -93,6 +94,7 @@ describe('the near capture plan (scripts/lab/capture-plans/v1-near.json)', () =>
   });
 
   it('every shot\'s expect is its scene\'s {direction, face, hero, tier} in the catalogue, and only those four keys', () => {
+    expect(plan.shots).toHaveLength(8); // has cases
     for (const shot of plan.shots) {
       const s = FIELD_SCENES[shot.scene];
       expect(shot.expect).toEqual({ direction: s.direction, face: s.face, hero: s.hero, tier: s.tier });
@@ -100,6 +102,7 @@ describe('the near capture plan (scripts/lab/capture-plans/v1-near.json)', () =>
   });
 
   it('S1: a fixed clock at t*, twice, the system night mode on its face, font scale 1, no reduced motion or power save', () => {
+    expect(plan.shots).toHaveLength(8); // has cases
     for (const shot of plan.shots) {
       expect(shot.args.clock).toBe('fixed');
       expect(shot.args.t).toBe(String(DIRECTIONS.abyss.field.stillTime));
@@ -110,6 +113,7 @@ describe('the near capture plan (scripts/lab/capture-plans/v1-near.json)', () =>
   });
 
   it('every shot launches its scene with exactly the probes it declares, in arguments the lab parses, READY after 10 frames or more', () => {
+    expect(plan.shots).toHaveLength(8); // has cases
     for (const shot of plan.shots) {
       expect([...shot.probes].sort()).toEqual([...SCENES[shot.scene].probes].sort());
       const parsed = parseLabArgs({ ...shot.args, run: 'plan-check', scene: shot.scene }, [], timings);
@@ -122,6 +126,7 @@ describe('the near capture plan (scripts/lab/capture-plans/v1-near.json)', () =>
     const PLAN_KEYS = ['id', 'app', 'readyTimeoutMs', 'settleMs', 'session', 'shots'];
     const SHOT_KEYS = ['id', 'repeat', 'scene', 'args', 'device', 'probes', 'expect'];
     expect(Object.keys(plan).filter((k) => !PLAN_KEYS.includes(k))).toEqual([]);
+    expect(plan.shots).toHaveLength(8); // has cases
     for (const shot of plan.shots) expect(Object.keys(shot).sort()).toEqual([...SHOT_KEYS].sort());
   });
 });
