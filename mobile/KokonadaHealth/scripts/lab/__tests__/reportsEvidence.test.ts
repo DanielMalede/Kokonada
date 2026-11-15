@@ -114,6 +114,38 @@ describe('B8-8c: the typed reader of a manifest row', () => {
     });
   });
 
+  // B8-6: a policy scene (field.<direction>.<face>.<hero>.policy) has no tier in its id: the motion policy picks it on
+  // the device, READY reports it (motion.tier), and the shot's expect.tier is the tier its device state implies. Its
+  // twin is the sibling scene at that tier, and the observed tier must be the expected one.
+  const policyRow = (tier: string, observed: string | null = tier, over: Partial<Parameters<typeof row>[0]> = {}) => row({
+    shot: 'dark-three-policy', scene: 'field.abyss.dark.three.policy', expect: { direction: 'abyss', face: 'dark', hero: 'three', tier },
+    file: 'dark-three-policy.1.png', sha256: 'b'.repeat(64), screen: SCREEN, bars: BARS, density: 40, shaderStatus: 'ready', observedTier: observed, ...over,
+  });
+
+  it.each(['full', 'low', 'still'])('a policy row at the %s tier reads as its scene, at the tier expect names; its twin is that tier’s sibling', (tier) => {
+    const sibling = row({
+      shot: 's', scene: `field.abyss.dark.three.${tier}`, expect: { direction: 'abyss', face: 'dark', hero: 'three', tier },
+      file: 's.1.png', sha256: 'b'.repeat(64), screen: SCREEN, bars: BARS, density: 40, shaderStatus: 'ready',
+    });
+    const r = lib<Result<Array<Record<string, unknown>>>>('return input.map((x) => { const s = E.readFieldShot(x, "lawParity"); return { scene: s.scene, tier: s.tier, renderScale: s.renderScale, twin: E.fieldTwinInputs(s) }; });', [policyRow(tier), sibling]);
+    expect(r.error).toBeUndefined();
+    const [policy, plain] = r.ok!;
+    expect(policy.scene).toBe('field.abyss.dark.three.policy');
+    expect(policy.tier).toBe(tier);
+    expect(policy.renderScale).toBe(plain.renderScale);
+    expect(policy.twin).toEqual(plain.twin);
+  });
+
+  it.each([
+    ['READY observed another tier than the expect', policyRow('low', 'full'), /"motion\.tier" is "full".*"expect\.tier" is "low"/],
+    ['READY observed no tier', policyRow('low', null), /"motion\.tier"/],
+    ['a policy scene of another hero than expect', policyRow('low', 'low', { scene: 'field.abyss.dark.rest.policy' }), /"scene"/],
+    ['a policy expect with no tier', withValue(withValue(withValue(policyRow('low'), 'expect.tier', null), 'renderScale', null), 'sampling', null), /"expect\.tier"/],
+  ])('a policy row is refused when %s', (_, bad, why) => {
+    const r = lib<Result<unknown>>('return E.readFieldShot(input, "lawParity");', bad);
+    expect(r.error).toEqual({ name: expect.anything(), message: expect.stringMatching(why), isInput: true });
+  });
+
   it('the frame time is the one READY’s fixed clock reports, whatever it is', () => {
     const r = lib<Result<{ tMs: number }>>('return E.readFieldShot(input, "lawParity");', fieldRow({ clock: { mode: 'fixed', t: 7250.5 } }));
     expect(r.error).toBeUndefined();
@@ -359,7 +391,7 @@ function mountedProps(id: string, kind: 'field' | 'fallback', width: number, hei
 
 describe('B8-8c: the twin is built from the lab’s own scene, for every lab field and fallback scene', () => {
   const ids = Object.keys(FIELD_SCENES);
-  const fieldIds = ids.filter((id) => FIELD_SCENES[id].kind === 'field');
+  const fieldIds = ids.filter((id) => FIELD_SCENES[id].kind === 'field' && !FIELD_SCENES[id].policy);
   const fallbackIds = ids.filter((id) => FIELD_SCENES[id].kind === 'fallback');
   // Whole numbers of px at k = 2, so dp = px / k is exact.
   const SIZES: Array<{ width: number; height: number; k: number; fontScale: number }> = [
@@ -372,6 +404,8 @@ describe('B8-8c: the twin is built from the lab’s own scene, for every lab fie
     const want = FIELD_FACES.length * (HERO_SCENES.length * FIELD_TIERS.length + NEAR_SCENES.length);
     expect(want).toBeGreaterThanOrEqual(32);
     expect(fieldIds.length).toBe(want);
+    // The policy scenes have no tier of their own (their twin is read from a row, above), so they are not pinned here.
+    expect(ids.filter((id) => FIELD_SCENES[id].policy).length).toBe(FIELD_FACES.length * HERO_SCENES.length);
     for (const face of FIELD_FACES) for (const near of NEAR_SCENES) expect(fieldIds).toContain(`field.abyss.${face}.${near}.${NEAR_TIER}`);
     expect(fallbackIds.length).toBeGreaterThanOrEqual(20);
   });

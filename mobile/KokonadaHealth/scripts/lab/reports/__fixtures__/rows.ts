@@ -46,6 +46,8 @@ export interface RowInput {
   readonly clock?: { readonly mode: 'fixed' | 'stepped' | 'realtime'; readonly t: number | null };
   readonly shaderStatus: string | null;
   readonly shaderReason?: string | null;
+  /** The tier READY observed (motion.tier): the expect's tier by default, as for a scene whose id names it. */
+  readonly observedTier?: string | null;
 }
 
 const ZERO64 = '0'.repeat(64);
@@ -92,7 +94,7 @@ export function row(input: RowInput): Record<string, unknown> {
     direction: input.expect.direction,
     face: input.expect.face,
     fontScale: { requested: fontScale, observed: fontScale, app: fontScale },
-    motion: { reduceMotionObserved: still, powerSaveObserved: false, tier: input.expect.tier },
+    motion: { reduceMotionObserved: still, powerSaveObserved: false, tier: input.observedTier === undefined ? input.expect.tier : input.observedTier },
     locale: 'he-IL',
     isRTL: true,
     clock: { mode: clock.mode, t: clock.t, seq: 0 },
