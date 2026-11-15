@@ -36,6 +36,29 @@ const FRAMES = /^\d{1,3}$/;
 const DEFAULT_FRAMES = 3;
 const MAX_FRAMES = 600;
 
+// The unknown-scene message names the scene, how many are known and their families (`field.*`, or the id itself when it
+// has no dot), never every id: with the B8 groups the catalogue alone would pass the 4000 bytes a protocol line may take
+// (protocol.ts), and formatLine would throw instead of sending the ERROR. Both parts are cut to a budget in characters
+// (each at most 6 bytes once escaped in JSON), so the message stays near 3000 bytes at worst, whatever the launch or the
+// catalogue holds.
+const MAX_SCENE_ECHO = 120;
+const MAX_FAMILIES_CHARS = 360;
+
+function unknownScene(scene: string, known: readonly string[]): string {
+  const echo = scene.length <= MAX_SCENE_ECHO ? scene : `${scene.slice(0, MAX_SCENE_ECHO - 1)}…`;
+  const families = [...new Set(known.map((id) => (id.includes('.') ? `${id.slice(0, id.indexOf('.'))}.*` : id)))];
+  let listed = '';
+  let shown = 0;
+  for (const family of families) {
+    const next = shown === 0 ? family : `${listed}, ${family}`;
+    if (next.length > MAX_FAMILIES_CHARS) break;
+    listed = next;
+    shown += 1;
+  }
+  if (shown < families.length) listed = `${listed}${shown === 0 ? '' : ', '}+${families.length - shown} more`;
+  return `scene "${echo}" is not a lab scene (${known.length} known: ${listed})`;
+}
+
 /**
  * @param raw          the string extras the activity passed (`labArgs`)
  * @param nonStringKeys extras the activity dropped because they were not strings (`--ei`, `--ez`, ...)
@@ -74,7 +97,7 @@ export function parseLabArgs(
   if (missing('scene')) errors.push('scene is required');
   else if (scene !== undefined) {
     if (Object.prototype.hasOwnProperty.call(scenes, scene)) timing = scenes[scene];
-    else errors.push(`scene "${scene}" is not a lab scene (${Object.keys(scenes).join(', ')})`);
+    else errors.push(unknownScene(scene, Object.keys(scenes)));
   }
 
   const clockRaw = values.clock;
