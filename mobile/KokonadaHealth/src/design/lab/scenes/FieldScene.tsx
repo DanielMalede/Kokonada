@@ -46,7 +46,11 @@ export function FieldScene({ clock, params }: SceneProps) {
   );
   const report = useContext(ShaderReportContext);
   const [effect] = useState(fieldEffect);
-  const [fellBack, setFellBack] = useState<string | null>(null);
+  // FieldFallback's reason, bound to the scene it fell back in, as the drawn frame is: a scene change mounts a fresh
+  // FieldView, and an earlier scene's fallback says nothing about it.
+  const [fallen, setFallen] = useState<{ readonly scene: string; readonly reason: string } | null>(null);
+  const setFellBack = useCallback((r: string) => setFallen({ scene: spec.id, reason: r }), [spec.id]);
+  const fellBack = fallen !== null && fallen.scene === spec.id ? fallen.reason : null;
   const status = fellBack !== null ? 'fallback' : effect.status;
   const reason = fellBack ?? (effect.status === 'fallback' ? effect.reason : null);
   // The scene whose FieldView has drawn its first frame: re-armed by every scene, since the signal is bound to its own.
