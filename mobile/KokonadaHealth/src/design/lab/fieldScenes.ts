@@ -1,8 +1,9 @@
 // The Design Lab's field scenes (T14: handoff items 7 and 9; the architect's T14 plan at c8ff246, forks F1–F6 at A).
 //
 // A catalogue, by scene id: Abyss on both faces, the hero scenes rest, one.joy, three and one.intense at the tiers full,
-// low and still, each drawn by the real FieldView (scenes/FieldScene.tsx), and the fallback's scenes (T13's list, on both
-// faces), each drawn by FieldFallback mounted directly (scenes/FallbackScene.tsx). Everything a scene draws comes from its
+// low and still, and the near.* scenes at the full tier (UI-210), each drawn by the real FieldView (scenes/FieldScene.tsx),
+// and the fallback's scenes (T13's list, on both faces), each drawn by FieldFallback mounted directly
+// (scenes/FallbackScene.tsx). Everything a scene draws comes from its
 // id: `field.abyss.dark.three.full` is Abyss, the dark face, the hero scene three, the full tier; `fallback.abyss.light.
 // one.C.right` is the fallback on the light face in T13's scene one.C.right. A launch names the id; FieldView takes no
 // lab-only knob.
@@ -31,6 +32,10 @@ export const FIELD_DIRECTION: DirectionId = 'abyss';
 export const FIELD_FACES: readonly Face[] = ['dark', 'light'];
 export const HERO_SCENES = ['rest', 'one.joy', 'three', 'one.intense'] as const;
 export const FIELD_TIERS: readonly MotionTier[] = ['full', 'low', 'still'];
+/** The near.* scenes (UI-210): one bead at (±0.141, ±0.141), r 0.2 and p 0.11, the hero's S1 beside one.neutral. */
+export const NEAR_SCENES = ['near.joy', 'near.calm', 'near.reflective', 'near.intense'] as const;
+/** S1's tier: the near.* scenes are stills on the fixed clock at t*, so they are drawn at the full tier only. */
+export const NEAR_TIER: MotionTier = 'full';
 
 export interface FieldSceneSpec {
   readonly id: string;
@@ -97,6 +102,12 @@ function abyssSpecs(): FieldSceneSpec[] {
     taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
     periodMs, layout: hero,
   }))));
+  const near = FIELD_FACES.flatMap((face) => NEAR_SCENES.map((scene): FieldSceneSpec => ({
+    id: `field.${FIELD_DIRECTION}.${face}.${scene}.${NEAR_TIER}`,
+    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: NEAR_TIER,
+    taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
+    periodMs, layout: hero,
+  })));
   const fallback = fallbackScenes(EXT.base.$root.hero.scenes, EXT.abyss.$root.hardest);
   const fallbacks = FIELD_FACES.flatMap((face) => fallback.map((f): FieldSceneSpec => ({
     id: `fallback.${FIELD_DIRECTION}.${face}.${f.id}`,
@@ -104,7 +115,7 @@ function abyssSpecs(): FieldSceneSpec[] {
     taps: f.taps,
     periodMs, layout: hero,
   })));
-  return [...field, ...fallbacks];
+  return [...field, ...near, ...fallbacks];
 }
 
 export const FIELD_SCENES: Readonly<Record<string, FieldSceneSpec>> = fieldSceneCatalogue(abyssSpecs());

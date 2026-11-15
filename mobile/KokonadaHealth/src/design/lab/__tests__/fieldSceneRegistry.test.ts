@@ -3,7 +3,7 @@ import * as path from 'path';
 import { importClosure } from '../../../../scripts/lab/importGraph.mjs';
 import { FIELD_SCENES } from '../fieldScenes';
 import { parseLabArgs } from '../params';
-import { SCENES } from '../scenes';
+import { SCENES, SCENE_GROUPS } from '../scenes';
 import { FallbackScene } from '../scenes/FallbackScene';
 import { FieldScene } from '../scenes/FieldScene';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
@@ -16,9 +16,10 @@ const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, 
 const IDS = Object.keys(FIELD_SCENES);
 
 describe('the field scenes are registered in SCENES', () => {
-  it('every catalogue id, and the smoke scene still', () => {
+  it('every catalogue id, the smoke scene still, and the B8 scene groups (sceneGroups.test.ts)', () => {
     expect(IDS.length).toBeGreaterThan(0);
-    expect(Object.keys(SCENES).sort()).toEqual(['smoke', ...IDS].sort());
+    const grouped = Object.values(SCENE_GROUPS).flatMap((g) => Object.keys(g));
+    expect(Object.keys(SCENES).sort()).toEqual(['smoke', ...IDS, ...grouped].sort());
   });
 
   it.each(IDS)('%s: its component, its period and the stage probe', (id) => {

@@ -2,10 +2,12 @@ import React from 'react';
 import { EventEmitter } from 'events';
 import { I18nManager, PixelRatio, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
+import { CostReportContext, type CostReport } from '../cost/costResult';
 import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
 import type { Scene } from '../scenes';
+import { ShaderReportContext } from '../shaderReport';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -162,6 +164,42 @@ describe('READY', () => {
   });
 });
 
+// UI-232 (RA-42): a shader compile error can be thousands of characters, and a READY over MAX_LINE_BYTES cannot be sent
+// (logcat would truncate it): READY carries the reason cut to 300 characters, the last an ellipsis, and is still sent.
+describe('a long surface reason (UI-232)', () => {
+  const sceneReporting = (reason: string): Record<string, Scene> => {
+    const Reporting = () => {
+      const report = React.useContext(ShaderReportContext);
+      React.useLayoutEffect(() => { report?.({ status: 'fallback', reason }); }, [report]);
+      return <Probe id="stage"><Text>x</Text></Probe>;
+    };
+    return { smoke: { periodMs: 6000, probes: ['stage'], Component: Reporting } };
+  };
+  const readyReason = (reason: string) => {
+    const h = setup(FIXED, { scenes: sceneReporting(reason) });
+    h.layout();
+    h.tick(2);
+    expect(h.of('ERROR')).toEqual([]);
+    expect(h.of('READY')).toHaveLength(1);
+    return h.of('READY')[0].shaderReason as string;
+  };
+  // Each character distinct from its neighbours, so a cut at the wrong place shows.
+  const text = (n: number) => Array.from({ length: n }, (_, i) => String.fromCharCode(97 + (i % 26))).join('');
+
+  it('a 5000-character reason is cut to exactly 300, ending in an ellipsis; READY is sent and no ERROR', () => {
+    const long = text(5000);
+    const said = readyReason(long);
+    expect(said).toHaveLength(300);
+    expect(said.endsWith('…')).toBe(true);
+    expect(said).toBe(`${long.slice(0, 299)}…`);
+  });
+
+  it('at the boundary: 300 characters are kept whole, 301 are cut to 300', () => {
+    expect(readyReason(text(300))).toBe(text(300));
+    expect(readyReason(text(301))).toBe(`${text(299)}…`);
+  });
+});
+
 describe('after an ERROR', () => {
   it('sends no READY, even when every declared probe is measured: a later READY must not read as success', () => {
     const Mixed = () => (
@@ -268,6 +306,116 @@ describe('commands', () => {
     h.tick(4);
     expect(h.of('IGNORED')).toEqual([{ run: 'r1', seq: 1, reason: 'wrong-clock' }]);
     expect(h.of('READY')).toHaveLength(1);
+  });
+});
+
+// B8-3: a bench's RESULT reaches logcat only through LabRoot (a scene has no path to emit). The cost scene hands its
+// body to CostReportContext; LabRoot adds the run and the seq, formats it through formatCostResult and emits it, never
+// before the READY of its run: a body that arrives first is held and sent right after that READY, so it is never lost
+// and never read by the harness as a run that had not settled. After an ERROR nothing is sent; a body that the
+// contract refuses is one ERROR.
+describe('a bench RESULT (B8-3)', () => {
+  const COST = 'cost.abyss.dark.test';
+  const COST_RUN = { labArgs: { run: 'r5', scene: COST, clock: 'fixed', t: '0', frames: '2' }, nonStringKeys: [], powerSave: false };
+  const BODY = {
+    kind: 'cost', scene: COST, frames: 120, displayHz: 60,
+    stepUs: { p50: 10, p95: 20, max: 30 }, renderUs: { p50: 40, p95: 50, max: 60 }, gpuProxyUs: { p50: 70, p95: 80, max: 90 },
+    clock: 'performance.now',
+  } as const;
+  const benchScene = () => {
+    const sink: { current: CostReport | null } = { current: null };
+    const Bench = () => {
+      sink.current = React.useContext(CostReportContext);
+      return <Probe id="stage"><Text>x</Text></Probe>;
+    };
+    const scenes: Record<string, Scene> = { [COST]: { periodMs: 6000, probes: ['stage'], Component: Bench } };
+    // A fixed clock never asks the setting; it stays unknown, so nothing lands after the test.
+    const reduceMotion = { current: () => new Promise<boolean>(() => {}), subscribe: () => () => {} };
+    return { sink, deps: { scenes, reduceMotion } };
+  };
+  const kinds = (lines: string[]) => lines.map((l) => l.split(' ')[1]);
+
+  it('a body that arrives before READY is held, and sent once right after that READY, with the run and the seq', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    expect(sink.current).not.toBeNull();
+    act(() => sink.current!.result(BODY));
+    expect(h.lines).toEqual([]);
+    h.layout();
+    h.tick(1);
+    expect(h.lines).toEqual([]);
+    h.tick(1);
+    expect(kinds(h.lines)).toEqual(['READY', 'RESULT']);
+    expect(h.of('RESULT')).toEqual([{ run: 'r5', seq: 0, ...BODY }]);
+    h.tick(10);
+    expect(kinds(h.lines)).toEqual(['READY', 'RESULT']);
+  });
+
+  it('a body that arrives after READY is sent at once, once', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    h.layout();
+    h.tick(2);
+    expect(kinds(h.lines)).toEqual(['READY']);
+    act(() => sink.current!.result(BODY));
+    expect(kinds(h.lines)).toEqual(['READY', 'RESULT']);
+    expect(h.of('RESULT')).toEqual([{ run: 'r5', seq: 0, ...BODY }]);
+  });
+
+  it('the bench\'s error is one ERROR, and nothing follows it: no READY, no RESULT', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    act(() => sink.current!.error('no offscreen surface'));
+    act(() => sink.current!.result(BODY));
+    h.layout();
+    h.tick(10);
+    act(() => sink.current!.result(BODY));
+    expect(h.of('ERROR')).toEqual([{ run: 'r5', errors: ['no offscreen surface'] }]);
+    expect(kinds(h.lines)).toEqual(['ERROR']);
+  });
+
+  it('a body held before READY is never sent once an ERROR came first', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    act(() => sink.current!.result(BODY));
+    act(() => sink.current!.error('the effect cannot draw'));
+    h.layout();
+    h.tick(10);
+    expect(kinds(h.lines)).toEqual(['ERROR']);
+  });
+
+  it('after READY, an ERROR ends the run: a later body is not sent', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    h.layout();
+    h.tick(2);
+    act(() => sink.current!.error('a builder throw'));
+    act(() => sink.current!.result(BODY));
+    expect(kinds(h.lines)).toEqual(['READY', 'ERROR']);
+  });
+
+  it.each([
+    ['quantiles out of order', { ...BODY, stepUs: { p50: 30, p95: 20, max: 10 } }, /stepUs must have p50 <= p95 <= max/],
+    ['a key the contract does not name (a tap would ride along)', { ...BODY, tapX: 12 }, /"tapX" is not a RESULT key/],
+    ['a scene that is not a cost scene', { ...BODY, scene: 'field.abyss.dark.three.full' }, /is not a cost scene/],
+  ])('a body the contract refuses (%s) is one ERROR, never a RESULT, and ends the run', (_label, body, why) => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    act(() => sink.current!.result(body as never));
+    h.layout();
+    h.tick(10);
+    act(() => sink.current!.result(BODY));
+    expect(kinds(h.lines)).toEqual(['ERROR']);
+    expect(h.of('ERROR')).toEqual([{ run: 'r5', errors: [expect.stringMatching(why)] }]);
+  });
+
+  it('the run and the seq are the lab\'s: a body that names its own never sends the RESULT under another run or step', () => {
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
+    h.layout();
+    h.tick(2);
+    act(() => sink.current!.result({ ...BODY, run: 'other', seq: 7 } as never));
+    expect(h.of('RESULT')).toEqual([{ run: 'r5', seq: 0, ...BODY }]);
   });
 });
 

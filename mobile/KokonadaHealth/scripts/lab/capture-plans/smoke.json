@@ -28,7 +28,13 @@
       "probes": [
         "stage",
         "mark"
-      ]
+      ],
+      "expect": {
+        "direction": null,
+        "face": null,
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "smoke-moving-control",
@@ -47,6 +53,12 @@
         "stage",
         "mark"
       ],
+      "expect": {
+        "direction": null,
+        "face": null,
+        "hero": null,
+        "tier": null
+      },
       "proof": {
         "kind": "draws-frames",
         "seconds": 10
@@ -69,6 +81,12 @@
         "stage",
         "mark"
       ],
+      "expect": {
+        "direction": null,
+        "face": null,
+        "hero": null,
+        "tier": null
+      },
       "proof": {
         "kind": "zero-frames",
         "seconds": 10

@@ -10,6 +10,7 @@ import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from '
 import { useSharedValue } from 'react-native-reanimated';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import { fixedClockTime } from './clock/fixedClock';
+import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
 import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
@@ -146,6 +147,13 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // until one is sent).
   const shader = useRef<ShaderReport | null>(null);
   const shown = useRef<ShaderStatus | null | undefined>(undefined);
+  // A READY that came due while the scene was pending (UI-233): held unsent, and its frames counted afresh once the scene
+  // reports what drew it. A READY never says `pending`, so it never says `ready` before a field frame was drawn.
+  const held = useRef(false);
+  // A bench's RESULT lines (B8-3) that came before the run's first READY: held, already formatted, and sent right after
+  // that READY. A RESULT is never sent before READY (the harness reads a run only once it settled), and holding it, not
+  // failing, means a bench that finishes early is never lost. An ERROR drops them: nothing follows an ERROR.
+  const heldResults = useRef<string[]>([]);
 
   const say = useCallback((kind: LineKind, payload: unknown) => {
     let line: string;
@@ -162,6 +170,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     probes: scene.probes,
     frames: params.frames,
     onReady: ({ probes }) => {
+      if (shader.current?.status === 'pending') {
+        held.current = true;
+        return;
+      }
       const now = latest.current;
       // Formatted before anything is sent: a READY that cannot be written is an ERROR that ends the
       // run, and the command gate never settles, so no later command or READY can follow it.
@@ -182,6 +194,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       }
       deps.emit(line);
       shown.current = shader.current?.status ?? null;
+      const results = heldResults.current;
+      heldResults.current = [];
+      for (const result of results) deps.emit(result);
       commands.settle();
     },
   }));
@@ -194,15 +209,26 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     say('ERROR', { run: params.run, errors: [message] });
   }, [say, params.run]);
 
-  // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
-  // ERROR, so no capture of this run passes as the surface READY named.
-  const reportShader = useCallback((report: ShaderReport) => {
-    shader.current = report;
-    const said = shown.current;
-    if (said !== undefined && said !== report.status) {
-      fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
-    }
-  }, [fail]);
+  // The bench's side of the lab (B8-3, cost/costResult.ts): the lab adds the run and the seq (its own, whatever the body
+  // says), formats through formatCostResult, and sends the line once READY was sent, or holds it until then. A body the
+  // contract refuses, or the bench's own error, is one ERROR; after an ERROR nothing is sent.
+  const costReport = useMemo<CostReport>(() => ({
+    result(body) {
+      if (failed.current) return;
+      let line: string;
+      try {
+        line = formatCostResult({ ...body, run: params.run, seq: latest.current.seq });
+      } catch (e) {
+        fail((e as Error).message);
+        return;
+      }
+      if (shown.current === undefined) heldResults.current.push(line);
+      else deps.emit(line);
+    },
+    error(message) {
+      fail(message);
+    },
+  }), [deps, fail, params.run]);
 
   // Frames are requested one at a time, only while READY is waiting for them. A frame that lands
   // after an ERROR, or after unmount, counts for nothing and asks for no other.
@@ -217,6 +243,23 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       pump();
     });
   }, [deps, gate]);
+
+  // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
+  // ERROR, so no capture of this run passes as the surface READY named.
+  const reportShader = useCallback((report: ShaderReport) => {
+    shader.current = report;
+    const said = shown.current;
+    if (said !== undefined && said !== report.status) {
+      fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
+      return;
+    }
+    // The held READY (UI-233): the scene now names what drew it, so READY waits its frames from here.
+    if (held.current && report.status !== 'pending') {
+      held.current = false;
+      gate.rearm();
+      pump();
+    }
+  }, [fail, gate, pump]);
 
   const onMeasure = useCallback((id: string, rect: ProbeRect) => {
     try {
@@ -290,7 +333,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   return (
     <ProbeRegistry onMeasure={onMeasure}>
       <ShaderReportContext.Provider value={reportShader}>
-        <SceneComponent clock={clock} t={step.t} params={params} />
+        <CostReportContext.Provider value={costReport}>
+          <SceneComponent clock={clock} t={step.t} params={params} />
+        </CostReportContext.Provider>
       </ShaderReportContext.Provider>
     </ProbeRegistry>
   );

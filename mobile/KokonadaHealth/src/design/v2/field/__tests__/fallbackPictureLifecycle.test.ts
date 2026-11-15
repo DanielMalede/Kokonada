@@ -10,7 +10,8 @@ import ts from 'typescript';
 // day one appears in the app's entry, the lab's entry, App.tsx or anywhere under src/ (tests excluded).
 //
 // It reads the syntax tree (TypeScript's parser), never the text: a comment or a string that names StrictMode is not a
-// use, and the Context Suite's own `Activity` type (src/experience/generate/activities.ts) is not React's.
+// use, and the Context Suite's own `Activity` type (src/experience/generate/activities.ts) is not React's. Only the three
+// entries are also read as text, for the offscreen option in any spelling (RA-45).
 
 const APP = path.resolve(__dirname, '../../../../..');
 const ROOTS = ['index.js', 'index.lab.js', 'App.tsx'];
@@ -29,6 +30,22 @@ function keepAliveUses(text: string, fileName: string): string[] {
   };
   const visit = (node: ts.Node) => {
     if (ts.isIdentifier(node) && KEEP_ALIVE.has(node.text)) hits.push(`${node.text} at line ${at(node)}`);
+    // RA-45: a key spelled as a string ({ 'useOffscreen': … }, { ['useOffscreen']: … }, o['useOffscreen']); a string
+    // that is only a value stays quiet.
+    if (ts.isStringLiteralLike(node) && KEEP_ALIVE.has(node.text)) {
+      const up = node.parent;
+      const isKey = (ts.isPropertyAssignment(up) && up.name === node) || ts.isComputedPropertyName(up)
+        || (ts.isElementAccessExpression(up) && up.argumentExpression === node);
+      if (isKey) hits.push(`'${node.text}' at line ${at(node)}`);
+    }
+    // RA-45: registration options the scan cannot read: spread arguments, an options value that is not an object
+    // literal, or an object literal with a spread in it.
+    if (ts.isCallExpression(node) && node.expression.getText(file).endsWith('registerComponent')) {
+      const options = node.arguments[2];
+      if (node.arguments.some(ts.isSpreadElement)) hits.push(`registerComponent with spread arguments at line ${at(node)}`);
+      else if (options !== undefined && !ts.isObjectLiteralExpression(options)) hits.push(`registerComponent options it cannot read at line ${at(node)}`);
+      else if (options !== undefined && options.properties.some(ts.isSpreadAssignment)) hits.push(`registerComponent options with a spread at line ${at(node)}`);
+    }
     if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && tagIsActivity(node.tagName)) hits.push(`<${node.tagName.getText(file)}> at line ${at(node)}`);
     if (ts.isPropertyAccessExpression(node) && node.name.text === 'Activity' && node.expression.getText(file) === 'React') hits.push(`React.Activity at line ${at(node)}`);
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === 'react') {
@@ -96,6 +113,13 @@ describe('UI-217: no root mounts the fallback under StrictMode or a hidden <Acti
       ["import { unstable_Activity as Keep } from 'react';", 'e.tsx'],
       ['const x = React.Activity;', 'f.ts'],
       ["AppRegistry.registerComponent('k', () => App, { useOffscreen: true });", 'g.js'],
+      // RA-45: the option named by a string literal or a computed key, or hidden in an options object the scan cannot read.
+      ["AppRegistry.registerComponent('k', () => App, { 'useOffscreen': true });", 'g2.js'],
+      ["AppRegistry.registerComponent('k', () => App, { ['useOffscreen']: true });", 'g3.js'],
+      ["options['useOffscreen'] = true;", 'g4.js'],
+      ["import { keepAlive } from './opts';\nAppRegistry.registerComponent('k', () => App, { ...keepAlive });", 'g5.js'],
+      ["import { keepAlive } from './opts';\nAppRegistry.registerComponent('k', () => App, keepAlive);", 'g6.js'],
+      ['AppRegistry.registerComponent(...registration);', 'g7.js'],
     ];
     for (const [text, name] of bites) expect([name, keepAliveUses(text, name).length > 0]).toEqual([name, true]);
     const quiet: Array<[string, string]> = [
@@ -103,8 +127,33 @@ describe('UI-217: no root mounts the fallback under StrictMode or a hidden <Acti
       ["import type { Activity } from './activities';\nconst list: Activity[] = [];\nconst [a] = useState<Activity | null>(null);", 'i.tsx'],
       ['export interface Activity { key: string }', 'j.ts'],
       ["// StrictMode would run each cleanup twice; <Activity> too.\nconst s = 'useOffscreen';", 'k.ts'],
+      ["AppRegistry.registerComponent('k', () => App);\nconst o = { offscreen: 'useOffscreen' };", 'l.js'],
     ];
     for (const [text, name] of quiet) expect([name, keepAliveUses(text, name)]).toEqual([name, []]);
+  });
+
+  // RA-45: the three entries are where an app registers, so there the option is refused in any spelling, even in a
+  // comment or a string built from parts: their text never names an offscreen anything.
+  const OFFSCREEN = /off[^a-z0-9]{0,8}screen/i;
+  it('the entries name no offscreen option in any spelling, and the two that register pass exactly two arguments', () => {
+    for (const spelling of ['useOffscreen', 'useOffScreen', 'unstable_Offscreen', 'use_off_screen', "'use' + 'Off' + 'screen'"]) {
+      expect([spelling, OFFSCREEN.test(spelling)]).toEqual([spelling, true]);
+    }
+    for (const root of ROOTS) {
+      const text = fs.readFileSync(path.join(APP, root), 'utf8');
+      expect([root, OFFSCREEN.exec(text)?.[0] ?? null]).toEqual([root, null]);
+    }
+    const registrations = ['index.js', 'index.lab.js'].map((r) => {
+      const file = ts.createSourceFile(r, fs.readFileSync(path.join(APP, r), 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JSX);
+      const calls: number[] = [];
+      const visit = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && n.expression.getText(file).endsWith('registerComponent')) calls.push(n.arguments.length);
+        ts.forEachChild(n, visit);
+      };
+      visit(file);
+      return [r, calls];
+    });
+    expect(registrations).toEqual([['index.js', [2]], ['index.lab.js', [2]]]);
   });
 
   it('nothing in the app or the lab uses StrictMode, Activity or the offscreen option', () => {

@@ -22,14 +22,19 @@
 //     thread and lands on JS later, so it carries the wake generation it was decided in, and JS drops one from
 //     an earlier generation: a change that wakes the field before a stale stop lands is never lost (RA-22);
 //   · the frame cap (UI-171): a frame is drawn only when the tier's cap (field.tiers.<tier>.fpsCap) allows it
-//     (capFrame); a skipped frame does no work at all. The first frame of the mount, after a tier change or after a
-//     wake is always drawn. The field clock runs on its own frame callback and the ledger takes each drawn frame's own
-//     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap.
+//     (capFrame); a skipped frame does no work at all. The first frame of the mount, after a tier change, after a taps
+//     or a layout change, or after a wake from sleep is always drawn; any other prop change is drawn on the next frame
+//     the cap allows (RA-39). The field clock runs on its own frame callback and the ledger takes each drawn frame's own
+//     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap;
+//   · the ledger behind the clock (RA-40): At a capped tier, each stall over motion.dtClamp that directly follows a
+//     skipped frame may leave the placement ledger up to one display frame behind the field clock. The lag adds up
+//     over stalls but is never observable, because nothing reads ledger time against clock time: it only lengthens a
+//     crossfade in progress by that much, and a settled ledger is unaffected.
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { runOnJS, useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../clock/fieldClock.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
@@ -37,8 +42,9 @@ import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import { fieldEffect } from './effect.ts';
 import { FieldFallback } from './FieldFallback.tsx';
 import { fixedFieldBreath, type FieldGeometry, type FieldStatics } from './fieldFrame.ts';
+import { FieldFirstFrameReport } from './firstFrameReport.ts';
 import { FieldSurface } from './FieldSurface.tsx';
-import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, type FieldLayout, type FrameCap, type FrameParams } from './fieldDriver.ts';
+import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams, type LayoutPass } from './fieldDriver.ts';
 import { emptyLedger, type Ledger, type LedgerInput, type Tap } from './placementLedger.ts';
 import { ledgerConfigFor } from './statics.ts';
 
@@ -101,6 +107,9 @@ function FieldViewMount(props: FieldViewProps) {
   // generation the UI thread decided it in and is applied only while that is still the current one.
   const generation = useSharedValue(0);
   const currentGeneration = useRef(0);
+  // The first drawn frame, told once per mount to the lab's listener (UI-233); the app has none, so nothing is told.
+  const firstFrame = useContext(FieldFirstFrameReport);
+  const told = useSharedValue(false);
 
   const wake = useCallback(() => {
     currentGeneration.current += 1;
@@ -113,31 +122,52 @@ function FieldViewMount(props: FieldViewProps) {
     if (decidedIn === currentGeneration.current) setAwake(false);
   }, []);
 
+  // The forced draw (RA-39, the designer's ruling): capFrame draws at once on a new value of this counter, and only a
+  // taps change or a layout change moves it (the rim, the words and the beads move on the same layout pass). Every
+  // other prop change wakes the field and is drawn on the next frame the cap allows, so a prop animated from JS on
+  // every frame cannot lift a capped tier off its cap.
+  const forced = useSharedValue(0);
+  const forcedDraws = useRef(0);
+  const forceDraw = useCallback(() => {
+    forcedDraws.current += 1;
+    forced.value = forcedDraws.current;
+  }, [forced]);
+
   // Fork B: a new taps reference bumps seq; the ledger decides by value whether anything changed.
   const seq = useRef(0);
   const shownTaps = useRef(taps);
   useEffect(() => {
     if (shownTaps.current === taps) return;
+    const was = shownTaps.current;
     shownTaps.current = taps;
     seq.current += 1;
     input.value = { seq: seq.current, taps };
+    // the same taps in a new array change nothing drawn, so they wait for the cap like any other prop
+    if (!sameTapValues(was, taps)) forceDraw();
     wake();
-  }, [taps, input, wake]);
+  }, [taps, input, forceDraw, wake]);
 
   // Every other input, written when a prop changes (never per frame), and the still woken to redraw. Keyed
-  // on the props themselves: FieldView's own re-renders (the still's stop) must not wake it again.
+  // on the props themselves: FieldView's own re-renders (the still's stop) must not wake it again. A layout
+  // pass that changed by value forces the next frame's draw; a root that rebuilds the same layout does not.
   const mounted = useRef(false);
+  const shownLayout = useRef<LayoutPass>({ layout, pxPerDp, renderScale });
   useEffect(() => {
     inputs.value = { params, geometry, statics };
+    const pass: LayoutPass = { layout, pxPerDp, renderScale };
+    if (!sameLayoutPass(shownLayout.current, pass)) {
+      shownLayout.current = pass;
+      forceDraw();
+    }
     if (mounted.current) wake();
     mounted.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- params and geometry are made from exactly these props
-  }, [direction, face, stress, confidence, genesis, tier, quietPresence, statics, layout, pxPerDp, renderScale, inputs, wake]);
+  }, [direction, face, stress, confidence, genesis, tier, quietPresence, statics, layout, pxPerDp, renderScale, inputs, forceDraw, wake]);
 
   const onFrame = useCallback((info: FrameInfo) => {
     'worklet';
     const f = inputs.value;
-    const gate = capFrame(cap.value, info.timestamp, f.params.tier, generation.value);
+    const gate = capFrame(cap.value, info.timestamp, f.params.tier, forced.value);
     cap.value = gate.cap;
     if (!gate.draw) return;
     const tMs = clock.t.value;
@@ -150,12 +180,16 @@ function FieldViewMount(props: FieldViewProps) {
       return;
     }
     uniforms.value = step.uniforms;
+    if (firstFrame !== null && !told.value) {
+      told.value = true;
+      runOnJS(firstFrame)();
+    }
     if (step.started && onStart !== undefined) runOnJS(onStart)(step.ledger.admitted);
     if (step.idle && !asleep.value) {
       asleep.value = true;
       runOnJS(sleep)(generation.value);
     }
-  }, [inputs, cap, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart]);
+  }, [inputs, cap, forced, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart, firstFrame, told]);
 
   const frame = useFrameCallback(onFrame, false);
   const running = failure === null && (tier !== 'still' || awake);
