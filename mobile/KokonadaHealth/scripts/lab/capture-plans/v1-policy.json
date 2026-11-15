@@ -211,6 +211,156 @@
       }
     },
     {
+      "id": "dark-rest-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.dark.rest.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-one-joy-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.joy.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-one-intense-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.intense.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-rest-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.light.rest.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-one-joy-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.joy.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-one-intense-policy-saver",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.intense.policy",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "low"
+      }
+    },
+    {
       "id": "dark-three-policy-reduced-still",
       "repeat": 1,
       "scene": "field.abyss.dark.three.policy",
