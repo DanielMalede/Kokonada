@@ -59,7 +59,7 @@ describe('the catalogue: Abyss × {dark, light} × the hero scenes × {full, low
     expect(Object.keys(FIELD_SCENES).sort()).toEqual([...ids].sort());
     const plan = (scenes: string[]) => ({
       id: 'ids', app: LAB_APP, readyTimeoutMs: 30000, settleMs: 0,
-      shots: scenes.map((scene, i) => ({ id: `s-${i}`, repeat: 1, scene, args: { clock: 'fixed', t: '0' }, device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'] })),
+      shots: scenes.map((scene, i) => ({ id: `s-${i}`, repeat: 1, scene, args: { clock: 'fixed', t: '0' }, device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'], expect: { direction: null, face: null, hero: null, tier: null } })),
     });
     expect(validatePlan(plan(ids))).toEqual([]);
     expect(validatePlan(plan(['field abyss'])).join()).toMatch(/scene must be a plain token/); // the check bites
