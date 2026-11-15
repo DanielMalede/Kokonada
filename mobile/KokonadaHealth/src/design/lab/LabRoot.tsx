@@ -146,6 +146,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // until one is sent).
   const shader = useRef<ShaderReport | null>(null);
   const shown = useRef<ShaderStatus | null | undefined>(undefined);
+  // A READY that came due while the scene was pending (UI-233): held unsent, and its frames counted afresh once the scene
+  // reports what drew it. A READY never says `pending`, so it never says `ready` before a field frame was drawn.
+  const held = useRef(false);
 
   const say = useCallback((kind: LineKind, payload: unknown) => {
     let line: string;
@@ -162,6 +165,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     probes: scene.probes,
     frames: params.frames,
     onReady: ({ probes }) => {
+      if (shader.current?.status === 'pending') {
+        held.current = true;
+        return;
+      }
       const now = latest.current;
       // Formatted before anything is sent: a READY that cannot be written is an ERROR that ends the
       // run, and the command gate never settles, so no later command or READY can follow it.
@@ -194,16 +201,6 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     say('ERROR', { run: params.run, errors: [message] });
   }, [say, params.run]);
 
-  // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
-  // ERROR, so no capture of this run passes as the surface READY named.
-  const reportShader = useCallback((report: ShaderReport) => {
-    shader.current = report;
-    const said = shown.current;
-    if (said !== undefined && said !== report.status) {
-      fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
-    }
-  }, [fail]);
-
   // Frames are requested one at a time, only while READY is waiting for them. A frame that lands
   // after an ERROR, or after unmount, counts for nothing and asks for no other.
   const alive = useRef(true);
@@ -217,6 +214,23 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       pump();
     });
   }, [deps, gate]);
+
+  // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
+  // ERROR, so no capture of this run passes as the surface READY named.
+  const reportShader = useCallback((report: ShaderReport) => {
+    shader.current = report;
+    const said = shown.current;
+    if (said !== undefined && said !== report.status) {
+      fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
+      return;
+    }
+    // The held READY (UI-233): the scene now names what drew it, so READY waits its frames from here.
+    if (held.current && report.status !== 'pending') {
+      held.current = false;
+      gate.rearm();
+      pump();
+    }
+  }, [fail, gate, pump]);
 
   const onMeasure = useCallback((id: string, rect: ProbeRect) => {
     try {

@@ -29,7 +29,7 @@
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { runOnJS, useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../clock/fieldClock.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
@@ -37,6 +37,7 @@ import type { DirectionId, Face } from '../tokens/tokens.generated.ts';
 import { fieldEffect } from './effect.ts';
 import { FieldFallback } from './FieldFallback.tsx';
 import { fixedFieldBreath, type FieldGeometry, type FieldStatics } from './fieldFrame.ts';
+import { FieldFirstFrameReport } from './firstFrameReport.ts';
 import { FieldSurface } from './FieldSurface.tsx';
 import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, type FieldLayout, type FrameCap, type FrameParams } from './fieldDriver.ts';
 import { emptyLedger, type Ledger, type LedgerInput, type Tap } from './placementLedger.ts';
@@ -101,6 +102,9 @@ function FieldViewMount(props: FieldViewProps) {
   // generation the UI thread decided it in and is applied only while that is still the current one.
   const generation = useSharedValue(0);
   const currentGeneration = useRef(0);
+  // The first drawn frame, told once per mount to the lab's listener (UI-233); the app has none, so nothing is told.
+  const firstFrame = useContext(FieldFirstFrameReport);
+  const told = useSharedValue(false);
 
   const wake = useCallback(() => {
     currentGeneration.current += 1;
@@ -150,12 +154,16 @@ function FieldViewMount(props: FieldViewProps) {
       return;
     }
     uniforms.value = step.uniforms;
+    if (firstFrame !== null && !told.value) {
+      told.value = true;
+      runOnJS(firstFrame)();
+    }
     if (step.started && onStart !== undefined) runOnJS(onStart)(step.ledger.admitted);
     if (step.idle && !asleep.value) {
       asleep.value = true;
       runOnJS(sleep)(generation.value);
     }
-  }, [inputs, cap, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart]);
+  }, [inputs, cap, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart, firstFrame, told]);
 
   const frame = useFrameCallback(onFrame, false);
   const running = failure === null && (tier !== 'still' || awake);
