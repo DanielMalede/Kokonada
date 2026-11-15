@@ -15,11 +15,15 @@
 //     ready, else `fallback` with the effect's reason, and `fallback` with FieldFallback's reason once FieldView has
 //     switched to it (a builder throw on the UI thread). It listens through FieldFallbackReport: FieldView itself takes
 //     no lab-only knob.
+//   · `ready` means FieldView drew (UI-233, RA-44): until FieldView's first drawn frame of the current scene (told through
+//     FieldFirstFrameReport, once per mount) a ready effect reports `pending`, so a blank stage never passes as the field.
+//     The signal names the scene it was given for: a late one from an earlier scene's mount counts for nothing.
 
-import React, { useContext, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { fieldEffect } from '../../v2/field/effect';
 import { FieldFallbackReport } from '../../v2/field/fallbackReport';
+import { FieldFirstFrameReport } from '../../v2/field/firstFrameReport';
 import { FieldView } from '../../v2/field/FieldView';
 import { FIELD_STATICS, fieldSceneLayout, sceneSpec } from '../fieldScenes';
 import { Probe } from '../probe/Probe';
@@ -45,27 +49,37 @@ export function FieldScene({ clock, params }: SceneProps) {
   const [fellBack, setFellBack] = useState<string | null>(null);
   const status = fellBack !== null ? 'fallback' : effect.status;
   const reason = fellBack ?? (effect.status === 'fallback' ? effect.reason : null);
+  // The scene whose FieldView has drawn its first frame: re-armed by every scene, since the signal is bound to its own.
+  const [drawnScene, setDrawnScene] = useState<string | null>(null);
+  const onFirstFrame = useCallback(() => setDrawnScene(spec.id), [spec.id]);
+  const drawn = drawnScene === spec.id;
   useLayoutEffect(() => {
+    if (status === 'ready' && !drawn) {
+      report?.({ status: 'pending', reason: null });
+      return;
+    }
     report?.({ status, reason });
-  }, [report, status, reason]);
+  }, [report, status, reason, drawn]);
   const stage = (
     <Probe id="stage" style={styles.stage}>
       <View testID="field-scene.view" style={styles.stage} onLayout={onLayout}>
         {layout !== null && spec.tier !== null && (
-          <FieldView
-            direction={spec.direction}
-            face={spec.face}
-            scene={spec.id}
-            statics={FIELD_STATICS}
-            taps={spec.taps}
-            layout={layout}
-            pxPerDp={PixelRatio.get()}
-            tier={spec.tier}
-            stress={STRESS}
-            confidence={CONFIDENCE}
-            genesis={GENESIS}
-            clock={clock}
-          />
+          <FieldFirstFrameReport.Provider value={onFirstFrame}>
+            <FieldView
+              direction={spec.direction}
+              face={spec.face}
+              scene={spec.id}
+              statics={FIELD_STATICS}
+              taps={spec.taps}
+              layout={layout}
+              pxPerDp={PixelRatio.get()}
+              tier={spec.tier}
+              stress={STRESS}
+              confidence={CONFIDENCE}
+              genesis={GENESIS}
+              clock={clock}
+            />
+          </FieldFirstFrameReport.Provider>
         )}
       </View>
     </Probe>
