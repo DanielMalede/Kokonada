@@ -21,7 +21,7 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 // The catalogue's facts: a scene of the field catalogue (fieldScenes.ts) states its own; the smoke scene draws no field
 // and has none; a scene of a B8 group (witness, grain, cost, storm) states them in its id, by the plan's fixed grammar:
 //   witness.<direction>.<face>                                    W1b's hero and tier (WITNESS_SCENE_FACTS)
-//   grain.<direction>.<face>.<tier>                               no hero
+//   grain.<direction>.<face>.<tier>                               the hero frame it draws, and its tier (GRAIN_SPECS)
 //   cost.<direction>.<face>.<hero>.<tier>[.storm|.heavy|.empty]
 //   storm.<direction>.<face>.<case>                               no hero, no tier
 // A scene the catalogue cannot state facts for fails here, naming it: a plan cannot claim facts nobody pinned.
@@ -51,7 +51,10 @@ function catalogueFacts(id: string): Expect {
     const w = WITNESS_SCENE_FACTS[id];
     return { direction: w.direction, face: w.face, hero: w.hero, tier: w.tier };
   }
-  if (ok && group === 'grain' && rest.length === 1 && TIERS.includes(rest[0])) return { direction, face, hero: null, tier: rest[0] };
+  if (ok && group === 'grain' && rest.length === 1 && TIERS.includes(rest[0]) && Object.prototype.hasOwnProperty.call(GRAIN_SPECS, id)) {
+    const g = GRAIN_SPECS[id];
+    return { direction: g.direction, face: g.face, hero: g.hero, tier: g.tier };
+  }
   if (ok && group === 'storm' && rest.length === 1) return { direction, face, hero: null, tier: null };
   if (ok && group === 'cost') {
     const body = COST_SUFFIXES.includes(rest[rest.length - 1]) ? rest.slice(0, -1) : rest;
