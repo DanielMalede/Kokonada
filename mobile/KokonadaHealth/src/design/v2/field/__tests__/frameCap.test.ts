@@ -296,3 +296,64 @@ describe('sameTapValues: the taps compared by value (RA-39)', () => {
     }
   });
 });
+
+// RA-41 (resilience B4 re-audit, UI-231): every display rate a phone ships, at both tiers, with ±0.5 ms of timestamp
+// jitter over 4 s. The drawn count is the lower of the display rate and the cap, a gap between two draws is never longer
+// than one cap period (or one display frame, when the display is slower) plus one display frame, and no 10 draws ever
+// run faster than the cap allows, less one display frame of phase and the jitter.
+describe('RA-41: every display rate, both tiers, with jitter (UI-231)', () => {
+  const RATES = [30, 48, 60, 90, 96, 120, 144, 165];
+  const AMP = 0.5;
+  /** The timestamps drawn over `seconds` at `hz`, through the cap alone. */
+  const drawnAt = (tier: MotionTier, hz: number, seconds: number) => {
+    const next = jitter(AMP);
+    let cap = frameCapStart();
+    const at: number[] = [];
+    for (let i = 0; i < hz * seconds; i++) {
+      const now = 1000 + (i * 1000) / hz + (i === 0 ? 0 : next());
+      const gate = capFrame(cap, now, tier, 0);
+      cap = gate.cap;
+      if (gate.draw) at.push(now);
+    }
+    return at;
+  };
+
+  for (const tier of ['full', 'low'] as const) {
+    for (const hz of RATES) {
+      it(`${tier} at ${hz} Hz: min(${hz}, cap)·4 draws within 2, no long gap, never faster than the cap over 10 draws`, () => {
+        const fps = fpsCapFor(tier);
+        const period = 1000 / fps;
+        const frame = 1000 / hz;
+        const at = drawnAt(tier, hz, 4);
+        expect(Math.abs(at.length - Math.min(hz, fps) * 4)).toBeLessThanOrEqual(2);
+        let longest = 0;
+        for (let k = 1; k < at.length; k++) longest = Math.max(longest, at[k] - at[k - 1]);
+        expect(longest).toBeLessThanOrEqual(Math.max(period, frame) + frame + 1);
+        let shortest = Infinity;
+        for (let k = 10; k < at.length; k++) shortest = Math.min(shortest, at[k] - at[k - 10]);
+        expect(shortest).toBeGreaterThanOrEqual(10 * period - frame - 2 * AMP);
+      });
+    }
+  }
+
+  // The earliest draw the tolerance allows sets the next due time 1 + FRAME_CAP_TOLERANCE periods ahead of itself, the
+  // farthest ahead a schedule ever stands without time running backwards. A frame repeating that timestamp (a display
+  // that reports one vsync twice) is the same frame: it is not drawn again, and the schedule stands.
+  it('a repeated timestamp right after the earliest draw the tolerance allows is drawn once, at both tiers and many phases', () => {
+    for (const tier of ['full', 'low'] as const) {
+      const period = 1000 / fpsCapFor(tier);
+      for (let n = 0; n < 2000; n++) {
+        const t0 = 1000 + n * 7.31 + (n % 13) * 0.0137;
+        const first = capFrame(frameCapStart(), t0, tier, 0).cap;
+        const earliest = first.dueMs! - period * FRAME_CAP_TOLERANCE;
+        const drawn = capFrame(first, earliest, tier, 0);
+        expect([tier, n, drawn.draw]).toEqual([tier, n, true]);
+        const again = capFrame(drawn.cap, earliest, tier, 0);
+        expect([tier, n, again.draw]).toEqual([tier, n, false]);
+        expect(again.cap).toBe(drawn.cap);
+        // and the next frame on time is drawn once the period has passed
+        expect(capFrame(again.cap, earliest + period, tier, 0).draw).toBe(true);
+      }
+    }
+  });
+});
