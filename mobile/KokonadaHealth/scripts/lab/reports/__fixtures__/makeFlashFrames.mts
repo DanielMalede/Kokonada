@@ -14,8 +14,8 @@
 //                  inside the limit, so exactly one cell is over 2.
 //   fail-3hz-low   cell 2,5 flickers at 3 Hz between Y 0.05 and Y 0.17: a step of 0.12, just over WCAG's 0.1.
 //   pass-3hz-sub   cell 2,5 flickers at 3 Hz between Y 0.05 and Y 0.13: a step of 0.08, under 0.1, so no flash at all.
-//   fail-vfr       fail-3hz as screenrecord writes it, a frame only when the screen changes: one frame every 10 display
-//                  frames (166.7 ms), plus the first.
+//   fail-vfr       fail-3hz as screenrecord writes it, a frame only when the screen changes: the display frames where
+//                  either cell flips (every 10th and every 15th), 32 frames at mixed intervals of 83.3 and 166.7 ms.
 //   latency        a still field; the marker flips at frame 100 and cell 5,10 brightens at frame 102 (2 frames, 33.3 ms
 //                  later); the marker flips again at frame 200 and cell 5,10 dims back on that same frame (0 frames). The
 //                  cell under the marker changes with it and must never count as the field.
@@ -113,7 +113,7 @@ await writeSet('fail-3hz', [flicker('2,5', LO, HI, 10, 10, 220), flicker('6,12',
 await writeSet('fail-3hz-low', [flicker('2,5', LO, MID, 10, 10, 220)], once(120));
 await writeSet('pass-3hz-sub', [flicker('2,5', LO, SUB, 10, 10, 220)], once(120));
 await writeSet('fail-vfr', [flicker('2,5', LO, HI, 10, 10, 220), flicker('6,12', LO, HI, 15, 15, 225)], once(120),
-  Array.from({ length: FRAMES / 10 }, (_, k) => k * 10));
+  Array.from({ length: FRAMES }, (_, i) => i).filter((i) => i % 10 === 0 || i % 15 === 0));
 await writeSet('latency', [(i, cells) => { if (i >= 102 && i < 200) cells.set('5,10', BRIGHT); }], (i) => (i >= 200 ? 2 : i >= 100 ? 1 : 0));
 await writeSet('static', [], () => 0);
 // A frame of another size, for the size refusal.

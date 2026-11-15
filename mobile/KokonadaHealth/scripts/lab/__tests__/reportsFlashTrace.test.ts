@@ -92,7 +92,8 @@ describe('S7: flashes per 24 dp cell', () => {
     const r = onSet('fail-vfr');
     expect(r.status).toBe(1);
     const L = lines(r.report);
-    expect(L).toContain('frames: 24, 0 to 3833.333 ms; held to a 166.667 ms grid (each frame until the next, none dropped)');
+    expect(L).toContain('frames: 32, 0 to 3833.333 ms; held to a 83.333 ms grid (each frame until the next, none dropped)');
+    expect(L).toContain('  worst: 3 in cell 2,5 (dp 48,120 24x24)');
     expect(L).toContain('  over 2: cell 2,5: 3');
   });
 
