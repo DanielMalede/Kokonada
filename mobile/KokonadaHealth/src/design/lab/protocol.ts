@@ -5,6 +5,7 @@
 //            every probe is measured, the fonts are ready, and N frames were drawn on a stable layout
 //   ERROR    the launch arguments were refused; the lab draws nothing
 //   IGNORED  a command was not applied (malformed, unknown, a duplicate, out of order, or early)
+//   RESULT   a bench's measurement, after its READY (B8-3, cost/costResult.ts: the fieldCost bench's numbers, informational)
 //
 // Commands arrive as intent extras on the running activity (onNewIntent), numbered from 1:
 //   seq=<n> cmd=step [steps=<k>]
@@ -13,7 +14,7 @@
 // the harness times out and fails instead.
 
 export const LAB_TAG = 'KOKONADA_LAB';
-export type LineKind = 'READY' | 'ERROR' | 'IGNORED';
+export type LineKind = 'READY' | 'ERROR' | 'IGNORED' | 'RESULT';
 
 /** Logcat truncates a line at about 4 KB, so a longer one could not be read back whole. */
 export const MAX_LINE_BYTES = 4000;
