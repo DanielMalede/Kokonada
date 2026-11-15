@@ -19,10 +19,12 @@ const ROOTS = ['index.js', 'index.lab.js', 'App.tsx'];
 const SOURCE = /\.(ts|tsx|js|jsx)$/;
 const LAB = 'src/design/lab/';
 
-type Context = { readonly name: string; readonly module: string; readonly file: string; readonly users: readonly string[] };
+type Context = { readonly name: string; readonly module: string; readonly file: string; readonly users: readonly string[]; readonly lab: string };
 const CONTEXTS: readonly Context[] = [
-  { name: 'FieldFallbackReport', module: 'fallbackReport', file: 'src/design/v2/field/fallbackReport.ts', users: ['src/design/v2/field/FieldFallback.tsx'] },
-  { name: 'FieldFirstFrameReport', module: 'firstFrameReport', file: 'src/design/v2/field/firstFrameReport.ts', users: ['src/design/v2/field/FieldView.tsx'] },
+  { name: 'FieldFallbackReport', module: 'fallbackReport', file: 'src/design/v2/field/fallbackReport.ts', users: ['src/design/v2/field/FieldFallback.tsx'], lab: 'src/design/lab/scenes/FieldScene.tsx' },
+  { name: 'FieldFirstFrameReport', module: 'firstFrameReport', file: 'src/design/v2/field/firstFrameReport.ts', users: ['src/design/v2/field/FieldView.tsx'], lab: 'src/design/lab/scenes/FieldScene.tsx' },
+  // RA-50: that a FieldSurface rendered its first image. Named only by the lab, by its own module and by FieldSurface.
+  { name: 'FieldSurfaceDrawReport', module: 'surfaceDrawReport', file: 'src/design/v2/field/surfaceDrawReport.ts', users: ['src/design/v2/field/FieldSurface.tsx'], lab: 'src/design/lab/scenes/WitnessScene.tsx' },
 ];
 
 const parse = (text: string, fileName: string) => {
@@ -91,7 +93,7 @@ describe('the lab-only field contexts: the app never listens (REG-066; UI-232, U
   });
 
   it('the pattern bites: a use, an alias, a require, a re-export and a dynamic import; a comment or a plain string does not', () => {
-    const [fallback, first] = CONTEXTS;
+    const [fallback, first, surface] = CONTEXTS;
     const bites: Array<[string, string, Context]> = [
       ["import { FieldFallbackReport } from '../v2/field/fallbackReport';", 'a.tsx', fallback],
       ["import { FieldFallbackReport as Quiet } from './fallbackReport.ts';", 'b.tsx', fallback],
@@ -102,6 +104,8 @@ describe('the lab-only field contexts: the app never listens (REG-066; UI-232, U
       ["import { FieldFirstFrameReport } from '../v2/field/firstFrameReport';", 'g.tsx', first],
       ["export { FieldFirstFrameReport as Told } from './firstFrameReport.ts';", 'h.ts', first],
       ['const x = <FieldFirstFrameReport.Provider value={f}><App /></FieldFirstFrameReport.Provider>;', 'i.tsx', first],
+      ["import { FieldSurfaceDrawReport as Drawn } from '../field/surfaceDrawReport';", 'm.tsx', surface],
+      ['const told = useContext(FieldSurfaceDrawReport);', 'n.tsx', surface],
     ];
     for (const [text, name, ctx] of bites) expect([name, namesOf(text, name, ctx).length > 0]).toEqual([name, true]);
     const quiet: Array<[string, string, Context]> = [
@@ -117,7 +121,7 @@ describe('the lab-only field contexts: the app never listens (REG-066; UI-232, U
     const outside = named.filter((n) => !n.startsWith(LAB) && n !== ctx.file && !ctx.users.includes(n));
     expect(outside).toEqual([]);
     // The control: the real users are seen, so an empty list above is not a blind scan.
-    expect(named).toEqual(expect.arrayContaining([ctx.file, ...ctx.users, 'src/design/lab/scenes/FieldScene.tsx']));
+    expect(named).toEqual(expect.arrayContaining([ctx.file, ...ctx.users, ctx.lab]));
   });
 
   it.each(CONTEXTS.map((c) => [c.file, c] as const))('%s imports nothing but react: it never reaches the lab', (_, ctx) => {

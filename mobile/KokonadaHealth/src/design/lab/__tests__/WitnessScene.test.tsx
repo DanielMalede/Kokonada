@@ -27,6 +27,8 @@ jest.mock('react-native-reanimated', () => {
       return ref.current;
     },
     useDerivedValue: (fn: () => unknown) => ({ get value() { return fn(); } }),
+    // The UI thread never runs here, so no surface renders an image: a scene stays `pending` (RA-50, surfaceFirstDraw.test.tsx).
+    useAnimatedReaction: () => {},
   };
 });
 jest.mock('@shopify/react-native-skia', () => {
@@ -116,11 +118,14 @@ describe.each(['dark', 'light'] as const)('once measured, the %s face', (face) =
   const layout = witnessLayout(face, W, H, k, PixelRatio.getFontScale(), witnessInsets());
   const colours = witnessColours(face);
 
-  it('reports that the field shader drew it (`ready`), as a field scene does', () => {
+  // RA-50: `ready` only once every FieldSurface rendered an image; no UI frame runs here, so it stays `pending`
+  // (surfaceFirstDraw.test.tsx draws the frames and sees `ready`).
+  it('reports `pending` while its surfaces have not drawn, never `ready` from the effect alone', () => {
     const reports: ShaderReport[] = [];
     const r = mount(`witness.abyss.${face}`, (x) => reports.push(x));
     layoutAs(r);
-    expect(reports.at(-1)).toEqual({ status: 'ready', reason: null });
+    expect(reports.at(-1)).toEqual({ status: 'pending', reason: null });
+    expect(reports.map((x) => x.status)).not.toContain('ready');
   });
 
   it('W1b: one FieldSurface over the whole stage, drawing the production frame', () => {
