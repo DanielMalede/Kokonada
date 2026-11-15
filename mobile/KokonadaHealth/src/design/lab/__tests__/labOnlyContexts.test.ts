@@ -95,7 +95,7 @@ describe('the lab-only field contexts: the app never listens (REG-066; UI-232, U
     const bites: Array<[string, string, Context]> = [
       ["import { FieldFallbackReport } from '../v2/field/fallbackReport';", 'a.tsx', fallback],
       ["import { FieldFallbackReport as Quiet } from './fallbackReport.ts';", 'b.tsx', fallback],
-      ["const { FieldFallbackReport: Q } = require('../field/fallbackReport');", 'c.js', fallback],
+      ["const reports = require('../field/fallbackReport');", 'c.js', fallback],
       ["export * from './design/v2/field/fallbackReport';", 'd.ts', fallback],
       ["const m = import('./fallbackReport');", 'e.ts', fallback],
       ['const listen = React.useContext(ctx.FieldFallbackReport);', 'f.tsx', fallback],
