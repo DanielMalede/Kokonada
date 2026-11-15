@@ -5,8 +5,12 @@
 // Every pixel of every capture in the run (the whole PNG: the app region) is tested by the v2 definition of red, used as
 // it is: redBand.ts isRed over neverRedSweeps.ts CHECK_BAND (DEC-081's check band), through lib/evidence.mts
 // isCheckBandRed. The band must hold 0 pixels: each pixel in it is listed with its colour (the first 1000 of a row, then
-// a count), with the row's count and bounding box. No row is exempt: a scene that draws a planted off-law colour shows
-// up here, and the designer rules on it.
+// a count), with the row's count and bounding box. Every row is judged in full (field.*, fallback.*, grain.*, cost.*,
+// storm.* and any other) but a witness.* row: the witness scene (B8-2) plants patches that are wrong on purpose (the
+// P3-misread, double-encoded and skip-encode bytes) and may land in the band. The rule, to be confirmed by the designer,
+// is to judge a witness row outside its patches' rectangles; the witness layout is not in this tree and the manifest
+// names no patch rectangle, so a witness.* row is listed as not judged, by name, and counted in the verdict: never
+// skipped silently, and never a pass on its own.
 //
 // It prints the report and writes it to --out, which may not exist (a report never overwrites). Exit 0: no pixel in the
 // band in a passed run; 1: a pixel in the band, a failed capture run, or no row to check; 2: an input it cannot use (a
@@ -21,6 +25,8 @@ import { EvidenceInputError, isCheckBandRed, loadCapture, loadManifest, readCapt
 
 const REPORT = 'neverRed';
 const LISTED = 1000;
+/** The witness scene's prefix: its planted patches are off-law on purpose (B8-2). */
+const WITNESS = 'witness.';
 
 function args(argv: readonly string[]): { manifest: string; out: string } {
   const at = (flag: string) => {
@@ -37,7 +43,9 @@ async function main(): Promise<number> {
   const { manifest: manifestFile, out } = args(process.argv.slice(2));
   if (fs.existsSync(out)) throw new EvidenceInputError(`refusing to overwrite ${out}: a report never replaces an earlier one`);
   const manifest = loadManifest(manifestFile);
-  const caps = manifest.rows.map((row) => readCaptureRow(row, REPORT));
+  const all = manifest.rows.map((row) => readCaptureRow(row, REPORT));
+  const witnesses = all.filter((cap) => cap.scene.startsWith(WITNESS));
+  const caps = all.filter((cap) => !cap.scene.startsWith(WITNESS));
   const images = await Promise.all(caps.map((cap) => loadCapture(manifest, cap)));
 
   const lines: string[] = [
@@ -81,11 +89,14 @@ async function main(): Promise<number> {
     }
   });
 
+  for (const w of witnesses) lines.push(`not judged: ${w.name} ${w.scene} (planted patches: the witness layout is not in this tree and the manifest names no patch rectangle, so none can be excluded)`);
+  const unjudged = witnesses.length === 0 ? '' : `; ${witnesses.length} witness.* row${witnesses.length === 1 ? '' : 's'} not judged (planted patches), named above`;
+
   let verdict: string;
-  if (caps.length === 0) verdict = 'FAIL: no row to check';
-  else if (failing.length > 0) verdict = `FAIL: ${failing.length} of ${caps.length} rows have pixels in the check band (${failing.join(', ')}): ${red} px`;
-  else if (runFailed) verdict = `FAIL: the capture run failed, so its ${caps.length} rows are not evidence`;
-  else verdict = `PASS: ${caps.length} rows, ${total} px, none in the check band`;
+  if (caps.length === 0) verdict = witnesses.length === 0 ? 'FAIL: no row to check' : `FAIL: no row judged${unjudged}`;
+  else if (failing.length > 0) verdict = `FAIL: ${failing.length} of ${caps.length} ${witnesses.length === 0 ? '' : 'judged '}rows have pixels in the check band (${failing.join(', ')}): ${red} px${unjudged}`;
+  else if (runFailed) verdict = `FAIL: the capture run failed, so its ${caps.length} rows are not evidence${unjudged}`;
+  else verdict = `PASS: ${caps.length} rows, ${total} px, none in the check band${unjudged}`;
   lines.push(verdict);
   const text = `${lines.join('\n')}\n`;
   writeNewFile(out, text);
