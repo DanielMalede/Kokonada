@@ -7,6 +7,7 @@ import { renderScaleFor } from '../../v2/field/fieldDriver';
 import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fieldScenes';
 import { parseLabArgs } from '../params';
+import { GRAIN_SPECS } from '../grain/grainFrames';
 import { SCENES } from '../scenes';
 import { WITNESS_SCENE_FACTS } from '../witness/witnessFrames';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
@@ -68,7 +69,8 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     // A witness scene draws W1b, a production hero frame at a tier: its facts are the witness group's own (WITNESS_SCENE_FACTS).
     ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: WITNESS_SCENE_FACTS['witness.abyss.dark'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.dark'].tier }],
     ['witness.abyss.light', { direction: 'abyss', face: 'light', hero: WITNESS_SCENE_FACTS['witness.abyss.light'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.light'].tier }],
-    ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: null, tier: 'low' }],
+    // A grain scene draws a hero frame (the rest scene's, grain/grainFrames.ts): its facts are the grain group's own (GRAIN_SPECS).
+    ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: GRAIN_SPECS['grain.abyss.light.low'].hero, tier: 'low' }],
     ['cost.abyss.dark.three.full', { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' }],
     ['cost.abyss.dark.one.intense.low.storm', { direction: 'abyss', face: 'dark', hero: 'one.intense', tier: 'low' }],
     ['cost.abyss.light.rest.full.heavy', { direction: 'abyss', face: 'light', hero: 'rest', tier: 'full' }],
@@ -77,7 +79,7 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     expect(catalogueFacts(id)).toEqual(facts);
   });
 
-  it.each(['witness.abyss.dark.extra', 'grain.abyss.dark.medium', 'grain.abyss.dark', 'cost.abyss.dark.full', 'cost.abyss.dusk.three.full',
+  it.each(['witness.abyss.dark.extra', 'grain.abyss.dark.medium', 'grain.abyss.dark', 'grain.abyss.dark.still', 'cost.abyss.dark.full', 'cost.abyss.dusk.three.full',
     'storm.abyss.dark', 'storm.calm.dark.burst', 'near.abyss.dark.ne', 'field.abyss.dark.nowhere.full'])('states no facts for %s', (id) => {
     expect(() => catalogueFacts(id)).toThrow(new RegExp(`"${id.replace(/\./g, '\\.')}"`));
   });
