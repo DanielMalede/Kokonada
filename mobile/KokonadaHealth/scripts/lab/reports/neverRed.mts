@@ -14,8 +14,9 @@
 // (src/design/lab/witness/witnessLayout.ts, imported, never restated), each grown outward by 1 px for its anti-aliased
 // edge. A planted rect is excluded only when its sample's median is its paint within ±1; otherwise it is judged in full
 // and named, so a misplaced patch can never hide red. Each row prints "not judged: N planted patches, M px" with every
-// rect listed. A witness row missing a fact the layout needs is an input error (exit 2). The window insets the witness
-// scene will lay out around are not in the manifest yet; until they are, the stage is the window (UI-216).
+// rect listed. The witness lays out inside the window's insets, which READY reports as its region probe (the stage less
+// the insets; the harness keeps it as probes.inside.region, or as an excluded probe with its px when it reaches under a
+// bar), read here as colourPath.mts reads them. A witness row missing a fact the layout needs is an input error (exit 2).
 //
 // It prints the report and writes it to --out, which may not exist (a report never overwrites). Exit 0: no judged pixel
 // in the band in a passed run; 1: a pixel in the band, a failed capture run, or no row to check; 2: an input it cannot
@@ -94,9 +95,19 @@ function witnessExclusion(row: unknown, cap: CaptureRow, img: Rgba): Exclusion {
   const stage = r.stage as Rect;
   const k = androidDensity((r.device as { density: number }).density);
   const fontScale = (r.fontScale as { app: number }).app;
+  // The insets: READY's stage less its region probe, each rounded to whole px.
+  const probes = r.probes as { inside: Record<string, Rect>; excluded: Array<{ id: string; px: Rect }> };
+  const region = probes.excluded.find((e) => e.id === 'region')?.px ?? probes.inside.region;
+  if (region === undefined) refuse('probes.inside.region', 'is missing: the witness lays out inside READY’s region probe, so its insets cannot be read');
+  const insetsPx = {
+    top: Math.round(region.y - stage.y), right: Math.round(stage.x + stage.width - (region.x + region.width)),
+    bottom: Math.round(stage.y + stage.height - (region.y + region.height)), left: Math.round(region.x - stage.x),
+  };
+  if (Object.values(insetsPx).some((v) => v < 0)) refuse('probes.inside.region', `${JSON.stringify(region)} is not inside the stage ${JSON.stringify(stage)}`);
+  const insets = { top: insetsPx.top / k, right: insetsPx.right / k, bottom: insetsPx.bottom / k, left: insetsPx.left / k };
   let layout;
   try {
-    layout = witnessLayout(face, stage.width / k, stage.height / k, k, fontScale);
+    layout = witnessLayout(face, stage.width / k, stage.height / k, k, fontScale, insets);
   } catch (e) {
     return refuse('stage', `cannot hold the witness layout: ${(e as Error).message}`);
   }
