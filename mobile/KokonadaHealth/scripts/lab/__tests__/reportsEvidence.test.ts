@@ -118,7 +118,8 @@ describe('B8-8c: the typed reader of a manifest row', () => {
 
   it('a field row missing any field the report needs is refused, naming the field and the row: never a default', () => {
     const rows = FIELD_NEEDS.map((p) => without(fieldRow(), p));
-    const out = lib<Array<Result<unknown>>>('return input.map((r) => { try { E.readFieldShot(r, "lawParity"); return { ok: true }; } catch (e) { return { error: { message: e.message, isInput: e instanceof E.EvidenceInputError } }; } });', rows);
+    const out = lib<Result<Array<Result<unknown>>>>('return input.map((r) => { try { E.readFieldShot(r, "lawParity"); return { ok: true }; } catch (e) { return { error: { message: e.message, isInput: e instanceof E.EvidenceInputError } }; } });', rows).ok!;
+    expect(out).toHaveLength(FIELD_NEEDS.length);
     out.forEach((r, i) => {
       expect({ field: FIELD_NEEDS[i], ...r }).toEqual({ field: FIELD_NEEDS[i], error: { message: expect.stringContaining(`"${FIELD_NEEDS[i]}"`), isInput: true } });
       expect(r.error?.message).toContain('dark-one-joy-still.1');
@@ -128,7 +129,8 @@ describe('B8-8c: the typed reader of a manifest row', () => {
 
   it('a fallback row missing any field the report needs is refused, naming the field', () => {
     const rows = FALLBACK_NEEDS.map((p) => without(fallbackRow(), p));
-    const out = lib<Array<Result<unknown>>>('return input.map((r) => { try { E.readFallbackShot(r, "lawParity"); return { ok: true }; } catch (e) { return { error: { message: e.message, isInput: e instanceof E.EvidenceInputError } }; } });', rows);
+    const out = lib<Result<Array<Result<unknown>>>>('return input.map((r) => { try { E.readFallbackShot(r, "lawParity"); return { ok: true }; } catch (e) { return { error: { message: e.message, isInput: e instanceof E.EvidenceInputError } }; } });', rows).ok!;
+    expect(out).toHaveLength(FALLBACK_NEEDS.length);
     out.forEach((r, i) => expect({ field: FALLBACK_NEEDS[i], ...r }).toEqual({ field: FALLBACK_NEEDS[i], error: { message: expect.stringContaining(`"${FALLBACK_NEEDS[i]}"`), isInput: true } }));
   });
 
