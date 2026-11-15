@@ -37,6 +37,9 @@ describe('the catalogue: Abyss × {dark, light} × the hero scenes × {full, low
     // The near.* scenes (UI-210) are the only others, at the full tier on both faces: nearScenes.test.ts pins them.
     const near = FIELD.filter((s) => s.hero!.startsWith('near.'));
     expect(near.map((s) => s.id).sort()).toEqual(FIELD_FACES.flatMap((face) => NEAR_SCENES.map((scene) => `field.abyss.${face}.${scene}.full`)).sort());
+    // The policy scenes (B8-6): one per face and hero scene, the tier from the motion policy (policyScenes.test.tsx).
+    const policy = FIELD.filter((s) => s.policy);
+    expect(policy.map((s) => s.id).sort()).toEqual(FIELD_FACES.flatMap((face) => HERO_SCENES.map((scene) => `field.abyss.${face}.${scene}.policy`)).sort());
     expect(FIELD.filter((s) => !near.includes(s)).map((s) => s.id).sort()).toEqual([...expected].sort());
     for (const s of FIELD) {
       const [, direction, face, ...rest] = s.id.split('.');
