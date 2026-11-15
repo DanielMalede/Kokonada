@@ -126,7 +126,7 @@ const differing = (a: Uint8Array, b: Uint8Array) => {
 };
 
 describe('B8-8c: the twin is the app’s own drawing in CanvasKit, byte for byte', () => {
-  const FIELD = ['field.abyss.dark.one.joy.still', 'field.abyss.light.three.low', 'field.abyss.dark.rest.full'];
+  const FIELD = ['field.abyss.dark.one.joy.still', 'field.abyss.light.three.low', 'field.abyss.dark.rest.full', 'field.abyss.dark.near.joy.full', 'field.abyss.light.near.intense.full'];
   const FALLBACK = ['fallback.abyss.dark.one.C.right', 'fallback.abyss.light.rest', 'fallback.abyss.dark.three'];
 
   it('the guard: every case is a lab scene of its kind', () => {

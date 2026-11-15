@@ -36,7 +36,7 @@ jest.mock('../../../src/design/v2/field/FieldFallback', () => ({ FieldFallback: 
 
 import { FieldView } from '../../../src/design/v2/field/FieldView';
 import { FieldFallback } from '../../../src/design/v2/field/FieldFallback';
-import { FIELD_SCENES } from '../../../src/design/lab/fieldScenes';
+import { FIELD_FACES, FIELD_SCENES, FIELD_TIERS, HERO_SCENES, NEAR_SCENES, NEAR_TIER } from '../../../src/design/lab/fieldScenes';
 import { ProbeRegistry } from '../../../src/design/lab/probe/Probe';
 import { FieldScene } from '../../../src/design/lab/scenes/FieldScene';
 import { FallbackScene } from '../../../src/design/lab/scenes/FallbackScene';
@@ -361,8 +361,12 @@ describe('B8-8c: the twin is built from the lab’s own scene, for every lab fie
     { width: 360, height: 780, k: 2, fontScale: 1.3 },
   ];
 
-  it('the guard: both kinds, both faces, every tier', () => {
-    expect(fieldIds.length).toBe(24);
+  it('the guard: both kinds, both faces, every tier, and the near.* scenes, counted from the catalogue', () => {
+    // The catalogue's own grammar: every hero scene at every tier, each near.* scene at its tier, on both faces.
+    const want = FIELD_FACES.length * (HERO_SCENES.length * FIELD_TIERS.length + NEAR_SCENES.length);
+    expect(want).toBeGreaterThanOrEqual(32);
+    expect(fieldIds.length).toBe(want);
+    for (const face of FIELD_FACES) for (const near of NEAR_SCENES) expect(fieldIds).toContain(`field.abyss.${face}.${near}.${NEAR_TIER}`);
     expect(fallbackIds.length).toBeGreaterThanOrEqual(20);
   });
 

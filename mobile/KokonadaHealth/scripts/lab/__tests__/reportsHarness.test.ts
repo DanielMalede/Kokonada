@@ -240,6 +240,35 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
   });
 });
 
+// UI-210's near.* scenes are field scenes of the catalogue: a near capture must be comparable with its twin too.
+describe('the harness\'s v1-near run, fed unmodified to lawParity and neverRed', () => {
+  const plan = loadPlan('v1-near.json');
+  let run: Awaited<ReturnType<typeof captureRun>>;
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'near-'));
+    const twins = twinsOf(plan, fs.mkdtempSync(path.join(tmp, 'near-twins-')));
+    run = await captureRun(plan, dir, (extras, d) => {
+      d.frames = [screenOf(twins.get(extras.scene) ?? null)];
+      d.emit(ready(extras, d));
+    });
+  });
+
+  it('lawParity holds every near.* row to its twin: PASS, all 16', () => {
+    expect(run.manifest.outcome).toBe('passed');
+    expect(plan.shots.every((s) => s.scene.includes('.near.'))).toBe(true);
+    const r = report('lawParity.mts', ['--manifest', run.manifestPath], path.join(tmp, 'near-parity.txt'));
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(r.report!.split(/\r?\n/).filter((l) => /^row \S+ field\.abyss\.(dark|light)\.near\.\w+\.full: field twin, \d+ px compared, max \|Δ\| 0, over 1: 0$/.test(l))).toHaveLength(16);
+    expect(last(r.report)).toBe('PASS: 16 rows within ±1 of their twins (16 field, 0 fallback)');
+  });
+
+  it('neverRed judges them in full: none in the check band', () => {
+    const r = report('neverRed.mts', ['--manifest', run.manifestPath], path.join(tmp, 'near-never-red.txt'));
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(last(r.report)).toBe(`PASS: 16 rows, ${16 * W * (H - 2 * BAR)} px, none in the check band`);
+  });
+});
+
 describe('the harness\'s v1-cost run, fed unmodified to the reports', () => {
   const plan = loadPlan('v1-cost.json');
   let run: Awaited<ReturnType<typeof captureRun>>;
