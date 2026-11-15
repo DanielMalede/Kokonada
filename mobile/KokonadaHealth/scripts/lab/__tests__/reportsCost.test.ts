@@ -176,6 +176,14 @@ describe('fieldCost refuses what it cannot use', () => {
     expect(r.stderr).toContain('"result"');
   });
 
+  it('a result proof whose RESULT is missing from results: exit 2, the manifest does not hold together', () => {
+    const c = costRun();
+    const results = (c.manifest.results as Json[]).filter((x) => x.shot !== 'cost-full-heavy');
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, results } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/result proof of cost-full-heavy: the field "results" holds no RESULT/);
+  });
+
   it('a RESULT for a shot whose result proof is missing: exit 2, the manifest does not hold together', () => {
     const c = costRun();
     const proofs = (c.manifest.proofs as Json[]).filter((p) => p.shot !== 'cost-low');

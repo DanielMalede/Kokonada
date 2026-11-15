@@ -183,6 +183,8 @@ describe('motion refuses what it cannot use', () => {
   it.each([
     ['a rate proof whose fps is not its frames over its seconds', 'rate-low', (p: Json) => ({ ...p, fps: 61 }), '"fps"'],
     ['a rate proof whose band is not the plan’s', 'rate-low', (p: Json) => ({ ...p, band: { min: 0, max: 1000 } }), '"band"'],
+    ['a rate proof whose band floor alone is not the plan’s', 'rate-low', (p: Json) => ({ ...p, band: { min: 54, max: 62 } }), '"band"'],
+    ['a rate proof whose band ceiling alone is not the plan’s', 'rate-low', (p: Json) => ({ ...p, band: { min: 55, max: 63 } }), '"band"'],
     ['a proof whose seconds are not the plan’s', 'dark-rest-full', (p: Json) => ({ ...p, seconds: 5 }), '"seconds"'],
     ['a proof field the harness does not write', 'dark-rest-still', (p: Json) => ({ ...p, p99Ms: 14 }), '"p99Ms"'],
     ['a framestats proof without its janky count', 'stats-full', (p: Json) => (({ janky: _j, ...rest }) => rest)(p), '"janky"'],

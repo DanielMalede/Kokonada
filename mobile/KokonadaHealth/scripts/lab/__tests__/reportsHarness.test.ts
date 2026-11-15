@@ -216,27 +216,40 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
     expect(Object.keys(fixtureManifest([])).sort()).toEqual(Object.keys(run.manifest).sort());
   });
 
+  // The counts are the plan's, so a plan that grows (more fallback stills) keeps this test honest.
+  const launches = (pick: (s: Plan['shots'][number]) => boolean) => plan.shots.filter(pick).reduce((n, s) => n + s.repeat, 0);
+  const fixedField = () => launches((s) => s.scene.startsWith('field.') && (s as unknown as { args: { clock: string } }).args.clock === 'fixed');
+  const fallbacks = () => launches((s) => s.scene.startsWith('fallback.'));
+
+  it('the guard: the plan has fixed field rows, fallback rows and the two real-time rows', () => {
+    expect(fixedField()).toBeGreaterThanOrEqual(48);
+    expect(fallbacks()).toBeGreaterThanOrEqual(24);
+    expect(launches((s) => (s as unknown as { args: { clock: string } }).args.clock === 'realtime')).toBe(2);
+  });
+
   it('lawParity accepts it and holds every fixed field and fallback row to its twin: PASS, the two real-time rows named', () => {
     const r = report('lawParity.mts', ['--manifest', fed], path.join(tmp, 'field-parity.txt'));
     expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
     expect(r.report).toContain(`manifest: ${fed} sha256 ${sha(fs.readFileSync(fed))}`);
     expect(r.report).toContain('not compared: dark-three-full-moving-control.1 field.abyss.dark.three.full (clock realtime: no fixed frame time, so no twin)');
     expect(r.report).toContain('not compared: dark-three-still-reduced-motion.1 field.abyss.dark.three.still (clock realtime: no fixed frame time, so no twin)');
-    expect(r.report!.split(/\r?\n/).filter((l) => / px compared, max \|Δ\| 0, over 1: 0$/.test(l))).toHaveLength(72);
-    expect(last(r.report)).toBe('PASS: 72 rows within ±1 of their twins (48 field, 24 fallback); 2 rows not compared, named above');
+    const n = fixedField() + fallbacks();
+    expect(r.report!.split(/\r?\n/).filter((l) => / px compared, max \|Δ\| 0, over 1: 0$/.test(l))).toHaveLength(n);
+    expect(last(r.report)).toBe(`PASS: ${n} rows within ±1 of their twins (${fixedField()} field, ${fallbacks()} fallback); 2 rows not compared, named above`);
   });
 
   it('neverRed accepts it: every row judged in full, none in the check band', () => {
     const r = report('neverRed.mts', ['--manifest', fed], path.join(tmp, 'field-never-red.txt'));
     expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
     expect(r.report).toContain(`manifest: ${fed} sha256 ${sha(fs.readFileSync(fed))}`);
-    expect(last(r.report)).toBe(`PASS: 74 rows, ${74 * W * (H - 2 * BAR)} px, none in the check band`);
+    const rows = launches(() => true);
+    expect(last(r.report)).toBe(`PASS: ${rows} rows, ${rows * W * (H - 2 * BAR)} px, none in the check band`);
   });
 
   it('motion accepts it with the plan that ran: the determinism pairs, the still proof and its control', () => {
     const r = report('motion.mts', ['--plan', path.join(PLANS, 'v1-field.json'), '--manifest', fed], path.join(tmp, 'field-motion.txt'));
     expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
-    expect(last(r.report)).toBe('PASS: 36 determinism pairs equal, 1 zero-frames, 1 draws-frames, 0 rate proofs; framestats informational');
+    expect(last(r.report)).toBe(`PASS: ${plan.shots.filter((s) => s.repeat > 1).length} determinism pairs equal, 1 zero-frames, 1 draws-frames, 0 rate proofs; framestats informational`);
   });
 });
 
