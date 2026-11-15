@@ -77,11 +77,15 @@ export function GrainScene({ clock, params }: SceneProps) {
     report?.({ status, reason });
   }, [report, status, reason]);
 
-  let content: React.ReactNode = null;
-  if (setup !== null) {
-    content = effect.status === 'ready' && setup.error === null
-      ? <GrainStrips clock={clock} setup={setup} effect={effect} pxPerDp={pxPerDp} renderScale={spec.renderScale} />
-      : (
+  // Every declared probe is rendered at all times (READY waits for each, scenes.test.tsx): the strips are 0 wide until the
+  // view is measured, and empty while the scene falls back, so READY still comes and says `fallback`.
+  let strips: React.ReactNode = <StripProbes width={setup?.width ?? 0} height={setup?.layout.height ?? 0} />;
+  let fallback: React.ReactNode = null;
+  if (setup !== null && effect.status === 'ready' && setup.error === null) {
+    strips = <GrainStrips clock={clock} setup={setup} effect={effect} pxPerDp={pxPerDp} renderScale={spec.renderScale} />;
+  } else if (setup !== null) {
+    fallback = (
+      <View style={StyleSheet.absoluteFill}>
         <FieldFallback
           direction={spec.direction}
           face={spec.face}
@@ -91,14 +95,29 @@ export function GrainScene({ clock, params }: SceneProps) {
           pxPerDp={pxPerDp}
           reason={reason ?? 'the field effect is not ready'}
         />
-      );
+      </View>
+    );
   }
   return (
     <Probe id="stage" style={styles.stage}>
       <View testID="grain-scene.view" style={styles.stage} onLayout={onLayout}>
-        {content}
+        {fallback}
+        {strips}
       </View>
     </Probe>
+  );
+}
+
+/** The three strip probes, left to right by strength, each holding what it draws (nothing until the scene is ready). */
+function StripProbes({ width, height, children }: { width: number; height: number; children?: readonly React.ReactNode[] }) {
+  return (
+    <View style={styles.row}>
+      {GRAIN_FACTORS.map((k, i) => (
+        <Probe key={grainProbeId(k)} id={grainProbeId(k)} style={{ width, height }}>
+          {children?.[i] ?? null}
+        </Probe>
+      ))}
+    </View>
   );
 }
 
@@ -119,22 +138,21 @@ function GrainStrips({ clock, setup, effect, pxPerDp, renderScale }: StripsProps
   const base = useDerivedValue(() => grainBase(ledger, params, geometry, statics, clock.t.value).uniforms, [ledger, params, geometry, statics, clock]);
   const strips = [useStrip(base, GRAIN_FACTORS[0]), useStrip(base, GRAIN_FACTORS[1]), useStrip(base, GRAIN_FACTORS[2])];
   return (
-    <View style={styles.row}>
+    <StripProbes width={setup.width} height={setup.layout.height}>
       {strips.map((uniforms, i) => (
-        <Probe key={grainProbeId(GRAIN_FACTORS[i])} id={grainProbeId(GRAIN_FACTORS[i])} style={{ width: setup.width, height: setup.layout.height }}>
-          <FieldSurface
-            uniforms={uniforms}
-            effect={effect.effect}
-            blueNoise={effect.blueNoiseShader}
-            width={setup.width}
-            height={setup.layout.height}
-            renderSize={setup.target}
-            pxPerDp={pxPerDp}
-            renderScale={renderScale}
-          />
-        </Probe>
+        <FieldSurface
+          key={grainProbeId(GRAIN_FACTORS[i])}
+          uniforms={uniforms}
+          effect={effect.effect}
+          blueNoise={effect.blueNoiseShader}
+          width={setup.width}
+          height={setup.layout.height}
+          renderSize={setup.target}
+          pxPerDp={pxPerDp}
+          renderScale={renderScale}
+        />
       ))}
-    </View>
+    </StripProbes>
   );
 }
 
