@@ -1062,3 +1062,54 @@ describe('B8-6: READY\'s observed tier against the shot\'s expect.tier', () => {
     expect(w.device.commands).toContain('settings put global low_power 1');
   });
 });
+
+// The S22+ dry run: a shot that is allowed to move (a real-time clock with motion on, at a tier that is not still)
+// differs between its two grabs by design, so it can never pass the settle check; and when a still shot fails it, the
+// harness kept nothing to look at. Rule: the settle check is skipped only for a shot that is allowed to move, and every
+// still shot keeps it: a fixed or stepped clock, reduced motion (animatorScale 0), or an expect.tier of still.
+describe('the settle check: still shots keep it, moving shots are listed instead', () => {
+  const moving = (extra: Record<string, unknown> = {}) => fieldShot('mv', 'field.abyss.dark.three.full', {
+    args: { clock: 'realtime', frames: '3' }, ...extra,
+  });
+  // every grab differs inside x 10..14, y 20..22 (a 5 × 3 patch of the app region)
+  const flicker = (w: ReturnType<typeof world>) => {
+    let n = 0;
+    w.device.frames = [() => { n += 1; const k = n; return rawFrame((x, y) => (x >= 10 && x < 15 && y >= 20 && y < 23 ? [k % 256, 0, 0, 255] : [x * 5, y * 3, 77, 255])); }];
+  };
+
+  it('a shot allowed to move passes though its grabs differ, and the manifest lists it as moving', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const { manifest } = await w.run({ plan: planOf(moving()) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.moving).toEqual([{ shot: 'mv', repeat: 1, reason: 'a real-time clock with motion on at the full tier: not settle-checked' }]);
+    expect(manifest.settleFailures).toEqual([]);
+  });
+
+  it.each([
+    ['a fixed clock', { args: { clock: 'fixed', t: '11000', frames: '3' } }],
+    ['reduced motion (animatorScale 0)', { device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false } }],
+    ['a still tier', { scene: 'field.abyss.dark.three.still', expect: { ...FIELD_EXPECT, tier: 'still' } }],
+  ])('a still shot on %s whose grabs differ is refused, and keeps both grabs and where they differ', async (_label, extra) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const manifest = await refusedRun(w, planOf(moving(extra)), /mv: the frame did not settle: two grabs 0 ms apart differ in 15 pixels inside x 10, y 20, 5 × 3/);
+    expect(manifest.rows).toEqual([]);
+    expect(manifest.moving).toEqual([]);
+    expect(manifest.settleFailures).toEqual([{
+      shot: 'mv', repeat: 1, files: ['mv.1.settle-1.png', 'mv.1.settle-2.png'], region: { x: 0, y: STATUS_BAR, width: SCREEN.width, height: 70 },
+      box: { x: 10, y: 20, width: 5, height: 3 }, pixels: 15,
+    }]);
+    for (const file of manifest.settleFailures[0].files) {
+      const png = await decodePng(fs.readFileSync(path.join(w.outDir, file)));
+      expect([png.width, png.height]).toEqual([SCREEN.width, 70]);
+    }
+  });
+
+  it('a moving shot must launch once: its frames differ by design, so a repeat could never match', () => {
+    expect(validatePlan(planOf(moving({ repeat: 2 }))).join()).toMatch(/shots\[0\]\.repeat must be 1 for a shot allowed to move/);
+    expect(validatePlan(planOf(moving()))).toEqual([]);
+  });
+});
