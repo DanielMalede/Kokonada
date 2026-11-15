@@ -3,12 +3,41 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, checkBuild, Refused, validatePlan } from '../capture.mjs';
+import { capture, checkBuild, Refused, renderFacts, surfaceRule, validatePlan } from '../capture.mjs';
 import { decodePng } from '../lib/png.mjs';
 import { validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame, SCREEN, STATUS_BAR } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
+
+// B8-5b: the phone also answers what the harness now reads, with real state: dumpsys SurfaceFlinger (the GPU and the
+// display's colour mode, F5) and screenrecord's raw frames (the `record` proof, F6). Kept here, so the shared fixture
+// stays as it is.
+const SURFACE_FLINGER = [
+  'Device has wide color built-in display: 1',
+  'Display 4619827259835644672 color modes:',
+  '    ColorMode::NATIVE (0)',
+  '    ColorMode::SRGB (7)',
+  '    Current color mode: ColorMode::SRGB (7)',
+  'GLES: Qualcomm, Adreno (TM) 730, OpenGL ES 3.2 V@0615.65',
+].join('\n');
+class LabDevice extends FakeDevice {
+  surfaceFlinger = SURFACE_FLINGER;
+  recording: Buffer = Buffer.from(Array.from({ length: 64 }, (_, i) => i));
+  recorded: string[][] = [];
+  async shell(args: string[]): Promise<string> {
+    if (args.join(' ') === 'dumpsys SurfaceFlinger') { this.commands.push('dumpsys SurfaceFlinger'); return this.surfaceFlinger; }
+    return super.shell(args);
+  }
+  async execOut(args: string[]): Promise<Buffer> {
+    if (args[0] === 'screenrecord') { this.commands.push(`exec-out ${args.join(' ')}`); this.recorded.push(args); return this.recording; }
+    return super.execOut(args);
+  }
+}
+const TOKENS = fs.readFileSync(path.resolve(__dirname, '../../../../../design-tokens/base.tokens.json'), 'utf8');
+const TIERS = JSON.parse(TOKENS).field.tiers;
+const SKIA_LOCK = JSON.stringify({ name: 'app', lockfileVersion: 3, packages: { '': {}, 'node_modules/@shopify/react-native-skia': { version: '2.6.9' } } });
+const NO_SCENE = { direction: null, face: null, hero: null, tier: null };
 
 // OPS-100. The capture harness end to end, on a stateful fake phone (__fixtures__/fakeDevice.ts):
 //   · it refuses BEFORE touching the phone when the stamp chain, the installed APK, the plan, the
@@ -31,9 +60,9 @@ const PLAN = {
   session: { stayOn: true },
   shots: [
     { id: 'smoke-fixed', repeat: 2, scene: 'smoke', args: { clock: 'fixed', t: '1500', frames: '3' },
-      device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage', 'mark'] },
+      device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage', 'mark'], expect: NO_SCENE },
     { id: 'smoke-still', repeat: 1, scene: 'smoke', args: { clock: 'realtime' },
-      device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false }, probes: ['stage', 'mark'],
+      device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false }, probes: ['stage', 'mark'], expect: NO_SCENE,
       proof: { kind: 'zero-frames', seconds: 10 } },
   ],
 };
@@ -67,6 +96,9 @@ function world({ head = SHA, porcelain = '', installed = 'same' as 'same' | 'oth
   const repoRoot = path.join(tmp, 'repo');
   const appRoot = path.join(repoRoot, 'mobile', 'app');
   fs.mkdirSync(path.join(appRoot, 'src/design/lab'), { recursive: true });
+  fs.mkdirSync(path.join(repoRoot, 'design-tokens'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'design-tokens/base.tokens.json'), TOKENS);
+  fs.writeFileSync(path.join(appRoot, 'package-lock.json'), SKIA_LOCK);
   fs.writeFileSync(path.join(appRoot, 'src/design/lab/sentinel.ts'), `export const LAB_SENTINEL = '${SENTINEL}';\n`);
   const assets = path.join(appRoot, 'android/app/src/lab/assets');
   fs.mkdirSync(assets, { recursive: true });
@@ -81,7 +113,7 @@ function world({ head = SHA, porcelain = '', installed = 'same' as 'same' | 'oth
   const apkPath = path.join(tmp, 'app-lab.apk');
   fs.writeFileSync(apkPath, apk);
 
-  const device = new FakeDevice();
+  const device = new LabDevice();
   device.installedApk = installed === 'same' ? apk : installed === 'other' ? Buffer.from('another apk') : null;
   device.frames = [screen()];
   device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d));
@@ -386,6 +418,7 @@ describe('UI-223: the surface that drew a field shot', () => {
   const shotOf = (id: string, scene: string) => ({
     id, repeat: 1, scene, args: { clock: 'fixed', t: '11000', frames: '3' },
     device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'],
+    expect: scene.startsWith('field.') ? { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' } : { direction: 'abyss', face: 'dark', hero: null, tier: null },
   });
   const FIELD = { ...PLAN, id: 'field', shots: [shotOf('field-dark-three', 'field.abyss.dark.three.full')] };
   const FALLBACK = { ...PLAN, id: 'fallback', shots: [shotOf('fallback-dark-three', 'fallback.abyss.dark.three')] };
@@ -437,5 +470,431 @@ describe('UI-223: the surface that drew a field shot', () => {
     const w = world();
     const { manifest } = await w.run();
     expect(manifest.rows.map((r: { shaderStatus: unknown }) => r.shaderStatus)).toEqual([null, null, null]);
+  });
+});
+
+// ---- B8-5b ------------------------------------------------------------------------------------------------------
+// The architect's B8 plan, B8-5b: every row states its scene facts (the shot's expect, F4) and the facts adb read (F5);
+// the plan format is strict (UI-215) and can ask for a pixel check (notFlat) and four new proofs (rate for UI-171,
+// framestats, result, record); an ERROR after READY refuses the shot (UI-225); READY's stage must be the app window
+// (UI-216); and every scene prefix of the plan has a surface rule.
+
+type Shot = (typeof PLAN.shots)[number] & Record<string, unknown>;
+const FIELD_EXPECT = { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' };
+const fieldShot = (id: string, scene: string, extra: Record<string, unknown> = {}): Shot => ({
+  id, repeat: 1, scene, args: { clock: 'fixed', t: '11000', frames: '3' },
+  device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false }, probes: ['stage'], expect: FIELD_EXPECT, ...extra,
+}) as Shot;
+const planOf = (...shots: Shot[]) => ({ ...PLAN, id: 'b8', shots });
+const readyAs = (w: ReturnType<typeof world>, override: Record<string, unknown>) => {
+  w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, override));
+};
+const refusedRun = async (w: ReturnType<typeof world>, plan: unknown, why: RegExp) => {
+  await expect(w.run({ plan })).rejects.toThrow(why);
+  expect(w.device.state()).toEqual(w.before);
+  const manifest = JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8'));
+  expect(manifest.outcome).toBe('failed');
+  expect(manifest.failure).toMatch(why);
+  return manifest;
+};
+
+describe('B8-5a/5b: the facts each row states', () => {
+  it('a smoke row: no scene and no render facts, the GPU and display from adb, Skia from the lockfile, READY\'s stage and reason', async () => {
+    const w = world();
+    const { manifest } = await w.run();
+    const row = manifest.rows[0];
+    expect(validateRow(row)).toEqual([]);
+    expect(row.expect).toEqual(NO_SCENE);
+    expect([row.direction, row.face, row.renderScale, row.sampling]).toEqual([null, null, null, null]);
+    expect(row.gl).toEqual({ renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65', reason: null });
+    expect(row.display).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null });
+    expect(row.skiaVersion).toBe('2.6.9');
+    expect(row.stage).toEqual({ x: 0, y: 0, width: SCREEN.width, height: SCREEN.height });
+    expect(row.shaderReason).toBeNull();
+  });
+
+  it.each([
+    ['full', TIERS.full.renderScale.$value],
+    ['low', TIERS.low.renderScale.$value],
+    ['still', TIERS.full.renderScale.$value], // the still is the full tier's law drawn once (designer 2.8)
+  ])('a field row at the %s tier: its expect, and the render scale and sampling the tier implies', async (tier, scale) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    const expectation = { ...FIELD_EXPECT, tier };
+    const { manifest } = await w.run({ plan: planOf(fieldShot('f', `field.abyss.dark.three.${tier}`, { expect: expectation })) });
+    const row = manifest.rows[0];
+    expect(validateRow(row)).toEqual([]);
+    expect(row.expect).toEqual(expectation);
+    expect([row.direction, row.face]).toEqual(['abyss', 'dark']);
+    expect(row.renderScale).toBe(scale);
+    expect(row.sampling).toEqual({ filter: 'linear', mipmap: 'none' });
+  });
+
+  it('records READY\'s shader reason (UI-226)', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'fallback-scene', shaderReason: 'the lab fallback scene: FieldFallback mounted directly' });
+    const shot = fieldShot('fb', 'fallback.abyss.dark.three', { expect: { direction: 'abyss', face: 'dark', hero: null, tier: null } });
+    const { manifest } = await w.run({ plan: planOf(shot) });
+    expect(manifest.rows[0].shaderReason).toBe('the lab fallback scene: FieldFallback mounted directly');
+  });
+
+  it('a GPU the device does not name is null with its reason in the row, never a guess, and the run still passes', async () => {
+    const w = world();
+    w.device.surfaceFlinger = 'RenderEngine: skiavk';
+    const { manifest } = await w.run();
+    expect(manifest.rows[0].gl).toMatchObject({ renderer: null, gles: null, reason: expect.stringMatching(/no GLES line/) });
+    expect(validateRow(manifest.rows[0])).toEqual([]);
+  });
+
+  it('carries no tap coordinate and no emotion value: a row has exactly the schema\'s fields, whatever READY adds', async () => {
+    const w = world();
+    readyAs(w, { taps: [[0.1, 0.2]], emotion: 'joy' });
+    const { manifest } = await w.run();
+    expect(JSON.stringify(manifest.rows)).not.toMatch(/taps|emotion|joy/);
+  });
+
+  it.each([
+    ['a lockfile without Skia', (w: ReturnType<typeof world>) => fs.writeFileSync(path.join(w.appRoot, 'package-lock.json'), '{"lockfileVersion":3,"packages":{}}'), /Skia.*@shopify\/react-native-skia is not in the lockfile/],
+    ['no lockfile', (w: ReturnType<typeof world>) => fs.rmSync(path.join(w.appRoot, 'package-lock.json')), /package-lock\.json/],
+    ['no token file', (w: ReturnType<typeof world>) => fs.rmSync(path.join(w.repoRoot, 'design-tokens/base.tokens.json')), /base\.tokens\.json/],
+    ['tokens without the tier render scales', (w: ReturnType<typeof world>) => fs.writeFileSync(path.join(w.repoRoot, 'design-tokens/base.tokens.json'), '{"field":{"tiers":{}}}'), /renderScale/],
+  ])('refuses before touching the phone: %s', async (_label, setup, why) => {
+    const w = world();
+    setup(w);
+    await expect(w.run()).rejects.toThrow(why);
+    await expect(w.run()).rejects.toBeInstanceOf(Refused);
+    expect(w.mutations()).toEqual([]);
+  });
+});
+
+describe('UI-216: READY\'s stage is the app window', () => {
+  it.each([
+    ['offset below the top of the window', { x: 0, y: 4, width: SCREEN.width, height: SCREEN.height - 4 }],
+    ['shorter than the window', { x: 0, y: 0, width: SCREEN.width, height: SCREEN.height - 6 }],
+    ['narrower than the window', { x: 0, y: 0, width: SCREEN.width - 2, height: SCREEN.height }],
+    ['shifted sideways', { x: 2, y: 0, width: SCREEN.width, height: SCREEN.height }],
+  ])('a stage %s is refused, and no row is written', async (_label, px) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, probes: { stage: { dp: px, px } } });
+    const manifest = await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: READY's stage .* is not the app window .*UI-216/);
+    expect(manifest.rows).toEqual([]);
+  });
+
+  it('a READY without a stage rect is refused', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, probes: { mark: { dp: { x: 10, y: 30, width: 20, height: 20 }, px: { x: 10, y: 30, width: 20, height: 20 } } } });
+    await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full', { probes: ['mark'] })), /f: READY has no stage rect/);
+  });
+
+  it('a stage within a pixel of the window (layout rounding) passes', async () => {
+    const w = world();
+    const px = { x: 0.4, y: -0.4, width: SCREEN.width + 0.9, height: SCREEN.height - 0.9 };
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, probes: { stage: { dp: px, px } } });
+    const { manifest } = await w.run({ plan: planOf(fieldShot('f', 'field.abyss.dark.three.full')) });
+    expect(manifest.rows[0].stage).toEqual(px);
+  });
+});
+
+describe('UI-225: an ERROR the lab sends after READY refuses the shot', () => {
+  const lateError = (w: ReturnType<typeof world>, when: 'grab' | 'proof') => {
+    let run = '';
+    w.device.scenario = (extras, d) => { run = extras.run; d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null })); };
+    const late = () => w.device.emit(`I ReactNativeJS: KOKONADA_LAB ERROR ${JSON.stringify({ run, errors: ['the surface changed after READY: READY said ready, now fallback (RangeError: over-demand)'] })}`);
+    if (when === 'grab') {
+      const execOut = w.device.execOut.bind(w.device);
+      let grabs = 0;
+      w.device.execOut = async (args: string[]) => { grabs += 1; if (grabs === 1) late(); return execOut(args); };
+    }
+    return late;
+  };
+
+  it('an ERROR while the screen is read', async () => {
+    const w = world();
+    lateError(w, 'grab');
+    const manifest = await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: the lab sent an ERROR for run .*the surface changed after READY/);
+    expect(manifest.rows).toEqual([]);
+    expect(fs.readdirSync(w.outDir).filter((f) => f.endsWith('.png'))).toEqual([]);
+  });
+
+  it('an ERROR during a proof, after the shot was grabbed', async () => {
+    const w = world();
+    const late = lateError(w, 'proof');
+    const shot = fieldShot('f', 'field.abyss.dark.three.full', { args: { clock: 'realtime', frames: '3' }, proof: { kind: 'draws-frames', seconds: 10 } });
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => {
+      const out = await shell(args);
+      if (args.join(' ').endsWith('gfxinfo com.kokonadahealth.lab reset')) { w.device.gfxFrames = 600; late(); }
+      return out;
+    };
+    await refusedRun(w, planOf(shot), /f: the lab sent an ERROR for run .*the surface changed after READY/);
+  });
+
+  it('a lab line it cannot read after READY (it could be an ERROR)', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null }));
+    const execOut = w.device.execOut.bind(w.device);
+    w.device.execOut = async (args: string[]) => { w.device.emit('KOKONADA_LAB ERROR {"run":"'); return execOut(args); };
+    await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: cannot read a lab line/);
+  });
+
+  it('another run\'s ERROR is not this shot\'s', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null }));
+    const execOut = w.device.execOut.bind(w.device);
+    w.device.execOut = async (args: string[]) => { w.device.emit(`KOKONADA_LAB ERROR ${JSON.stringify({ run: 'old-run', errors: ['x'] })}`); return execOut(args); };
+    const { manifest } = await w.run({ plan: planOf(fieldShot('f', 'field.abyss.dark.three.full')) });
+    expect(manifest.outcome).toBe('passed');
+  });
+});
+
+describe('the surface rules of the B8 scene prefixes (UI-223)', () => {
+  it.each([
+    'witness.abyss.dark', 'grain.abyss.light.low', 'cost.abyss.dark.three.full.storm', 'storm.abyss.dark.burst', 'field.abyss.dark.three.policy',
+  ])('%s must be drawn by the field shader: ready passes, a fallback is refused', async (scene) => {
+    const ok = world();
+    readyAs(ok, { shaderStatus: 'ready', shaderReason: null });
+    const shot = fieldShot('s', scene, { expect: NO_SCENE });
+    expect((await ok.run({ plan: planOf(shot) })).manifest.outcome).toBe('passed');
+    const bad = world();
+    readyAs(bad, { shaderStatus: 'fallback', shaderReason: 'the field shader did not compile' });
+    await refusedRun(bad, planOf(shot), /s: READY says shaderStatus "fallback" \(the field shader did not compile\)/);
+  });
+
+  it('a scene with no surface rule is refused: the harness cannot tell what must have drawn it', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    await refusedRun(w, planOf(fieldShot('n', 'near.abyss.dark.ne', { expect: NO_SCENE })), /n: scene near\.abyss\.dark\.ne has no surface rule/);
+  });
+
+  it('a prefix is a whole segment: smoke is held to nothing, smokey and witnessx have no rule', () => {
+    expect(surfaceRule('smoke')).toMatchObject({ status: undefined });
+    expect(surfaceRule('smokey')).toBeNull();
+    expect(surfaceRule('witnessx.abyss.dark')).toBeNull();
+    expect(surfaceRule('field.abyss.dark.three.policy')).toMatchObject({ status: 'ready' });
+  });
+});
+
+describe('the new proofs', () => {
+  const moving = (proof: Record<string, unknown>, extra: Record<string, unknown> = {}) => fieldShot('m', 'field.abyss.dark.three.low', {
+    args: { clock: 'realtime', frames: '3' }, expect: { ...FIELD_EXPECT, tier: 'low' }, proof, ...extra,
+  });
+  const drawing = (w: ReturnType<typeof world>, frames: number) => {
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => {
+      const out = await shell(args);
+      if (args.join(' ').endsWith('gfxinfo com.kokonadahealth.lab reset')) w.device.gfxFrames = frames;
+      return out;
+    };
+  };
+
+  describe('rate (UI-171): frames per second inside a band', () => {
+    const RATE = { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } };
+
+    it('passes inside the band, and records the rate', async () => {
+      const w = world();
+      drawing(w, 600);
+      const { manifest } = await w.run({ plan: planOf(moving(RATE)) });
+      expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'rate', seconds: 10, frames: 600, fps: 60, band: { min: 55, max: 62 }, passed: true }]);
+    });
+
+    it.each([
+      ['above the band (the cap did not hold)', 1200, /m: 120 frames\/s in 10 s is outside the band 55 to 62/],
+      ['below the band', 300, /m: 30 frames\/s in 10 s is outside the band 55 to 62/],
+      ['no frame at all', 0, /m: 0 frames\/s/],
+    ])('refuses a rate %s', async (_label, frames, why) => {
+      const w = world();
+      drawing(w, frames);
+      await refusedRun(w, planOf(moving(RATE)), why);
+    });
+
+    it('the band\'s edges are inside it', async () => {
+      for (const frames of [550, 620]) {
+        const w = world();
+        drawing(w, frames);
+        expect((await w.run({ plan: planOf(moving(RATE)) })).manifest.proofs[0].passed).toBe(true);
+      }
+    });
+  });
+
+  describe('framestats: the jank summary, informational', () => {
+    it('records the frames and the jank, and asserts nothing', async () => {
+      const w = world();
+      drawing(w, 1200);
+      const { manifest } = await w.run({ plan: planOf(moving({ kind: 'framestats', seconds: 10 })) });
+      expect(manifest.outcome).toBe('passed');
+      expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'framestats', seconds: 10, frames: 1200, janky: 0, jankPercent: 0, reason: null, passed: null }]);
+    });
+
+    it('output it cannot read is null with a reason, and the run still passes', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      const shell = w.device.shell.bind(w.device);
+      w.device.shell = async (args: string[]) => (args.join(' ') === 'dumpsys gfxinfo com.kokonadahealth.lab' ? 'No process found' : shell(args));
+      const { manifest } = await w.run({ plan: planOf(moving({ kind: 'framestats', seconds: 10 })) });
+      expect(manifest.proofs[0]).toMatchObject({ frames: null, janky: null, jankPercent: null, reason: expect.stringMatching(/Total frames rendered/), passed: null });
+    });
+  });
+
+  describe('result: the bench\'s RESULT line', () => {
+    const STATS = { p50: 400, p95: 900, max: 2000 };
+    const result = (run: string, scene: string, extra: Record<string, unknown> = {}) => ({
+      run, seq: 0, kind: 'cost', scene, frames: 1200, displayHz: 120, stepUs: STATS, renderUs: STATS, gpuProxyUs: STATS, clock: 'performance.now', ...extra,
+    });
+    const COST = 'cost.abyss.dark.three.full';
+    const costShot = () => fieldShot('c', COST, { proof: { kind: 'result', seconds: 1 } });
+    const benching = (w: ReturnType<typeof world>, extra: Record<string, unknown> = {}, before = false) => {
+      w.device.scenario = (extras, d) => {
+        const res = `I ReactNativeJS: KOKONADA_LAB RESULT ${JSON.stringify(result(extras.run, extras.scene, extra))}`;
+        if (before) d.emit(res);
+        d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null }));
+        if (!before) setTimeout(() => d.emit(res), 5);
+      };
+    };
+
+    it('records a valid RESULT after READY', async () => {
+      const w = world();
+      benching(w);
+      const { manifest } = await w.run({ plan: planOf(costShot()) });
+      expect(manifest.results).toEqual([{ shot: 'c', repeat: 1, result: expect.objectContaining({ kind: 'cost', scene: COST, frames: 1200 }) }]);
+      expect(manifest.proofs).toEqual([{ shot: 'c', kind: 'result', seconds: 1, passed: true }]);
+    });
+
+    it('records a RESULT that came before READY', async () => {
+      const w = world();
+      benching(w, {}, true);
+      const { manifest } = await w.run({ plan: planOf(costShot()) });
+      expect(manifest.results).toHaveLength(1);
+    });
+
+    it.each([
+      ['a key the contract does not name', { taps: [[0.1, 0.2]] }, /c: the RESULT is not valid: taps is not a RESULT field/],
+      ['a Date clock', { clock: 'Date.now' }, /c: the RESULT is not valid: clock must be "performance\.now"/],
+    ])('refuses a RESULT with %s, and keeps none', async (_label, extra, why) => {
+      const w = world();
+      benching(w, extra);
+      const manifest = await refusedRun(w, planOf(costShot()), why);
+      expect(manifest.results).toEqual([]);
+    });
+
+    it('refuses a shot whose RESULT never comes', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      await refusedRun(w, planOf(costShot()), /c: no RESULT for run .* within 1000 ms/);
+    });
+  });
+
+  describe('record: screenrecord frames (F6)', () => {
+    const RECORD = { kind: 'record', seconds: 5, size: { width: 360, height: 780 } };
+
+    it('records raw frames at the plan\'s reduced size, keeps them beside the PNGs, and hashes them', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      const { manifest } = await w.run({ plan: planOf(moving(RECORD)) });
+      expect(w.device.recorded).toEqual([['screenrecord', '--output-format=frames', '--size', '360x780', '--time-limit', '5', '-']]);
+      const bytes = fs.readFileSync(path.join(w.outDir, 'm.frames'));
+      expect(bytes.equals(w.device.recording)).toBe(true);
+      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.frames', bytes: 64, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
+      expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
+    });
+
+    it('refuses an empty recording', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      w.device.recording = Buffer.alloc(0);
+      await refusedRun(w, planOf(moving(RECORD)), /m: screenrecord returned no frame/);
+    });
+  });
+});
+
+describe('notFlat (UI-215): a plan can assert the ground is not flat', () => {
+  const NOT_FLAT = { notFlat: { probe: 'mark', minRange: 8 } };
+  const smokeShot = { ...PLAN.shots[0], repeat: 1, checks: NOT_FLAT } as Shot;
+
+  it('the gradient under the probe is not flat: it passes, and the check is recorded', async () => {
+    const w = world();
+    const { manifest } = await w.run({ plan: { ...PLAN, shots: [smokeShot] } });
+    expect(manifest.checks).toEqual([{ shot: 'smoke-fixed', repeat: 1, kind: 'notFlat', probe: 'mark', minRange: 8, range: expect.any(Number), passed: true }]);
+    expect(manifest.checks[0].range).toBeGreaterThanOrEqual(8);
+  });
+
+  it('a flat ground under the probe is refused, though the rest of the app region varies', async () => {
+    const w = world();
+    // flat inside the mark probe (10..30 x 30..50), a gradient elsewhere
+    w.device.frames = [screen(1, (x, y) => (x >= 10 && x < 30 && y >= 30 && y < 50 ? [20, 20, 20, 255] : [x * 5, y * 3, 77, 255]))];
+    const manifest = await refusedRun(w, { ...PLAN, shots: [smokeShot] }, /smoke-fixed\.1: the probe mark is flat ground: range 0, under the plan's 8 \(UI-215\)/);
+    expect(manifest.rows).toEqual([]);
+  });
+
+  it('a range one under the minimum is refused, the minimum itself passes', async () => {
+    for (const [spread, ok] of [[7, false], [8, true]] as const) {
+      const w = world();
+      w.device.frames = [screen(1, (x, y) => (x >= 10 && x < 30 && y >= 30 && y < 50 ? [20 + (x === 10 ? spread : 0), 20, 20, 255] : [x * 5, y * 3, 77, 255]))];
+      if (ok) expect((await w.run({ plan: { ...PLAN, shots: [smokeShot] } })).manifest.checks[0]).toMatchObject({ range: 8, passed: true });
+      else await refusedRun(w, { ...PLAN, shots: [smokeShot] }, /range 7, under the plan's 8/);
+    }
+  });
+
+  it('a probe with no pixel in the app region cannot be judged, and is refused', async () => {
+    const w = world();
+    readyAs(w, { probes: { stage: { dp: { x: 0, y: 0, width: 40, height: 80 }, px: { x: 0, y: 0, width: 40, height: 80 } }, mark: { dp: { x: 0, y: 0, width: 40, height: 4 }, px: { x: 0, y: 0, width: 40, height: 4 } } } });
+    await refusedRun(w, { ...PLAN, shots: [smokeShot] }, /smoke-fixed\.1: the probe mark has no pixel in the app region/);
+  });
+});
+
+describe('validatePlan is strict (UI-215)', () => {
+  const shot = PLAN.shots[0];
+  const errs = (plan: unknown) => validatePlan(plan).join('\n');
+
+  it.each([
+    ['the plan', { ...PLAN, pixelCheck: true }, /pixelCheck is not a plan key/],
+    ['the app', { ...PLAN, app: { ...PLAN.app, flavour: 'x' } }, /app\.flavour is not a plan key/],
+    ['the session', { ...PLAN, session: { stayOn: true, brightness: 1 } }, /session\.brightness is not a plan key/],
+    ['a shot', { ...PLAN, shots: [{ ...shot, notFlat: true }] }, /shots\[0\]\.notFlat is not a plan key/],
+    ['a device', { ...PLAN, shots: [{ ...shot, device: { ...shot.device, brightness: 0.5 } }] }, /shots\[0\]\.device\.brightness is not a plan key/],
+    ['an expect', { ...PLAN, shots: [{ ...shot, expect: { ...NO_SCENE, taps: 'x' } }] }, /shots\[0\]\.expect\.taps is not a plan key/],
+    ['a proof', { ...PLAN, shots: [{ ...shot, proof: { kind: 'zero-frames', seconds: 10, band: { min: 1, max: 2 } } }] }, /shots\[0\]\.proof\.band is not a plan key/],
+    ['the checks', { ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 8 }, contrast: 4.5 } }] }, /shots\[0\]\.checks\.contrast is not a plan key/],
+    ['a notFlat check', { ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 8, region: 'x' } } }] }, /shots\[0\]\.checks\.notFlat\.region is not a plan key/],
+    ['a rate band', { ...PLAN, shots: [{ ...shot, proof: { kind: 'rate', seconds: 10, band: { min: 1, max: 2, target: 1 } } }] }, /shots\[0\]\.proof\.band\.target is not a plan key/],
+    ['a record size', { ...PLAN, shots: [{ ...shot, proof: { kind: 'record', seconds: 5, size: { width: 360, height: 780, bitRate: 1 } } }] }, /shots\[0\]\.proof\.size\.bitRate is not a plan key/],
+  ])('refuses a key it does not read in %s', (_label, plan, why) => {
+    expect(errs(plan)).toMatch(why);
+  });
+
+  it.each([
+    ['a shot without expect', { ...PLAN, shots: [(() => { const s: Record<string, unknown> = { ...shot }; delete s.expect; return s; })()] }, /shots\[0\]\.expect must be/],
+    ['an expect without its tier', { ...PLAN, shots: [{ ...shot, expect: { direction: null, face: null, hero: null } }] }, /shots\[0\]\.expect\.tier must be/],
+    ['an expect tier that is not a tier', { ...PLAN, shots: [{ ...shot, expect: { ...NO_SCENE, tier: 'medium' } }] }, /shots\[0\]\.expect\.tier must be/],
+    ['an expect face that is not a face', { ...PLAN, shots: [{ ...shot, expect: { ...NO_SCENE, face: 'dusk' } }] }, /shots\[0\]\.expect\.face must be/],
+    ['an expect hero that is not a token', { ...PLAN, shots: [{ ...shot, expect: { ...NO_SCENE, hero: 'one joy' } }] }, /shots\[0\]\.expect\.hero must be/],
+    ['an expect direction that is not a token', { ...PLAN, shots: [{ ...shot, expect: { ...NO_SCENE, direction: 3 } }] }, /shots\[0\]\.expect\.direction must be/],
+    ['a notFlat on a probe the shot does not declare', { ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'plate', minRange: 8 } } }] }, /notFlat\.probe must be one of the shot's probes/],
+    ['a notFlat minimum out of range', { ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 0 } } }] }, /notFlat\.minRange must be an integer from 1 to 255/],
+    ['a rate band upside down', { ...PLAN, shots: [{ ...shot, proof: { kind: 'rate', seconds: 10, band: { min: 70, max: 50 } } }] }, /proof\.band must be { min, max } with 0 <= min <= max <= 1000/],
+    ['a rate without its band', { ...PLAN, shots: [{ ...shot, proof: { kind: 'rate', seconds: 10 } }] }, /proof\.band must be/],
+    ['a record over screenrecord\'s 180 s', { ...PLAN, shots: [{ ...shot, proof: { kind: 'record', seconds: 181, size: { width: 360, height: 780 } } }] }, /proof\.seconds must be an integer from 1 to 180/],
+    ['a record without its size', { ...PLAN, shots: [{ ...shot, proof: { kind: 'record', seconds: 5 } }] }, /proof\.size must be/],
+    ['a record size that is odd', { ...PLAN, shots: [{ ...shot, proof: { kind: 'record', seconds: 5, size: { width: 361, height: 780 } } }] }, /proof\.size must be/],
+    ['a proof kind it does not know', { ...PLAN, shots: [{ ...shot, proof: { kind: 'contrast', seconds: 5 } }] }, /proof\.kind must be one of zero-frames, draws-frames, rate, framestats, result, record/],
+  ])('refuses %s', (_label, plan, why) => {
+    expect(errs(plan)).toMatch(why);
+  });
+
+  it('takes each new proof and the notFlat check in their documented shape', () => {
+    for (const proof of [
+      { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } }, { kind: 'framestats', seconds: 10 }, { kind: 'result', seconds: 30 },
+      { kind: 'record', seconds: 5, size: { width: 360, height: 780 } },
+    ]) expect(validatePlan({ ...PLAN, shots: [{ ...shot, proof }] })).toEqual([]);
+    expect(validatePlan({ ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 8 } } }] })).toEqual([]);
+  });
+});
+
+describe('renderFacts: the render scale and sampling an expect tier implies', () => {
+  it('reads the tiers from the tokens, the still at the full tier\'s scale, and nothing for a scene with no tier', () => {
+    expect(renderFacts('full', TIERS)).toEqual({ renderScale: TIERS.full.renderScale.$value, sampling: { filter: 'linear', mipmap: 'none' } });
+    expect(renderFacts('low', TIERS)).toEqual({ renderScale: TIERS.low.renderScale.$value, sampling: { filter: 'linear', mipmap: 'none' } });
+    expect(renderFacts('still', TIERS)).toEqual({ renderScale: TIERS.full.renderScale.$value, sampling: { filter: 'linear', mipmap: 'none' } });
+    expect(renderFacts(null, TIERS)).toEqual({ renderScale: null, sampling: null });
   });
 });

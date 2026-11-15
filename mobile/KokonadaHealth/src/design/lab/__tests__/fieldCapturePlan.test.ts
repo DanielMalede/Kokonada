@@ -18,6 +18,7 @@ type Shot = {
   id: string; repeat: number; scene: string; args: Record<string, string>; probes: string[];
   device: { fontScale: number; night: string; animatorScale: number; powerSave: boolean };
   proof?: { kind: string; seconds: number };
+  expect: { direction: string | null; face: string | null; hero: string | null; tier: string | null };
 };
 const plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8')) as { id: string; shots: Shot[] };
 const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, { periodMs: s.periodMs }]));
@@ -72,10 +73,17 @@ describe('the v1 field capture plan', () => {
     expect(still.map((s) => [s.scene, s.args.clock, s.device.animatorScale])).toEqual([['field.abyss.dark.three.still', 'realtime', 0]]);
   });
 
-  it('carries no key the harness does not read: a pixel check it would ignore must not look like one', () => {
-    const PLAN_KEYS = ['id', 'app', 'readyTimeoutMs', 'settleMs', 'session', 'shots'];
-    const SHOT_KEYS = ['id', 'repeat', 'scene', 'args', 'device', 'probes', 'proof'];
-    expect(Object.keys(plan).filter((k) => !PLAN_KEYS.includes(k))).toEqual([]);
-    for (const shot of plan.shots) expect(Object.keys(shot).filter((k) => !SHOT_KEYS.includes(k))).toEqual([]);
+  // UI-215: the harness itself now refuses a key it does not read, so a pixel check it would ignore cannot look like one.
+  it('a key the harness does not read makes the plan invalid', () => {
+    expect(validatePlan({ ...plan, pixelCheck: true }).join()).toMatch(/pixelCheck is not a plan key/);
+    expect(validatePlan({ ...plan, shots: [{ ...plan.shots[0], notFlat: true }, ...plan.shots.slice(1)] }).join()).toMatch(/shots\[0\]\.notFlat is not a plan key/);
+  });
+
+  // F4: a row's scene facts are the shot's expect, so each is the field catalogue's own for its scene.
+  it("every shot's expect is its scene's facts in the field catalogue", () => {
+    for (const shot of plan.shots) {
+      const spec = FIELD_SCENES[shot.scene];
+      expect([shot.id, shot.expect]).toEqual([shot.id, { direction: spec.direction, face: spec.face, hero: spec.hero, tier: spec.tier }]);
+    }
   });
 });
