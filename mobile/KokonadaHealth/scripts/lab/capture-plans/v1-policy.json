@@ -471,6 +471,70 @@
         "kind": "draws-frames",
         "seconds": 10
       }
+    },
+    {
+      "id": "dark-three-policy-saver-rate",
+      "repeat": 1,
+      "scene": "field.abyss.dark.three.policy",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "probes": [
+        "stage"
+      ],
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": true
+      },
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "low"
+      },
+      "proof": {
+        "kind": "rate",
+        "seconds": 10,
+        "band": {
+          "min": 51,
+          "max": 66
+        }
+      }
+    },
+    {
+      "id": "dark-three-policy-neither-rate",
+      "repeat": 1,
+      "scene": "field.abyss.dark.three.policy",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "probes": [
+        "stage"
+      ],
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "full"
+      },
+      "proof": {
+        "kind": "rate",
+        "seconds": 10,
+        "band": {
+          "min": 102,
+          "max": 132
+        }
+      }
     }
   ]
 }
