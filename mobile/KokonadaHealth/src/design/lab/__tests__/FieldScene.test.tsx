@@ -144,12 +144,20 @@ describe('FieldView mounts only once the view is measured (UI-175 at this root)'
     expect(Object.keys(p).sort()).toEqual(['clock', 'confidence', 'direction', 'face', 'genesis', 'layout', 'pxPerDp', 'scene', 'statics', 'stress', 'taps', 'tier'].sort());
   });
 
-  it.each(Object.values(FIELD_SCENES).filter((s) => s.kind === 'field').map((s) => s.id))('%s: its face, tier and taps from its id', (id) => {
+  // The policy scenes (B8-6) take their tier from the motion policy, end to end through LabRoot: policyScenes.test.tsx.
+  it.each(Object.values(FIELD_SCENES).filter((s) => s.kind === 'field' && !s.policy).map((s) => s.id))('%s: its face, tier and taps from its id', (id) => {
     const r = mount(id);
     layoutAs(r);
     const spec = FIELD_SCENES[id];
     expect([field(r).scene, field(r).face, field(r).tier]).toEqual([id, spec.face, spec.tier]);
     expect(field(r).taps).toEqual(spec.taps);
+  });
+
+  it('a policy scene with no LabRoot to give it the device\'s settings is an error naming it, never a tier of its own', () => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => mount('field.abyss.dark.three.policy')).toThrow(/"field\.abyss\.dark\.three\.policy" takes its tier from the motion policy/);
+    mounted.splice(0);
+    jest.restoreAllMocks();
   });
 });
 

@@ -2,6 +2,12 @@
 // arguments the lab activity passes as initial props, renders the named scene on the named clock,
 // and speaks the protocol (protocol.ts) to the capture harness over logcat.
 //
+// The scene's facts (B8-6): a field scene says the motion tier FieldView draws at (SceneFactsContext), and READY carries
+// it as `tier` (null for a scene that names none). A policy scene takes that tier from the app's motion policy on the
+// device's settings, through the ports this root provides once (LabMotionPortsContext): reduced motion from the same
+// source the real-time clock asks, battery saver from the activity's launch prop and events (labPowerSaveSource.ts).
+// READY waits while the scene says its tier is not known yet, and a known tier that changes after READY is an ERROR.
+//
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
@@ -9,6 +15,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
+import type { MotionPorts } from '../v2/motion/ports';
+import type { MotionTier } from '../v2/motion/useMotionPolicy';
+import { useLabPowerSaveSource } from './adapters/labPowerSaveSource';
 import { fixedClockTime } from './clock/fixedClock';
 import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
@@ -17,6 +26,7 @@ import { ProbeRegistry } from './probe/Probe';
 import type { ProbeRect } from './probe/geometry';
 import { createCommandGate, createReadyGate, formatLine, parseCommand, type LineKind } from './protocol';
 import { SCENES, type Scene } from './scenes';
+import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from './scenes/FieldScene';
 import { LAB_SENTINEL } from './sentinel';
 import { ShaderReportContext, type ShaderReport, type ShaderStatus } from './shaderReport';
 
@@ -140,6 +150,13 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   const realtime = useRealtimeFieldClock(scene.periodMs, params.clock === 'realtime' && reduceMotion === false);
   const clock: FieldClock = params.clock === 'realtime' ? realtime : { t: controlled };
 
+  // The motion policy's ports, made once: the scene's policy hears the device as the realtime clock does (B8-6).
+  const powerSaveSource = useLabPowerSaveSource({ [LAB_PROPS.powerSave]: initialPowerSave }, deps.events);
+  const [motionPorts] = useState<MotionPorts>(() => ({
+    reduceMotion: { read: () => deps.reduceMotion.current(), subscribe: (onChange) => deps.reduceMotion.subscribe(onChange) },
+    powerSave: powerSaveSource,
+  }));
+
   // What READY reports is what was committed last.
   const latest = useRef({ seq: step.seq, t: step.t, powerSave });
   latest.current = { seq: step.seq, t: step.t, powerSave };
@@ -147,6 +164,12 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // until one is sent).
   const shader = useRef<ShaderReport | null>(null);
   const shown = useRef<ShaderStatus | null | undefined>(undefined);
+  // The scene's facts as it last reported them (null: it reports none), and the tier the last READY sent (undefined until
+  // one is sent).
+  const facts = useRef<SceneFacts | null>(null);
+  const tierShown = useRef<MotionTier | null | undefined>(undefined);
+  /** The scene cannot be described yet: its surface is pending, or it said its tier is not known. */
+  const unsettled = useCallback(() => shader.current?.status === 'pending' || facts.current?.tier === null, []);
   // A READY that came due while the scene was pending (UI-233): held unsent, and its frames counted afresh once the scene
   // reports what drew it. A READY never says `pending`, so it never says `ready` before a field frame was drawn.
   const held = useRef(false);
@@ -170,7 +193,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     probes: scene.probes,
     frames: params.frames,
     onReady: ({ probes }) => {
-      if (shader.current?.status === 'pending') {
+      if (unsettled()) {
         held.current = true;
         return;
       }
@@ -187,6 +210,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
           isRTL: I18nManager.isRTL, fontScale: PixelRatio.getFontScale(),
           probes, sentinel: LAB_SENTINEL,
           shaderStatus: shader.current?.status ?? null, shaderReason: clip(shader.current?.reason ?? null),
+          tier: facts.current?.tier ?? null,
         });
       } catch (e) {
         fail((e as Error).message);
@@ -194,6 +218,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       }
       deps.emit(line);
       shown.current = shader.current?.status ?? null;
+      tierShown.current = facts.current?.tier ?? null;
       const results = heldResults.current;
       heldResults.current = [];
       for (const result of results) deps.emit(result);
@@ -244,6 +269,14 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     });
   }, [deps, gate]);
 
+  // The held READY (UI-233, B8-6): the scene can now be described, so READY waits its frames from here.
+  const release = useCallback(() => {
+    if (!held.current || unsettled()) return;
+    held.current = false;
+    gate.rearm();
+    pump();
+  }, [gate, pump, unsettled]);
+
   // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
   // ERROR, so no capture of this run passes as the surface READY named.
   const reportShader = useCallback((report: ShaderReport) => {
@@ -253,13 +286,20 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       fail(`the surface changed after READY: READY said ${said ?? 'none'}, now ${report.status}${report.reason === null ? '' : ` (${clip(report.reason)})`}`);
       return;
     }
-    // The held READY (UI-233): the scene now names what drew it, so READY waits its frames from here.
-    if (held.current && report.status !== 'pending') {
-      held.current = false;
-      gate.rearm();
-      pump();
+    release();
+  }, [fail, release]);
+
+  // The tier the scene observed (B8-6). After READY a known tier that differs from READY's makes that READY false; a
+  // passing "not known" (a setting heard before the policy caught up) is not a change.
+  const reportFacts = useCallback((next: SceneFacts) => {
+    facts.current = next;
+    const said = tierShown.current;
+    if (said !== undefined && next.tier !== null && next.tier !== said) {
+      fail(`the tier changed after READY: READY said ${said ?? 'none'}, now ${next.tier}`);
+      return;
     }
-  }, [fail, gate, pump]);
+    release();
+  }, [fail, release]);
 
   const onMeasure = useCallback((id: string, rect: ProbeRect) => {
     try {
@@ -333,9 +373,13 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   return (
     <ProbeRegistry onMeasure={onMeasure}>
       <ShaderReportContext.Provider value={reportShader}>
-        <CostReportContext.Provider value={costReport}>
-          <SceneComponent clock={clock} t={step.t} params={params} />
-        </CostReportContext.Provider>
+        <SceneFactsContext.Provider value={reportFacts}>
+          <LabMotionPortsContext.Provider value={motionPorts}>
+            <CostReportContext.Provider value={costReport}>
+              <SceneComponent clock={clock} t={step.t} params={params} />
+            </CostReportContext.Provider>
+          </LabMotionPortsContext.Provider>
+        </SceneFactsContext.Provider>
       </ShaderReportContext.Provider>
     </ProbeRegistry>
   );

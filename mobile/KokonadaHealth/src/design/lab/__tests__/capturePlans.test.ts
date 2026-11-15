@@ -5,8 +5,10 @@ import { FilterMode, MipmapMode } from '@shopify/react-native-skia';
 import { renderFacts, surfaceRule, validatePlan } from '../../../../scripts/lab/capture.mjs';
 import { renderScaleFor } from '../../v2/field/fieldDriver';
 import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
+import { resolveMotionTier } from '../../v2/motion/useMotionPolicy';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fieldScenes';
 import { parseLabArgs } from '../params';
+import { GRAIN_SPECS } from '../grain/grainFrames';
 import { SCENES } from '../scenes';
 import { WITNESS_SCENE_FACTS } from '../witness/witnessFrames';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
@@ -20,7 +22,7 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 // The catalogue's facts: a scene of the field catalogue (fieldScenes.ts) states its own; the smoke scene draws no field
 // and has none; a scene of a B8 group (witness, grain, cost, storm) states them in its id, by the plan's fixed grammar:
 //   witness.<direction>.<face>                                    W1b's hero and tier (WITNESS_SCENE_FACTS)
-//   grain.<direction>.<face>.<tier>                               no hero
+//   grain.<direction>.<face>.<tier>                               the hero frame it draws, and its tier (GRAIN_SPECS)
 //   cost.<direction>.<face>.<hero>.<tier>[.storm|.heavy|.empty]
 //   storm.<direction>.<face>.<case>                               no hero, no tier
 // A scene the catalogue cannot state facts for fails here, naming it: a plan cannot claim facts nobody pinned.
@@ -28,7 +30,18 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 const PLANS_DIR = path.resolve(__dirname, '../../../../scripts/lab/capture-plans');
 const PLAN_FILES = fs.readdirSync(PLANS_DIR).filter((f) => f.endsWith('.json')).sort();
 type Expect = { direction: string | null; face: string | null; hero: string | null; tier: string | null };
-type Shot = { id: string; scene: string; args: Record<string, string>; probes: string[]; expect: Expect };
+type Shot = {
+  id: string; scene: string; args: Record<string, string>; probes: string[]; expect: Expect;
+  device: { animatorScale: number; powerSave: boolean };
+};
+
+/** A shot's facts: the catalogue's, and for a policy scene (B8-6) the tier its device state implies under the policy
+ *  (on Android RN's reduced motion is a transition animator scale of 0; the harness sets every scale to animatorScale). */
+function shotFacts(shot: Shot): Expect {
+  const facts = catalogueFacts(shot.scene);
+  if (!FIELD_SCENES[shot.scene]?.policy) return facts;
+  return { ...facts, tier: resolveMotionTier({ reduceMotion: shot.device.animatorScale === 0, powerSave: shot.device.powerSave }) };
+}
 const load = (file: string) => JSON.parse(fs.readFileSync(path.join(PLANS_DIR, file), 'utf8')) as { id: string; shots: Shot[] };
 const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, { periodMs: s.periodMs }]));
 
@@ -50,7 +63,10 @@ function catalogueFacts(id: string): Expect {
     const w = WITNESS_SCENE_FACTS[id];
     return { direction: w.direction, face: w.face, hero: w.hero, tier: w.tier };
   }
-  if (ok && group === 'grain' && rest.length === 1 && TIERS.includes(rest[0])) return { direction, face, hero: null, tier: rest[0] };
+  if (ok && group === 'grain' && rest.length === 1 && TIERS.includes(rest[0]) && Object.prototype.hasOwnProperty.call(GRAIN_SPECS, id)) {
+    const g = GRAIN_SPECS[id];
+    return { direction: g.direction, face: g.face, hero: g.hero, tier: g.tier };
+  }
   if (ok && group === 'storm' && rest.length === 1) return { direction, face, hero: null, tier: null };
   if (ok && group === 'cost') {
     const body = COST_SUFFIXES.includes(rest[rest.length - 1]) ? rest.slice(0, -1) : rest;
@@ -68,7 +84,8 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     // A witness scene draws W1b, a production hero frame at a tier: its facts are the witness group's own (WITNESS_SCENE_FACTS).
     ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: WITNESS_SCENE_FACTS['witness.abyss.dark'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.dark'].tier }],
     ['witness.abyss.light', { direction: 'abyss', face: 'light', hero: WITNESS_SCENE_FACTS['witness.abyss.light'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.light'].tier }],
-    ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: null, tier: 'low' }],
+    // A grain scene draws a hero frame (the rest scene's, grain/grainFrames.ts): its facts are the grain group's own (GRAIN_SPECS).
+    ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: GRAIN_SPECS['grain.abyss.light.low'].hero, tier: 'low' }],
     ['cost.abyss.dark.three.full', { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' }],
     ['cost.abyss.dark.one.intense.low.storm', { direction: 'abyss', face: 'dark', hero: 'one.intense', tier: 'low' }],
     ['cost.abyss.light.rest.full.heavy', { direction: 'abyss', face: 'light', hero: 'rest', tier: 'full' }],
@@ -77,7 +94,7 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     expect(catalogueFacts(id)).toEqual(facts);
   });
 
-  it.each(['witness.abyss.dark.extra', 'grain.abyss.dark.medium', 'grain.abyss.dark', 'cost.abyss.dark.full', 'cost.abyss.dusk.three.full',
+  it.each(['witness.abyss.dark.extra', 'grain.abyss.dark.medium', 'grain.abyss.dark', 'grain.abyss.dark.still', 'cost.abyss.dark.full', 'cost.abyss.dusk.three.full',
     'storm.abyss.dark', 'storm.calm.dark.burst', 'near.abyss.dark.ne', 'field.abyss.dark.nowhere.full'])('states no facts for %s', (id) => {
     expect(() => catalogueFacts(id)).toThrow(new RegExp(`"${id.replace(/\./g, '\\.')}"`));
   });
@@ -100,7 +117,7 @@ describe.each(PLAN_FILES)('the capture plan %s', (file) => {
   });
 
   it('every shot\'s expect is the catalogue\'s facts for its scene (F4)', () => {
-    for (const shot of plan.shots) expect([shot.id, shot.expect]).toEqual([shot.id, catalogueFacts(shot.scene)]);
+    for (const shot of plan.shots) expect([shot.id, shot.expect]).toEqual([shot.id, shotFacts(shot)]);
   });
 });
 
