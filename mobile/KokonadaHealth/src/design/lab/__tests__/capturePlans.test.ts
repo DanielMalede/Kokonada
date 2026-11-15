@@ -98,6 +98,25 @@ describe.each(PLAN_FILES)('the capture plan %s', (file) => {
   });
 });
 
+// Every field and fallback scene of the catalogue is shot on a fixed clock (a still, no proof) by SOME plan: v1-field.json
+// holds the hero scenes and the fallback's, v1-near.json the near.* scenes (UI-210). One case per scene, so a scene no
+// plan shoots fails by its own name.
+const STILL_SCENES = new Set(PLAN_FILES.flatMap((f) => load(f).shots)
+  .filter((s) => s.args.clock === 'fixed' && (s as { proof?: unknown }).proof === undefined).map((s) => s.scene));
+const CATALOGUE_IDS = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field' || s.kind === 'fallback').map((s) => s.id).sort();
+
+describe('the plans together shoot every field and fallback scene of the catalogue on a fixed clock', () => {
+  it('has cases: the catalogue lists field and fallback scenes, and the plans shoot stills', () => {
+    expect(CATALOGUE_IDS.filter((id) => FIELD_SCENES[id].kind === 'field').length).toBeGreaterThan(0);
+    expect(CATALOGUE_IDS.filter((id) => FIELD_SCENES[id].kind === 'fallback').length).toBeGreaterThan(0);
+    expect(STILL_SCENES.size).toBeGreaterThan(0);
+  });
+
+  it.each(CATALOGUE_IDS)('%s is shot on a fixed clock by some plan', (id) => {
+    expect([id, STILL_SCENES.has(id)]).toEqual([id, true]);
+  });
+});
+
 describe('the plans and the harness, against the lab', () => {
   it('the plans this branch ships are there (a plan another package adds later is checked once it exists)', () => {
     expect(PLAN_FILES).toEqual(expect.arrayContaining(['smoke.json', 'v1-field.json']));
