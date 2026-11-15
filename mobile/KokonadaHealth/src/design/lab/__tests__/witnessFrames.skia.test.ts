@@ -1,4 +1,4 @@
-import { AlphaType, ColorType, Skia, type SkRuntimeEffect, type SkShader } from '@shopify/react-native-skia';
+import { AlphaType, ColorType, Skia, type SkImage, type SkRuntimeEffect, type SkShader } from '@shopify/react-native-skia';
 import { hexBytes, lsbDelta } from '../../v2/color/displayP3';
 import { createFieldEffect } from '../../v2/field/effect';
 import { PHONE } from '../../v2/field/fallbackScenes';
@@ -28,7 +28,7 @@ beforeAll(() => {
   blueNoise = made.blueNoiseShader;
 });
 
-const read = (image: { readPixels: (x: number, y: number, info: object) => unknown }, w: number, h: number) =>
+const read = (image: SkImage, w: number, h: number) =>
   image.readPixels(0, 0, { width: w, height: h, colorType: ColorType.RGBA_8888, alphaType: AlphaType.Unpremul }) as Uint8Array;
 const rgb = (px: Uint8Array, i: number): [number, number, number] => [px[4 * i], px[4 * i + 1], px[4 * i + 2]];
 

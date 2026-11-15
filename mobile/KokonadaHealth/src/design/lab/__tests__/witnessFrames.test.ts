@@ -58,8 +58,9 @@ describe('the witness colours, per face', () => {
     const joy = witnessColours('dark')[0];
     for (const kind of ['W1a', 'W2', 'W3'] as const) expect(patchBytes(kind, joy)).toEqual(joy.bytes);
     for (const model of ['misreadAsP3', 'doubleEncode', 'skipEncode'] as const) expect(patchBytes(model, joy)).toEqual(WITNESS_MODELS[model](joy.bytes));
-    expect(bytesHex([227, 182, 3])).toBe(`#E3B6${'03'}`);
-    expect(hexBytes(bytesHex(joy.bytes))).toEqual(joy.bytes);
+    expect(bytesHex(joy.bytes)).toBe(joy.hex);
+    expect(bytesHex([227, 182, 3]).split('#')).toEqual(['', 'E3B603']); // upper case, two digits a channel
+    expect(hexBytes(bytesHex([0, 15, 255]))).toEqual([0, 15, 255]);
   });
 });
 
@@ -129,13 +130,13 @@ const STAGES: ReadonlyArray<readonly [string, number, number, number, number]> =
   ['a 384 × 832 dp phone', 1080 / 2.8125, 2340 / 2.8125, 2.8125, 1],
   ['the board phone at font scale 1.3', PHONE.width, PHONE.height, PHONE.pxPerDp, 1.3],
 ];
-const CASES = FACES.flatMap((face) => STAGES.map(([name, w, h, k, fs]) => [face, name, w, h, k, fs] as const));
+const CASES = FACES.flatMap((face) => STAGES.map(([name, w, h, k, scale]) => [face, name, w, h, k, scale] as const));
 
 describe('the witness layout', () => {
   const layouts = new Map<string, WitnessLayout>();
-  const layoutOf = (face: Face, w: number, h: number, k: number, fs: number) => {
-    const key = `${face}|${w}|${h}|${k}|${fs}`;
-    if (!layouts.has(key)) layouts.set(key, witnessLayout(face, w, h, k, fs));
+  const layoutOf = (face: Face, w: number, h: number, k: number, fontScale: number) => {
+    const key = `${face}|${w}|${h}|${k}|${fontScale}`;
+    if (!layouts.has(key)) layouts.set(key, witnessLayout(face, w, h, k, fontScale));
     return layouts.get(key)!;
   };
 
@@ -144,9 +145,9 @@ describe('the witness layout', () => {
     expect(sampleOf({ x: 10, y: 20, width: 24, height: 24 })).toEqual({ x: 14, y: 24, width: 16, height: 16 });
   });
 
-  it.each(CASES)('%s, %s: every kind of every colour once, then W1b, each patch at least 24 dp with its central 16 dp sample', (face, _n, w, h, k, fs) => {
-    const l = layoutOf(face, w, h, k, fs);
-    expect(l.field).toEqual(heroOf(face, w, h, fs));
+  it.each(CASES)('%s, %s: every kind of every colour once, then W1b, each patch at least 24 dp with its central 16 dp sample', (face, _n, w, h, k, fontScale) => {
+    const l = layoutOf(face, w, h, k, fontScale);
+    expect(l.field).toEqual(heroOf(face, w, h, fontScale));
     expect(l.patches).toHaveLength(PATCH_KINDS.length * 5);
     const keys = l.patches.map((p) => `${p.kind}|${p.colour}`);
     expect(new Set(keys).size).toBe(keys.length);
@@ -157,8 +158,8 @@ describe('the witness layout', () => {
     }
   });
 
-  it.each(CASES)('%s, %s: the patches and W1b are 8 dp apart, 8 dp inside the stage and 8 dp clear of every quiet rect', (face, _n, w, h, k, fs) => {
-    const l = layoutOf(face, w, h, k, fs);
+  it.each(CASES)('%s, %s: the patches and W1b are 8 dp apart, 8 dp inside the stage and 8 dp clear of every quiet rect', (face, _n, w, h, k, fontScale) => {
+    const l = layoutOf(face, w, h, k, fontScale);
     const all = [...l.patches.map((p) => p.rect), l.w1b.rect];
     const stage = { x: GAP_DP, y: GAP_DP, width: w - 2 * GAP_DP, height: h - 2 * GAP_DP };
     expect(l.field.quietRects?.length).toBe(5);
@@ -169,8 +170,8 @@ describe('the witness layout', () => {
     }
   });
 
-  it.each(CASES)('%s, %s: away from the ring and every halo: each patch is on the face or beyond the moat, 8 dp clear', (face, _n, w, h, k, fs) => {
-    const l = layoutOf(face, w, h, k, fs);
+  it.each(CASES)('%s, %s: away from the ring and every halo: each patch is on the face or beyond the moat, 8 dp clear', (face, _n, w, h, k, fontScale) => {
+    const l = layoutOf(face, w, h, k, fontScale);
     const { frame } = w1bFrame(face, l.field, k);
     const R = l.field.radius;
     const [cx, cy] = l.field.centre;
@@ -185,8 +186,8 @@ describe('the witness layout', () => {
     expect(farthest(l.w1b.rect, cx, cy)).toBeLessThanOrEqual(faceDp); // W1b is on the field, on the face
   });
 
-  it.each(CASES)('%s, %s: W1b samples the field where it is: every render pixel of its sample has extent > 0, no halo, no quiet zone, and a high k', (face, _n, w, h, k, fs) => {
-    const l = layoutOf(face, w, h, k, fs);
+  it.each(CASES)('%s, %s: W1b samples the field where it is: every render pixel of its sample has extent > 0, no halo, no quiet zone, and a high k', (face, _n, w, h, k, fontScale) => {
+    const l = layoutOf(face, w, h, k, fontScale);
     const { frame, renderScale } = w1bFrame(face, l.field, k);
     const px = renderPixels(l.w1b.sample, k * renderScale);
     expect(px.length).toBeGreaterThanOrEqual(400);
@@ -222,9 +223,9 @@ describe('the witness layout', () => {
     expect(witnessLayout('dark', PHONE.width, PHONE.height, PHONE.pxPerDp, 1)).toEqual(witnessLayout('dark', PHONE.width, PHONE.height, PHONE.pxPerDp, 1));
   });
 
-  it('a stage too small for every patch is a RangeError naming the count, never a dropped patch', () => {
-    expect(() => witnessLayout('dark', 200, 360, 2.625, 1)).toThrow(RangeError);
-    expect(() => witnessLayout('dark', 200, 360, 2.625, 1)).toThrow(/patches fit/);
+  it('a stage too small for every patch, or with no place for W1b, is a RangeError naming it, never a dropped patch', () => {
+    expect(() => witnessLayout('dark', 280, 500, 2.625, 1)).toThrow(new RangeError('witness layout: only 24 of 30 patches fit on a 280×500 dp stage'));
+    expect(() => witnessLayout('dark', 411, 420, 2.625, 1)).toThrow(new RangeError('witness layout: no place on the dark face for W1b on a 411×420 dp stage'));
   });
 });
 
@@ -249,8 +250,8 @@ describe('the witness capture plan (scripts/lab/capture-plans/v1-witness.json)',
 
   it('each shot: its expect is the catalogue\'s facts, the night mode its face, a fixed clock the lab parses, the stage probe', () => {
     for (const shot of plan.shots) {
-      const { id: _id, ...facts } = WITNESS_SCENE_FACTS[shot.scene];
-      expect(shot.expect).toEqual(facts);
+      const facts = WITNESS_SCENE_FACTS[shot.scene];
+      expect(shot.expect).toEqual({ direction: facts.direction, face: facts.face, hero: facts.hero, tier: facts.tier });
       expect(shot.device).toEqual({ fontScale: 1, night: facts.face === 'dark' ? 'yes' : 'no', animatorScale: 1, powerSave: false });
       expect(shot.probes).toEqual(['stage']);
       expect(shot.repeat).toBe(2);

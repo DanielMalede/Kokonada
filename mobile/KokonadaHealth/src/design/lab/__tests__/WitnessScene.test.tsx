@@ -147,8 +147,10 @@ describe.each(['dark', 'light'] as const)('once measured, the %s face', (face) =
   it('W2 and the planted patches: one sRGB Skia canvas over the stage, a rect of each paint where the layout puts it', () => {
     const r = mount(`witness.abyss.${face}`);
     layoutAs(r);
-    const canvases = r.root.findAllByType(Canvas);
-    expect(canvases).toHaveLength(1);
+    // FieldSurface draws in a Canvas of its own: the patches' canvas is the one outside every FieldSurface.
+    const insideSurface = (n: ReactTestRenderer.ReactTestInstance | null): boolean => n !== null && (n.type === FieldSurface || insideSurface(n.parent));
+    const canvases = r.root.findAllByType(Canvas).filter((n) => !insideSurface(n.parent));
+    expect(canvases.length).toBe(1);
     expect(canvases[0].props.colorSpace).toBe('srgb');
     const rects = canvases[0].findAllByType(Rect).map((n) => ({ x: n.props.x, y: n.props.y, width: n.props.width, height: n.props.height, color: n.props.color }));
     const expected = layout.patches.filter((p) => p.kind !== 'W1a' && p.kind !== 'W3').map((p) => ({ ...p.rect, color: p.paint }));
