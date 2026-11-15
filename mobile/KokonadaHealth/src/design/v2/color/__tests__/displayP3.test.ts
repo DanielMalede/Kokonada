@@ -66,9 +66,11 @@ describe('Display-P3 (CSS Color 4)', () => {
 
 describe('the wrong-path models, on 8-bit bytes', () => {
   it('hexBytes reads #RRGGBB, and refuses anything else', () => {
-    expect(hexBytes('#E3B667')).toEqual([227, 182, 103]);
-    expect(hexBytes('#030c15')).toEqual([3, 12, 21]);
-    for (const bad of ['E3B667', '#E3B66', '#E3B6677', '#GGGGGG', '#E3B667FF']) expect(() => hexBytes(bad)).toThrow(RangeError);
+    // The tokens' hexes (colour literals stay out of tests too): joy's core is E3 B6 67, the dark ground 03 0C 15.
+    const joy = BASE.emotion.joy.core.hex;
+    expect(hexBytes(joy)).toEqual([227, 182, 103]);
+    expect(hexBytes(DIRECTIONS.abyss.color.dark.ground.hex.toLowerCase())).toEqual([3, 12, 21]);
+    for (const bad of [joy.slice(1), joy.slice(0, 6), `${joy}7`, '#GGGGGG', `${joy}FF`]) expect(() => hexBytes(bad)).toThrow(RangeError);
   });
 
   it('misreadAsP3 is the sRGB bytes a surface shows when it takes sRGB bytes for Display-P3: clamped, rounded', () => {
