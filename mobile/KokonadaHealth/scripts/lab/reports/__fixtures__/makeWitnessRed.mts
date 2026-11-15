@@ -5,8 +5,10 @@
 //
 // options: { face?, fontScale?, plants? }. One witness.abyss.<face> row, built with the harness's own pieces (rows.ts:
 // appRegion, classifyProbes, renderFacts, validateRow): a 412 × 964 px screen at density 160 (1 px per dp), its status bar
-// the top 6 rows and its navigation bar the bottom 6, READY's stage the whole window. The stage is flat grey; every patch
-// of witnessLayout (imported, never restated), laid out from the row's own facts, is painted flat in its bytes over the
+// the top 24 rows and its navigation bar the bottom 6, READY's stage the whole window, and the scene laid out inside its
+// insets (witnessInsets.ts: the measured top, 24 dp, and the 48 dp navigation-bar bound at the bottom), which READY reports
+// as its region probe. The stage is flat grey; every patch of witnessLayout (imported, never restated), laid out from the
+// row's own facts, is painted flat in its bytes over the
 // pixels whose centres lie in its rect; every planted patch (misreadAsP3, doubleEncode, skipEncode) also gets a red
 // anti-aliased fringe on the pixel row just above its rect (inside the report's 1 px growth). A plant adds red elsewhere:
 //   { at: 'outside' }           a red pixel 2 px above the first planted patch's top (outside its 1 px growth)
@@ -40,17 +42,21 @@ const options = JSON.parse(json) as Options;
 const face = options.face ?? 'dark';
 const fontScale = options.fontScale ?? 1;
 const SCREEN = { width: 412, height: 964 };
-const BAR = 6;
-const BARS = [{ x: 0, y: 0, width: SCREEN.width, height: BAR }, { x: 0, y: SCREEN.height - BAR, width: SCREEN.width, height: BAR }];
+const STATUS = 24;
+const NAV = 6;
+const BARS = [{ x: 0, y: 0, width: SCREEN.width, height: STATUS }, { x: 0, y: SCREEN.height - NAV, width: SCREEN.width, height: NAV }];
 const RED = [200, 30, 40];
 const PLANTED = new Set(['misreadAsP3', 'doubleEncode', 'skipEncode']);
 
+const INSETS = { top: STATUS, right: 0, bottom: 48, left: 0 };
+const REGION_PROBE = { x: 0, y: INSETS.top, width: SCREEN.width, height: SCREEN.height - INSETS.top - INSETS.bottom };
 const base = row({
   shot: `witness-${face}`, scene: `witness.abyss.${face}`, expect: { direction: 'abyss', face, hero: 'one.joy', tier: 'full' },
   file: `witness-${face}.1.png`, sha256: '0'.repeat(64), screen: SCREEN, bars: BARS, density: 160, fontScale, shaderStatus: 'ready',
+  probes: { region: REGION_PROBE },
 });
 const region = base.region as { x: number; y: number; width: number; height: number };
-const layout = witnessLayout(face, SCREEN.width, SCREEN.height, 1, fontScale);
+const layout = witnessLayout(face, SCREEN.width, SCREEN.height, 1, fontScale, INSETS);
 const rgba = new Uint8Array(region.width * region.height * 4);
 for (let i = 0; i < rgba.length; i += 4) rgba.set([96, 96, 96, 255], i);
 type R = { x: number; y: number; width: number; height: number };

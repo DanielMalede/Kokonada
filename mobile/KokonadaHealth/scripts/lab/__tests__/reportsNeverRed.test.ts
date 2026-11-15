@@ -100,7 +100,8 @@ describe('neverRed flags planted red', () => {
 // The witness scene (B8-2) plants patches that are wrong on purpose (the P3-misread, double-encoded and skip-encode
 // bytes), which may land in the red band. The designer's rule (b): a witness.* row is judged at every pixel EXCEPT its
 // planted patches' rects, rebuilt from the row's own facts (face, stage, density, font scale) through witnessLayout
-// (imported, never restated), each grown outward by 1 px for its anti-aliased edge; a planted rect is excluded only when
+// (imported, never restated) inside the insets READY's region probe reports, each grown outward by 1 px for its
+// anti-aliased edge; a planted rect is excluded only when
 // its sample's median is its paint within ±1, else it is judged in full, so a misplaced patch is never hidden. Every
 // other row kind is judged in full. The witness captures come from makeWitnessRed.mts, built with the harness's builders.
 describe('neverRed on witness rows: everything but the planted patches, rebuilt from the row', () => {
@@ -135,7 +136,7 @@ describe('neverRed on witness rows: everything but the planted patches, rebuilt 
     const m = Number(/not judged: \d+ planted patches, (\d+) px/.exec(r.report!)![1]);
     const judged = Number(/witness\.abyss\.dark: (\d+) px judged/.exec(r.report!)![1]);
     expect(m).toBeGreaterThan(0);
-    expect(m + judged).toBe(412 * (964 - 12));
+    expect(m + judged).toBe(412 * (964 - 24 - 6));
   });
 
   it('a red pixel 2 px outside a planted patch (beyond its 1 px growth) is judged: FAIL, that pixel listed', () => {
@@ -167,6 +168,7 @@ describe('neverRed on witness rows: everything but the planted patches, rebuilt 
     ['the face (expect.face)', (x: Record<string, unknown>) => withValue(x, 'expect.face', null), '"expect.face"'],
     ['the face (the scene names none)', (x: Record<string, unknown>) => withValue(x, 'scene', 'witness.abyss'), '"scene"'],
     ['the face (the scene and expect disagree)', (x: Record<string, unknown>) => withValue(x, 'expect.face', 'light'), '"expect.face"'],
+    ['the insets (READY’s region probe)', (x: Record<string, unknown>) => withValue(x, 'probes', { inside: {}, excluded: (x.probes as { excluded: unknown[] }).excluded }), '"probes.inside.region"'],
   ])('a witness row without %s, needed to rebuild its patches: exit 2, naming the field, no report', (_, edit, field) => {
     const { dir } = witness();
     editManifest(dir, (rows) => rows.map(edit));

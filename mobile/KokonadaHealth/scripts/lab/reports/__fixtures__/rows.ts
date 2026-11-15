@@ -39,6 +39,8 @@ export interface RowInput {
   readonly bars?: readonly Rect[];
   /** READY's stage probe in screen px: the app window, so the whole screen by default (UI-216). */
   readonly stage?: Rect;
+  /** READY's other probes in screen px (the witness's region probe, say), classified by the harness as it classifies the stage. */
+  readonly probes?: Readonly<Record<string, Rect>>;
   /** `wm density`, dpi: the device's px per dp is Android's density from it. */
   readonly density: number;
   readonly fontScale?: number;
@@ -104,7 +106,7 @@ export function row(input: RowInput): Record<string, unknown> {
     forceDark: false,
     colorSpace: 'sRGB',
     region: { ...region },
-    probes: classifyProbes({ stage: { px: { ...stage } } }, screen, region),
+    probes: classifyProbes({ stage: { px: { ...stage } }, ...Object.fromEntries(Object.entries(input.probes ?? {}).map(([id, px]) => [id, { px: { ...px } }])) }, screen, region),
     timestamps: { launched: '2026-11-15T00:00:00Z', ready: '2026-11-15T00:00:01Z', captured: '2026-11-15T00:00:02Z' },
     expect: { ...input.expect },
     ...renderFacts(input.expect.tier, tiers),
