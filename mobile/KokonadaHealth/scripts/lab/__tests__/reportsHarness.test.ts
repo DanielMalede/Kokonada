@@ -76,8 +76,8 @@ const loadPlan = (name: string) => JSON.parse(fs.readFileSync(path.join(PLANS, n
 
 /** Each field and fallback scene's law twin over the whole window, rendered from the scene's facts in a child node. */
 function twinsOf(plan: Plan, dir: string): Map<string, Buffer> {
-  const jobs = [...new Map(plan.shots.filter((s) => /^(field|fallback)\./.test(s.scene)).map((s) => [s.scene, s])).values()].map((s, i) => ({
-    i, scene: s.scene, field: s.scene.startsWith('field.'),
+  const jobs = [...new Map(plan.shots.filter((s) => /^(field|fallback)\./.test(s.scene)).map((s) => [twinKey(s.scene, s.expect.tier), s])).values()].map((s, i) => ({
+    i, key: twinKey(s.scene, s.expect.tier), field: s.scene.startsWith('field.'),
     shot: s.scene.startsWith('field.')
       ? { name: s.scene, scene: s.scene, direction: s.expect.direction, face: s.expect.face, hero: s.expect.hero, tier: s.expect.tier, renderScale: renderScaleFor(s.expect.tier as never), pxPerDp: K, fontScale: 1, tMs: 11000, stage: { x: 0, y: 0, width: W, height: H } }
       : { name: s.scene, scene: s.scene, direction: s.expect.direction, face: s.expect.face, fallbackScene: s.scene.split('.').slice(3).join('.'), pxPerDp: K, fontScale: 1, stage: { x: 0, y: 0, width: W, height: H } },
@@ -93,7 +93,7 @@ for (const j of JSON.parse(process.env.TWIN_JOBS)) {
     cwd: APP, encoding: 'utf8', env: { ...process.env, TWIN_JOBS: JSON.stringify(jobs), TWIN_DIR: dir }, maxBuffer: 64 * 1024 * 1024,
   });
   if (r.status !== 0) throw new Error(`the twins were not rendered (exit ${r.status}): ${r.stderr}`);
-  return new Map(jobs.map((j) => [j.scene, fs.readFileSync(path.join(dir, `${j.i}.rgba`))]));
+  return new Map(jobs.map((j) => [j.key, fs.readFileSync(path.join(dir, `${j.i}.rgba`))]));
 }
 
 function world(tmp: string) {
@@ -122,13 +122,27 @@ function world(tmp: string) {
 }
 
 /** READY for a launch, as the lab sends it: the stage the app window, the surface by the scene's kind. */
+/** A twin's key: the scene and the tier it is drawn at (a policy scene is drawn at several). */
+const twinKey = (scene: string, tier: string | null) => `${scene}|${tier}`;
+
+/**
+ * The tier the lab draws a scene at: its id's, or for a policy scene (B8-6) the motion policy's for the device: reduced
+ * motion (animator scale 0) is still, battery saver alone is low, neither is full. A fallback scene has none.
+ */
+function tierOf(scene: string, d: FakeDevice): string | null {
+  if (!scene.startsWith('field.')) return null;
+  if (!scene.endsWith('.policy')) return scene.split('.').pop()!;
+  if (d.settings.get('global/animator_duration_scale') === '0' || d.settings.get('global/animator_duration_scale') === '0.0') return 'still';
+  return d.settings.get('global/low_power') === '1' ? 'low' : 'full';
+}
+
 function ready(extras: Record<string, string>, d: FakeDevice) {
   const px = { x: 0, y: 0, width: W, height: H };
   return `I ReactNativeJS: KOKONADA_LAB READY ${JSON.stringify({
     run: extras.run, seq: 0, scene: extras.scene, clock: extras.clock, t: extras.clock === 'fixed' ? Number(extras.t) : null,
     powerSave: d.settings.get('global/low_power') === '1', pixelRatio: K,
     probes: { stage: { dp: { x: 0, y: 0, width: W / K, height: H / K }, px } },
-    isRTL: true, fontScale: Number(d.settings.get('system/font_scale')), sentinel: SENTINEL,
+    isRTL: true, fontScale: Number(d.settings.get('system/font_scale')), sentinel: SENTINEL, tier: tierOf(extras.scene, d),
     shaderStatus: extras.scene.startsWith('fallback.') ? 'fallback-scene' : 'ready', shaderReason: null,
   })}`;
 }
@@ -188,7 +202,7 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
     const twins = twinsOf(plan, fs.mkdtempSync(path.join(tmp, 'twins-')));
     let moving = false;
     run = await captureRun(plan, dir, (extras, d) => {
-      d.frames = [screenOf(twins.get(extras.scene) ?? null)];
+      d.frames = [screenOf(twins.get(twinKey(extras.scene, tierOf(extras.scene, d))) ?? null)];
       d.emit(ready(extras, d));
     }, (line, d) => {
       if (line.startsWith('am start')) moving = line.includes('--es run dark-three-full-moving-control-');
@@ -253,6 +267,47 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
   });
 });
 
+// B8-6's policy scenes: the tier is the motion policy's on the device, READY reports it, the twin is that tier's sibling.
+describe('the harness\'s v1-policy run, fed unmodified to lawParity and motion', () => {
+  const plan = loadPlan('v1-policy.json');
+  let run: Awaited<ReturnType<typeof captureRun>>;
+  beforeAll(async () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'policy-'));
+    const twins = twinsOf(plan, fs.mkdtempSync(path.join(tmp, 'policy-twins-')));
+    let moving = false;
+    run = await captureRun(plan, dir, (extras, d) => {
+      d.frames = [screenOf(twins.get(twinKey(extras.scene, tierOf(extras.scene, d))) ?? null)];
+      d.emit(ready(extras, d));
+    }, (line, d) => {
+      if (line.startsWith('am start')) moving = /--es run \S+-moving-/.test(line);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && moving) d.gfxFrames = 1200;
+    });
+  });
+
+  it('every row records the tier the policy picked, which is its expect\'s', () => {
+    expect(run.manifest.outcome).toBe('passed');
+    for (const row of run.manifest.rows) expect([row.shot, row.motion.tier]).toEqual([row.shot, row.expect.tier]);
+    expect(new Set(run.manifest.rows.map((r: { motion: { tier: string } }) => r.motion.tier))).toEqual(new Set(['full', 'low', 'still']));
+  });
+
+  it('lawParity holds every fixed policy row to its tier\'s twin: PASS, the real-time rows named', () => {
+    const fixed = plan.shots.filter((s) => (s as unknown as { args: { clock: string } }).args.clock === 'fixed');
+    const n = fixed.reduce((k, s) => k + s.repeat, 0);
+    const rt = plan.shots.length - fixed.length;
+    expect(n).toBeGreaterThanOrEqual(14);
+    const r = report('lawParity.mts', ['--manifest', run.manifestPath], path.join(tmp, 'policy-parity.txt'));
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(r.report!.split(/\r?\n/).filter((l) => /^row \S+ field\.abyss\.(dark|light)\.[\w.]+\.policy: field twin, \d+ px compared, max \|Δ\| 0, over 1: 0$/.test(l))).toHaveLength(n);
+    expect(last(r.report)).toBe(`PASS: ${n} rows within ±1 of their twins (${n} field, 0 fallback); ${rt} rows not compared, named above`);
+  });
+
+  it('motion accepts it: the still proofs and their controls', () => {
+    const r = report('motion.mts', ['--plan', path.join(PLANS, 'v1-policy.json'), '--manifest', run.manifestPath], path.join(tmp, 'policy-motion.txt'));
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(r.report).toContain('dark-three-policy-reduced-still: 0 frames in 10 s (PASS)');
+  });
+});
+
 // UI-210's near.* scenes are field scenes of the catalogue: a near capture must be comparable with its twin too.
 describe('the harness\'s v1-near run, fed unmodified to lawParity and neverRed', () => {
   const plan = loadPlan('v1-near.json');
@@ -261,7 +316,7 @@ describe('the harness\'s v1-near run, fed unmodified to lawParity and neverRed',
     const dir = fs.mkdtempSync(path.join(tmp, 'near-'));
     const twins = twinsOf(plan, fs.mkdtempSync(path.join(tmp, 'near-twins-')));
     run = await captureRun(plan, dir, (extras, d) => {
-      d.frames = [screenOf(twins.get(extras.scene) ?? null)];
+      d.frames = [screenOf(twins.get(twinKey(extras.scene, tierOf(extras.scene, d))) ?? null)];
       d.emit(ready(extras, d));
     });
   });
