@@ -171,6 +171,9 @@ export function readCaptureRow(row: unknown, report: string): CaptureRow {
 const WHOLE_PX = 1e-3;
 const isWhole = (v: number) => Math.abs(v - Math.round(v)) <= WHOLE_PX;
 
+/** The last segment of a policy scene's id (src/design/lab/fieldScenes.ts POLICY_SUFFIX, B8-6). */
+const POLICY = 'policy';
+
 /**
  * The stage: READY's stage rect in screen px, placed on the PNG (its top left from the PNG's, in whole pixels; negative
  * where the window reaches under a system bar above the app region). It must share pixels with the app region: the
@@ -245,8 +248,15 @@ export function readFieldShot(row: unknown, report: string): FieldShot {
   if (!Object.prototype.hasOwnProperty.call(HERO, hero)) refuse(r, report, 'expect.hero', `is not a hero scene: ${JSON.stringify(hero)}`);
   const tier = needString(r, report, 'expect.tier');
   if (!TIERS.includes(tier as Tier)) refuse(r, report, 'expect.tier', `must be full, low or still, got ${JSON.stringify(tier)}`);
-  const id = `field.${direction}.${face}.${hero}.${tier}`;
+  // B8-6: a policy scene's id names no tier (the motion policy picks it on the device): its expect.tier is the tier the
+  // shot's device state implies, READY must have observed that tier (motion.tier), and its twin is the sibling scene at it.
+  const policy = cap.scene.endsWith(`.${POLICY}`);
+  const id = `field.${direction}.${face}.${hero}.${policy ? POLICY : tier}`;
   if (cap.scene !== id) refuse(r, report, 'scene', `is ${JSON.stringify(cap.scene)}, but expect names ${id}`);
+  if (policy) {
+    const observed = isObject(r.motion) ? r.motion.tier : undefined;
+    if (observed !== tier) refuse(r, report, 'motion.tier', `is ${JSON.stringify(observed ?? null)}, but the manifest field "expect.tier" is ${JSON.stringify(tier)}: the motion policy did not pick the tier the shot's device state implies`);
+  }
   // The frame time READY says it drew: the twin of a still needs the fixed clock and its t.
   const mode = needString(r, report, 'clock.mode');
   if (mode !== 'fixed') refuse(r, report, 'clock.mode', `is ${JSON.stringify(mode)}: a still's twin needs the fixed clock`);
