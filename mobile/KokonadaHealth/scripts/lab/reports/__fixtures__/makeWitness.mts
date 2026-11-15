@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { renderFacts } from '../../capture.mjs';
 import { validateRow } from '../../lib/manifest.mjs';
+import { classifyProbes } from '../../lib/protocol.mjs';
 import { encodePng } from '../../lib/png.mjs';
 import { registerTsResolve } from '../lib/tsResolve.mjs';
 
@@ -31,7 +32,14 @@ const { fieldPixel } = await import('../../../../src/design/v2/field/fieldLaw.ts
 
 type Bytes = readonly [number, number, number];
 type Plant = { kind: string; colour?: string; paint?: string; delta?: Bytes };
-type RowOptions = { face: 'dark' | 'light'; colorMode: string | null; density?: number; plants?: Plant[] };
+type Insets = { top: number; right: number; bottom: number; left: number };
+/**
+ * geometry 'dryRun': the S22+ of the dry run, edge to edge: a 1080 × 2340 px screen at density 420 (2.625 px per dp), the
+ * stage the whole screen, the app region the screen less the status bar (0–74 px) and the navigation bar (2301–2340 px),
+ * and the scene's insets the measured top (74 px) and the 48 dp bound at the bottom. Otherwise a 412 × 916 dp stage inside
+ * the app region under a 6 px strip, with no insets. `layoutInsets` (dp) replaces the insets the scene laid out with.
+ */
+type RowOptions = { face: 'dark' | 'light'; colorMode: string | null; density?: number; plants?: Plant[]; geometry?: 'dryRun'; layoutInsets?: Insets };
 type Options = { rows: RowOptions[]; outcome?: 'passed' | 'failed'; smoke?: boolean };
 
 // No process.exit(): this script loads CanvasKit (reportsCanvasKitExit.test.ts).
@@ -51,37 +59,48 @@ const H = (c: string) => c.repeat(64);
 fs.mkdirSync(out, { recursive: true });
 const rows: Record<string, unknown>[] = [];
 for (const [n, r] of options.rows.entries()) {
-  const density = r.density ?? 80;
+  const dry = r.geometry === 'dryRun';
+  const density = dry ? 420 : (r.density ?? 80);
   const k = density / 160;
-  const stagePx = { width: DP.width * k, height: DP.height * k };
-  const region = { x: 0, y: 24, width: Math.ceil(stagePx.width), height: Math.ceil(stagePx.height) + STRIP };
-  const stage = { x: 0, y: region.y + STRIP, width: stagePx.width, height: stagePx.height };
-  const layout = witnessLayout(r.face, DP.width, DP.height, k, 1);
+  // Screen px: the screen, the app region the capture keeps (the PNG), and READY's stage.
+  const screen = dry ? { width: 1080, height: 2340 } : { width: Math.ceil(DP.width * k), height: 24 + STRIP + Math.ceil(DP.height * k) };
+  const region = dry ? { x: 0, y: 74, width: 1080, height: 2301 - 74 } : { x: 0, y: 24, width: Math.ceil(DP.width * k), height: Math.ceil(DP.height * k) + STRIP };
+  const stage = dry ? { x: 0, y: 0, width: 1080, height: 2340 } : { x: 0, y: region.y + STRIP, width: DP.width * k, height: DP.height * k };
+  const insets: Insets = r.layoutInsets ?? (dry ? { top: 74 / k, right: 0, bottom: 48, left: 0 } : { top: 0, right: 0, bottom: 0, left: 0 });
+  const layout = witnessLayout(r.face, stage.width / k, stage.height / k, k, 1, insets);
   const rgba = new Uint8Array(region.width * region.height * 4).fill(255);
-  const put = (x: number, y: number, c: Bytes) => rgba.set([c[0], c[1], c[2], 255], ((y + STRIP) * region.width + x) * 4);
+  /** A stage px (its column and row from the stage's origin) on the PNG, or nothing when the capture leaves it out. */
+  const put = (x: number, y: number, c: Bytes) => {
+    const px = Math.floor(stage.x) + x - region.x;
+    const py = Math.floor(stage.y) + y - region.y;
+    if (px < 0 || py < 0 || px >= region.width || py >= region.height) return;
+    rgba.set([c[0], c[1], c[2], 255], (py * region.width + px) * 4);
+  };
+  const get = (x: number, y: number): Bytes => {
+    const i = ((Math.floor(stage.y) + y - region.y) * region.width + (Math.floor(stage.x) + x - region.x)) * 4;
+    return [rgba[i], rgba[i + 1], rgba[i + 2]];
+  };
+  const stagePx = { width: Math.floor(stage.width), height: Math.floor(stage.height) };
   const add = (c: Bytes, d: Bytes | undefined): Bytes => (d ? [c[0] + d[0], c[1] + d[1], c[2] + d[2]].map((v) => Math.min(255, Math.max(0, v))) as unknown as Bytes : c);
   /** The stage px whose centres lie in a dp rect. */
   const pixelsIn = (rect: { x: number; y: number; width: number; height: number }) => {
     const xs: number[] = [];
     const ys: number[] = [];
-    for (let x = 0; x < Math.floor(stagePx.width); x++) if ((x + 0.5) / k >= rect.x && (x + 0.5) / k < rect.x + rect.width) xs.push(x);
-    for (let y = 0; y < Math.floor(stagePx.height); y++) if ((y + 0.5) / k >= rect.y && (y + 0.5) / k < rect.y + rect.height) ys.push(y);
+    for (let x = 0; x < stagePx.width; x++) if ((x + 0.5) / k >= rect.x && (x + 0.5) / k < rect.x + rect.width) xs.push(x);
+    for (let y = 0; y < stagePx.height; y++) if ((y + 0.5) / k >= rect.y && (y + 0.5) / k < rect.y + rect.height) ys.push(y);
     return { xs, ys };
   };
 
   // W1b, the production field, noise-free, over the whole stage.
   const w1b = w1bFrame(r.face, layout.field, k, layout.renderScale);
   const frame = noiseFree(w1b.frame);
-  for (let y = 0; y < Math.floor(stagePx.height); y++) {
-    for (let x = 0; x < Math.floor(stagePx.width); x++) put(x, y, fieldPixel(frame, (x + 0.5) * layout.renderScale, (y + 0.5) * layout.renderScale));
+  for (let y = 0; y < stagePx.height; y++) {
+    for (let x = 0; x < stagePx.width; x++) put(x, y, fieldPixel(frame, (x + 0.5) * layout.renderScale, (y + 0.5) * layout.renderScale));
   }
   const w1bPlant = r.plants?.find((p) => p.kind === 'W1b');
   if (w1bPlant) {
     const { xs, ys } = pixelsIn(layout.w1b.sample);
-    for (const y of ys) for (const x of xs) {
-      const i = ((y + STRIP) * region.width + x) * 4;
-      put(x, y, add([rgba[i], rgba[i + 1], rgba[i + 2]], w1bPlant.delta));
-    }
+    for (const y of ys) for (const x of xs) put(x, y, add(get(x, y), w1bPlant.delta));
   }
   // Every patch, flat in its bytes, with its plant.
   for (const p of layout.patches) {
@@ -102,7 +121,7 @@ for (const [n, r] of options.rows.entries()) {
     shot, repeat: 1, file, sha256: sha256(png), appRegionHash: H('2'),
     commit: { sha: 'a'.repeat(40), porcelainEmpty: true },
     stamp: { bundleSha256: H('3'), tokens: {} },
-    device: { model: 'fixture', fingerprint: 'fixture/planted', width: region.width, height: region.y + region.height, density, refreshRate: 120 },
+    device: { model: 'fixture', fingerprint: 'fixture/planted', width: screen.width, height: screen.height, density, refreshRate: 120 },
     app: { package: 'com.kokonadahealth.lab', apkSha256: H('4'), buildType: 'lab', hermes: true, dev: false },
     scene: witnessSceneId(r.face), direction: WITNESS_DIRECTION, face: r.face,
     fontScale: { requested: 1, observed: 1, app: 1 },
@@ -112,7 +131,11 @@ for (const [n, r] of options.rows.entries()) {
     shaderStatus: 'ready',
     uimode: r.face === 'dark' ? 'night' : 'day', animatorScales: { window: 1, transition: 1, animator: 1 }, forceDark: false, colorSpace: 'sRGB',
     region,
-    probes: { inside: { stage: { x: 0, y: stage.y, width: Math.ceil(stage.width), height: Math.ceil(stage.height) } }, excluded: [] },
+    // READY's stage and region probes (the stage minus the insets the scene laid out with), classified by the harness.
+    probes: classifyProbes({
+      stage: { px: stage },
+      region: { px: { x: stage.x + insets.left * k, y: stage.y + insets.top * k, width: stage.width - (insets.left + insets.right) * k, height: stage.height - (insets.top + insets.bottom) * k } },
+    }, screen, region),
     timestamps: { launched: '2026-11-15T00:00:00.000Z', ready: '2026-11-15T00:00:01.000Z', captured: '2026-11-15T00:00:02.000Z' },
     expect: { direction: WITNESS_DIRECTION, face: r.face, hero: WITNESS_HERO, tier: WITNESS_TIER },
     ...renderFacts(WITNESS_TIER, tiers),

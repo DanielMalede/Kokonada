@@ -147,6 +147,24 @@ describe('classifyProbes (QA-038)', () => {
     expect(r.excluded).toEqual([{ id: 'planted', reason: 'partly outside the screen', px: { x: 90, y: 50, width: 20, height: 20 } }]);
   });
 
+  // The S22+ dry run: READY measured the full-screen stage at 2340.0000458 px on a 2340 px screen (dp × the pixel ratio
+  // in floating point). Within 1 px, the same tolerance the stage check uses, an edge is the screen's or the region's.
+  it('takes an edge within 1 px of the screen or the app region as on it, and keeps the probe inside them', () => {
+    const r = classifyProbes({ plate: px(0, 20, 100, 170.0000458), wide: px(-0.6, 30, 100.9, 20) }, screen, app);
+    expect(r.inside).toEqual({ plate: { x: 0, y: 20, width: 100, height: 170 }, wide: { x: 0, y: 30, width: 100, height: 20 } });
+    expect(r.excluded).toEqual([]);
+  });
+
+  it('a full-screen stage a hair past the screen is under the system bars, not outside the screen', () => {
+    const r = classifyProbes({ stage: px(0, 0, 100, 200.0000458) }, screen, app);
+    expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([['stage', 'partly under the system bars']]);
+  });
+
+  it('more than 1 px past an edge is still outside it', () => {
+    const r = classifyProbes({ over: px(0, 20, 101.5, 10), under: px(0, 8.5, 10, 10) }, screen, app);
+    expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([['over', 'partly outside the screen'], ['under', 'partly under the system bars']]);
+  });
+
   it('excludes and reports a probe under the system bars, and one with no size', () => {
     const r = classifyProbes({ stage: px(0, 0, 100, 200), dot: px(5, 50, 0, 0) }, screen, app);
     expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([

@@ -36,7 +36,7 @@ beforeAll(() => {
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
 type Plant = { kind: string; colour?: string; paint?: string; delta?: number[] };
-type RowOpt = { face: 'dark' | 'light'; colorMode: string | null; density?: number; plants?: Plant[] };
+type RowOpt = { face: 'dark' | 'light'; colorMode: string | null; density?: number; plants?: Plant[]; geometry?: 'dryRun'; layoutInsets?: { top: number; right: number; bottom: number; left: number } };
 
 function make(rows: RowOpt[], extra: Record<string, unknown> = {}): string {
   const dir = fs.mkdtempSync(path.join(root, 'run-'));
@@ -177,6 +177,47 @@ describe('byte evidence only in the sRGB/Natural mode', () => {
     expect(r.status).toBe(0);
     expect(section(r.report!, 'witness-light-1.1')).toHaveLength(1);
     expect(last(r.report)).toBe('PASS: 1 witness rows of byte evidence; every true path shows its token and every separating wrong path is seen');
+  });
+});
+
+describe('the witness inside the capture region (the RTL fix: insets from READY’s region probe)', () => {
+  // The dry run's S22+: edge to edge, the stage the whole 1080 × 2340 px screen at 2.625 px per dp; the app region the
+  // screen less the status bar (0–74 px) and the navigation bar (2301–2340 px); the scene's insets the measured top 74 px
+  // and the 48 dp bound at the bottom (126 px), which READY's region probe carries.
+  it('the dry run’s geometry: the stage outside the app region is not refused, the insets come from the region probe, every judgement passes', () => {
+    const dir = make([{ face: 'dark', colorMode: SRGB, geometry: 'dryRun' }]);
+    const m = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+    expect(validateRow(m.rows[0])).toEqual([]);
+    expect(m.rows[0].stage).toEqual({ x: 0, y: 0, width: 1080, height: 2340 });
+    expect(m.rows[0].region).toEqual({ x: 0, y: 74, width: 1080, height: 2227 });
+    const r = run(dir);
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    const s = section(r.report!, 'witness-dark-0.1');
+    expect(s).toContain('  layout: stage 1080 × 2340 px at 2.625 px per dp; insets from the region probe: top 74, right 0, bottom 126, left 0 px');
+    expect(s[s.length - 1]).toBe('  PASS');
+  });
+
+  it('the guard: at the dry run’s insets the layout differs from the layout with none, so the insets matter', () => {
+    const k = 2.625;
+    const withInsets = witnessLayout('dark', 1080 / k, 2340 / k, k, 1, { top: 74 / k, right: 0, bottom: 48, left: 0 });
+    const without = witnessLayout('dark', 1080 / k, 2340 / k, k, 1);
+    expect(withInsets.patches.map((p) => p.rect)).not.toEqual(without.patches.map((p) => p.rect));
+  });
+
+  it('a scene that laid out under the status bar (no insets): a sample square outside the app region is refused, exit 2', () => {
+    const dir = make([{ face: 'dark', colorMode: SRGB, geometry: 'dryRun', layoutInsets: { top: 0, right: 0, bottom: 0, left: 0 } }]);
+    const r = run(dir);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/witness-dark-0\.1: the sample of \S+ \S+ .* lies outside the app region/);
+    expect(r.report).toBeNull();
+  });
+
+  it('a witness row with no region probe: exit 2, naming "probes.inside.region"', () => {
+    const dir = make([{ face: 'dark', colorMode: SRGB }]);
+    editRows(dir, (rows) => rows.map((x) => without(x, 'probes.inside.region')));
+    const r = run(dir);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('"probes.inside.region"');
   });
 });
 
