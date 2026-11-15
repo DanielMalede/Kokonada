@@ -272,9 +272,13 @@ async function main(): Promise<number> {
 }
 
 main().then(
-  (code) => process.exit(code),
+  (code) => {
+    // exitCode, never process.exit(): exiting while CanvasKit's WebAssembly still has background work trips a libuv
+    // assertion on Windows (libuv src/win/async.c, "!(handle->flags & UV_HANDLE_CLOSING)", exit 127 or 0xC0000409).
+    process.exitCode = code;
+  },
   (e) => {
     process.stderr.write(`${REPORT}: ${e instanceof EvidenceInputError ? '' : 'could not run: '}${e instanceof Error ? e.message : String(e)}\n`);
-    process.exit(2);
+    process.exitCode = 2;
   },
 );
