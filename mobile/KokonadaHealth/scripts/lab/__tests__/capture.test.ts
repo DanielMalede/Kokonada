@@ -3,7 +3,10 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, checkBuild, Refused, renderFacts, surfaceRule, tierProblem, validatePlan } from '../capture.mjs';
+import { spawnSync } from 'node:child_process';
+import { capture, checkBuild, Refused, renderFacts, surfaceRule, tierProblem, validatePlan, witnessProblems, witnessSampleProblems } from '../capture.mjs';
+import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
+import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
 import { validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
@@ -28,6 +31,8 @@ class LabDevice extends FakeDevice {
   recording: Buffer = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(52, 7)]);
   recorded: string[][] = [];
   files = new Map<string, Buffer>();
+  // A phone of another size, with its own bars (the witness row check needs room for its layout); null: the fixture's.
+  screen: { width: number; height: number; statusBar: number; navBar: number } | null = null;
   // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
   // were logged, a little later.
   logDelayMs = 2;
@@ -39,6 +44,15 @@ class LabDevice extends FakeDevice {
       this.recorded.push(args);
       this.files.set(args[args.length - 1], this.recording);
       return '';
+    }
+    if (this.screen && args.join(' ') === 'wm size') { this.commands.push('wm size'); return `Physical size: ${this.screen.width}x${this.screen.height}\n`; }
+    if (this.screen && args.join(' ') === 'dumpsys window') {
+      this.commands.push('dumpsys window');
+      const { width, height, statusBar, navBar } = this.screen;
+      return [
+        `      InsetsSource id=1 type=statusBars frame=[0,0][${width},${statusBar}] visible=true mFlags=[]`,
+        `      InsetsSource id=2 type=navigationBars frame=[0,${height - navBar}][${width},${height}] visible=true mFlags=[]`,
+      ].join('\n');
     }
     if (args[0] === 'rm' && args[1] === '-f') { this.commands.push(args.join(' ')); this.files.delete(args[2]); return ''; }
     if (args[0] === 'log' && args[1] === '-t' && args[2] === 'ReactNativeJS') {
@@ -1111,5 +1125,98 @@ describe('the settle check: still shots keep it, moving shots are listed instead
   it('a moving shot must launch once: its frames differ by design, so a repeat could never match', () => {
     expect(validatePlan(planOf(moving({ repeat: 2 }))).join()).toMatch(/shots\[0\]\.repeat must be 1 for a shot allowed to move/);
     expect(validatePlan(planOf(moving()))).toEqual([]);
+  });
+});
+
+// The witness row check (the designer's witness BLOCK, 2026-11-15; the witness developer's spec). For every witness.*
+// shot, after checkReady and the stage check and before anything is kept, the harness rebuilds the witness layout from
+// READY (the stage in dp, its px per dp and font scale, and the insets the region probe leaves, each a whole px) and
+// refuses the row when: a probe did not land where the layout put it (witnessProbeProblems: a mirrored View), the region
+// probe or a W1a or W3 probe is not inside the app region within 1 px, or a sample square (every patch and W1b) is
+// outside the app region. Here on a 412 × 916 px phone at 1 px per dp, its status bar 24 px and navigation bar 48 px.
+describe('the witness row check', () => {
+  const W = { width: 412, height: 916 };
+  const INSETS = { top: 24, right: 0, bottom: 48, left: 0 };
+  const WITNESS = { witnessLayout, witnessProbeProblems };
+  const rectPx = (r: { x: number; y: number; width: number; height: number }) => ({ dp: { ...r }, px: { ...r } });
+  /** READY's probes as the scene would measure them at k 1: stage, region, and each W1a and W3 patch where the layout put it. */
+  const probesOf = (insets = INSETS, regionDp = { x: insets.left, y: insets.top, width: W.width - insets.left - insets.right, height: W.height - insets.top - insets.bottom }) => {
+    const layout = witnessLayout('dark', W.width, W.height, 1, 1, insets);
+    const probes: Record<string, unknown> = { stage: rectPx({ x: 0, y: 0, ...W }), region: rectPx(regionDp) };
+    for (const p of layout.patches) if (p.kind === 'W1a' || p.kind === 'W3') probes[`${p.kind}.${p.colour}`] = rectPx(p.rect);
+    return { layout, probes };
+  };
+  const witnessWorld = (probes: Record<string, unknown>, statusBar = 24) => {
+    const w = world();
+    w.device.screen = { ...W, statusBar, navBar: 48 };
+    w.device.frames = [() => rawFrame(() => [20, 30, 40, 255], 1, W.width, W.height)];
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null, pixelRatio: 1, probes }));
+    return w;
+  };
+  const shot = fieldShot('wd', 'witness.abyss.dark', { probes: ['stage', 'region'], expect: { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' } });
+
+  it('a READY whose probes show the layout passes, and its row is kept', async () => {
+    const { probes } = probesOf();
+    const w = witnessWorld(probes);
+    const { manifest } = await w.run({ plan: planOf(shot), witness: WITNESS });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.rows).toHaveLength(1);
+  });
+
+  it('a READY whose W1a probe sits mirrored (RTL moved the View) is refused, and no row is kept', async () => {
+    const { layout, probes } = probesOf();
+    const w1a = layout.patches.find((p) => p.kind === 'W1a' && p.rect.x + p.rect.width / 2 !== W.width / 2)!;
+    probes[`W1a.${w1a.colour}`] = rectPx({ ...w1a.rect, x: W.width - w1a.rect.x - w1a.rect.width });
+    const manifest = await refusedRun(witnessWorld(probes), planOf(shot), new RegExp(`wd: the witness row does not show its layout: .*probe W1a\\.${w1a.colour} landed`));
+    expect(manifest.rows).toEqual([]);
+  });
+
+  it('an inset off by a float rounding (StatusBar.currentHeight in float32) passes', async () => {
+    const { probes } = probesOf(INSETS, { x: 0, y: 23.999998, width: W.width, height: W.height - 24 - 48 + 0.000002 });
+    const w = witnessWorld(probes);
+    const { manifest } = await w.run({ plan: planOf(shot), witness: WITNESS });
+    expect(manifest.outcome).toBe('passed');
+  });
+
+  it('a sample square under the status bar is refused, naming it', async () => {
+    const { probes } = probesOf();
+    await refusedRun(witnessWorld(probes, 300), planOf(shot), /wd: the witness row does not show its layout: .*sample square is outside the app region/);
+  });
+
+  it('the region probe or a probed patch outside the app region by more than 1 px is refused; within 1 px passes', () => {
+    const { probes } = probesOf();
+    const ready = { pixelRatio: 1, fontScale: 1, probes };
+    const app = { x: 0, y: 24, width: W.width, height: W.height - 72 };
+    expect(witnessProblems({ face: 'dark', ready, region: app, witness: WITNESS })).toEqual([]);
+    expect(witnessProblems({ face: 'dark', ready, region: { ...app, y: 25, height: app.height - 1 }, witness: WITNESS })).toEqual([]);
+    expect(witnessProblems({ face: 'dark', ready, region: { ...app, y: 26, height: app.height - 2 }, witness: WITNESS }).join('\n'))
+      .toMatch(/probe region is not inside the app region within 1 px/);
+  });
+
+  it('a sample square outside the app region is refused on its own, though every probe is inside', () => {
+    const { layout, probes } = probesOf();
+    const ready = { pixelRatio: 1, fontScale: 1, probes };
+    const lowest = Math.max(...layout.patches.map((p) => p.sample.y + p.sample.height), layout.w1b.sample.y + layout.w1b.sample.height);
+    // an app region that ends 2 px above the lowest sample square, with every probe and the region inside it within 1 px:
+    // only reachable when the probes are clipped, so the check is called on its own here
+    expect(witnessSampleProblems(layout, probes.stage as { px: { x: number; y: number } }, { x: 0, y: 24, width: W.width, height: lowest - 2 - 24 }).join('\n'))
+      .toMatch(/sample square is outside the app region/);
+    expect(witnessSampleProblems(layout, probes.stage as { px: { x: number; y: number } }, { x: 0, y: 24, width: W.width, height: W.height - 72 })).toEqual([]);
+  });
+
+  it('a READY with no region probe, or no pixel ratio, cannot be checked and is refused', () => {
+    const { probes } = probesOf();
+    const app = { x: 0, y: 24, width: W.width, height: W.height - 72 };
+    const noRegion = { ...probes };
+    delete noRegion.region;
+    expect(witnessProblems({ face: 'dark', ready: { pixelRatio: 1, fontScale: 1, probes: noRegion }, region: app, witness: WITNESS }).join()).toMatch(/region/);
+    expect(witnessProblems({ face: 'dark', ready: { fontScale: 1, probes }, region: app, witness: WITNESS }).join()).toMatch(/pixelRatio/);
+  });
+
+  it('the CLI loads the real witness modules through tsResolve (no injection)', () => {
+    const script = "import('./scripts/lab/capture.mjs').then(async (m) => { const w = await m.loadWitness(process.cwd()); const l = w.witnessLayout('dark', 412, 916, 1, 1, { top: 24, right: 0, bottom: 48, left: 0 }); console.log(JSON.stringify({ patches: l.patches.length, problems: w.witnessProbeProblems(l, {}).length })); })";
+    const r = spawnSync(process.execPath, ['-e', script], { cwd: path.resolve(__dirname, '../../..'), encoding: 'utf8' });
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout.trim())).toEqual({ patches: 30, problems: 1 });
   });
 });
