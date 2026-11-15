@@ -568,4 +568,135 @@ describe('the frame cap (UI-171)', () => {
     expect(low.fades).toHaveLength(full.fades.length);
     low.fades.forEach((f, i) => expect(f).toBeCloseTo(full.fades[i], 6));
   });
+
+  // RA-39 (resilience B4 re-audit, UI-229; the designer's ruling): only a change of the taps or of the layout (the size,
+  // pxPerDp, the plate's centre and radius, the font scale, the quiet rects; the render scale with them) is drawn at once:
+  // the rim, the words and the beads move on the same layout pass, so a field that waited for the cap would tear for a
+  // frame. Every other prop (stress, confidence, genesis, the quiet presence values) waits for the cap's next frame, so a
+  // prop animated from JS on every frame cannot lift the low tier off its cap. A wake still wakes (RA-22), and the first
+  // frame after a wake from sleep is drawn.
+  const QUIET = [{ x: 20, y: 20, width: 40, height: 20 }, { x: 200, y: 500, width: 60, height: 30 }];
+  const quietLayout = { ...baseProps().layout, quietRects: QUIET };
+  /** A prop changed before each of 24 frames at 120 Hz; the builds counted. */
+  const storm = (tier: 'full' | 'low', over: (i: number) => Partial<FieldViewProps>) => {
+    const r = mount(baseProps({ tier, taps: [A], ...over(0) }));
+    for (let i = 1; i <= 24; i++) {
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A], ...over(i) })} />));
+      act(() => reanimated.__frame(HZ120));
+    }
+    const builds = counts.build;
+    for (const m of mounted.splice(0)) act(() => m.unmount());
+    counts.build = 0;
+    return builds;
+  };
+  const STORMS: Record<string, (i: number) => Partial<FieldViewProps>> = {
+    stress: (i) => ({ stress: i / 24 }),
+    confidence: (i) => ({ confidence: (i % 10) / 10 }),
+    genesis: (i) => ({ genesis: i % 2 === 0 }),
+    'quiet presence values': (i) => ({ layout: quietLayout, quietPresence: [i / 24, 1 - i / 24] }),
+    'every one of them at once': (i) => ({ stress: i / 24, confidence: (i % 10) / 10, genesis: i % 2 === 0, layout: quietLayout, quietPresence: [i / 24, 1 - i / 24] }),
+    'the same layout, a new object every render': () => ({ layout: { ...quietLayout, centre: [180, 300], quietRects: QUIET.map((q) => ({ ...q })) } }),
+  };
+
+  it('RA-39: a prop that changes on every 120 Hz frame keeps the low tier on its cap: at most 13 builds of 24', () => {
+    for (const [name, over] of Object.entries(STORMS)) {
+      const builds = storm('low', over);
+      expect([name, builds >= 12 && builds <= 13]).toEqual([name, true]);
+    }
+  });
+
+  it('RA-39: at full nothing changes: the same storms build on every frame', () => {
+    for (const [name, over] of Object.entries(STORMS)) expect([name, storm('full', over)]).toEqual([name, 24]);
+  });
+
+  it('RA-39: a stress change on a frame the cap skips is drawn on the next frame the cap allows', () => {
+    const weight = (u: readonly number[]) => u.slice(OFFSET.uWeight, OFFSET.uWeight + 4);
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    const before = uniformsOf(r)!;
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A], stress: 1 })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    expect(uniformsOf(r)).toBe(before);
+    frames(1, HZ120);
+    expect(counts.build).toBe(2);
+    expect(weight(uniformsOf(r)!)).not.toEqual(weight(before));
+    // and it is the stressed frame: the same as a field mounted at stress 1
+    const settled = weight(uniformsOf(r)!);
+    for (const m of mounted.splice(0)) act(() => m.unmount());
+    const fresh = mount(baseProps({ tier: 'low', taps: [A], stress: 1 }));
+    frames(1, HZ120);
+    expect(weight(uniformsOf(fresh)!)).toEqual(settled);
+  });
+
+  it('RA-39: a taps change is still drawn on its first frame, in the middle of a stress storm', () => {
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A], stress: 0.5 })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A, B], stress: 0.6 })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(2);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A, B], stress: 0.7 })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(2);
+  });
+
+  it('RA-39: each layout change at low is drawn on its first frame, though the cadence would skip it', () => {
+    const base = baseProps().layout;
+    const layouts: Array<Partial<FieldViewProps>> = [
+      { layout: { ...base, width: 640, height: 360 } },
+      { layout: { ...base, centre: [180, 280] } },
+      { layout: { ...base, radius: 150 } },
+      { layout: { ...base, fontScale: 1.3 } },
+      { layout: { ...base, quietRects: QUIET } },
+      { layout: { ...base, quietRects: [QUIET[0], { ...QUIET[1], y: 300 }] } },
+      { layout: { ...base, quietRects: [QUIET[0]] } },
+      { layout: base, pxPerDp: 3 },
+      { layout: base, pxPerDp: 3, renderScale: 0.4 },
+    ];
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    layouts.forEach((over, i) => {
+      act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A], ...over })} />));
+      frames(1, HZ120);
+      expect([i, counts.build]).toEqual([i, i + 2]);
+    });
+    // and with the layout held, the cap again
+    frames(4, HZ120);
+    expect(counts.build).toBe(layouts.length + 1 + 2);
+  });
+
+  it('RA-39: a still field asleep, woken by a stress change, draws on its first frame', () => {
+    const r = mount(baseProps({ tier: 'still', taps: [A] }));
+    frames(3);
+    expect(reanimated.__active()).toBe(0);
+    const asleep = counts.build;
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], stress: 0.8 })} />));
+    expect(reanimated.__active()).toBe(1);
+    frames(1);
+    expect(counts.build).toBe(asleep + 1);
+  });
+
+  // Only the still tier sleeps, so a capped tier is woken from sleep only by the tier change itself. The still's frames
+  // leave the cap no schedule, so the first frame of the capped tier is drawn however soon it comes after the last
+  // capped draw: here 4 ms after it, inside the period the old low schedule would still skip.
+  it('RA-39: low, then asleep at still, then woken to low 4 ms after the last low draw: that first frame is drawn', () => {
+    const r = mount(baseProps({ tier: 'low', taps: [A] }));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A] })} />));
+    frames(1, 2);
+    expect([counts.build, reanimated.__active()]).toEqual([2, 0]);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A] })} />));
+    expect(reanimated.__active()).toBe(1);
+    frames(1, 2);
+    expect(counts.build).toBe(3);
+    // and low's cadence from that frame
+    frames(1, HZ120);
+    expect(counts.build).toBe(3);
+    frames(1, HZ120);
+    expect(counts.build).toBe(4);
+  });
 });
