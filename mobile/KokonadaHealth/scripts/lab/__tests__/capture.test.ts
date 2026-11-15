@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { capture, checkBuild, Refused, renderFacts, surfaceRule, tierProblem, validatePlan, witnessProblems, witnessSampleProblems } from '../capture.mjs';
+import { capture, checkBuild, Refused, renderFacts, surfaceProblem, surfaceRule, tierProblem, validatePlan, witnessProblems, witnessSampleProblems } from '../capture.mjs';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
 import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
@@ -161,7 +161,8 @@ function world({ head = SHA, porcelain = '', installed = 'same' as 'same' | 'oth
   const run = (overrides: Record<string, unknown> = {}) => capture({
     plan: PLAN, appRoot, repoRoot, outDir, apkPath, adb: device,
     git: { head: () => head, porcelain: () => porcelain },
-    sleep: async () => {}, log: () => {}, ...overrides,
+    // The lab's real witness modules (src/design/lab/witness/), as the CLI loads them through tsResolve.
+    sleep: async () => {}, log: () => {}, witness: { witnessLayout, witnessProbeProblems }, ...overrides,
   });
   const mutations = () => device.commands.filter((c) => /^(settings put|settings delete|cmd uimode night \w|svc |dumpsys battery|am start)/.test(c));
   return { tmp, repoRoot, appRoot, apkPath, device, outDir, before, run, mutations };
@@ -722,7 +723,9 @@ describe('the surface rules of the B8 scene prefixes (UI-223)', () => {
     const ok = world();
     readyAs(ok, { shaderStatus: 'ready', shaderReason: null });
     const shot = fieldShot('s', scene, { expect: NO_SCENE });
-    expect((await ok.run({ plan: planOf(shot) })).manifest.outcome).toBe('passed');
+    // A witness READY must also show its layout (the witness row check, below), which this READY does not carry.
+    if (scene.startsWith('witness.')) expect(surfaceProblem(scene, { shaderStatus: 'ready' })).toBeNull();
+    else expect((await ok.run({ plan: planOf(shot) })).manifest.outcome).toBe('passed');
     const bad = world();
     readyAs(bad, { shaderStatus: 'fallback', shaderReason: 'the field shader did not compile' });
     await refusedRun(bad, planOf(shot), /s: READY says shaderStatus "fallback" \(the field shader did not compile\)/);
@@ -1195,7 +1198,6 @@ describe('the witness row check', () => {
 
   it('a sample square outside the app region is refused on its own, though every probe is inside', () => {
     const { layout, probes } = probesOf();
-    const ready = { pixelRatio: 1, fontScale: 1, probes };
     const lowest = Math.max(...layout.patches.map((p) => p.sample.y + p.sample.height), layout.w1b.sample.y + layout.w1b.sample.height);
     // an app region that ends 2 px above the lowest sample square, with every probe and the region inside it within 1 px:
     // only reachable when the probes are clipped, so the check is called on its own here
