@@ -1,12 +1,17 @@
 // The Design Lab's field scenes (T14: handoff items 7 and 9; the architect's T14 plan at c8ff246, forks F1–F6 at A).
 //
 // A catalogue, by scene id: Abyss on both faces, the hero scenes rest, one.joy, three and one.intense at the tiers full,
-// low and still, and the near.* scenes at the full tier (UI-210), each drawn by the real FieldView (scenes/FieldScene.tsx),
+// low and still, the near.* scenes at the full tier (UI-210), and the policy scenes (B8-6), each drawn by the real FieldView (scenes/FieldScene.tsx),
 // and the fallback's scenes (T13's list, on both faces), each drawn by FieldFallback mounted directly
 // (scenes/FallbackScene.tsx). Everything a scene draws comes from its
 // id: `field.abyss.dark.three.full` is Abyss, the dark face, the hero scene three, the full tier; `fallback.abyss.light.
 // one.C.right` is the fallback on the light face in T13's scene one.C.right. A launch names the id; FieldView takes no
 // lab-only knob.
+//
+//   · A policy scene (B8-6, the build plan's §7 S2 and S3), `field.abyss.<face>.<hero>.policy`, is the hero scene with no
+//     tier of its own: FieldScene draws it at the tier the app's motion policy (useMotionPolicy) gives for the device's
+//     reduced-motion and battery-saver settings, so a shot proves the policy on the device, not a tier written in an id.
+//     Its id names where the tier comes from, never the tier; READY says the tier the scene observed.
 //
 //   · The taps are the hero scene's placements, in order (the token extensions, which the lab may hold:
 //     extensionsBoundary.test.ts); a fallback scene's are T13's (fallbackScenes.ts).
@@ -36,6 +41,8 @@ export const FIELD_TIERS: readonly MotionTier[] = ['full', 'low', 'still'];
 export const NEAR_SCENES = ['near.joy', 'near.calm', 'near.reflective', 'near.intense'] as const;
 /** S1's tier: the near.* scenes are stills on the fixed clock at t*, so they are drawn at the full tier only. */
 export const NEAR_TIER: MotionTier = 'full';
+/** The last segment of a policy scene's id (B8-6): the tier comes from the motion policy. */
+export const POLICY_SUFFIX = 'policy';
 
 export interface FieldSceneSpec {
   readonly id: string;
@@ -45,8 +52,10 @@ export interface FieldSceneSpec {
   readonly face: Face;
   /** The hero scene a field scene draws; null for a fallback scene. */
   readonly hero: string | null;
-  /** The motion tier; null for a fallback scene, which has no motion. */
+  /** The motion tier its id names; null for a fallback scene, which has no motion, and for a policy scene. */
   readonly tier: MotionTier | null;
+  /** True for a policy scene: the tier is the motion policy's, for the device's settings, at run time (B8-6). */
+  readonly policy: boolean;
   /** The cold lane's taps on the unit disc, y up, oldest first. */
   readonly taps: readonly Tap[];
   readonly periodMs: number;
@@ -98,24 +107,30 @@ function abyssSpecs(): FieldSceneSpec[] {
   const periodMs = BASE.field.clock.T;
   const field = FIELD_FACES.flatMap((face) => HERO_SCENES.flatMap((scene) => FIELD_TIERS.map((tier): FieldSceneSpec => ({
     id: `field.${FIELD_DIRECTION}.${face}.${scene}.${tier}`,
-    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier,
+    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier, policy: false,
     taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
     periodMs, layout: hero,
   }))));
   const near = FIELD_FACES.flatMap((face) => NEAR_SCENES.map((scene): FieldSceneSpec => ({
     id: `field.${FIELD_DIRECTION}.${face}.${scene}.${NEAR_TIER}`,
-    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: NEAR_TIER,
+    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: NEAR_TIER, policy: false,
+    taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
+    periodMs, layout: hero,
+  })));
+  const policy = FIELD_FACES.flatMap((face) => HERO_SCENES.map((scene): FieldSceneSpec => ({
+    id: `field.${FIELD_DIRECTION}.${face}.${scene}.${POLICY_SUFFIX}`,
+    kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: null, policy: true,
     taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
     periodMs, layout: hero,
   })));
   const fallback = fallbackScenes(EXT.base.$root.hero.scenes, EXT.abyss.$root.hardest);
   const fallbacks = FIELD_FACES.flatMap((face) => fallback.map((f): FieldSceneSpec => ({
     id: `fallback.${FIELD_DIRECTION}.${face}.${f.id}`,
-    kind: 'fallback', direction: FIELD_DIRECTION, face, hero: null, tier: null,
+    kind: 'fallback', direction: FIELD_DIRECTION, face, hero: null, tier: null, policy: false,
     taps: f.taps,
     periodMs, layout: hero,
   })));
-  return [...field, ...near, ...fallbacks];
+  return [...field, ...near, ...policy, ...fallbacks];
 }
 
 export const FIELD_SCENES: Readonly<Record<string, FieldSceneSpec>> = fieldSceneCatalogue(abyssSpecs());
