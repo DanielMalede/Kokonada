@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { checkReady, checkResult, classifyProbes, collectLab, commandArgs, launchArgs, parseLabLine, waitForLab } from '../lib/protocol.mjs';
+import { checkReady, checkResult, classifyProbes, collectLab, commandArgs, launchArgs, markArgs, parseLabLine, waitForLab } from '../lib/protocol.mjs';
 
 // OPS-100. The harness side of the lab protocol (src/design/lab/protocol.ts is the lab side). The
 // harness reads logcat, waits for THIS launch's READY, and fails closed on everything else: an
@@ -284,6 +284,44 @@ describe('collectLab: every lab line of a run, after READY too (UI-225)', () => 
     const wait = c.nextResult({ timeoutMs: 60000 });
     src.push(LINE('ERROR', { run: 'r', errors: ['the UI runtime has no performance.now'] }));
     await expect(wait).rejects.toThrow(/ERROR for run r: the UI runtime has no performance\.now/);
+  });
+
+  // The harness's own marker (adb shell log -t ReactNativeJS KOKONADA_HARNESS MARK <token>) goes through the same buffer:
+  // once it is back, every lab line logged before it has been delivered.
+  it('a marker resolves once it is back, after the lines logged before it', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    const marked = c.marked('r-m1', { timeoutMs: 1000 });
+    src.push(LINE('ERROR', { run: 'r', errors: ['late'] }));
+    src.push('KOKONADA_HARNESS MARK r-other');
+    src.push('KOKONADA_HARNESS MARK r-m1');
+    await expect(marked).resolves.toBeUndefined();
+    expect(c.problems()).toEqual(['the lab sent an ERROR for run r: late']);
+  });
+
+  it('a marker already back resolves at once; one that never comes fails, and so does an interruption', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push('KOKONADA_HARNESS MARK early');
+    await expect(c.marked('early', { timeoutMs: 1000 })).resolves.toBeUndefined();
+    await expect(c.marked('lost', { timeoutMs: 20 })).rejects.toThrow(/the harness's logcat marker did not come back within 20 ms/);
+    const controller = new AbortController();
+    const wait = c.marked('never', { timeoutMs: 60000, signal: controller.signal });
+    controller.abort();
+    await expect(wait).rejects.toThrow(/interrupted/);
+  });
+
+  it('a marker is a whole token: a longer one does not stand for it', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    const marked = c.marked('m1', { timeoutMs: 30 });
+    src.push('KOKONADA_HARNESS MARK m10');
+    await expect(marked).rejects.toThrow(/did not come back/);
+  });
+
+  it('builds the marker command as plain words for the device shell', () => {
+    expect(markArgs('f-1-abc')).toEqual(['log', '-t', 'ReactNativeJS', 'KOKONADA_HARNESS', 'MARK', 'f-1-abc']);
+    expect(() => markArgs('f 1; reboot')).toThrow(/shell/);
   });
 
   it('stops listening', () => {

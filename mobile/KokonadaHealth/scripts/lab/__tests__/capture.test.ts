@@ -25,10 +25,21 @@ class LabDevice extends FakeDevice {
   surfaceFlinger = SURFACE_FLINGER;
   recording: Buffer = Buffer.from(Array.from({ length: 64 }, (_, i) => i));
   recorded: string[][] = [];
+  // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
+  // were logged, a little later. `pending` is a line the lab logged that has not been delivered yet: it goes first.
+  logDelayMs = 2;
+  marksLost = false;
   async shell(args: string[]): Promise<string> {
     if (args.join(' ') === 'dumpsys SurfaceFlinger') { this.commands.push('dumpsys SurfaceFlinger'); return this.surfaceFlinger; }
+    if (args[0] === 'log' && args[1] === '-t' && args[2] === 'ReactNativeJS') {
+      this.commands.push(args.join(' '));
+      if (!this.marksLost) setTimeout(() => this.emit(args.slice(3).join(' ')), this.logDelayMs);
+      return '';
+    }
     return super.shell(args);
   }
+  /** A line the lab logs now, which logcat delivers after `ms`. */
+  logLater(line: string, ms = 1) { setTimeout(() => this.emit(line), ms); }
   async execOut(args: string[]): Promise<Buffer> {
     if (args[0] === 'screenrecord') { this.commands.push(`exec-out ${args.join(' ')}`); this.recorded.push(args); return this.recording; }
     return super.execOut(args);
@@ -636,6 +647,34 @@ describe('UI-225: an ERROR the lab sends after READY refuses the shot', () => {
     const execOut = w.device.execOut.bind(w.device);
     w.device.execOut = async (args: string[]) => { w.device.emit('KOKONADA_LAB ERROR {"run":"'); return execOut(args); };
     await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: cannot read a lab line/);
+  });
+
+  // logcat delivers a line some time after the lab logs it: an ERROR logged during the grabs can arrive after them. The
+  // harness logs its own marker into the same buffer after the grabs, and judges the run's lines only once the marker is
+  // back, so every line logged before it has been read.
+  it('an ERROR logged during the grabs that logcat delivers after them', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null }));
+    const execOut = w.device.execOut.bind(w.device);
+    let grabs = 0;
+    w.device.execOut = async (args: string[]) => {
+      grabs += 1;
+      if (grabs === 2) {
+        const launched = w.device.commands.filter((c) => c.startsWith('am start')).pop() ?? '';
+        const id = /--es run (\S+)/.exec(launched)?.[1];
+        w.device.logLater(`I ReactNativeJS: KOKONADA_LAB ERROR ${JSON.stringify({ run: id, errors: ['the surface changed after READY: READY said ready, now fallback'] })}`, 1);
+      }
+      return execOut(args);
+    };
+    await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: the lab sent an ERROR for run .*the surface changed after READY/);
+    expect(w.device.commands.some((c) => /^log -t ReactNativeJS KOKONADA_HARNESS MARK f-1-/.test(c))).toBe(true);
+  });
+
+  it('a marker that never comes back: the lines after READY cannot be proved read, so the shot is refused', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    w.device.marksLost = true;
+    await refusedRun(w, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: the harness's logcat marker did not come back within 200 ms/);
   });
 
   it('another run\'s ERROR is not this shot\'s', async () => {
