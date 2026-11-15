@@ -1,13 +1,15 @@
 // The reports' common library (B8-8c; the architect's B8 plan at 199b138, TASKS UI-071): what every report under
 // scripts/lab/reports/ needs from a capture run (scripts/lab/capture.mjs).
 //
-//   · the manifest and its rows, read through a typed reader that refuses a row lacking what a report needs, naming the
-//     field (EvidenceInputError): a missing or malformed field is never read as a default;
+//   · the manifest and its rows, read through a typed reader that refuses, naming the field (EvidenceInputError), a row
+//     the harness's own validateRow (scripts/lab/lib/manifest.mjs, the schema's authority) refuses, and a row lacking what
+//     a report needs: a missing or malformed field is never read as a default;
 //   · each row's PNG (lib/png.mjs), checked against the row's sha256 and its region's size, and crops of it by probe;
 //   · the law twin of a shot, rendered in CanvasKit through the v2 builder (the .ts sources, imported as
 //     scripts/field/bandEvidence.mts imports them): the scene from the row's `expect` {direction, face, hero, tier}
-//     (fork F4: scene facts never come from tap coordinates on a lab line), the frame time from the plan's args (`t`),
-//     and READY's device facts (the stage rect, pxPerDp, the font scale, renderScale, sampling);
+//     (fork F4: scene facts never come from tap coordinates on a lab line), the frame time from the fixed clock READY
+//     reported (`clock.t`), the px per dp from the device's density (`device.density`, see androidDensity), and the
+//     stage rect, the font scale (`fontScale.app`), renderScale and sampling;
 //   · the never-red test of an 8-bit pixel: the v2 definition (redBand.ts isRed over neverRedSweeps.ts CHECK_BAND), used
 //     as it is, never restated.
 //
@@ -16,9 +18,12 @@
 // (FieldFallback.tsx). scripts/lab/__tests__/reportsTwin.skia.test.ts holds the twin to those functions byte for byte,
 // and reportsEvidence.test.ts holds its inputs to the props the lab's FieldScene and FallbackScene really pass.
 //
-// The rows' shape: B8-5a extends the manifest so each capture row carries `expect`, `args` (the plan's launch args),
-// renderScale, sampling, the stage rect in screen px (`stage`), pxPerDp, shaderStatus and shaderReason. The field names
-// this library reads are all here, in the readers below.
+// The rows' shape is the harness's (B8-5a/5b): a row carries no launch args and no px per dp of its own. The frame time is
+// READY's `clock` {mode, t}; the density is `device.density` (wm density); the stage is READY's stage probe in screen px,
+// the app window, which the harness holds to the whole screen (UI-216), so it reaches under the system bars that the PNG
+// (the app region) leaves out: the reports compare the stage only where it lies in the app region. The field names this
+// library reads are all here, in the readers below; scripts/lab/__tests__/reportsHarness.test.ts feeds them the
+// manifest the harness itself writes.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -42,6 +47,7 @@ import { FIELD_UNIFORM_FLOATS, packFrame } from '../../../../src/design/v2/field
 import { CHECK_BAND } from '../../../../src/design/v2/tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../../../src/design/v2/tokens/tokens.extensions.generated.ts';
 import { DIRECTIONS, type DirectionId, type Face } from '../../../../src/design/v2/tokens/tokens.generated.ts';
+import { validateRow } from '../../lib/manifest.mjs';
 import { cropRegion, decodePng } from '../../lib/png.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -72,7 +78,6 @@ export interface Rgba {
 type Row = Record<string, unknown>;
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const HEX64 = /^[0-9a-f]{64}$/;
-const DECIMAL = /^\d+(\.\d+)?$/;
 const FACES: readonly Face[] = ['dark', 'light'];
 const TIERS = ['full', 'low', 'still'] as const;
 type Tier = (typeof TIERS)[number];
@@ -135,9 +140,20 @@ export interface CaptureRow {
   readonly region: Rect;
 }
 
+/** A harness validateRow sentence ("<path> <says>") as the reports name a field. */
+const named = (error: string) => {
+  const at = error.indexOf(' ');
+  return at > 0 ? `the manifest field "${error.slice(0, at)}" ${error.slice(at + 1)}` : error;
+};
+
 /** What every report reads of a row: its PNG, the PNG's sha256, the region it is a crop of, and the scene. */
 export function readCaptureRow(row: unknown, report: string): CaptureRow {
   if (!isObject(row)) throw new EvidenceInputError(`${report}: a manifest row is not an object`);
+  // The harness's schema is the authority: a row it would not have written is no capture of it, whatever a report reads.
+  const errors = validateRow(row) as string[];
+  if (errors.length > 0) {
+    throw new EvidenceInputError(`${report}: row ${rowName(row)}: not a row the harness writes (scripts/lab/lib/manifest.mjs validateRow): ${errors.map(named).join('; ')}`);
+  }
   const file = needString(row, report, 'file');
   if (file !== path.basename(file) || file === '.' || file === '..') refuse(row, report, 'file', `must be a file name beside the manifest, got ${JSON.stringify(file)}`);
   const sha256 = needString(row, report, 'sha256');
@@ -147,21 +163,46 @@ export function readCaptureRow(row: unknown, report: string): CaptureRow {
   return { name: rowName(row), scene, file, sha256, region };
 }
 
-/** The stage: READY's stage rect in screen px, placed on the PNG (whole pixels from its top left) and inside it. */
+/**
+ * How far from a whole pixel a stage edge may be and still be that pixel: READY's px are dp × the pixel ratio, unrounded
+ * (src/design/lab/probe/geometry.ts), and the dp went through Android's float division, so a whole-pixel window comes
+ * back some 1e-5 px off. A placement, never a colour tolerance.
+ */
+const WHOLE_PX = 1e-3;
+const isWhole = (v: number) => Math.abs(v - Math.round(v)) <= WHOLE_PX;
+
+/**
+ * The stage: READY's stage rect in screen px, placed on the PNG (its top left from the PNG's, in whole pixels; negative
+ * where the window reaches under a system bar above the app region). It must share pixels with the app region: the
+ * reports compare the stage where it lies in the PNG, and only there.
+ */
 function readStage(row: Row, report: string, region: Rect): Rect {
   const s = needRect(row, report, 'stage', false);
   const x = s.x - region.x;
   const y = s.y - region.y;
-  const eps = 1e-6;
-  if (Math.abs(x - Math.round(x)) > eps || Math.abs(y - Math.round(y)) > eps) {
+  if (!isWhole(x) || !isWhole(y)) {
     refuse(row, report, 'stage', `does not sit on whole pixels of the PNG (at ${x}, ${y} from the region's top left), so the twin cannot be placed`);
   }
   const rx = Math.round(x);
   const ry = Math.round(y);
-  if (rx < 0 || ry < 0 || rx + s.width > region.width + eps || ry + s.height > region.height + eps) {
-    refuse(row, report, 'stage', `${JSON.stringify(s)} is not inside the app region ${JSON.stringify(region)}`);
+  const size = stagePx(s);
+  if (rx >= region.width || ry >= region.height || rx + size.width <= 0 || ry + size.height <= 0) {
+    refuse(row, report, 'stage', `${JSON.stringify(s)} has no pixel in the app region ${JSON.stringify(region)}`);
   }
   return { x: rx, y: ry, width: s.width, height: s.height };
+}
+
+/**
+ * Android's px per dp for a density: DisplayMetrics.density = densityDpi × DENSITY_DEFAULT_SCALE (1f / 160), computed in
+ * float, which React Native's PixelRatio.get() returns as it is. At 411 dpi that is 2.5687501430511475, not 2.56875.
+ */
+export function androidDensity(dpi: number): number {
+  return Math.fround(Math.fround(dpi) * Math.fround(1 / 160));
+}
+
+/** The row's px per dp, from its device's density (wm density, as the harness reads it). */
+function readPxPerDp(row: Row, report: string): number {
+  return androidDensity(needPositive(row, report, 'device.density'));
 }
 
 const HERO = (EXTENSIONS as unknown as { base: { $root: { hero: { scenes: Record<string, { placements?: ReadonlyArray<{ x: number; y: number }> }> } } } }).base.$root.hero.scenes;
@@ -177,9 +218,9 @@ function readDirectionFace(row: Row, report: string): { direction: DirectionId; 
   return { direction: direction as DirectionId, face: face as Face };
 }
 
-const FILTER_LINEAR = new Set<unknown>(['linear', 1]);
-const MIPMAP_NONE = new Set<unknown>(['none', 0]);
-const lower = (v: unknown) => (typeof v === 'string' ? v.toLowerCase() : v);
+// FIELD_SAMPLING (fieldImage.tsx) as the harness writes it: Skia's mode names (capture.mjs SAMPLING, pinned by capturePlans.test.ts).
+const FIELD_FILTER = 'linear';
+const FIELD_MIPMAP = 'none';
 
 export interface FieldShot extends CaptureRow {
   readonly direction: DirectionId;
@@ -189,7 +230,7 @@ export interface FieldShot extends CaptureRow {
   readonly renderScale: number;
   readonly pxPerDp: number;
   readonly fontScale: number;
-  /** The fixed clock's time, ms: the plan's `t`. */
+  /** The fixed clock's time, ms: READY's `clock.t`. */
   readonly tMs: number;
   /** The stage on the PNG, in px. */
   readonly stage: Rect;
@@ -206,16 +247,11 @@ export function readFieldShot(row: unknown, report: string): FieldShot {
   if (!TIERS.includes(tier as Tier)) refuse(r, report, 'expect.tier', `must be full, low or still, got ${JSON.stringify(tier)}`);
   const id = `field.${direction}.${face}.${hero}.${tier}`;
   if (cap.scene !== id) refuse(r, report, 'scene', `is ${JSON.stringify(cap.scene)}, but expect names ${id}`);
-  need(r, report, 'args');
-  const clock = needString(r, report, 'args.clock');
-  if (clock !== 'fixed') refuse(r, report, 'args.clock', `is ${JSON.stringify(clock)}: a still's twin needs the fixed clock`);
-  const tRaw = need(r, report, 'args.t');
-  const tText = typeof tRaw === 'number' ? String(tRaw) : tRaw;
-  if (typeof tText !== 'string' || !DECIMAL.test(tText) || !Number.isFinite(Number(tText))) refuse(r, report, 'args.t', `must be a plain decimal frame time in ms, got ${JSON.stringify(tRaw)}`);
-  const tMs = Number(tText);
-  if (isObject(r.clock) && r.clock.t !== undefined && r.clock.t !== null && r.clock.t !== tMs) {
-    refuse(r, report, 'clock.t', `is ${JSON.stringify(r.clock.t)}, but the plan asked for t ${tMs}: READY drew another frame time`);
-  }
+  // The frame time READY says it drew: the twin of a still needs the fixed clock and its t.
+  const mode = needString(r, report, 'clock.mode');
+  if (mode !== 'fixed') refuse(r, report, 'clock.mode', `is ${JSON.stringify(mode)}: a still's twin needs the fixed clock`);
+  const tMs = need(r, report, 'clock.t');
+  if (typeof tMs !== 'number' || !Number.isFinite(tMs)) refuse(r, report, 'clock.t', `must be the fixed frame time in ms, got ${JSON.stringify(tMs)}`);
   const renderScale = need(r, report, 'renderScale');
   if (typeof renderScale !== 'number' || renderScale !== renderScaleFor(tier as Tier)) {
     refuse(r, report, 'renderScale', `is ${JSON.stringify(renderScale)}, not the ${tier} tier's ${renderScaleFor(tier as Tier)} (field.tiers)`);
@@ -223,13 +259,13 @@ export function readFieldShot(row: unknown, report: string): FieldShot {
   need(r, report, 'sampling');
   const filter = need(r, report, 'sampling.filter');
   const mipmap = need(r, report, 'sampling.mipmap');
-  if (!FILTER_LINEAR.has(lower(filter)) || !MIPMAP_NONE.has(lower(mipmap))) {
+  if (filter !== FIELD_FILTER || mipmap !== FIELD_MIPMAP) {
     refuse(r, report, 'sampling', `is ${JSON.stringify({ filter, mipmap })}, not FieldImage's bilinear upscale with no mipmaps (FIELD_SAMPLING)`);
   }
   const status = needString(r, report, 'shaderStatus');
   if (status !== 'ready') refuse(r, report, 'shaderStatus', `is ${JSON.stringify(status)} (${JSON.stringify(r.shaderReason ?? null)}): a field.* shot must be drawn by the field shader`);
   const stage = readStage(r, report, cap.region);
-  const pxPerDp = needPositive(r, report, 'pxPerDp');
+  const pxPerDp = readPxPerDp(r, report);
   need(r, report, 'fontScale');
   const fontScale = needPositive(r, report, 'fontScale.app');
   return { ...cap, direction, face, hero, tier: tier as Tier, renderScale, pxPerDp, fontScale, tMs, stage };
@@ -260,7 +296,7 @@ export function readFallbackShot(row: unknown, report: string): FallbackShot {
   const status = needString(r, report, 'shaderStatus');
   if (status !== 'fallback-scene') refuse(r, report, 'shaderStatus', `is ${JSON.stringify(status)}: a fallback.* shot must be drawn by the lab fallback scene`);
   const stage = readStage(r, report, cap.region);
-  const pxPerDp = needPositive(r, report, 'pxPerDp');
+  const pxPerDp = readPxPerDp(r, report);
   need(r, report, 'fontScale');
   const fontScale = needPositive(r, report, 'fontScale.app');
   return { ...cap, direction, face, fallbackScene, pxPerDp, fontScale, stage };
@@ -477,7 +513,10 @@ function readSurface(s: Skia, surface: { flush(): void; makeImageSnapshot(): { r
 }
 
 /** The stage's whole px: what the twin covers and the reports compare. */
-const stagePx = (stage: Rect) => ({ width: Math.floor(stage.width + 1e-6), height: Math.floor(stage.height + 1e-6) });
+const stagePx = (stage: Rect) => ({
+  width: isWhole(stage.width) ? Math.round(stage.width) : Math.floor(stage.width),
+  height: isWhole(stage.height) ? Math.round(stage.height) : Math.floor(stage.height),
+});
 
 export interface FieldTwin extends Rgba {
   readonly inputs: FieldTwinInputs;

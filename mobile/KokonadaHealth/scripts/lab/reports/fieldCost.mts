@@ -4,7 +4,8 @@
 //
 // For each planned cost shot (scene cost.<direction>.<face>.<scene>.<tier>[.storm|.heavy|.empty]) it reads the RESULT
 // line the lab's cost bench logged (B8-3: KOKONADA_LAB RESULT {run, seq, kind "cost", scene, frames, displayHz, stepUs,
-// renderUs, gpuProxyUs, clock "performance.now"}), as the manifest carries it (lib/proofs.mts), and prints a table per
+// renderUs, gpuProxyUs, clock "performance.now"}), as the harness keeps it (the manifest's `results`, beside the shot's
+// `result` proof; lib/proofs.mts readResults), and prints a table per
 // scene and tier: the field, the storm, and the heavy and empty calibration shaders beside the field (F3), with the ratio
 // heavy/field and empty/field of gpuProxyUs p50. Every number is informational: DEC-082 (the cost budget) is OPEN, so it
 // asserts NO threshold on any cost.
@@ -19,7 +20,7 @@
 import fs from 'node:fs';
 
 import { EvidenceInputError, writeNewFile } from './lib/evidence.mts';
-import { fmt, judgeCostResult, loadRun, parseCostScene, readProof, runArgs, type CostResult, type Quantiles, type Variant } from './lib/proofs.mts';
+import { fmt, judgeCostResult, loadRun, parseCostScene, readProof, readResults, runArgs, type CostResult, type Quantiles, type Variant } from './lib/proofs.mts';
 
 const REPORT = 'fieldCost';
 const LABEL = 'informational, DEC-082 OPEN';
@@ -30,18 +31,14 @@ const q = (x: Quantiles) => `${fmt(x.p50)}/${fmt(x.p95)}/${fmt(x.max)}`;
 function main(): number {
   const a = runArgs(process.argv.slice(2), REPORT);
   if (fs.existsSync(a.out)) throw new EvidenceInputError(`refusing to overwrite ${a.out}: a report never replaces an earlier one`);
-  const { plan, manifest } = loadRun(a.plan, a.manifest, REPORT, false);
+  const { plan, manifest } = loadRun(a.plan, a.manifest, REPORT);
 
   const planned = plan.shots.filter((s) => s.scene.startsWith('cost.')).map((s) => {
     const parsed = parseCostScene(s.scene);
     if (parsed === null) throw new EvidenceInputError(`${REPORT}: the plan's shot ${s.id}: the field "scene" ${JSON.stringify(s.scene)} is not cost.<direction>.<face>.<scene>.<tier>[.storm|.heavy|.empty]`);
     return { shot: s, ...parsed };
   });
-  const results = new Map<string, unknown>();
-  manifest.proofs.forEach((entry, i) => {
-    const p = readProof(entry, i, REPORT);
-    if (p.kind === 'result') results.set(p.shot, p.raw.result);
-  });
+  const results = readResults(manifest, manifest.proofs.map((entry, i) => readProof(entry, i, REPORT, plan)), REPORT);
 
   const lines: string[] = [
     `${REPORT} (B8-8e: the field's cost bench, forks F2 and F3): every number is ${LABEL}; no threshold is asserted`,

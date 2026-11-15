@@ -3,14 +3,19 @@
 //   node scripts/lab/reports/lawParity.mts --manifest <run>/manifest.json --out <report>.txt
 //
 // For a capture run (scripts/lab/capture.mjs), every row whose scene is
-//   · field.*: the capture's stage against the field's law twin in CanvasKit (lib/evidence.mts: fieldStep on the scene's
+//   · field.* on the fixed clock: the capture's stage against the field's law twin in CanvasKit (lib/evidence.mts: fieldStep on the scene's
 //     inputs, renderFieldImage, FieldImage's bilinear upscale at the density), ±1 per channel (UI-183);
 //   · fallback.*: the capture's stage against FieldFallback's picture in CanvasKit, ±1 per channel (UI-211);
 // with, for each, the full |Δ| histogram (every bin from 0 to the largest |Δ|: per pixel by its largest channel, and per
 // channel), and every pixel over 1 listed by the region the law puts its centre in: the ring, a bead's halo, a quiet
 // rect, the plate face, else the ground (first match, in that order). For every field.* row (every tier) it writes ×8
 // crops of both ring edges, 16 × 16 px on the plate's horizontal through its centre, as one PNG of three panels: the
-// capture, the twin and |Δ| × 32 (UI-159). Rows of other scenes are named, not compared.
+// capture, the twin and |Δ| × 32 (UI-159). Rows of other scenes, and field.* rows on another clock (no fixed frame time,
+// so no twin), are named, not compared.
+//
+// The stage is READY's, the app window (the harness holds it to the whole screen, UI-216), and the PNG is the app region
+// the system bars leave: each row is compared where its stage lies in the PNG, and the pixels of the stage outside the
+// PNG (under the bars), and of the PNG outside the stage, are counted and named, never compared.
 //
 // The tolerance is ±1 and this report never widens it: it lists every pixel over it, and the designer rules (B8 gaps:
 // "a few 2-LSB pixels" on the emulator). It prints the report and writes it to --out, and the crops to <out>.crops/;
@@ -108,13 +113,17 @@ interface Over {
 }
 interface Compared {
   readonly pixels: number;
+  /** The twin's pixels outside the capture (the stage under the system bars). */
+  readonly stageOutside: number;
+  /** The capture's pixels outside the twin (the app region beyond the stage). */
+  readonly captureOutside: number;
   readonly max: number;
   readonly perPixel: number[];
   readonly perChannel: number[][];
   readonly over: Over[];
 }
 
-/** The stage of the capture against the twin, pixel by pixel; (x, y) of each pixel over the tolerance are the PNG's. */
+/** The stage of the capture against the twin, pixel by pixel where both have one; (x, y) of each pixel over the tolerance are the PNG's. */
 function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y: number) => Region): Compared {
   const perPixel: number[] = [];
   const perChannel: number[][] = [[], [], []];
@@ -124,8 +133,11 @@ function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y
   };
   const over: Over[] = [];
   let max = 0;
+  let pixels = 0;
   for (let y = 0; y < twin.height; y++) {
     for (let x = 0; x < twin.width; x++) {
+      if (x + stage.x < 0 || y + stage.y < 0 || x + stage.x >= capture.width || y + stage.y >= capture.height) continue;
+      pixels++;
       const t = (y * twin.width + x) * 4;
       const c = ((y + stage.y) * capture.width + (x + stage.x)) * 4;
       const delta = [0, 1, 2].map((ch) => Math.abs(capture.rgba[c + ch] - twin.rgba[t + ch]));
@@ -142,7 +154,7 @@ function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y
     }
   }
   for (const h of [perPixel, ...perChannel]) while (h.length <= max) h.push(0);
-  return { pixels: twin.width * twin.height, max, perPixel, perChannel, over };
+  return { pixels, stageOutside: twin.width * twin.height - pixels, captureOutside: capture.width * capture.height - pixels, max, perPixel, perChannel, over };
 }
 
 const histogram = (h: readonly number[]) => h.map((n, v) => `${v}: ${n}`).join(', ');
@@ -170,10 +182,13 @@ function cropPanels(capture: Rgba, stage: Rect, twin: Rgba, at: { x: number; y: 
   return { width, height: side, rgba };
 }
 
-/** The crop's top left on the stage: 16 × 16 px centred on the edge at x on the plate's horizontal, inside the stage. */
-function cropAt(twin: Rgba, edgeX: number, centreY: number): { x: number; y: number } {
-  const clamp = (v: number, hi: number) => Math.min(Math.max(0, v), hi);
-  return { x: clamp(Math.round(edgeX) - CROP / 2, twin.width - CROP), y: clamp(Math.round(centreY) - CROP / 2, twin.height - CROP) };
+/** The crop's top left on the stage: 16 × 16 px centred on the edge at x on the plate's horizontal, inside both the stage and the capture. */
+function cropAt(twin: Rgba, capture: Rgba, stage: Rect, edgeX: number, centreY: number): { x: number; y: number } {
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(lo, v), hi);
+  return {
+    x: clamp(Math.round(edgeX) - CROP / 2, Math.max(0, -stage.x), Math.min(twin.width, capture.width - stage.x) - CROP),
+    y: clamp(Math.round(centreY) - CROP / 2, Math.max(0, -stage.y), Math.min(twin.height, capture.height - stage.y) - CROP),
+  };
 }
 
 // ---------------------------------------------------------------------------------------- the run
@@ -196,7 +211,10 @@ async function main(): Promise<number> {
   const skipped: string[] = [];
   for (const row of manifest.rows) {
     const cap = readCaptureRow(row, REPORT);
-    if (cap.scene.startsWith('field.')) jobs.push({ kind: 'field', shot: readFieldShot(row, REPORT) });
+    // readCaptureRow has held the row to the harness's schema: its clock is { mode, t, seq }.
+    const clock = (row as { clock: { mode: string } }).clock.mode;
+    if (cap.scene.startsWith('field.') && clock !== 'fixed') skipped.push(`not compared: ${cap.name} ${cap.scene} (clock ${clock}: no fixed frame time, so no twin)`);
+    else if (cap.scene.startsWith('field.')) jobs.push({ kind: 'field', shot: readFieldShot(row, REPORT) });
     else if (cap.scene.startsWith('fallback.')) jobs.push({ kind: 'fallback', shot: readFallbackShot(row, REPORT) });
     else skipped.push(`not compared: ${cap.name} ${cap.scene} (not a field.* or fallback.* scene)`);
   }
@@ -227,6 +245,7 @@ async function main(): Promise<number> {
     lines.push(`  |Δ| histogram (largest channel per pixel): ${histogram(c.perPixel)}`);
     ['R', 'G', 'B'].forEach((ch, n) => lines.push(`  |Δ| histogram ${ch}: ${histogram(c.perChannel[n])}`));
     lines.push(`  over ${TOLERANCE} by region: ${REGIONS.map((r) => `${r} ${c.over.filter((o) => o.region === r).length}`).join(', ')}`);
+    lines.push(`  not compared: ${c.stageOutside} px of the stage outside the app region (under the system bars), ${c.captureOutside} px of the app region outside the stage`);
     for (const r of REGIONS) {
       for (const o of c.over.filter((v) => v.region === r)) {
         lines.push(`  over ${TOLERANCE} · ${o.region} · (${o.x}, ${o.y}) capture (${o.capture.join(', ')}) twin (${o.twin.join(', ')}) |Δ| (${o.delta.join(', ')})`);
@@ -239,7 +258,7 @@ async function main(): Promise<number> {
       const cy = t.inputs.layout.centre[1] * k;
       const R = t.inputs.layout.radius * k;
       for (const [edge, x] of [['ring-inner', cx + t.frame.ringInner * R], ['ring-outer', cx + R]] as const) {
-        const at = cropAt(twin, x, cy);
+        const at = cropAt(twin, capture, job.shot.stage, x, cy);
         const file = `${job.shot.name}.${edge}.x${ZOOM}.png`;
         crops.push({ file, image: cropPanels(capture, job.shot.stage, twin, at) });
         lines.push(`  crop ${edge} ×${ZOOM}: ${file}, ${CROP} × ${CROP} px at (${at.x + job.shot.stage.x}, ${at.y + job.shot.stage.y}), panels: capture | twin | |Δ| × ${DELTA_GAIN}`);
@@ -258,7 +277,7 @@ async function main(): Promise<number> {
   if (jobs.length === 0) verdict = 'FAIL: no field.* or fallback.* row to compare';
   else if (failing.length > 0) verdict = `FAIL: ${failing.length} of ${jobs.length} rows have pixels over ±${TOLERANCE} (${failing.join(', ')}); the designer rules`;
   else if (runFailed) verdict = `FAIL: the capture run failed, so its ${jobs.length} rows are not evidence`;
-  else verdict = `PASS: ${jobs.length} rows within ±${TOLERANCE} of their twins (${fields} field, ${fallbacks} fallback)`;
+  else verdict = `PASS: ${jobs.length} rows within ±${TOLERANCE} of their twins (${fields} field, ${fallbacks} fallback)${skipped.length > 0 ? `; ${skipped.length} row${skipped.length === 1 ? '' : 's'} not compared, named above` : ''}`;
   lines.push(verdict);
   const text = `${lines.join('\n')}\n`;
 
