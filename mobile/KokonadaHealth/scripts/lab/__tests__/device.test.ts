@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import {
-  applySession, applyShot, parseGfxFrames, parseNight, parseRefreshRate, parseSystemBars, parseWmDensity, parseWmSize,
-  readDeviceFacts, restoreDevice, snapshotDevice,
+  applySession, applyShot, parseDisplayColour, parseGfxFrames, parseGles, parseJank, parseNight, parseRefreshMode, parseRefreshRate,
+  parseSystemBars, parseWmDensity, parseWmSize, readDeviceFacts, readRenderFacts, restoreDevice, snapshotDevice,
 } from '../lib/device.mjs';
 import { DUMPSYS_WINDOW, FakeDevice, NAV_BAR, SCREEN, STATUS_BAR } from '../__fixtures__/fakeDevice';
 
@@ -102,5 +102,159 @@ describe('reading the device', () => {
     expect(parseGfxFrames('Stats since: 1ns\nTotal frames rendered: 0\n')).toBe(0);
     expect(parseGfxFrames('Total frames rendered: 37')).toBe(37);
     expect(() => parseGfxFrames('No process found')).toThrow(/frames/);
+  });
+});
+
+// B8-5a (F5): the GPU and the display's colour facts come from adb, never from the app (no Kotlin change). Each parser
+// reads one documented line and fails closed: an absent, repeated-and-different or ambiguous line is null with a reason,
+// never a guess. The formats are SurfaceFlinger's own (`GLES: %s, %s, %s`, `Current color mode: %s (%d)`); their reading on
+// the emulator and the S22+ is the device session's first check.
+const ADRENO = 'GLES: Qualcomm, Adreno (TM) 730, OpenGL ES 3.2 V@0615.65 (GIT@b4e5b4a, I1aa1e01a2d, 1658219498) (Date:07/19/22)';
+const SWIFTSHADER = 'GLES: Google (Google Inc.), Android Emulator OpenGL ES Translator (Google SwiftShader), OpenGL ES 3.0 (OpenGL ES 3.0 SwiftShader 4.0.0.1)';
+const SURFACE_FLINGER = [
+  'Build configuration: [sf PRESENT_TIME_OFFSET=0 FORCE_HWC_FOR_RBG_TO_YUV=1]',
+  'Wide-Color information:',
+  'Device has wide color built-in display: 1',
+  'Device uses color management: 1',
+  'DisplayColorSetting: Managed',
+  'Display 4619827259835644672 color modes:',
+  '    ColorMode::NATIVE (0)',
+  '    ColorMode::SRGB (7)',
+  '    ColorMode::DISPLAY_P3 (9)',
+  '    Current color mode: ColorMode::SRGB (7)',
+  '',
+  ' ------------RE GLES------------',
+  'EGL implementation : 1.5',
+  ADRENO,
+].join('\n');
+
+class RenderDevice extends FakeDevice {
+  surfaceFlinger: string | Error = SURFACE_FLINGER;
+  async shell(args: string[]): Promise<string> {
+    if (args.join(' ') === 'dumpsys SurfaceFlinger') {
+      this.commands.push('dumpsys SurfaceFlinger');
+      if (this.surfaceFlinger instanceof Error) throw this.surfaceFlinger;
+      return this.surfaceFlinger;
+    }
+    return super.shell(args);
+  }
+}
+
+describe('the GPU, from dumpsys SurfaceFlinger (F5)', () => {
+  it('reads the renderer (vendor and renderer, as SurfaceFlinger prints them) and the GLES version', () => {
+    expect(parseGles(SURFACE_FLINGER)).toEqual({
+      renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65 (GIT@b4e5b4a, I1aa1e01a2d, 1658219498) (Date:07/19/22)', reason: null,
+    });
+  });
+
+  it('reads the emulator, whose renderer names OpenGL ES without the separator', () => {
+    expect(parseGles(SWIFTSHADER)).toEqual({
+      renderer: 'Google (Google Inc.), Android Emulator OpenGL ES Translator (Google SwiftShader)',
+      gles: 'OpenGL ES 3.0 (OpenGL ES 3.0 SwiftShader 4.0.0.1)', reason: null,
+    });
+  });
+
+  it('reads one GLES line printed twice the same', () => {
+    expect(parseGles(`${ADRENO}\n${ADRENO}\n`).renderer).toBe('Qualcomm, Adreno (TM) 730');
+  });
+
+  it.each([
+    ['no GLES line (a Vulkan RenderEngine prints none)', 'Build configuration: [sf]\nRenderEngine: skiavk', /no GLES line/],
+    ['two different GLES lines', `${ADRENO}\n${SWIFTSHADER}`, /2 different GLES lines/],
+    ['a GLES line without the version', 'GLES: Qualcomm, Adreno (TM) 730', /cannot split/],
+    ['a GLES line with the version separator twice', 'GLES: Qualcomm, OpenGL ES 9, OpenGL ES 3.2', /cannot split/],
+    ['an empty renderer', 'GLES: , OpenGL ES 3.2', /cannot split/],
+    ['garbage', 'x\u0000\u0001 nothing', /no GLES line/],
+    ['nothing at all', '', /no GLES line/],
+  ])('is null with a reason for %s', (_label, text, why) => {
+    const r = parseGles(text);
+    expect([r.renderer, r.gles]).toEqual([null, null]);
+    expect(r.reason).toMatch(why);
+  });
+});
+
+describe('the display colour facts, from dumpsys SurfaceFlinger and dumpsys display (F5)', () => {
+  it('reads the current colour mode as printed, and whether the built-in display is wide colour', () => {
+    expect(parseDisplayColour(SURFACE_FLINGER)).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, reason: null });
+    expect(parseDisplayColour('Device has wide color built-in display: 0\n    Current color mode: ColorMode::NATIVE (0)').wideColor).toBe(false);
+  });
+
+  it('is null with a reason for each fact it cannot read, and keeps the one it can', () => {
+    expect(parseDisplayColour('Device has wide color built-in display: 1'))
+      .toEqual({ colorMode: null, wideColor: true, reason: 'no "Current color mode" line in dumpsys SurfaceFlinger' });
+    expect(parseDisplayColour('    Current color mode: ColorMode::SRGB (7)'))
+      .toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: null, reason: 'no "Device has wide color built-in display" line in dumpsys SurfaceFlinger' });
+    const both = parseDisplayColour('garbage');
+    expect([both.colorMode, both.wideColor]).toEqual([null, null]);
+    expect(both.reason).toMatch(/Current color mode.*; .*wide color/);
+  });
+
+  it('is null with a reason when two displays report different colour modes, or the wide-colour line disagrees with itself', () => {
+    const two = parseDisplayColour('    Current color mode: ColorMode::SRGB (7)\n    Current color mode: ColorMode::DISPLAY_P3 (9)\nDevice has wide color built-in display: 1');
+    expect(two.colorMode).toBeNull();
+    expect(two.wideColor).toBe(true);
+    expect(two.reason).toMatch(/2 different/);
+    const torn = parseDisplayColour('Device has wide color built-in display: 1\nDevice has wide color built-in display: 0\n    Current color mode: ColorMode::SRGB (7)');
+    expect(torn.wideColor).toBeNull();
+    expect(torn.reason).toMatch(/2 different/);
+  });
+
+  it('reads the active refresh mode (render and vsync rates) from dumpsys display, null with a reason when absent', () => {
+    expect(parseRefreshMode('  mActiveSfDisplayMode=DisplayMode{id=1, width=1080, height=2340, renderFrameRate=120.0, vsyncRate=120.0}\n'))
+      .toEqual({ refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null });
+    expect(parseRefreshMode('mActiveSfDisplayMode=DisplayMode{id=2, renderFrameRate=60.0, vsyncRate=120.0}').refreshMode).toBe('render 60 Hz, vsync 120 Hz');
+    expect(parseRefreshMode('nothing')).toEqual({ refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate and vsyncRate in dumpsys display' });
+    expect(parseRefreshMode('mActiveSfDisplayMode=DisplayMode{id=1, renderFrameRate=abc, vsyncRate=120.0}').refreshMode).toBeNull();
+    const two = parseRefreshMode('mActiveSfDisplayMode=DisplayMode{renderFrameRate=60.0, vsyncRate=60.0}\nmActiveSfDisplayMode=DisplayMode{renderFrameRate=120.0, vsyncRate=120.0}');
+    expect(two.refreshMode).toBeNull();
+    expect(two.reason).toMatch(/2 different/);
+  });
+
+  it('reads the GPU and the display facts in one pass, for the whole run', async () => {
+    expect(await readRenderFacts(new RenderDevice())).toEqual({
+      gl: { renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65 (GIT@b4e5b4a, I1aa1e01a2d, 1658219498) (Date:07/19/22)', reason: null },
+      display: { colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
+    });
+  });
+
+  it('a dumpsys that fails is null facts with its reason, never a guess', async () => {
+    const d = new RenderDevice();
+    d.surfaceFlinger = new Error('adb shell dumpsys SurfaceFlinger failed (exit 1): denied');
+    const facts = await readRenderFacts(d);
+    expect(facts.gl).toEqual({ renderer: null, gles: null, reason: 'dumpsys SurfaceFlinger: adb shell dumpsys SurfaceFlinger failed (exit 1): denied' });
+    expect(facts.display).toEqual({
+      colorMode: null, wideColor: null, refreshMode: 'render 120 Hz, vsync 120 Hz',
+      reason: 'dumpsys SurfaceFlinger: adb shell dumpsys SurfaceFlinger failed (exit 1): denied',
+    });
+  });
+
+  it('a display reason joins every unread fact', async () => {
+    const d = new RenderDevice();
+    d.surfaceFlinger = ADRENO;
+    const shell = d.shell.bind(d);
+    d.shell = async (args: string[]) => (args.join(' ') === 'dumpsys display' ? 'no mode here' : shell(args));
+    const { display } = await readRenderFacts(d);
+    expect([display.colorMode, display.wideColor, display.refreshMode]).toEqual([null, null, null]);
+    expect(display.reason).toMatch(/Current color mode.*; .*wide color.*; .*mActiveSfDisplayMode/);
+  });
+});
+
+describe('the jank summary gfxinfo prints (framestats, informational)', () => {
+  it('reads the frames and the janky frames with their percentage', () => {
+    expect(parseJank('Total frames rendered: 1200\nJanky frames: 36 (3.00%)\n')).toEqual({ frames: 1200, janky: 36, jankPercent: 3, reason: null });
+    expect(parseJank('Total frames rendered: 0\nJanky frames: 0 (0.00%)\n')).toEqual({ frames: 0, janky: 0, jankPercent: 0, reason: null });
+    expect(parseJank('Total frames rendered: 3\nJanky frames: 1 (33.33%)\n')).toEqual({ frames: 3, janky: 1, jankPercent: 33.33, reason: null });
+  });
+
+  it.each([
+    ['no jank line', 'Total frames rendered: 10\n', /no "Janky frames" line/],
+    ['no frame count', 'Janky frames: 3 (30.00%)\n', /no "Total frames rendered" line/],
+    ['more janky frames than frames', 'Total frames rendered: 2\nJanky frames: 3 (150.00%)\n', /more janky frames than frames/],
+    ['a percentage that is not the count over the frames', 'Total frames rendered: 100\nJanky frames: 3 (40.00%)\n', /does not match/],
+    ['garbage', 'No process found for: com.x', /no "Total frames rendered" line/],
+  ])('is null with a reason for %s', (_label, text, why) => {
+    const r = parseJank(text);
+    expect([r.frames, r.janky, r.jankPercent]).toEqual([null, null, null]);
+    expect(r.reason).toMatch(why);
   });
 });

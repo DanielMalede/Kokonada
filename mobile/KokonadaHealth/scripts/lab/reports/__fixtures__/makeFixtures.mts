@@ -24,11 +24,14 @@ import { encodePng } from '../../lib/png.mjs';
 import { readFallbackShot, readFieldShot, renderFallbackTwin, renderFieldTwin, type Rect, type Rgba } from '../lib/evidence.mts';
 import { manifest, row } from './rows.ts';
 
-const out = process.argv[2];
-if (!out) {
+// No process.exit(): this script loads CanvasKit (reportsCanvasKitExit.test.ts).
+const given = process.argv[2];
+if (!given) {
   console.error('usage: node makeFixtures.mts <out folder>');
-  process.exit(2);
+  process.exitCode = 2;
+  throw new Error('no out folder');
 }
+const out: string = given;
 
 const REGION: Rect = { x: 0, y: 24, width: 103, height: 235 };
 const STAGE: Rect = { x: 0, y: 30, width: 103, height: 229 };

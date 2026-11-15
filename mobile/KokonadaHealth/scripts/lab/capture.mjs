@@ -15,6 +15,14 @@
 // more than once must hash the same every time (QA-078). A still shot can prove it draws no frames.
 // On every exit path, success, failure or Ctrl-C, the phone is restored, and manifest.json is written.
 //
+// B8-5b (the architect's B8 plan): every shot states its scene facts in `expect` {direction, face, hero, tier}, pinned to
+// the lab's catalogue by jest (src/design/lab/__tests__/capturePlans.test.ts), and a row takes them from there, never
+// from a lab line (F4, T1); the GPU and display facts come from adb (F5). The plan is strict: a key the harness does
+// not read is an error (UI-215). A shot can ask for a pixel check (`checks.notFlat`) and one proof: zero-frames,
+// draws-frames, rate (frames/s inside a band, UI-171), framestats (jank, informational), result (the bench's RESULT
+// line) or record (screenrecord frames, F6). READY's stage must be the app window (UI-216), and an ERROR the lab sends
+// after READY, up to the end of the shot, refuses it (UI-225).
+//
 // Exit codes: 0 passed · 1 the capture failed (or the phone was not fully restored) · 2 refused.
 
 import crypto from 'node:crypto';
@@ -24,10 +32,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { findMarkers, readSentinel } from './assertLabExcluded.mjs';
 import { createAdb } from './lib/adb.mjs';
-import { applySession, applyShot, parseGfxFrames, parseSystemBars, readDeviceFacts, readPowerSave, restoreDevice, snapshotDevice } from './lib/device.mjs';
-import { validateRow } from './lib/manifest.mjs';
+import {
+  applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
+} from './lib/device.mjs';
+import { readSkiaVersion, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
-import { checkReady, classifyProbes, launchArgs, waitForLab } from './lib/protocol.mjs';
+import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
 import { readZipEntries } from './lib/zip.mjs';
 
@@ -50,22 +60,95 @@ const numIn = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >=
 
 // zero-frames: a still shot draws nothing (QA-034, QA-035). draws-frames: its positive control, the
 // same scene with motion allowed, must draw something, or the zero proves nothing.
-const PROOFS = ['zero-frames', 'draws-frames'];
+// rate (UI-171): the frames gfxinfo counts per second, inside the plan's band (the tier's cap on the device).
+// framestats: gfxinfo's jank summary, recorded and never judged (informational, DEC-082 is open).
+// result: the bench's RESULT line for this run, held to the plan's contract (lib/protocol.mjs checkResult).
+// record: screenrecord's raw frames at a reduced size (F6), kept beside the PNGs for the reports.
+const PROOFS = ['zero-frames', 'draws-frames', 'rate', 'framestats', 'result', 'record'];
+const PROOF_KEYS = {
+  'zero-frames': ['kind', 'seconds'], 'draws-frames': ['kind', 'seconds'], rate: ['kind', 'seconds', 'band'],
+  framestats: ['kind', 'seconds'], result: ['kind', 'seconds'], record: ['kind', 'seconds', 'size'],
+};
+// screenrecord's own limit.
+const RECORD_MAX_SECONDS = 180;
+// The keys the harness reads, by object: any other is an error, so a check it would ignore cannot look like one (UI-215).
+const KEYS = {
+  plan: ['id', 'app', 'readyTimeoutMs', 'settleMs', 'session', 'shots'],
+  app: ['package', 'activity'],
+  session: ['stayOn'],
+  shot: ['id', 'repeat', 'scene', 'args', 'device', 'probes', 'expect', 'checks', 'proof'],
+  device: ['fontScale', 'night', 'animatorScale', 'powerSave'],
+  expect: ['direction', 'face', 'hero', 'tier'],
+  checks: ['notFlat'],
+  notFlat: ['probe', 'minRange'],
+  band: ['min', 'max'],
+  size: ['width', 'height'],
+};
+const FACES = ['dark', 'light'];
+const TIERS = ['full', 'low', 'still'];
+const DIRECTION = /^[a-z]+$/;
+const evenIn = (v, lo, hi) => intIn(v, lo, hi) && v % 2 === 0;
+const unknownKeys = (value, keys, at, e) => {
+  for (const k of Object.keys(value)) if (!keys.includes(k)) e.push(`${at ? `${at}.` : ''}${k} is not a plan key`);
+};
+
+function validateExpect(x, at, e) {
+  if (!isObject(x)) { e.push(`${at}.expect must be { direction, face, hero, tier }, each a value or null`); return; }
+  unknownKeys(x, KEYS.expect, `${at}.expect`, e);
+  if (!(x.direction === null || (typeof x.direction === 'string' && DIRECTION.test(x.direction)))) e.push(`${at}.expect.direction must be a direction id or null`);
+  if (!(x.face === null || FACES.includes(x.face))) e.push(`${at}.expect.face must be dark, light or null`);
+  if (!(x.hero === null || (typeof x.hero === 'string' && TOKEN.test(x.hero)))) e.push(`${at}.expect.hero must be a plain token or null`);
+  if (!(x.tier === null || TIERS.includes(x.tier))) e.push(`${at}.expect.tier must be full, low, still or null`);
+}
+
+function validateChecks(s, at, e) {
+  if (s.checks === undefined) return;
+  if (!isObject(s.checks)) { e.push(`${at}.checks must be an object`); return; }
+  unknownKeys(s.checks, KEYS.checks, `${at}.checks`, e);
+  const nf = s.checks.notFlat;
+  if (nf === undefined) return;
+  if (!isObject(nf)) { e.push(`${at}.checks.notFlat must be { probe, minRange }`); return; }
+  unknownKeys(nf, KEYS.notFlat, `${at}.checks.notFlat`, e);
+  if (!(Array.isArray(s.probes) && s.probes.includes(nf.probe))) e.push(`${at}.checks.notFlat.probe must be one of the shot's probes`);
+  if (!intIn(nf.minRange, 1, 255)) e.push(`${at}.checks.notFlat.minRange must be an integer from 1 to 255`);
+}
+
+function validateProof(p, at, e) {
+  if (p === undefined) return;
+  if (!isObject(p) || !PROOFS.includes(p.kind)) { e.push(`${at}.proof.kind must be one of ${PROOFS.join(', ')}`); return; }
+  unknownKeys(p, PROOF_KEYS[p.kind], `${at}.proof`, e);
+  const most = p.kind === 'record' ? RECORD_MAX_SECONDS : 120;
+  if (!intIn(p.seconds, 1, most)) e.push(`${at}.proof.seconds must be an integer from 1 to ${most}`);
+  if (p.kind === 'rate') {
+    const b = p.band;
+    if (!isObject(b) || !numIn(b.min, 0, 1000) || !numIn(b.max, 0, 1000) || b.min > b.max) e.push(`${at}.proof.band must be { min, max } with 0 <= min <= max <= 1000`);
+    else unknownKeys(b, KEYS.band, `${at}.proof.band`, e);
+  }
+  if (p.kind === 'record') {
+    const z = p.size;
+    if (!isObject(z) || !evenIn(z.width, 2, 4096) || !evenIn(z.height, 2, 4096)) e.push(`${at}.proof.size must be { width, height }, even integers from 2 to 4096`);
+    else unknownKeys(z, KEYS.size, `${at}.proof.size`, e);
+  }
+}
 
 /** Every problem with a capture plan, as sentences. [] for a valid plan. */
 export function validatePlan(plan) {
   const e = [];
   if (!isObject(plan)) return ['the plan must be an object'];
+  unknownKeys(plan, KEYS.plan, '', e);
   if (!ID.test(plan.id ?? '')) e.push('id must be a short lowercase token');
   if (!isObject(plan.app) || !NAME.test(plan.app.package ?? '') || !NAME.test(plan.app.activity ?? '')) e.push('app.package and app.activity must be plain names');
+  else unknownKeys(plan.app, KEYS.app, 'app', e);
   if (!intIn(plan.readyTimeoutMs, 100, 600000)) e.push('readyTimeoutMs must be an integer from 100 to 600000');
   if (!intIn(plan.settleMs, 0, 10000)) e.push('settleMs must be an integer from 0 to 10000');
   if (plan.session !== undefined && (!isObject(plan.session) || (plan.session.stayOn !== undefined && typeof plan.session.stayOn !== 'boolean'))) e.push('session.stayOn must be a boolean');
+  else if (plan.session !== undefined) unknownKeys(plan.session, KEYS.session, 'session', e);
   if (!Array.isArray(plan.shots) || plan.shots.length === 0) return [...e, 'shots must be a non-empty list'];
   const seen = new Set();
   plan.shots.forEach((s, i) => {
     const at = `shots[${i}]`;
     if (!isObject(s)) { e.push(`${at} must be an object`); return; }
+    unknownKeys(s, KEYS.shot, at, e);
     if (!ID.test(s.id ?? '')) e.push(`${at}.id must be a short lowercase token`);
     else if (seen.has(s.id)) e.push(`${at}.id ${s.id} is used twice`);
     seen.add(s.id);
@@ -83,13 +166,52 @@ export function validatePlan(plan) {
       if (d.night !== 'yes' && d.night !== 'no') e.push(`${at}.device.night must be yes or no`);
       if (!numIn(d.animatorScale, 0, 10)) e.push(`${at}.device.animatorScale must be a number from 0 to 10`);
       if (typeof d.powerSave !== 'boolean') e.push(`${at}.device.powerSave must be a boolean`);
+      unknownKeys(d, KEYS.device, `${at}.device`, e);
     }
     if (!Array.isArray(s.probes) || s.probes.length === 0 || !s.probes.every((p) => TOKEN.test(p))) e.push(`${at}.probes must be a non-empty list of probe ids`);
-    if (s.proof !== undefined && !(isObject(s.proof) && PROOFS.includes(s.proof.kind) && intIn(s.proof.seconds, 1, 120))) {
-      e.push(`${at}.proof must be { kind: "zero-frames" or "draws-frames", seconds: 1 to 120 }`);
-    }
+    validateExpect(s.expect, at, e);
+    validateChecks(s, at, e);
+    validateProof(s.proof, at, e);
   });
   return e;
+}
+
+// ---- the render facts an expect implies (F4) ---------------------------------------------------
+
+/** The field image's upscale sampling (FIELD_SAMPLING in src/design/v2/field/fieldImage.tsx), pinned by capturePlans.test.ts. */
+export const SAMPLING = Object.freeze({ filter: 'linear', mipmap: 'none' });
+const TOKENS_FILE = 'design-tokens/base.tokens.json';
+
+/**
+ * The field canvas's render scale and its sampling for an expect tier, from the token file's field.tiers: low reads the
+ * low tier; full and still read the full tier (the still is the full tier's law drawn once, designer 2.8, as
+ * renderScaleFor in fieldDriver.ts, which capturePlans.test.ts pins this to). A scene with no tier has neither.
+ */
+export function renderFacts(tier, tiers) {
+  if (tier === null) return { renderScale: null, sampling: null };
+  const key = tier === 'low' ? 'low' : 'full';
+  const value = tiers?.[key]?.renderScale?.$value;
+  if (!(typeof value === 'number' && Number.isFinite(value) && value > 0)) throw new Refused(`${TOKENS_FILE} has no field.tiers.${key}.renderScale`);
+  return { renderScale: value, sampling: { ...SAMPLING } };
+}
+
+/** field.tiers from the token file at HEAD (the stamp chain has proved the tree clean). Throws Refused. */
+function readTiers(repoRoot) {
+  const file = path.join(repoRoot, TOKENS_FILE);
+  if (!fs.existsSync(file)) throw new Refused(`no ${TOKENS_FILE}: the render facts are read from it`);
+  let tiers;
+  try { tiers = JSON.parse(fs.readFileSync(file, 'utf8'))?.field?.tiers; } catch { throw new Refused(`${TOKENS_FILE} is not JSON`); }
+  for (const tier of TIERS) renderFacts(tier, tiers);
+  return tiers;
+}
+
+/** Skia's version from the lockfile at HEAD (the stamp chain has proved the tree clean). Throws Refused. */
+function readSkia(appRoot) {
+  const file = path.join(appRoot, 'package-lock.json');
+  if (!fs.existsSync(file)) throw new Refused(`no package-lock.json in ${appRoot}: the Skia version is read from the lockfile at HEAD`);
+  const { version, reason } = readSkiaVersion(fs.readFileSync(file, 'utf8'));
+  if (version === null) throw new Refused(`the Skia version cannot be read: ${reason}`);
+  return version;
 }
 
 // ---- the build (no phone needed) -----------------------------------------------------------
@@ -127,28 +249,149 @@ export function checkBuild({ appRoot, apkPath, git }) {
 // UI-223 (RA-36): the surface a shot must have been drawn by, by its scene's prefix. The lab's READY says which surface
 // drew the scene (src/design/lab/shaderReport.ts): a field.* shot drawn by anything but the field shader (an effect that
 // did not compile, a builder throw, or a READY that names no surface) is a picture of the fallback, never evidence of the
-// field; a fallback.* shot is FieldFallback mounted by design. A scene with no rule (smoke) draws no field.
+// field; a fallback.* shot is FieldFallback mounted by design. B8: the bench scenes (witness, grain, cost, storm) and
+// the policy-tier field scenes draw the field through its surface, so each must say ready. The smoke scene draws no
+// field and is held to nothing. A scene that matches no rule is refused: nothing says what must have drawn it.
 const SURFACES = [
+  { prefix: 'field.', suffix: '.policy', status: 'ready', drawn: 'by the field shader, at the tier the motion policy chose' },
   { prefix: 'field.', status: 'ready', drawn: 'by the field shader, never its fallback' },
   { prefix: 'fallback.', status: 'fallback-scene', drawn: 'by the lab fallback scene' },
+  { prefix: 'witness.', status: 'ready', drawn: 'by the field shader through its surface, never its fallback' },
+  { prefix: 'grain.', status: 'ready', drawn: 'by the field shader through its surface, never its fallback' },
+  { prefix: 'cost.', status: 'ready', drawn: 'by the field shader, never its fallback' },
+  { prefix: 'storm.', status: 'ready', drawn: 'by the field shader, never its fallback' },
+  { prefix: 'smoke', whole: true, status: undefined, drawn: 'without the field' },
 ];
+
+/** The surface rule a scene id is held to, or null when none matches. */
+export function surfaceRule(scene) {
+  return SURFACES.find((r) => (r.whole ? scene === r.prefix : scene.startsWith(r.prefix) && (r.suffix === undefined || scene.endsWith(r.suffix)))) ?? null;
+}
 
 /** Why READY's surface is not the one the shot's scene must be drawn by, or null. */
 export function surfaceProblem(scene, ready) {
-  const rule = SURFACES.find((r) => scene.startsWith(r.prefix));
-  if (!rule) return null;
+  const rule = surfaceRule(scene);
+  if (!rule) return `scene ${scene} has no surface rule: the harness cannot tell what must have drawn it (UI-223)`;
+  if (rule.status === undefined) return null;
   const status = ready.shaderStatus ?? null;
   if (status === rule.status) return null;
   const why = typeof ready.shaderReason === 'string' && ready.shaderReason.length > 0 ? ` (${ready.shaderReason})` : '';
   return `READY says shaderStatus ${JSON.stringify(status)}${why}: a ${rule.prefix}* shot must be drawn ${rule.drawn} (UI-223)`;
 }
 
-async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, sleep, now, signal }) {
+// UI-216: the scenes lay themselves out from the top of the window (heroLayout), and the harness reads probe rects in
+// window coordinates as screen coordinates (classifyProbes). So READY's stage must be the app window, at 0,0, and the
+// window the whole screen; a pixel absorbs the layout's rounding to the pixel grid.
+const STAGE_TOLERANCE_PX = 1;
+
+/** Why READY's stage is not the app window, or null. */
+export function stageProblem(ready, screen) {
+  const px = ready.probes?.stage?.px;
+  if (!isObject(px) || ![px.x, px.y, px.width, px.height].every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return 'READY has no stage rect: the scene\'s layout cannot be checked against the app window (UI-216)';
+  }
+  const off = Math.max(Math.abs(px.x), Math.abs(px.y), Math.abs(px.width - screen.width), Math.abs(px.height - screen.height));
+  if (off <= STAGE_TOLERANCE_PX) return null;
+  return `READY's stage ${px.x},${px.y} ${px.width}x${px.height} px is not the app window 0,0 ${screen.width}x${screen.height} within ${STAGE_TOLERANCE_PX} px: the scene's layout would be offset (UI-216)`;
+}
+
+/** The whole pixels of a probe's rect inside the app region, or null when it has none. */
+function probeCrop(px, region) {
+  const x0 = Math.max(Math.floor(px.x), region.x);
+  const y0 = Math.max(Math.floor(px.y), region.y);
+  const x1 = Math.min(Math.ceil(px.x + px.width), region.x + region.width);
+  const y1 = Math.min(Math.ceil(px.y + px.height), region.y + region.height);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, width: x1 - x0, height: y1 - y0 } : null;
+}
+
+/** UI-215: the largest spread of any of R, G and B over a rect of the frame; 0 for flat ground. */
+export function colourRange(frame, rect) {
+  const lo = [255, 255, 255];
+  const hi = [0, 0, 0];
+  for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+      const i = (y * frame.width + x) * 4;
+      for (let c = 0; c < 3; c += 1) {
+        const v = frame.rgba[i + c];
+        if (v < lo[c]) lo[c] = v;
+        if (v > hi[c]) hi[c] = v;
+      }
+    }
+  }
+  return Math.max(0, ...hi.map((h, c) => h - lo[c]));
+}
+
+/**
+ * UI-225: the run's lab lines up to now, judged only once they are all read. logcat delivers a line some time after
+ * the lab logs it, so the harness logs its own marker into the same buffer and waits for it to come back: every line
+ * logged before it has then been delivered. Throws on an ERROR (or an unreadable lab line) for the run, or a marker
+ * that does not come back.
+ */
+async function judgeLines({ adb, lab, token, shot, plan, signal }) {
+  const back = lab.marked(token, { timeoutMs: plan.readyTimeoutMs, signal });
+  try {
+    await adb.shell(markArgs(token));
+    await back;
+  } catch (e) {
+    back.catch(() => {});
+    throw new Error(`${shot.id}: ${e.message}`);
+  }
+  const problems = lab.problems();
+  if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+}
+
+async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
+  const { proof } = shot;
+  const pkg = plan.app.package;
+  if (proof.kind === 'result') {
+    const result = await lab.nextResult({ timeoutMs: proof.seconds * 1000 }).catch((e) => { throw new Error(`${shot.id}: ${e.message}`); });
+    const problems = checkResult(result, { run, seq: 0, scene: shot.scene });
+    if (problems.length) throw new Error(`${shot.id}: the RESULT is not valid: ${problems.join('; ')}`);
+    out.results.push({ shot: shot.id, repeat: shot.repeat, result });
+    out.proofs.push({ shot: shot.id, kind: 'result', seconds: proof.seconds, passed: true });
+    return;
+  }
+  if (proof.kind === 'record') {
+    const { width, height } = proof.size;
+    const bytes = await adb.execOut(['screenrecord', '--output-format=frames', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), '-'],
+      { timeoutMs: (proof.seconds + 30) * 1000 });
+    if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord returned no frame in ${proof.seconds} s`);
+    const file = `${shot.id}.frames`;
+    fs.writeFileSync(path.join(outDir, file), bytes);
+    out.records.push({ shot: shot.id, file, bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
+    out.proofs.push({ shot: shot.id, kind: 'record', seconds: proof.seconds, passed: true });
+    return;
+  }
+  await adb.shell(['dumpsys', 'gfxinfo', pkg, 'reset']);
+  await sleep(proof.seconds * 1000);
+  const text = await adb.shell(['dumpsys', 'gfxinfo', pkg]);
+  if (proof.kind === 'framestats') {
+    out.proofs.push({ shot: shot.id, kind: 'framestats', seconds: proof.seconds, ...parseJank(text), passed: null });
+    return;
+  }
+  const frames = parseGfxFrames(text);
+  if (proof.kind === 'rate') {
+    const fps = frames / proof.seconds;
+    const { min, max } = proof.band;
+    const passed = fps >= min && fps <= max;
+    out.proofs.push({ shot: shot.id, kind: 'rate', seconds: proof.seconds, frames, fps, band: { min, max }, passed });
+    if (!passed) throw new Error(`${shot.id}: ${fps} frames/s in ${proof.seconds} s is outside the band ${min} to ${max} (UI-171)`);
+    return;
+  }
+  const still = proof.kind === 'zero-frames';
+  out.proofs.push({ shot: shot.id, kind: proof.kind, seconds: proof.seconds, frames, passed: still ? frames === 0 : frames > 0 });
+  if (still && frames !== 0) throw new Error(`${shot.id}: ${frames} frames rendered in ${proof.seconds} s while it should be still (QA-034, QA-035)`);
+  if (!still && frames === 0) throw new Error(`${shot.id}: the positive control drew no frame in ${proof.seconds} s, so a zero-frames proof beside it would prove nothing`);
+}
+
+async function captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, outDir, sleep, now, signal, out }) {
   const observed = await applyShot(adb, shot.device);
   await adb.shell(['logcat', '-c']);
   const stream = adb.logcat();
+  const run = `${shot.id}-${repeat}-${now().getTime().toString(36)}`.slice(0, 64);
+  // Every lab line of this run, from before its launch to the end of the shot (UI-225).
+  const lab = collectLab({ source: stream, run });
   try {
-    const run = `${shot.id}-${repeat}-${now().getTime().toString(36)}`.slice(0, 64);
     const launched = now();
     const ready = waitForLab({ source: stream, run, seq: 0, timeoutMs: plan.readyTimeoutMs, signal });
     try {
@@ -182,6 +425,19 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
     if (regionHash(second, region) !== appRegionHash) {
       throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ in the app region`);
     }
+    // UI-225: an ERROR the lab sent after READY (a fallback that landed after it) makes the grabs a picture of nothing READY named.
+    await judgeLines({ adb, lab, token: `${run}-grabs`, shot, plan, signal });
+    const stage = stageProblem(payload, screen);
+    if (stage) throw new Error(`${shot.id}: ${stage}`);
+    const checks = [];
+    const notFlat = shot.checks?.notFlat;
+    if (notFlat) {
+      const crop = probeCrop(payload.probes[notFlat.probe].px, region);
+      if (!crop) throw new Error(`${shot.id}.${repeat}: the probe ${notFlat.probe} has no pixel in the app region, so its ground cannot be judged`);
+      const range = colourRange(first, crop);
+      if (range < notFlat.minRange) throw new Error(`${shot.id}.${repeat}: the probe ${notFlat.probe} is flat ground: range ${range}, under the plan's ${notFlat.minRange} (UI-215)`);
+      checks.push({ shot: shot.id, repeat, kind: 'notFlat', probe: notFlat.probe, minRange: notFlat.minRange, range, passed: true });
+    }
 
     const png = await encodePng({ width: region.width, height: region.height, rgba: cropRegion(first, region) });
     const file = `${shot.id}.${repeat}.png`;
@@ -193,7 +449,7 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
       stamp: { bundleSha256: build.stamp.bundleSha256, tokens: build.stamp.tokens ?? {} },
       device: { model: facts.model, fingerprint: facts.fingerprint, width: first.width, height: first.height, density: facts.density, refreshRate: facts.refreshRate },
       app: { package: plan.app.package, apkSha256: build.apkSha256, buildType: 'lab', hermes: build.hermes, dev: build.stamp.dev },
-      scene: shot.scene, direction: null, face: null,
+      scene: shot.scene, direction: shot.expect.direction, face: shot.expect.face,
       fontScale: { requested: shot.device.fontScale, observed: observed.fontScale, app: payload.fontScale },
       motion: { reduceMotionObserved: observed.animatorScales.transition === 0, powerSaveObserved: payload.powerSave === true, tier: payload.tier ?? null },
       locale: facts.locale,
@@ -207,11 +463,26 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, outDir, slee
       region,
       probes: classifyProbes(payload.probes, screen, region),
       timestamps: { launched: launched.toISOString(), ready: readyAt.toISOString(), captured: captured.toISOString() },
+      // F4: the scene facts are the shot's expect (pinned to the catalogue by jest), never a lab line's.
+      expect: { direction: shot.expect.direction, face: shot.expect.face, hero: shot.expect.hero, tier: shot.expect.tier },
+      ...renderFacts(shot.expect.tier, tiers),
+      gl: render.gl,
+      display: render.display,
+      skiaVersion: build.skiaVersion,
+      shaderReason: typeof payload.shaderReason === 'string' && payload.shaderReason.length > 0 ? payload.shaderReason : null,
+      stage: { x: payload.probes.stage.px.x, y: payload.probes.stage.px.y, width: payload.probes.stage.px.width, height: payload.probes.stage.px.height },
     };
     const errors = validateRow(row);
     if (errors.length) throw new Error(`${shot.id}.${repeat}: the manifest row is not valid: ${errors.join('; ')}`);
+    // The proof runs on the shot's last launch, while its lab lines are still read; an ERROR during it refuses the shot too.
+    if (shot.proof && repeat === shot.repeat) {
+      await runProof({ plan, shot, adb, lab, run, outDir, sleep, out });
+      await judgeLines({ adb, lab, token: `${run}-proof`, shot, plan, signal });
+    }
+    out.checks.push(...checks);
     return row;
   } finally {
+    lab.stop();
     await stream.close();
   }
 }
@@ -239,7 +510,8 @@ export async function capture({
   if (!path.isAbsolute(outDir) || isInside(repoRoot, outDir)) {
     throw new Refused(`the output folder ${outDir} is inside the repository (or not absolute): evidence never goes into git`);
   }
-  const build = checkBuild({ appRoot, apkPath, git });
+  const build = { ...checkBuild({ appRoot, apkPath, git }), skiaVersion: readSkia(appRoot) };
+  const tiers = readTiers(repoRoot);
 
   // Read-only checks on the phone.
   const installedPath = (await adb.shell(['pm', 'path', plan.app.package])).split(/\r?\n/).map((l) => l.trim()).find((l) => l.startsWith('package:'));
@@ -252,6 +524,8 @@ export async function capture({
   if (installProblems.length) throw new Refused(installProblems.join('\n'));
   const facts = await readDeviceFacts(adb);
   if (facts.forceDark) throw new Refused('force-dark is on: the OS repaints apps dark (debug.hwui.force_dark=true). Switch it off and capture again.');
+  // F5: the GPU and the display's colour facts, read once; a fact adb does not give is null with its reason, never refused.
+  const render = await readRenderFacts(adb);
 
   // The original state goes to disk before the first change.
   fs.mkdirSync(outDir, { recursive: true });
@@ -261,7 +535,8 @@ export async function capture({
   const startedAt = now().toISOString();
   const rows = [];
   const determinism = [];
-  const proofs = [];
+  /** @type {{ proofs: any[], checks: any[], results: any[], records: any[] }} */
+  const out = { proofs: [], checks: [], results: [], records: [] };
   let failure = null;
   let restoreFailures = [];
   try {
@@ -270,7 +545,7 @@ export async function capture({
       const hashes = [];
       for (let repeat = 1; repeat <= shot.repeat; repeat += 1) {
         if (signal?.aborted) throw new Error('interrupted');
-        const row = await captureShot({ plan, shot, repeat, adb, build, facts, outDir, sleep, now, signal });
+        const row = await captureShot({ plan, shot, repeat, adb, build, facts, render, tiers, outDir, sleep, now, signal, out });
         rows.push(row);
         hashes.push(row.appRegionHash);
         log(`${shot.id}.${repeat}: ${row.appRegionHash.slice(0, 12)} (${row.probes.excluded.length} probe(s) excluded)`);
@@ -279,15 +554,6 @@ export async function capture({
         const equal = hashes.every((h) => h === hashes[0]);
         determinism.push({ shot: shot.id, equal, hashes });
         if (!equal) throw new Error(`QA-078: ${shot.id} differs across ${shot.repeat} separate launches`);
-      }
-      if (shot.proof) {
-        await adb.shell(['dumpsys', 'gfxinfo', plan.app.package, 'reset']);
-        await sleep(shot.proof.seconds * 1000);
-        const frames = parseGfxFrames(await adb.shell(['dumpsys', 'gfxinfo', plan.app.package]));
-        const still = shot.proof.kind === 'zero-frames';
-        proofs.push({ shot: shot.id, kind: shot.proof.kind, seconds: shot.proof.seconds, frames, passed: still ? frames === 0 : frames > 0 });
-        if (still && frames !== 0) throw new Error(`${shot.id}: ${frames} frames rendered in ${shot.proof.seconds} s while it should be still (QA-034, QA-035)`);
-        if (!still && frames === 0) throw new Error(`${shot.id}: the positive control drew no frame in ${shot.proof.seconds} s, so a zero-frames proof beside it would prove nothing`);
       }
     }
   } catch (e) {
@@ -302,8 +568,8 @@ export async function capture({
     failure: failure ? failure.message : null,
     restoreFailures,
     commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
-    device: facts, startedAt, finishedAt: now().toISOString(),
-    rows, determinism, proofs,
+    device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt: now().toISOString(),
+    rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
   };
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

@@ -128,6 +128,99 @@ export function parseGfxFrames(text) {
   return Number(m[1]);
 }
 
+/**
+ * The jank summary gfxinfo prints (framestats, informational): { frames, janky, jankPercent, reason }. All three null
+ * with a reason when the summary is absent or does not hold together; never a guess.
+ */
+export function parseJank(text) {
+  const none = (reason) => ({ frames: null, janky: null, jankPercent: null, reason });
+  const total = /Total frames rendered: (\d+)/.exec(text);
+  if (!total) return none('no "Total frames rendered" line in gfxinfo');
+  const jank = /Janky frames: (\d+) \((\d+(?:\.\d+)?)%\)/.exec(text);
+  if (!jank) return none('no "Janky frames" line in gfxinfo');
+  const frames = Number(total[1]);
+  const janky = Number(jank[1]);
+  const jankPercent = Number(jank[2]);
+  if (janky > frames) return none(`more janky frames than frames (${janky} of ${frames})`);
+  const expected = frames === 0 ? 0 : (100 * janky) / frames;
+  if (Math.abs(expected - jankPercent) > 0.01) return none(`the janky percentage ${jankPercent}% does not match ${janky} of ${frames} frames`);
+  return { frames, janky, jankPercent, reason: null };
+}
+
+// ---- the GPU and the display's colour facts (B8-5a, F5) ------------------------------------------
+// Read from adb, never from the app (no Kotlin change). Each parser reads lines SurfaceFlinger and DisplayManager print
+// in AOSP and fails closed: an absent line, a line printed twice with different values (two displays) or a line it
+// cannot split is null with a reason. Their reading on the emulator and the S22+ is the device session's first check.
+
+/** The distinct values of a line pattern's first group, trimmed. */
+const distinct = (text, pattern) => [...new Set(String(text).split(/\r?\n/).map((l) => pattern.exec(l)?.[1]?.trim()).filter((v) => v !== undefined))];
+
+const GLES_LINE = /^\s*GLES: (.*)$/;
+const GLES_VERSION = ', OpenGL ES ';
+
+/** `GLES: <vendor>, <renderer>, <version>` in dumpsys SurfaceFlinger: { renderer, gles, reason }. */
+export function parseGles(text) {
+  const none = (reason) => ({ renderer: null, gles: null, reason });
+  const lines = distinct(text, GLES_LINE);
+  if (lines.length === 0) return none('no GLES line in dumpsys SurfaceFlinger (a Vulkan RenderEngine prints none)');
+  if (lines.length > 1) return none(`${lines.length} different GLES lines in dumpsys SurfaceFlinger`);
+  const line = lines[0];
+  const parts = line.split(GLES_VERSION);
+  const renderer = (parts[0] ?? '').trim();
+  if (parts.length !== 2 || renderer === '' || parts[1].trim() === '') return none(`cannot split the GLES line into its renderer and its version: ${line.slice(0, 160)}`);
+  return { renderer, gles: `OpenGL ES ${parts[1].trim()}`, reason: null };
+}
+
+const COLOR_MODE_LINE = /^\s*Current color mode: (.+)$/;
+const WIDE_COLOR_LINE = /^\s*Device has wide color built-in display: ([01])\s*$/;
+
+/** The current colour mode as SurfaceFlinger prints it, and whether the built-in display is wide colour. */
+export function parseDisplayColour(text) {
+  const reasons = [];
+  const modes = distinct(text, COLOR_MODE_LINE);
+  let colorMode = null;
+  if (modes.length === 1) colorMode = modes[0];
+  else reasons.push(modes.length === 0 ? 'no "Current color mode" line in dumpsys SurfaceFlinger' : `${modes.length} different "Current color mode" lines in dumpsys SurfaceFlinger (one per display)`);
+  const wide = distinct(text, WIDE_COLOR_LINE);
+  let wideColor = null;
+  if (wide.length === 1) wideColor = wide[0] === '1';
+  else reasons.push(wide.length === 0 ? 'no "Device has wide color built-in display" line in dumpsys SurfaceFlinger' : `${wide.length} different "Device has wide color built-in display" lines in dumpsys SurfaceFlinger`);
+  return { colorMode, wideColor, reason: reasons.length ? reasons.join('; ') : null };
+}
+
+const ACTIVE_MODE = /mActiveSfDisplayMode=DisplayMode\{([^}]*)\}/;
+const RATES = { renderFrameRate: /\brenderFrameRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/, vsyncRate: /\bvsyncRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/ };
+
+/** The active display mode's render and vsync rates in dumpsys display: { refreshMode, reason }. */
+export function parseRefreshMode(text) {
+  const modes = distinct(text, ACTIVE_MODE).map((body) => {
+    const render = RATES.renderFrameRate.exec(body);
+    const vsync = RATES.vsyncRate.exec(body);
+    return render && vsync ? `render ${Number(render[1])} Hz, vsync ${Number(vsync[1])} Hz` : null;
+  }).filter((m) => m !== null);
+  const unique = [...new Set(modes)];
+  if (unique.length === 0) return { refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate and vsyncRate in dumpsys display' };
+  if (unique.length > 1) return { refreshMode: null, reason: `${unique.length} different active display modes in dumpsys display` };
+  return { refreshMode: unique[0], reason: null };
+}
+
+/** The GPU and the display facts a manifest row records, read once for the run. A dumpsys that fails is its reason. */
+export async function readRenderFacts(adb) {
+  const dump = async (what) => {
+    try { return { text: await adb.shell(['dumpsys', what]), reason: null }; } catch (e) { return { text: null, reason: `dumpsys ${what}: ${e.message}` }; }
+  };
+  const sf = await dump('SurfaceFlinger');
+  const display = await dump('display');
+  const gl = sf.text === null ? { renderer: null, gles: null, reason: sf.reason } : parseGles(sf.text);
+  const colour = sf.text === null ? { colorMode: null, wideColor: null, reason: sf.reason } : parseDisplayColour(sf.text);
+  const refresh = display.text === null ? { refreshMode: null, reason: display.reason } : parseRefreshMode(display.text);
+  const reasons = [colour.reason, refresh.reason].filter((r) => r !== null);
+  return {
+    gl,
+    display: { colorMode: colour.colorMode, wideColor: colour.wideColor, refreshMode: refresh.refreshMode, reason: reasons.length ? reasons.join('; ') : null },
+  };
+}
+
 const prop = async (adb, name) => (await adb.shell(['getprop', name])).trim();
 
 /** What a manifest row records about the device. */
