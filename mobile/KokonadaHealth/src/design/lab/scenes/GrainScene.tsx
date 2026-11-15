@@ -8,7 +8,8 @@
 // lens edge under the vignette (the surface the gate names for Abyss), from the top bar to the nav. So the strips are the
 // same picture three times, with the same blue-noise pixels, and the only thing that changes from one strip to the next is
 // the grain's amplitude; the seams between them are where the window starts again. No labels: the order is fixed and each
-// strip is a probe named by its strength (grain.x1.00, grain.x0.71, grain.x0.50).
+// strip is a probe named by its strength (grain.x1.00, grain.x0.71, grain.x0.50). The container is pinned to
+// `direction: 'ltr'` (as the witness scene is), so the order holds on a right-to-left phone too.
 //
 // It measures, and mounts what it draws only once its view has a size (UI-175). The stage and the three strips are its
 // probes; no React Native View paints a colour (UI-204). It says which surface drew it (UI-223, shaderReport.ts): `ready`
@@ -100,7 +101,7 @@ export function GrainScene({ clock, params }: SceneProps) {
   }
   return (
     <Probe id="stage" style={styles.stage}>
-      <View testID="grain-scene.view" style={styles.stage} onLayout={onLayout}>
+      <View testID="grain-scene.view" style={styles.container} onLayout={onLayout}>
         {fallback}
         {strips}
       </View>
@@ -165,5 +166,7 @@ function useStrip(base: Readonly<SharedValue<number[] | null>>, factor: number):
 
 const styles = StyleSheet.create({
   stage: { flex: 1 },
+  // Left to right whatever the locale: under RTL a row runs from the right edge, and the strips would read ×0.5 first.
+  container: { flex: 1, direction: 'ltr' },
   row: { flexDirection: 'row' },
 });
