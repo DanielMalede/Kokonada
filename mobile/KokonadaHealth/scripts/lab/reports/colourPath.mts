@@ -4,7 +4,8 @@
 //   node scripts/lab/reports/colourPath.mts --manifest <run>/manifest.json --out <report>.txt
 //
 // For each witness.abyss.<face> row of a capture run it rebuilds the witness layout (src/design/lab/witness/
-// witnessLayout.ts, imported, never restated) from the row's own facts: the stage in dp (READY's stage rect in px over
+// witnessLayout.ts, imported, never restated) from the row's own facts: the insets (READY's stage less its region probe,
+// each rounded to whole px), the stage in dp (READY's stage rect in px over
 // px per dp, the density over 160, as PixelRatio.get() reads it), and the font scale the app reported. It samples each
 // patch's central 16 × 16 dp (the PNG pixels whose centres lie inside) and judges, on the medians per channel (D2):
 //   · W1a (the runtime effect, flat), W2 (a Skia paint) and W3 (a React Native View): the token hex within ±1, and
@@ -75,6 +76,8 @@ interface WitnessRow {
   readonly fontScale: number;
   readonly colorMode: string | null;
   readonly renderScale: number;
+  /** The insets the scene laid out inside, in whole px: READY's stage less its region probe (witnessInsets.ts). */
+  readonly insetsPx: { readonly top: number; readonly right: number; readonly bottom: number; readonly left: number };
 }
 
 /** A witness row's facts (manifest.mjs's schema), or a refusal naming the field. */
@@ -118,11 +121,18 @@ function readWitnessRow(row: unknown): WitnessRow {
   const renderScale = need('renderScale');
   if (!finite(renderScale)) refuse('renderScale', `must be a finite number, got ${JSON.stringify(renderScale)}`);
   const s = stage as unknown as Rect;
-  const eps = 1e-6;
-  if (s.x < cap.region.x - eps || s.y < cap.region.y - eps || s.x + s.width > cap.region.x + cap.region.width + 1 || s.y + s.height > cap.region.y + cap.region.height + 1) {
-    refuse('stage', `${JSON.stringify(s)} is not inside the app region ${JSON.stringify(cap.region)}`);
-  }
-  return { cap, face, stage: s, pxPerDp: (density as number) / 160, fontScale: fontScale as number, colorMode: colorMode as string | null, renderScale: renderScale as number };
+  // The stage may run under the system bars (the lab window is edge to edge): the scene lays out inside READY's region
+  // probe, the stage less its insets. The harness keeps it as probes.inside.region (whole px, clamped to the app region)
+  // or, when it ran under a bar, as an excluded probe with its exact px; each inset is rounded to whole px.
+  const excluded = isObject(r.probes) && Array.isArray(r.probes.excluded) ? (r.probes.excluded as Array<Record<string, unknown>>).find((e) => e.id === 'region') : undefined;
+  const probe = (excluded?.px ?? (isObject(r.probes) && isObject(r.probes.inside) ? r.probes.inside.region : undefined)) as Record<string, unknown> | undefined;
+  if (!isObject(probe) || !['x', 'y', 'width', 'height'].every((key) => finite(probe[key]))) refuse('probes.inside.region', 'is missing: the witness lays out inside READY’s region probe, so its insets cannot be read');
+  const p = probe as unknown as Rect;
+  const insetsPx = {
+    top: Math.round(p.y - s.y), right: Math.round(s.x + s.width - (p.x + p.width)), bottom: Math.round(s.y + s.height - (p.y + p.height)), left: Math.round(p.x - s.x),
+  };
+  if (Object.values(insetsPx).some((v) => v < 0)) refuse('probes.inside.region', `${JSON.stringify(p)} is not inside the stage ${JSON.stringify(s)}`);
+  return { cap, face, stage: s, pxPerDp: (density as number) / 160, fontScale: fontScale as number, colorMode: colorMode as string | null, renderScale: renderScale as number, insetsPx };
 }
 
 // ---------------------------------------------------------------------------------------- sampling
@@ -133,6 +143,7 @@ const median = (v: number[]): number => {
   return s.length % 2 === 1 ? s[m] : (s[m - 1] + s[m]) / 2;
 };
 const fmt = (x: number) => String(Math.round(x * 100) / 100);
+const fmt3 = (x: number) => String(Math.round(x * 1000) / 1000);
 const triple = (b: readonly number[]) => `(${b.map(fmt).join(', ')})`;
 const delta = (a: readonly number[], b: readonly number[]) => Math.max(...[0, 1, 2].map((c) => Math.abs(a[c] - b[c])));
 
@@ -161,7 +172,20 @@ function sampleMedian(w: WitnessRow, img: Rgba, rect: Rect): number[] {
 // ---------------------------------------------------------------------------------------- one evidence row
 
 function judge(w: WitnessRow, img: Rgba): { lines: string[]; failed: number; blind: string[] } {
-  const layout = witnessLayout(w.face, w.stage.width / w.pxPerDp, w.stage.height / w.pxPerDp, w.pxPerDp, w.fontScale);
+  const k = w.pxPerDp;
+  const ip = w.insetsPx;
+  const layout = witnessLayout(w.face, w.stage.width / k, w.stage.height / k, k, w.fontScale, { top: ip.top / k, right: ip.right / k, bottom: ip.bottom / k, left: ip.left / k });
+  // Every sample square must lie in the app region, the pixels the capture kept; one outside it means the scene laid out
+  // under a system bar, and its sample would be read from fewer pixels than it has.
+  const app = w.cap.region;
+  const eps = 1e-6;
+  for (const [name, sample] of [...layout.patches.map((q) => [`${q.kind} ${q.colour}`, q.sample] as const), ['W1b', layout.w1b.sample] as const]) {
+    const sx = w.stage.x + sample.x * k;
+    const sy = w.stage.y + sample.y * k;
+    if (sx < app.x - eps || sy < app.y - eps || sx + sample.width * k > app.x + app.width + eps || sy + sample.height * k > app.y + app.height + eps) {
+      throw new EvidenceInputError(`${REPORT}: row ${w.cap.name}: the sample of ${name} at (${fmt(sx)}, ${fmt(sy)}) px, ${fmt(sample.width * k)} px square, lies outside the app region ${JSON.stringify(app)}: the scene laid out under a system bar`);
+    }
+  }
   if (w.renderScale !== layout.renderScale) {
     throw new EvidenceInputError(`${REPORT}: row ${w.cap.name}: the manifest field "renderScale" is ${w.renderScale}, not the witness's ${layout.renderScale}`);
   }
@@ -212,10 +236,10 @@ function judge(w: WitnessRow, img: Rgba): { lines: string[]; failed: number; bli
   // W1b: the production field against the law's noise-free colour at each pixel's centre, in render px.
   const frame = noiseFree(w1bFrame(w.face, layout.field, w.pxPerDp, layout.renderScale).frame);
   const px = pixelsIn(w, img, layout.w1b.sample);
-  const k = w.pxPerDp * layout.renderScale;
+  const kr = k * layout.renderScale;
   const diffs: number[][] = [[], [], []];
   for (const p of px) {
-    const law = fieldPixel(frame, p.dx * k, p.dy * k);
+    const law = fieldPixel(frame, p.dx * kr, p.dy * kr);
     for (let c = 0; c < 3; c++) diffs[c].push(img.rgba[p.i + c] - law[c]);
   }
   const md = diffs.map(median);
@@ -261,6 +285,8 @@ async function main(): Promise<number> {
       continue;
     }
     lines.push(`row ${w.cap.name} ${w.cap.scene}: display ${mode}: byte evidence`);
+    const ip = w.insetsPx;
+    lines.push(`  layout: stage ${fmt(w.stage.width)} × ${fmt(w.stage.height)} px at ${fmt3(w.pxPerDp)} px per dp; insets from the region probe: top ${ip.top}, right ${ip.right}, bottom ${ip.bottom}, left ${ip.left} px`);
     const j = judge(w, images[n]);
     lines.push(...j.lines);
     if (j.failed > 0) failing.push(w.cap.name);
