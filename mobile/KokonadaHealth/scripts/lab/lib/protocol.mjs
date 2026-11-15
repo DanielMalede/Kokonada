@@ -120,48 +120,72 @@ export function checkResult(result, { run, seq, scene }) {
 export function collectLab({ source, run }) {
   const problems = [];
   const results = [];
+  const marks = new Set();
   let taken = 0;
   const waiters = new Set();
-  const wake = () => { for (const w of [...waiters]) w(); };
   const off = source.on((text) => {
-    const line = parseLabLine(text);
-    if (!line) return;
-    if (line.kind === 'MALFORMED') problems.push(`cannot read a lab line (logcat truncates long lines): ${line.text.slice(0, 200)}`);
-    else if (line.kind === 'ERROR' && isObject(line.payload) && (line.payload.run === run || line.payload.run === null)) {
-      problems.push(`the lab sent an ERROR for run ${run}: ${(Array.isArray(line.payload.errors) ? line.payload.errors : []).join('; ')}`);
-    } else if (line.kind === 'RESULT' && isObject(line.payload) && line.payload.run === run) results.push(line.payload);
-    else return;
-    wake();
+    const mark = MARK_LINE.exec(text);
+    if (mark) marks.add(mark[1]);
+    else {
+      const line = parseLabLine(text);
+      if (!line) return;
+      if (line.kind === 'MALFORMED') problems.push(`cannot read a lab line (logcat truncates long lines): ${line.text.slice(0, 200)}`);
+      else if (line.kind === 'ERROR' && isObject(line.payload) && (line.payload.run === run || line.payload.run === null)) {
+        problems.push(`the lab sent an ERROR for run ${run}: ${(Array.isArray(line.payload.errors) ? line.payload.errors : []).join('; ')}`);
+      } else if (line.kind === 'RESULT' && isObject(line.payload) && line.payload.run === run) results.push(line.payload);
+      else return;
+    }
+    for (const w of [...waiters]) w();
   });
+
+  // Waits until check() settles it, the timeout passes or the signal aborts; check runs now and on every line.
+  const waitFor = (what, { timeoutMs, signal = undefined }, check) => new Promise((resolve, reject) => {
+    let timer = null;
+    const done = (settle, value) => {
+      waiters.delete(poll);
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', interrupted);
+      settle(value);
+    };
+    const interrupted = () => done(reject, new Error(`interrupted while waiting for ${what} (run ${run})`));
+    const poll = () => check((value) => done(resolve, value), (e) => done(reject, e));
+    if (signal?.aborted) { interrupted(); return; }
+    signal?.addEventListener('abort', interrupted);
+    waiters.add(poll);
+    timer = setTimeout(() => done(reject, new Error(what === 'RESULT' ? `no RESULT for run ${run} within ${timeoutMs} ms` : `the harness's logcat marker did not come back within ${timeoutMs} ms, so the lab's lines before it cannot be proved read`)), timeoutMs);
+    poll();
+  });
+
   let stopped = false;
   return {
     problems: () => [...problems],
     results: () => [...results],
-    /** @param {{ timeoutMs: number, signal?: AbortSignal }} options @returns {Promise<any>} */
-    nextResult({ timeoutMs, signal = undefined }) {
-      return new Promise((resolve, reject) => {
-        let timer = null;
-        const done = (settle, value) => {
-          waiters.delete(check);
-          clearTimeout(timer);
-          if (signal) signal.removeEventListener('abort', interrupted);
-          settle(value);
-        };
-        const interrupted = () => done(reject, new Error(`interrupted while waiting for RESULT (run ${run})`));
-        const seen = problems.length;
-        function check() {
-          if (problems.length > seen) { done(reject, new Error(problems[problems.length - 1])); return; }
-          if (results.length > taken) { taken += 1; done(resolve, results[taken - 1]); }
-        }
-        if (signal?.aborted) { interrupted(); return; }
-        signal?.addEventListener('abort', interrupted);
-        waiters.add(check);
-        timer = setTimeout(() => done(reject, new Error(`no RESULT for run ${run} within ${timeoutMs} ms`)), timeoutMs);
-        check();
+    /** The next RESULT not yet taken; an ERROR first fails it. @param {{ timeoutMs: number, signal?: AbortSignal }} options @returns {Promise<any>} */
+    nextResult(options) {
+      const seen = problems.length;
+      return waitFor('RESULT', options, (resolve, reject) => {
+        if (problems.length > seen) reject(new Error(problems[problems.length - 1]));
+        else if (results.length > taken) { taken += 1; resolve(results[taken - 1]); }
       });
+    },
+    /**
+     * Resolves once the harness's marker `token` (markArgs) is back: logcat delivers lines in the order they were logged,
+     * so every lab line logged before the marker has then been read.
+     * @param {string} token @param {{ timeoutMs: number, signal?: AbortSignal }} options @returns {Promise<void>}
+     */
+    marked(token, options) {
+      return waitFor('the logcat marker', options, (resolve) => { if (marks.has(token)) resolve(undefined); });
     },
     stop() { if (!stopped) { stopped = true; off(); } },
   };
+}
+
+// The harness's own line in the lab's log buffer and tag (logcat reads `-s ReactNativeJS:V`). Not a lab line.
+const MARK_LINE = /KOKONADA_HARNESS MARK ([A-Za-z0-9._-]+)\s*$/;
+
+/** The adb shell command that logs the harness's marker `token` into the buffer logcat reads. */
+export function markArgs(token) {
+  return ['log', '-t', 'ReactNativeJS', 'KOKONADA_HARNESS', 'MARK', safe(token, 'marker')];
 }
 
 /** How far READY's font scale may be from the one the harness set (round 2, resilience and architect). */

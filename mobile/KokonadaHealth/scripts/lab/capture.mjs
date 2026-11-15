@@ -37,7 +37,7 @@ import {
 } from './lib/device.mjs';
 import { readSkiaVersion, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
-import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, waitForLab } from './lib/protocol.mjs';
+import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
 import { readZipEntries } from './lib/zip.mjs';
 
@@ -321,10 +321,24 @@ export function colourRange(frame, rect) {
   return Math.max(0, ...hi.map((h, c) => h - lo[c]));
 }
 
-const lateProblem = (lab, id) => {
+/**
+ * UI-225: the run's lab lines up to now, judged only once they are all read. logcat delivers a line some time after
+ * the lab logs it, so the harness logs its own marker into the same buffer and waits for it to come back: every line
+ * logged before it has then been delivered. Throws on an ERROR (or an unreadable lab line) for the run, or a marker
+ * that does not come back.
+ */
+async function judgeLines({ adb, lab, token, shot, plan, signal }) {
+  const back = lab.marked(token, { timeoutMs: plan.readyTimeoutMs, signal });
+  try {
+    await adb.shell(markArgs(token));
+    await back;
+  } catch (e) {
+    back.catch(() => {});
+    throw new Error(`${shot.id}: ${e.message}`);
+  }
   const problems = lab.problems();
-  return problems.length ? `${id}: ${problems.join('; ')}` : null;
-};
+  if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+}
 
 async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
   const { proof } = shot;
@@ -412,8 +426,7 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
       throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ in the app region`);
     }
     // UI-225: an ERROR the lab sent after READY (a fallback that landed after it) makes the grabs a picture of nothing READY named.
-    const late = lateProblem(lab, shot.id);
-    if (late) throw new Error(late);
+    await judgeLines({ adb, lab, token: `${run}-grabs`, shot, plan, signal });
     const stage = stageProblem(payload, screen);
     if (stage) throw new Error(`${shot.id}: ${stage}`);
     const checks = [];
@@ -464,8 +477,7 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     // The proof runs on the shot's last launch, while its lab lines are still read; an ERROR during it refuses the shot too.
     if (shot.proof && repeat === shot.repeat) {
       await runProof({ plan, shot, adb, lab, run, outDir, sleep, out });
-      const after = lateProblem(lab, shot.id);
-      if (after) throw new Error(after);
+      await judgeLines({ adb, lab, token: `${run}-proof`, shot, plan, signal });
     }
     out.checks.push(...checks);
     return row;
