@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: 'ebbb27ed166a9b1d8ce32e2cf34b976c36157866f5e68abe1bd984534c14ab2a',
+  base: '60ee2dc13469fb48c334de2372a03ce941834f9152a641cc805bfb961470d295',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
@@ -109,6 +109,10 @@ export const EXTENSIONS = {
           'one.reflective': { placements: [{ node: 'R', x: -0.566, y: -0.566 }] },
           'one.intense': { placements: [{ node: 'I', x: -0.566, y: 0.566 }] },
           'one.neutral': { placements: [{ node: 'neutral', x: 0.05, y: 0.05 }] },
+          'near.joy': { placements: [{ node: 'J', x: 0.141, y: 0.141 }] },
+          'near.calm': { placements: [{ node: 'C', x: 0.141, y: -0.141 }] },
+          'near.reflective': { placements: [{ node: 'R', x: -0.141, y: -0.141 }] },
+          'near.intense': { placements: [{ node: 'I', x: -0.141, y: 0.141 }] },
           seam: { placements: [{ node: 'I', x: -0.15, y: 0.8 }, { node: 'J', x: 0.15, y: 0.8 }] },
           three: {
             placements: [

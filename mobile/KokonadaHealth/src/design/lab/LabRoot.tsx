@@ -10,6 +10,7 @@ import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from '
 import { useSharedValue } from 'react-native-reanimated';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import { fixedClockTime } from './clock/fixedClock';
+import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
 import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
@@ -149,6 +150,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // A READY that came due while the scene was pending (UI-233): held unsent, and its frames counted afresh once the scene
   // reports what drew it. A READY never says `pending`, so it never says `ready` before a field frame was drawn.
   const held = useRef(false);
+  // A bench's RESULT lines (B8-3) that came before the run's first READY: held, already formatted, and sent right after
+  // that READY. A RESULT is never sent before READY (the harness reads a run only once it settled), and holding it, not
+  // failing, means a bench that finishes early is never lost. An ERROR drops them: nothing follows an ERROR.
+  const heldResults = useRef<string[]>([]);
 
   const say = useCallback((kind: LineKind, payload: unknown) => {
     let line: string;
@@ -189,6 +194,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       }
       deps.emit(line);
       shown.current = shader.current?.status ?? null;
+      const results = heldResults.current;
+      heldResults.current = [];
+      for (const result of results) deps.emit(result);
       commands.settle();
     },
   }));
@@ -200,6 +208,27 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     failed.current = true;
     say('ERROR', { run: params.run, errors: [message] });
   }, [say, params.run]);
+
+  // The bench's side of the lab (B8-3, cost/costResult.ts): the lab adds the run and the seq (its own, whatever the body
+  // says), formats through formatCostResult, and sends the line once READY was sent, or holds it until then. A body the
+  // contract refuses, or the bench's own error, is one ERROR; after an ERROR nothing is sent.
+  const costReport = useMemo<CostReport>(() => ({
+    result(body) {
+      if (failed.current) return;
+      let line: string;
+      try {
+        line = formatCostResult({ ...body, run: params.run, seq: latest.current.seq });
+      } catch (e) {
+        fail((e as Error).message);
+        return;
+      }
+      if (shown.current === undefined) heldResults.current.push(line);
+      else deps.emit(line);
+    },
+    error(message) {
+      fail(message);
+    },
+  }), [deps, fail, params.run]);
 
   // Frames are requested one at a time, only while READY is waiting for them. A frame that lands
   // after an ERROR, or after unmount, counts for nothing and asks for no other.
@@ -304,7 +333,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   return (
     <ProbeRegistry onMeasure={onMeasure}>
       <ShaderReportContext.Provider value={reportShader}>
-        <SceneComponent clock={clock} t={step.t} params={params} />
+        <CostReportContext.Provider value={costReport}>
+          <SceneComponent clock={clock} t={step.t} params={params} />
+        </CostReportContext.Provider>
       </ShaderReportContext.Provider>
     </ProbeRegistry>
   );

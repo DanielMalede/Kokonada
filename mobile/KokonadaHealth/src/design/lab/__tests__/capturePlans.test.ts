@@ -8,6 +8,7 @@ import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
+import { WITNESS_SCENE_FACTS } from '../witness/witnessFrames';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -18,7 +19,7 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 //
 // The catalogue's facts: a scene of the field catalogue (fieldScenes.ts) states its own; the smoke scene draws no field
 // and has none; a scene of a B8 group (witness, grain, cost, storm) states them in its id, by the plan's fixed grammar:
-//   witness.<direction>.<face>                                    no hero, no tier
+//   witness.<direction>.<face>                                    W1b's hero and tier (WITNESS_SCENE_FACTS)
 //   grain.<direction>.<face>.<tier>                               no hero
 //   cost.<direction>.<face>.<hero>.<tier>[.storm|.heavy|.empty]
 //   storm.<direction>.<face>.<case>                               no hero, no tier
@@ -45,7 +46,10 @@ function catalogueFacts(id: string): Expect {
   if (id === 'smoke') return NONE;
   const [group, direction, face, ...rest] = id.split('.');
   const ok = direction === FIELD_DIRECTION && FACES.includes(face);
-  if (ok && group === 'witness' && rest.length === 0) return { direction, face, hero: null, tier: null };
+  if (ok && group === 'witness' && rest.length === 0 && Object.prototype.hasOwnProperty.call(WITNESS_SCENE_FACTS, id)) {
+    const w = WITNESS_SCENE_FACTS[id];
+    return { direction: w.direction, face: w.face, hero: w.hero, tier: w.tier };
+  }
   if (ok && group === 'grain' && rest.length === 1 && TIERS.includes(rest[0])) return { direction, face, hero: null, tier: rest[0] };
   if (ok && group === 'storm' && rest.length === 1) return { direction, face, hero: null, tier: null };
   if (ok && group === 'cost') {
@@ -61,7 +65,9 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     ['field.abyss.light.one.joy.low', { direction: 'abyss', face: 'light', hero: 'one.joy', tier: 'low' }],
     ['fallback.abyss.dark.one.C.right', { direction: 'abyss', face: 'dark', hero: null, tier: null }],
     ['smoke', NONE],
-    ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: null, tier: null }],
+    // A witness scene draws W1b, a production hero frame at a tier: its facts are the witness group's own (WITNESS_SCENE_FACTS).
+    ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: WITNESS_SCENE_FACTS['witness.abyss.dark'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.dark'].tier }],
+    ['witness.abyss.light', { direction: 'abyss', face: 'light', hero: WITNESS_SCENE_FACTS['witness.abyss.light'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.light'].tier }],
     ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: null, tier: 'low' }],
     ['cost.abyss.dark.three.full', { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' }],
     ['cost.abyss.dark.one.intense.low.storm', { direction: 'abyss', face: 'dark', hero: 'one.intense', tier: 'low' }],
