@@ -8,6 +8,7 @@ import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
+import { WITNESS_SCENE_FACTS } from '../witness/witnessFrames';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -61,7 +62,9 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     ['field.abyss.light.one.joy.low', { direction: 'abyss', face: 'light', hero: 'one.joy', tier: 'low' }],
     ['fallback.abyss.dark.one.C.right', { direction: 'abyss', face: 'dark', hero: null, tier: null }],
     ['smoke', NONE],
-    ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: null, tier: null }],
+    // A witness scene draws W1b, a production hero frame at a tier: its facts are the witness group's own (WITNESS_SCENE_FACTS).
+    ['witness.abyss.dark', { direction: 'abyss', face: 'dark', hero: WITNESS_SCENE_FACTS['witness.abyss.dark'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.dark'].tier }],
+    ['witness.abyss.light', { direction: 'abyss', face: 'light', hero: WITNESS_SCENE_FACTS['witness.abyss.light'].hero, tier: WITNESS_SCENE_FACTS['witness.abyss.light'].tier }],
     ['grain.abyss.light.low', { direction: 'abyss', face: 'light', hero: null, tier: 'low' }],
     ['cost.abyss.dark.three.full', { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' }],
     ['cost.abyss.dark.one.intense.low.storm', { direction: 'abyss', face: 'dark', hero: 'one.intense', tier: 'low' }],
