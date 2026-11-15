@@ -329,13 +329,15 @@ describe('a bench RESULT (B8-3)', () => {
       return <Probe id="stage"><Text>x</Text></Probe>;
     };
     const scenes: Record<string, Scene> = { [COST]: { periodMs: 6000, probes: ['stage'], Component: Bench } };
-    return { sink, scenes };
+    // A fixed clock never asks the setting; it stays unknown, so nothing lands after the test.
+    const reduceMotion = { current: () => new Promise<boolean>(() => {}), subscribe: () => () => {} };
+    return { sink, deps: { scenes, reduceMotion } };
   };
   const kinds = (lines: string[]) => lines.map((l) => l.split(' ')[1]);
 
   it('a body that arrives before READY is held, and sent once right after that READY, with the run and the seq', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     expect(sink.current).not.toBeNull();
     act(() => sink.current!.result(BODY));
     expect(h.lines).toEqual([]);
@@ -350,8 +352,8 @@ describe('a bench RESULT (B8-3)', () => {
   });
 
   it('a body that arrives after READY is sent at once, once', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     h.layout();
     h.tick(2);
     expect(kinds(h.lines)).toEqual(['READY']);
@@ -361,8 +363,8 @@ describe('a bench RESULT (B8-3)', () => {
   });
 
   it('the bench\'s error is one ERROR, and nothing follows it: no READY, no RESULT', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     act(() => sink.current!.error('no offscreen surface'));
     act(() => sink.current!.result(BODY));
     h.layout();
@@ -373,8 +375,8 @@ describe('a bench RESULT (B8-3)', () => {
   });
 
   it('a body held before READY is never sent once an ERROR came first', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     act(() => sink.current!.result(BODY));
     act(() => sink.current!.error('the effect cannot draw'));
     h.layout();
@@ -383,8 +385,8 @@ describe('a bench RESULT (B8-3)', () => {
   });
 
   it('after READY, an ERROR ends the run: a later body is not sent', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     h.layout();
     h.tick(2);
     act(() => sink.current!.error('a builder throw'));
@@ -397,8 +399,8 @@ describe('a bench RESULT (B8-3)', () => {
     ['a key the contract does not name (a tap would ride along)', { ...BODY, tapX: 12 }, /"tapX" is not a RESULT key/],
     ['a scene that is not a cost scene', { ...BODY, scene: 'field.abyss.dark.three.full' }, /is not a cost scene/],
   ])('a body the contract refuses (%s) is one ERROR, never a RESULT, and ends the run', (_label, body, why) => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     act(() => sink.current!.result(body as never));
     h.layout();
     h.tick(10);
@@ -408,8 +410,8 @@ describe('a bench RESULT (B8-3)', () => {
   });
 
   it('the run and the seq are the lab\'s: a body that names its own never sends the RESULT under another run or step', () => {
-    const { sink, scenes } = benchScene();
-    const h = setup(COST_RUN, { scenes });
+    const { sink, deps } = benchScene();
+    const h = setup(COST_RUN, deps);
     h.layout();
     h.tick(2);
     act(() => sink.current!.result({ ...BODY, run: 'other', seq: 7 } as never));
