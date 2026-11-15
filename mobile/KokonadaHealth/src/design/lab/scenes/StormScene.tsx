@@ -12,6 +12,8 @@
 //     on a recording exactly.
 //   · It says which surface drew it as FieldScene does (UI-223, UI-233): `pending` until FieldView's first drawn frame
 //     of this scene, then the effect's status; `fallback` with FieldFallback's reason once FieldView has switched to it.
+//   · The stage is laid out left to right whatever the locale, as the witness scene is: the marker stays at the
+//     window's top left on a right-to-left phone (stormSceneRtl.test.tsx).
 //   · Nothing here sends a lab line: no tap coordinate and no emotion value leaves the scene.
 
 import React, { useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
@@ -66,7 +68,7 @@ export function StormScene({ clock, params }: SceneProps) {
 
   return (
     <FieldFallbackReport.Provider value={setFellBack}>
-      <Probe id="stage" style={styles.stage}>
+      <Probe id="stage" style={styles.root}>
         <View testID="storm-scene.view" style={styles.stage} onLayout={onLayout}>
           {layout !== null && (
             <FieldFirstFrameReport.Provider value={onFirstFrame}>
@@ -94,6 +96,9 @@ export function StormScene({ clock, params }: SceneProps) {
 }
 
 const styles = StyleSheet.create({
+  // ltr whatever the locale: under RTL, React Native on Android turns left into start (Fabric's
+  // swapLeftAndRightInYogaStyleProps), which would put the marker on the right edge (the owner's phone is he-IL).
+  root: { flex: 1, direction: 'ltr' },
   stage: { flex: 1 },
   marker: {
     position: 'absolute',
