@@ -119,6 +119,26 @@ await writeSet('static', [], () => 0);
 // A frame of another size, for the size refusal.
 fs.writeFileSync(path.join(out, 'odd-size.png'), await encodePng({ width: 48, height: 48, rgba: new Uint8Array(48 * 48 * 4).fill(255) }));
 
+// A planted manifest, as capture.mjs writes its rows, on a screen twice the frames' size (192 × 384 px, the stage the
+// whole window as UI-216 requires), so READY's marker probe scales by 0.5 to the frames: the shot `planted` has the
+// marker where the scene puts it; `planted-right` where an RTL swap would (the right edge); `planted-under-bars` has it
+// left out of the capture (classifyProbes' excluded); `planted-squashed` has a stage of another aspect than the frames.
+// The screen is at 2K px per dp (twice the frames).
+const MK = { x: STORM_MARKER_DP.left * 2 * K, y: STORM_MARKER_DP.top * 2 * K, size: STORM_MARKER_DP.size * 2 * K };
+const rowOf = (shot: string, stage: { width: number; height: number }, probes: unknown) => ({
+  shot, repeat: 1, stage: { x: 0, y: 0, ...stage }, probes,
+});
+const SCREEN = { width: W * 2, height: H * 2 };
+const markerAt = (x: number) => ({ inside: { stage: { x: 0, y: 0, ...SCREEN }, marker: { x, y: MK.y, width: MK.size, height: MK.size } }, excluded: [] });
+fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify({
+  rows: [
+    rowOf('planted', SCREEN, markerAt(MK.x)),
+    rowOf('planted-right', SCREEN, markerAt(SCREEN.width - MK.size)),
+    rowOf('planted-under-bars', SCREEN, { inside: { stage: { x: 0, y: 0, ...SCREEN } }, excluded: [{ id: 'marker', reason: 'partly under the system bars', px: { x: 0, y: 0, width: 16, height: 16 } }] }),
+    rowOf('planted-squashed', { width: SCREEN.width, height: 300 }, markerAt(MK.x)),
+  ],
+}, null, 1)}\n`);
+
 const planted = {
   size: { width: W, height: H }, pxPerDp: K, cellPx: CELL, frameMs: FRAME_MS,
   marker: { x: STORM_MARKER_DP.left * K, y: STORM_MARKER_DP.top * K, size: STORM_MARKER_DP.size * K, cell: '0,3' },
