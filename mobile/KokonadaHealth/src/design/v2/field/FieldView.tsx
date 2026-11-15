@@ -25,7 +25,11 @@
 //     (capFrame); a skipped frame does no work at all. The first frame of the mount, after a tier change, after a taps
 //     or a layout change, or after a wake from sleep is always drawn; any other prop change is drawn on the next frame
 //     the cap allows (RA-39). The field clock runs on its own frame callback and the ledger takes each drawn frame's own
-//     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap.
+//     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap;
+//   · the ledger behind the clock (RA-40): At a capped tier, each stall over motion.dtClamp that directly follows a
+//     skipped frame may leave the placement ledger up to one display frame behind the field clock. The lag adds up
+//     over stalls but is never observable, because nothing reads ledger time against clock time: it only lengthens a
+//     crossfade in progress by that much, and a settled ledger is unaffected.
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
