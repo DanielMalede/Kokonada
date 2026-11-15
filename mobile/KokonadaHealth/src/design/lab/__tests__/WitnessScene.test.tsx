@@ -102,9 +102,10 @@ describe('what the witness scene reaches (the import scan)', () => {
 });
 
 describe('before its view is measured', () => {
-  it('the stage probe alone, nothing drawn', () => {
+  it('every probe it declares, unplaced (0 × 0) but the stage, and nothing drawn: READY waits for the layout', () => {
     const r = mount('witness.abyss.dark');
-    expect(probes(r)).toEqual(['probe-stage']);
+    expect(probes(r).sort()).toEqual([...ALL_PROBES].sort());
+    for (const id of WITNESS_PROBES.filter((x) => x !== 'stage')) expect(placed(probeHost(r, id))).toEqual({ x: 0, y: 0, width: 0, height: 0 });
     expect(r.root.findAllByType(FieldSurface)).toHaveLength(0);
     expect(r.root.findAllByType(Canvas)).toHaveLength(0);
   });

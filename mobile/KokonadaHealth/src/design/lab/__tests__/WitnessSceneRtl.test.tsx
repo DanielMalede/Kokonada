@@ -102,6 +102,7 @@ beforeEach(() => {
   jest.replaceProperty(I18nManager, 'isRTL', true);
   StatusBar.currentHeight = STATUS_BAR;
   jest.spyOn(PixelRatio, 'get').mockReturnValue(K);
+  jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1); // the dry run's font scale
 });
 afterEach(() => {
   jest.restoreAllMocks();
