@@ -27,7 +27,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "full"
+      }
     },
     {
       "id": "dark-rest-low",
@@ -46,7 +52,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "low"
+      }
     },
     {
       "id": "dark-rest-still",
@@ -65,7 +77,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "still"
+      }
     },
     {
       "id": "dark-one-joy-full",
@@ -84,7 +102,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "full"
+      }
     },
     {
       "id": "dark-one-joy-low",
@@ -103,7 +127,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "low"
+      }
     },
     {
       "id": "dark-one-joy-still",
@@ -122,7 +152,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "still"
+      }
     },
     {
       "id": "dark-three-full",
@@ -141,7 +177,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "full"
+      }
     },
     {
       "id": "dark-three-low",
@@ -160,7 +202,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "low"
+      }
     },
     {
       "id": "dark-three-still",
@@ -179,7 +227,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "still"
+      }
     },
     {
       "id": "dark-one-intense-full",
@@ -198,7 +252,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "full"
+      }
     },
     {
       "id": "dark-one-intense-low",
@@ -217,7 +277,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "low"
+      }
     },
     {
       "id": "dark-one-intense-still",
@@ -236,7 +302,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "still"
+      }
     },
     {
       "id": "light-rest-full",
@@ -255,7 +327,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "full"
+      }
     },
     {
       "id": "light-rest-low",
@@ -274,7 +352,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "low"
+      }
     },
     {
       "id": "light-rest-still",
@@ -293,7 +377,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "still"
+      }
     },
     {
       "id": "light-one-joy-full",
@@ -312,7 +402,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "full"
+      }
     },
     {
       "id": "light-one-joy-low",
@@ -331,7 +427,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "low"
+      }
     },
     {
       "id": "light-one-joy-still",
@@ -350,7 +452,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "still"
+      }
     },
     {
       "id": "light-three-full",
@@ -369,7 +477,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "full"
+      }
     },
     {
       "id": "light-three-low",
@@ -388,7 +502,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "low"
+      }
     },
     {
       "id": "light-three-still",
@@ -407,7 +527,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "still"
+      }
     },
     {
       "id": "light-one-intense-full",
@@ -426,7 +552,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "full"
+      }
     },
     {
       "id": "light-one-intense-low",
@@ -445,7 +577,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "low"
+      }
     },
     {
       "id": "light-one-intense-still",
@@ -464,7 +602,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "still"
+      }
     },
     {
       "id": "fallback-dark-rest",
@@ -483,7 +627,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-dark-one-j",
@@ -502,7 +652,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-dark-three",
@@ -521,7 +677,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-dark-one-i",
@@ -540,7 +702,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-dark-one-c-right",
@@ -559,7 +727,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-dark-one-j-top",
@@ -578,7 +752,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-rest",
@@ -597,7 +777,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-one-j",
@@ -616,7 +802,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-three",
@@ -635,7 +827,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-one-i",
@@ -654,7 +852,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-one-c-right",
@@ -673,7 +877,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "fallback-light-one-j-top",
@@ -692,7 +902,13 @@
       },
       "probes": [
         "stage"
-      ]
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
     },
     {
       "id": "dark-three-full-moving-control",
@@ -711,6 +927,12 @@
       "probes": [
         "stage"
       ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "full"
+      },
       "proof": {
         "kind": "draws-frames",
         "seconds": 10
@@ -733,6 +955,12 @@
       "probes": [
         "stage"
       ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "still"
+      },
       "proof": {
         "kind": "zero-frames",
         "seconds": 10

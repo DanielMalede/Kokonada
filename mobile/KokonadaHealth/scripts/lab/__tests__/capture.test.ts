@@ -479,7 +479,8 @@ describe('UI-223: the surface that drew a field shot', () => {
 // framestats, result, record); an ERROR after READY refuses the shot (UI-225); READY's stage must be the app window
 // (UI-216); and every scene prefix of the plan has a surface rule.
 
-type Shot = (typeof PLAN.shots)[number] & Record<string, unknown>;
+// A shot as a plan file holds it: the harness takes plain JSON, and validatePlan is what types it.
+type Shot = Record<string, unknown>;
 const FIELD_EXPECT = { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' };
 const fieldShot = (id: string, scene: string, extra: Record<string, unknown> = {}): Shot => ({
   id, repeat: 1, scene, args: { clock: 'fixed', t: '11000', frames: '3' },

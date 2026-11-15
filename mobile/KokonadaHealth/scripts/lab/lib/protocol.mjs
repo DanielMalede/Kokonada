@@ -137,6 +137,7 @@ export function collectLab({ source, run }) {
   return {
     problems: () => [...problems],
     results: () => [...results],
+    /** @param {{ timeoutMs: number, signal?: AbortSignal }} options @returns {Promise<any>} */
     nextResult({ timeoutMs, signal = undefined }) {
       return new Promise((resolve, reject) => {
         let timer = null;
