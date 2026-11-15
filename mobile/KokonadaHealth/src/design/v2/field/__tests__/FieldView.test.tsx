@@ -466,7 +466,7 @@ describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
 
   it('the scan sees FieldView’s refs and its frame worklet, and no worklet names a ref', () => {
     const scan = refsInWorklets(SOURCE);
-    expect(scan.refs).toEqual(['currentGeneration', 'mounted', 'seq', 'shownTaps']);
+    expect(scan.refs).toEqual(['currentGeneration', 'forcedDraws', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
     expect(scan.worklets).toBeGreaterThan(0);
     expect(scan.offenders).toEqual([]);
   });
@@ -590,6 +590,8 @@ describe('the frame cap (UI-171)', () => {
     return builds;
   };
   const STORMS: Record<string, (i: number) => Partial<FieldViewProps>> = {
+    // every storm passes the same taps in a new array each render, as a root that rebuilds them would
+    'the same taps, a new array every render': () => ({}),
     stress: (i) => ({ stress: i / 24 }),
     confidence: (i) => ({ confidence: (i % 10) / 10 }),
     genesis: (i) => ({ genesis: i % 2 === 0 }),

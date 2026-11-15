@@ -12,7 +12,7 @@ jest.mock('../fieldFrame.ts', () => {
   return { ...actual, buildFieldFrame: (...args: unknown[]) => { counts.build += 1; return actual.buildFieldFrame(...args); } };
 });
 
-import { capFrame, fieldStep, FRAME_CAP_TOLERANCE, fpsCapFor, frameCapStart, renderGeometry, type FieldLayout, type FrameCap, type FrameParams } from '../fieldDriver.ts';
+import { capFrame, fieldStep, FRAME_CAP_TOLERANCE, fpsCapFor, frameCapStart, renderGeometry, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams } from '../fieldDriver.ts';
 
 // UI-171, the owner's ruling of 2026-11-14: the full tier keeps the display's rate up to 120 frames a second, the low
 // (power-save) tier runs at 60; the still tier has no cap (it draws only its ramps). The cap is field.tiers.<tier>.fpsCap,
@@ -248,5 +248,51 @@ describe('the first frame after a mount, a tier change or a wake is always drawn
     const bad = capFrame(cap, Number.NaN, 'low', 0);
     expect(bad.draw).toBe(true);
     expect(capFrame(bad.cap, 1000 / 120, 'low', 0).draw).toBe(true);
+  });
+});
+
+// RA-39 (the designer's ruling): a layout pass that changed by value forces a draw (FieldView), so the comparison is by
+// value over every field the rim, the words and the beads are placed from, and never true for two different passes.
+describe('sameLayoutPass: the layout passes compared by value (RA-39)', () => {
+  const QUIET = [{ x: 20, y: 20, width: 40, height: 20 }, { x: 200, y: 500, width: 60, height: 30 }];
+  const pass = (over: Partial<FieldLayout> = {}, pxPerDp = PX_PER_DP, renderScale = 0.5) => ({ layout: { ...LAYOUT, quietRects: QUIET, ...over }, pxPerDp, renderScale });
+
+  it('the same values in new objects are the same pass; omitted quiet rects are none', () => {
+    expect(sameLayoutPass(pass(), { ...pass(), layout: { ...pass().layout, centre: [180, 300], quietRects: QUIET.map((q) => ({ ...q })) } })).toBe(true);
+    expect(sameLayoutPass(pass({ quietRects: undefined }), pass({ quietRects: [] }))).toBe(true);
+  });
+
+  it('NaN equals NaN, so a poisoned value rebuilt on every render is not a change on every render', () => {
+    expect(sameLayoutPass(pass({ radius: Number.NaN }), pass({ radius: Number.NaN }))).toBe(true);
+    expect(sameLayoutPass(pass({}, Number.NaN), pass({}, Number.NaN))).toBe(true);
+  });
+
+  it('each field alone is a change', () => {
+    const changed = [
+      pass({ width: 361 }), pass({ height: 641 }), pass({ centre: [181, 300] }), pass({ centre: [180, 301] }), pass({ radius: 171 }),
+      pass({ fontScale: 1.3 }), pass({}, 3), pass({}, PX_PER_DP, 0.4), pass({ quietRects: [QUIET[0]] }),
+      pass({ quietRects: [{ ...QUIET[0], x: 21 }, QUIET[1]] }), pass({ quietRects: [{ ...QUIET[0], y: 21 }, QUIET[1]] }),
+      pass({ quietRects: [QUIET[0], { ...QUIET[1], width: 61 }] }), pass({ quietRects: [QUIET[0], { ...QUIET[1], height: 31 }] }),
+    ];
+    changed.forEach((c, i) => {
+      expect([i, sameLayoutPass(pass(), c)]).toEqual([i, false]);
+      expect([i, sameLayoutPass(c, pass())]).toEqual([i, false]);
+    });
+  });
+});
+
+describe('sameTapValues: the taps compared by value (RA-39)', () => {
+  it('the same values in a new array are the same; NaN equals NaN', () => {
+    expect(sameTapValues([{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }], [{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }])).toBe(true);
+    expect(sameTapValues([], [])).toBe(true);
+    expect(sameTapValues([{ x: Number.NaN, y: 0 }], [{ x: Number.NaN, y: 0 }])).toBe(true);
+  });
+
+  it('a tap added, removed, moved in x or in y, or the order changed, is a change', () => {
+    const t = [{ x: 0.5, y: 0.5 }, { x: -0.4, y: 0.3 }];
+    for (const c of [[t[0]], [...t, { x: 0, y: 0 }], [{ x: 0.51, y: 0.5 }, t[1]], [t[0], { x: -0.4, y: 0.31 }], [t[1], t[0]]]) {
+      expect(sameTapValues(t, c)).toBe(false);
+      expect(sameTapValues(c, t)).toBe(false);
+    }
   });
 });
