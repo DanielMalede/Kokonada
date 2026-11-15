@@ -32,6 +32,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -56,6 +60,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -80,6 +88,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -104,6 +116,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -128,6 +144,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -152,6 +172,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -176,6 +200,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -200,6 +228,10 @@
         "face": "dark",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -224,6 +256,10 @@
         "face": "light",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -248,6 +284,10 @@
         "face": "light",
         "hero": "three",
         "tier": "full"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -272,6 +312,10 @@
         "face": "light",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     },
     {
@@ -296,6 +340,10 @@
         "face": "light",
         "hero": "three",
         "tier": "low"
+      },
+      "proof": {
+        "kind": "result",
+        "seconds": 60
       }
     }
   ]
