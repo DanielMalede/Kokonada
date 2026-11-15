@@ -101,9 +101,9 @@ describe('the grain scene', () => {
     expect(GRAIN_FACTORS.map(grainProbeId)).toEqual(GRAIN_SCENE_PROBES.slice(1));
   });
 
-  it('before layout: the stage probe and no surface (UI-175: it mounts what it draws once the view has a size)', () => {
+  it('before layout: every declared probe (READY waits for each, scenes.test.tsx) and no surface (UI-175)', () => {
     const r = mount('grain.abyss.dark.full');
-    expect(probes(r)).toEqual(['probe-stage']);
+    expect(probes(r)).toEqual(['probe-stage', ...GRAIN_SCENE_PROBES.slice(1).map((p) => `probe-${p}`)]);
     expect(surfaces(r)).toHaveLength(0);
     layoutAs(r, W, 0);
     expect(surfaces(r)).toHaveLength(0);
@@ -149,6 +149,7 @@ describe('the grain scene', () => {
     layoutAs(r);
     expect(reports.at(-1)).toEqual({ status: 'fallback', reason: 'the field shader did not compile' });
     expect(surfaces(r)).toHaveLength(0);
+    expect(probes(r)).toEqual(['probe-stage', ...GRAIN_SCENE_PROBES.slice(1).map((p) => `probe-${p}`)]); // READY still comes, and says fallback
     const fb = r.root.findByType(FieldFallback).props;
     expect([fb.direction, fb.face, fb.reason]).toEqual(['abyss', 'dark', 'the field shader did not compile']);
   });
@@ -159,6 +160,7 @@ describe('the grain scene', () => {
       const r = mount('grain.abyss.light.full');
       layoutAs(r);
       expect(reports.at(-1)).toEqual({ status: 'fallback', reason: 'RangeError: planted' });
+      expect(probes(r)).toEqual(['probe-stage', ...GRAIN_SCENE_PROBES.slice(1).map((p) => `probe-${p}`)]);
       expect(surfaces(r)).toHaveLength(0);
       expect(r.root.findByType(FieldFallback).props.reason).toBe('RangeError: planted');
     } finally {
