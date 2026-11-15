@@ -13,7 +13,7 @@
 //     Informational: the designer reads it (UI-190); the quiet before each change is printed beside it.
 //   · The cells the marker covers are left out of both. A recording where the marker never changes is a FAIL: it is not
 //     a storm recording, or the marker rect is wrong, and nothing it says can be trusted.
-// Abyss dark only (package 3; S7 also names Basin dark, which is not built). The CTA and voice-line regions need the
+// Abyss dark only (package 3; S7 also names a retired direction, not built here). The CTA and voice-line regions need the
 // hero (B6) and are not read here.
 //
 // The input is pluggable:

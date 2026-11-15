@@ -1,5 +1,5 @@
 // The storm scenes (B8-7; the architect's B8 plan at 199b138; QA-068's S7 and UI-190), ids `storm.abyss.dark.<case>`.
-// Abyss dark only: package 3 is Abyss alone, so S7's Basin dark is not built (QA-068 names it; Basin is retired here).
+// Abyss dark only: package 3 is Abyss alone, so S7's other direction (QA-068 names a retired one) is not built.
 //
 //   storm.abyss.dark.first-full     S7 (i): the first tap, rest → one.calm, in normal motion (the full tier)
 //   storm.abyss.dark.first-still    S7 (i): the same under reduced motion (the still tier)
