@@ -5,6 +5,7 @@ import { FilterMode, MipmapMode } from '@shopify/react-native-skia';
 import { renderFacts, surfaceRule, validatePlan } from '../../../../scripts/lab/capture.mjs';
 import { renderScaleFor } from '../../v2/field/fieldDriver';
 import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
+import { resolveMotionTier } from '../../v2/motion/useMotionPolicy';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fieldScenes';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
@@ -28,7 +29,18 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 const PLANS_DIR = path.resolve(__dirname, '../../../../scripts/lab/capture-plans');
 const PLAN_FILES = fs.readdirSync(PLANS_DIR).filter((f) => f.endsWith('.json')).sort();
 type Expect = { direction: string | null; face: string | null; hero: string | null; tier: string | null };
-type Shot = { id: string; scene: string; args: Record<string, string>; probes: string[]; expect: Expect };
+type Shot = {
+  id: string; scene: string; args: Record<string, string>; probes: string[]; expect: Expect;
+  device: { animatorScale: number; powerSave: boolean };
+};
+
+/** A shot's facts: the catalogue's, and for a policy scene (B8-6) the tier its device state implies under the policy
+ *  (on Android RN's reduced motion is a transition animator scale of 0; the harness sets every scale to animatorScale). */
+function shotFacts(shot: Shot): Expect {
+  const facts = catalogueFacts(shot.scene);
+  if (!FIELD_SCENES[shot.scene]?.policy) return facts;
+  return { ...facts, tier: resolveMotionTier({ reduceMotion: shot.device.animatorScale === 0, powerSave: shot.device.powerSave }) };
+}
 const load = (file: string) => JSON.parse(fs.readFileSync(path.join(PLANS_DIR, file), 'utf8')) as { id: string; shots: Shot[] };
 const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, { periodMs: s.periodMs }]));
 
@@ -100,7 +112,7 @@ describe.each(PLAN_FILES)('the capture plan %s', (file) => {
   });
 
   it('every shot\'s expect is the catalogue\'s facts for its scene (F4)', () => {
-    for (const shot of plan.shots) expect([shot.id, shot.expect]).toEqual([shot.id, catalogueFacts(shot.scene)]);
+    for (const shot of plan.shots) expect([shot.id, shot.expect]).toEqual([shot.id, shotFacts(shot)]);
   });
 });
 
