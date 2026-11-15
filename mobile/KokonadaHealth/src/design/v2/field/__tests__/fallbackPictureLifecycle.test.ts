@@ -10,7 +10,8 @@ import ts from 'typescript';
 // day one appears in the app's entry, the lab's entry, App.tsx or anywhere under src/ (tests excluded).
 //
 // It reads the syntax tree (TypeScript's parser), never the text: a comment or a string that names StrictMode is not a
-// use, and the Context Suite's own `Activity` type (src/experience/generate/activities.ts) is not React's.
+// use, and the Context Suite's own `Activity` type (src/experience/generate/activities.ts) is not React's. Only the three
+// entries are also read as text, for the offscreen option in any spelling (RA-45).
 
 const APP = path.resolve(__dirname, '../../../../..');
 const ROOTS = ['index.js', 'index.lab.js', 'App.tsx'];
