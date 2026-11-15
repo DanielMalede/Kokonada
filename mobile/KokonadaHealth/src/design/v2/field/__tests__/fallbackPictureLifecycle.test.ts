@@ -29,6 +29,22 @@ function keepAliveUses(text: string, fileName: string): string[] {
   };
   const visit = (node: ts.Node) => {
     if (ts.isIdentifier(node) && KEEP_ALIVE.has(node.text)) hits.push(`${node.text} at line ${at(node)}`);
+    // RA-45: a key spelled as a string ({ 'useOffscreen': … }, { ['useOffscreen']: … }, o['useOffscreen']); a string
+    // that is only a value stays quiet.
+    if (ts.isStringLiteralLike(node) && KEEP_ALIVE.has(node.text)) {
+      const up = node.parent;
+      const isKey = (ts.isPropertyAssignment(up) && up.name === node) || ts.isComputedPropertyName(up)
+        || (ts.isElementAccessExpression(up) && up.argumentExpression === node);
+      if (isKey) hits.push(`'${node.text}' at line ${at(node)}`);
+    }
+    // RA-45: registration options the scan cannot read: spread arguments, an options value that is not an object
+    // literal, or an object literal with a spread in it.
+    if (ts.isCallExpression(node) && node.expression.getText(file).endsWith('registerComponent')) {
+      const options = node.arguments[2];
+      if (node.arguments.some(ts.isSpreadElement)) hits.push(`registerComponent with spread arguments at line ${at(node)}`);
+      else if (options !== undefined && !ts.isObjectLiteralExpression(options)) hits.push(`registerComponent options it cannot read at line ${at(node)}`);
+      else if (options !== undefined && options.properties.some(ts.isSpreadAssignment)) hits.push(`registerComponent options with a spread at line ${at(node)}`);
+    }
     if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) && tagIsActivity(node.tagName)) hits.push(`<${node.tagName.getText(file)}> at line ${at(node)}`);
     if (ts.isPropertyAccessExpression(node) && node.name.text === 'Activity' && node.expression.getText(file) === 'React') hits.push(`React.Activity at line ${at(node)}`);
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) && node.moduleSpecifier.text === 'react') {
