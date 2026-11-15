@@ -114,6 +114,7 @@ import { BASE } from '../../tokens/tokens.generated.ts';
 import { FieldFallback } from '../FieldFallback.tsx';
 import { FieldSurface } from '../FieldSurface.tsx';
 import { FieldView, type FieldViewProps } from '../FieldView.tsx';
+import { renderScaleFor } from '../fieldDriver.ts';
 import { FIELD_SAMPLING, FieldImage } from '../fieldImage.tsx';
 
 const ID = Object.keys(DIRECTIONS)[0] as DirectionId;
@@ -668,6 +669,10 @@ describe('the frame cap (UI-171)', () => {
     // and with the layout held, the cap again
     frames(4, HZ120);
     expect(counts.build).toBe(layouts.length + 1 + 2);
+    // and a stress change under the last layout, on a frame the cap skips, waits: the layout shown is that one now
+    act(() => r.update(<FieldView {...baseProps({ tier: 'low', taps: [A], ...layouts[layouts.length - 1], stress: 0.5 })} />));
+    frames(1, HZ120);
+    expect(counts.build).toBe(layouts.length + 1 + 2);
   });
 
   it('RA-39: a still field asleep, woken by a stress change, draws on its first frame', () => {
@@ -683,7 +688,8 @@ describe('the frame cap (UI-171)', () => {
 
   // Only the still tier sleeps, so a capped tier is woken from sleep only by the tier change itself. The still's frames
   // leave the cap no schedule, so the first frame of the capped tier is drawn however soon it comes after the last
-  // capped draw: here 4 ms after it, inside the period the old low schedule would still skip.
+  // capped draw: here 4 ms after it, inside the period the old low schedule would still skip. (Low's render scale is
+  // not the still's, so here the layout pass forces the frame too; the full case below has only the schedule.)
   it('RA-39: low, then asleep at still, then woken to low 4 ms after the last low draw: that first frame is drawn', () => {
     const r = mount(baseProps({ tier: 'low', taps: [A] }));
     frames(1, HZ120);
@@ -700,5 +706,21 @@ describe('the frame cap (UI-171)', () => {
     expect(counts.build).toBe(3);
     frames(1, HZ120);
     expect(counts.build).toBe(4);
+  });
+
+  // The same at full, where the still's render scale is full's own, so no layout pass forces the frame: only the empty
+  // schedule the still left does. 4 ms after the last full draw, the old full schedule would still skip.
+  it('RA-39: full, then asleep at still, then woken to full 4 ms after the last full draw: that first frame is drawn', () => {
+    expect(renderScaleFor('still')).toBe(renderScaleFor('full'));
+    const r = mount(baseProps({ tier: 'full', taps: [A] }));
+    frames(1, HZ120);
+    expect(counts.build).toBe(1);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A] })} />));
+    frames(1, 2);
+    expect([counts.build, reanimated.__active()]).toEqual([2, 0]);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'full', taps: [A] })} />));
+    expect(reanimated.__active()).toBe(1);
+    frames(1, 2);
+    expect(counts.build).toBe(3);
   });
 });
