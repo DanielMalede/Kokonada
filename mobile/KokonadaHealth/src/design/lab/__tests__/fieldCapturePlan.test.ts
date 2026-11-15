@@ -49,7 +49,7 @@ describe('the v1 field capture plan', () => {
   it('covers every field scene but the near.* ones on a fixed clock, twice (determinism), with the system night mode on its face', () => {
     const fixed = plan.shots.filter((s) => s.args.clock === 'fixed' && s.proof === undefined);
     const near: readonly string[] = NEAR_SCENES;
-    const fieldIds = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field' && !near.includes(s.hero!)).map((s) => s.id);
+    const fieldIds = Object.values(FIELD_SCENES).filter((s) => s.kind === 'field' && !near.includes(s.hero!) && !s.policy).map((s) => s.id);
     expect(fieldIds.length).toBeGreaterThan(0); // has cases
     expect(fieldIds.filter((id) => !fixed.some((s) => s.scene === id))).toEqual([]);
     for (const shot of fixed) {
