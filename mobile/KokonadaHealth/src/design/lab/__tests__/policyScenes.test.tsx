@@ -310,7 +310,7 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   it('sets each of the four device states on each face, on the fixed clock at t*, twice, in the face\'s night mode', () => {
     const stills = plan.shots.filter((s) => s.proof === undefined);
     for (const face of FIELD_FACES) {
-      const states = stills.filter((s) => FIELD_SCENES[s.scene].face === face).map((s) => [s.device.animatorScale === 0, s.device.powerSave]);
+      const states = stills.filter((s) => s.scene === `field.abyss.${face}.three.policy`).map((s) => [s.device.animatorScale === 0, s.device.powerSave]);
       expect(states.map((x) => JSON.stringify(x)).sort()).toEqual([[false, false], [false, true], [true, false], [true, true]].map((x) => JSON.stringify(x)).sort());
     }
     expect(new Set(stills.map((s) => implied(s.device)))).toEqual(new Set(['full', 'low', 'still']));
@@ -320,6 +320,16 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
       expect([shot.id, [0, 1]]).toEqual([shot.id, expect.arrayContaining([shot.device.animatorScale])]);
     }
     expect(new Set(plan.shots.map((s) => s.id)).size).toBe(plan.shots.length);
+  });
+
+  // The catalogue rule (capturePlans.test.ts): every field scene is shot as a still by some plan. The other hero scenes
+  // are shot once per face under battery saver, the state whose tier (low) the id-tier stills cannot stand in for here.
+  it('shoots every policy scene as a still, the other hero scenes under battery saver', () => {
+    const stills = plan.shots.filter((s) => s.proof === undefined && s.args.clock === 'fixed');
+    for (const id of POLICY_IDS) expect([id, stills.some((s) => s.scene === id)]).toEqual([id, true]);
+    for (const s of stills.filter((x) => !x.scene.endsWith('.three.policy'))) {
+      expect([s.id, s.device.animatorScale, s.device.powerSave, s.expect.tier]).toEqual([s.id, 1, true, 'low']);
+    }
   });
 
   it('proves motion through the policy on a running clock: the still draws none, low and full draw some (QA-034, QA-035)', () => {
