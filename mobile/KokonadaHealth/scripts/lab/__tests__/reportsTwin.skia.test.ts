@@ -115,8 +115,7 @@ const stageRow = (id: string) => {
   const field = s.kind === 'field';
   return row({
     shot: 's', scene: id, expect: { direction: s.direction, face: s.face, hero: s.hero, tier: s.tier }, file: 'x.png', sha256: 'b'.repeat(64),
-    region: { x: 0, y: 0, ...PX }, stage: { x: 0, y: 0, ...PX }, pxPerDp: K, t: T,
-    renderScale: field ? renderScaleFor(s.tier!) : undefined, shaderStatus: field ? 'ready' : 'fallback-scene',
+    screen: PX, density: K * 160, clock: { mode: 'fixed', t: T }, shaderStatus: field ? 'ready' : 'fallback-scene',
   });
 };
 
@@ -127,7 +126,7 @@ const differing = (a: Uint8Array, b: Uint8Array) => {
 };
 
 describe('B8-8c: the twin is the app’s own drawing in CanvasKit, byte for byte', () => {
-  const FIELD = ['field.abyss.dark.one.joy.still', 'field.abyss.light.three.low', 'field.abyss.dark.rest.full'];
+  const FIELD = ['field.abyss.dark.one.joy.still', 'field.abyss.light.three.low', 'field.abyss.dark.rest.full', 'field.abyss.dark.near.joy.full', 'field.abyss.light.near.intense.full'];
   const FALLBACK = ['fallback.abyss.dark.one.C.right', 'fallback.abyss.light.rest', 'fallback.abyss.dark.three'];
 
   it('the guard: every case is a lab scene of its kind', () => {

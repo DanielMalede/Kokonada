@@ -2,12 +2,16 @@
 // determinism records, and a cost RESULT line. Each reader refuses what it cannot use, naming the field (an
 // EvidenceInputError, as lib/evidence.mts does): a missing or malformed field is never read as a default.
 //
-// The contract read here, until B8-5b lands its schema (one place to align):
-//   · a planned proof is the plan shot's `proof`: { kind, seconds }, and for kind `rate` also `band` { min, max } in
-//     frames per second;
-//   · a manifest proof is { shot, kind, ... }: zero-frames, draws-frames and rate carry `seconds` and `frames` (a rate is
-//     frames over seconds); framestats carries its own numbers, informational; a cost shot's RESULT line is the proof
-//     { shot, kind: 'result', result: <the line's JSON> };
+// The contract read here is the harness's (B8-5b, scripts/lab/capture.mjs, the authority):
+//   · the plan is one the harness's validatePlan accepts, or it is refused with the harness's own sentences; a planned
+//     proof is the plan shot's `proof`: { kind, seconds }, a rate's also `band` { min, max } in frames per second;
+//   · a manifest proof is what capture.mjs runProof pushes, exactly those fields (PROOF_FIELDS): zero-frames and
+//     draws-frames { shot, kind, seconds, frames, passed }; rate { shot, kind, seconds, frames, fps, band, passed }, its
+//     fps frames over seconds and its band and seconds the plan's; framestats { ..., frames, janky, jankPercent, reason,
+//     passed: null } (informational, its numbers null with a reason when gfxinfo had none); result and record
+//     { shot, kind, seconds, passed };
+//   · a cost shot's RESULT line is NOT in its proof: the harness keeps it in the manifest's top-level `results` as
+//     { shot, repeat, result }, one per shot, beside that shot's result proof;
 //   · a determinism record is { shot, equal, hashes } for each shot launched more than once (QA-078).
 // A cost RESULT is judged, not refused: its problems are the report's failures (the instrument), never input errors.
 
@@ -15,6 +19,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { validatePlan } from '../../capture.mjs';
 import { EvidenceInputError } from './evidence.mts';
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -106,13 +111,20 @@ export interface RunManifest {
   readonly failure: unknown;
   readonly commit: unknown;
   readonly proofs: readonly unknown[];
-  readonly determinism: readonly unknown[] | null;
+  readonly determinism: readonly unknown[];
+  /** The bench's RESULT lines, as the harness keeps them: { shot, repeat, result }. */
+  readonly results: readonly unknown[];
 }
 
-/** The plan and the manifest of its run: the manifest must name the plan, and carry a proofs list (and determinism, when asked). */
-export function loadRun(planFile: string, manifestFile: string, report: string, needDeterminism: boolean): { plan: Plan; manifest: RunManifest } {
+/**
+ * The plan and the manifest of its run: the plan one the harness's validatePlan accepts, the manifest naming it and
+ * carrying the lists the harness writes (proofs, determinism, results).
+ */
+export function loadRun(planFile: string, manifestFile: string, report: string): { plan: Plan; manifest: RunManifest } {
   const p = readJson(planFile, 'capture plan');
   if (!isObject(p.value)) throw new EvidenceInputError(`${report}: the capture plan ${planFile} is not an object`);
+  const planErrors = validatePlan(p.value) as string[];
+  if (planErrors.length > 0) throw new EvidenceInputError(`${report}: the capture plan ${planFile} is not one the harness runs (scripts/lab/capture.mjs validatePlan): ${planErrors.join('; ')}`);
   const pv = p.value;
   if (typeof pv.id !== 'string' || pv.id === '') refuse(report, `the plan ${planFile}`, 'id', 'is missing');
   if (!Array.isArray(pv.shots)) refuse(report, `the plan ${planFile}`, 'shots', 'is missing or not a list');
@@ -123,13 +135,12 @@ export function loadRun(planFile: string, manifestFile: string, report: string, 
   const mv = m.value;
   const where = `the manifest ${manifestFile}`;
   if (mv.plan !== plan.id) refuse(report, where, 'plan', `is ${JSON.stringify(mv.plan)}, not the plan's id ${plan.id}`);
-  if (!Array.isArray(mv.proofs)) refuse(report, where, 'proofs', 'is missing or not a list');
-  if (needDeterminism && !Array.isArray(mv.determinism)) refuse(report, where, 'determinism', 'is missing or not a list');
+  for (const list of ['proofs', 'determinism', 'results']) if (!Array.isArray(mv[list])) refuse(report, where, list, 'is missing or not a list');
   return {
     plan,
     manifest: {
       file: manifestFile, sha256: m.sha256, plan: mv.plan as string, outcome: mv.outcome ?? null, failure: mv.failure ?? null, commit: mv.commit ?? null,
-      proofs: mv.proofs as unknown[], determinism: Array.isArray(mv.determinism) ? mv.determinism : null,
+      proofs: mv.proofs as unknown[], determinism: mv.determinism as unknown[], results: mv.results as unknown[],
     },
   };
 }
@@ -140,22 +151,74 @@ export interface Proof {
   readonly raw: Record<string, unknown>;
 }
 
-/** A manifest proof's shot and kind. */
-export function readProof(entry: unknown, i: number, report: string): Proof {
+/** The fields capture.mjs runProof writes in a manifest proof, by kind: exactly these. */
+const PROOF_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  'zero-frames': ['shot', 'kind', 'seconds', 'frames', 'passed'],
+  'draws-frames': ['shot', 'kind', 'seconds', 'frames', 'passed'],
+  rate: ['shot', 'kind', 'seconds', 'frames', 'fps', 'band', 'passed'],
+  framestats: ['shot', 'kind', 'seconds', 'frames', 'janky', 'jankPercent', 'reason', 'passed'],
+  result: ['shot', 'kind', 'seconds', 'passed'],
+  record: ['shot', 'kind', 'seconds', 'passed'],
+};
+
+/**
+ * A manifest proof: its shot and kind, and exactly the fields the harness writes for that kind, against the plan's shot
+ * (its kind and its seconds; a rate's band too).
+ */
+export function readProof(entry: unknown, i: number, report: string, plan: Plan): Proof {
   const where = `the manifest's proofs[${i}]`;
   if (!isObject(entry)) throw new EvidenceInputError(`${report}: ${where} is not an object`);
   if (typeof entry.shot !== 'string' || entry.shot === '') refuse(report, where, 'shot', 'is missing');
-  if (typeof entry.kind !== 'string' || entry.kind === '') refuse(report, `${where} (${entry.shot})`, 'kind', 'is missing');
+  const at = `${where} (${entry.shot})`;
+  if (typeof entry.kind !== 'string' || entry.kind === '') refuse(report, at, 'kind', 'is missing');
+  const fields = PROOF_FIELDS[entry.kind as string];
+  if (fields === undefined) refuse(report, at, 'kind', `is ${JSON.stringify(entry.kind)}, not a proof the harness writes`);
+  for (const f of fields) if (entry[f] === undefined) refuse(report, at, f, 'is missing');
+  for (const f of Object.keys(entry)) if (!fields.includes(f)) refuse(report, at, f, `is not a field the harness writes in a ${entry.kind} proof`);
+  const planned = plan.shots.find((s) => s.id === entry.shot);
+  if (planned === undefined || planned.proof === null) refuse(report, at, 'shot', 'names no shot of the plan with a proof');
+  const want = planned!.proof!;
+  if (want.kind !== entry.kind) refuse(report, at, 'kind', `is ${JSON.stringify(entry.kind)}, but the plan's shot asks for ${want.kind}`);
+  if (entry.seconds !== want.seconds) refuse(report, at, 'seconds', `is ${JSON.stringify(entry.seconds)}, not the plan's ${want.seconds}`);
+  if (entry.kind === 'rate') {
+    const b = entry.band;
+    if (!isObject(b) || b.min !== want.band!.min || b.max !== want.band!.max || Object.keys(b).length !== 2) refuse(report, at, 'band', `is ${JSON.stringify(b)}, not the plan's ${JSON.stringify(want.band)}`);
+  }
   return { shot: entry.shot as string, kind: entry.kind as string, raw: entry };
 }
 
-/** A zero-frames, draws-frames or rate proof's seconds and frames, as measured. */
+/** A zero-frames, draws-frames or rate proof's seconds and frames, as measured (a rate's fps must be frames over seconds). */
 export function readFrames(proof: Proof, report: string): { seconds: number; frames: number } {
   const where = `the manifest's ${proof.kind} proof of ${proof.shot}`;
   const { seconds, frames } = proof.raw;
   if (!finite(seconds) || !(seconds > 0)) refuse(report, where, 'seconds', `must be a finite number above 0, got ${JSON.stringify(seconds)}`);
   if (!Number.isInteger(frames) || (frames as number) < 0) refuse(report, where, 'frames', `must be a whole number of 0 or more, got ${JSON.stringify(frames)}`);
+  if (proof.kind === 'rate' && proof.raw.fps !== (frames as number) / (seconds as number)) {
+    refuse(report, where, 'fps', `is ${JSON.stringify(proof.raw.fps)}, not its frames over its seconds (${(frames as number) / (seconds as number)})`);
+  }
   return { seconds: seconds as number, frames: frames as number };
+}
+
+/**
+ * The manifest's RESULT lines by shot, as the harness keeps them ({ shot, repeat, result }, one per shot), each beside its
+ * shot's result proof: a RESULT with no proof, or a proof with no RESULT, is a manifest that does not hold together.
+ */
+export function readResults(manifest: RunManifest, proofs: readonly Proof[], report: string): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  const FIELDS = ['shot', 'repeat', 'result'];
+  manifest.results.forEach((entry, i) => {
+    const where = `the manifest's results[${i}]`;
+    if (!isObject(entry)) throw new EvidenceInputError(`${report}: ${where} is not an object`);
+    for (const f of FIELDS) if (entry[f] === undefined) refuse(report, where, f, 'is missing');
+    for (const f of Object.keys(entry)) if (!FIELDS.includes(f)) refuse(report, where, f, 'is not a field the harness writes in a result');
+    if (typeof entry.shot !== 'string' || entry.shot === '') refuse(report, where, 'shot', 'is missing');
+    const at = `${where} (${entry.shot})`;
+    if (out.has(entry.shot as string)) refuse(report, at, 'shot', 'has a second RESULT: the harness keeps one per shot');
+    if (!proofs.some((p) => p.shot === entry.shot && p.kind === 'result')) refuse(report, at, 'shot', 'has a RESULT but no result proof beside it');
+    out.set(entry.shot as string, entry.result);
+  });
+  for (const p of proofs) if (p.kind === 'result' && !out.has(p.shot)) refuse(report, `the manifest's result proof of ${p.shot}`, 'results', 'holds no RESULT for its shot');
+  return out;
 }
 
 /** A determinism record's shot and hashes (the hashes decide, never the record's own `equal`). */

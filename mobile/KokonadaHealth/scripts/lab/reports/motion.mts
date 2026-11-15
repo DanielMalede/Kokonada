@@ -31,9 +31,9 @@ const SECTIONS: ReadonlyArray<{ kind: string; head: string }> = [
 function main(): number {
   const a = runArgs(process.argv.slice(2), REPORT);
   if (fs.existsSync(a.out)) throw new EvidenceInputError(`refusing to overwrite ${a.out}: a report never replaces an earlier one`);
-  const { plan, manifest } = loadRun(a.plan, a.manifest, REPORT, true);
-  const proofs: Proof[] = manifest.proofs.map((e, i) => readProof(e, i, REPORT));
-  const records = (manifest.determinism ?? []).map((e, i) => readDeterminism(e, i, REPORT));
+  const { plan, manifest } = loadRun(a.plan, a.manifest, REPORT);
+  const proofs: Proof[] = manifest.proofs.map((e, i) => readProof(e, i, REPORT, plan));
+  const records = manifest.determinism.map((e, i) => readDeterminism(e, i, REPORT));
 
   const lines: string[] = [
     `${REPORT} (B8-8e: QA-078, QA-034/035, UI-171), from the manifest's own numbers`,

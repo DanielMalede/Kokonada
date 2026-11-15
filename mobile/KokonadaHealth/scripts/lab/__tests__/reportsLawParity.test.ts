@@ -6,8 +6,10 @@
 //   · UI-159: ×8 crops of both ring edges, the capture beside its twin, for every field.* capture (every tier).
 //   · UI-211: each fallback.* capture against the CanvasKit FieldFallback render, ±1.
 // It exits 1 on any failure, 2 on an input it cannot use (naming the field), writes a text report and never overwrites one.
-// The planted runs come from scripts/lab/reports/__fixtures__/makeFixtures.mts: the twin of each scene placed under a
-// white strip that is not the stage, with planted pixels whose regions the plate's geometry fixes.
+// The planted runs come from scripts/lab/reports/__fixtures__/makeFixtures.mts, in the harness's row schema: the twin of
+// each scene over READY's stage (the app window, the whole screen) cropped to the app region the system bars leave, so
+// the stage's rows under the bars are not in the PNG and are not compared, with planted pixels whose regions the plate's
+// geometry fixes.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -21,7 +23,8 @@ jest.setTimeout(180000);
 const APP = path.resolve(__dirname, '../../..');
 const SCRIPT = path.join(APP, 'scripts/lab/reports/lawParity.mts');
 const MAKE = path.join(APP, 'scripts/lab/reports/__fixtures__/makeFixtures.mts');
-const N = 103 * 229; // the stage's pixels: the compared ones
+const N = 103 * 229; // the stage's pixels in the app region: the compared ones
+const UNDER_BARS = 103 * 12; // the stage's pixels under the status and navigation bars: not in the PNG
 const SHOTS = ['dark-one-joy-still.1', 'light-three-low.1', 'fb-dark-one-c-right.1', 'fb-light-rest.1'];
 
 let root: string;
@@ -85,6 +88,7 @@ describe('lawParity on a planted run within ±1', () => {
     expect(s).toContain(`  |Δ| histogram G: 0: ${N}, 1: 0`); // every bin up to the row’s largest |Δ|
     expect(s).toContain(`  |Δ| histogram B: 0: ${N - 5}, 1: 5`);
     expect(s).toContain('  over 1 by region: plate face 0, ring 0, halo 0, quiet rect 0, ground 0');
+    expect(s).toContain(`  not compared: ${UNDER_BARS} px of the stage outside the app region (under the system bars), 0 px of the app region outside the stage`);
     expect(s[s.length - 1]).toBe('  PASS');
   });
 
@@ -185,7 +189,7 @@ describe('lawParity refuses what it cannot use, and never overwrites', () => {
     expect(r.report).toBeNull();
   });
 
-  it.each(['expect.tier', 'stage', 'pxPerDp', 'args.t', 'renderScale', 'sampling'])('a field row without "%s": exit 2, naming the field, no report', (field) => {
+  it.each(['expect.tier', 'stage', 'device.density', 'clock.t', 'renderScale', 'sampling'])('a field row without "%s": exit 2, naming the field, no report', (field) => {
     const dir = copySet('parity-pass');
     editManifest(dir, (rows) => rows.map((x, i) => (i === 1 ? without(x, field) : x)));
     const r = run(dir);
@@ -217,6 +221,24 @@ describe('lawParity refuses what it cannot use, and never overwrites', () => {
     const r = run(dir);
     expect(r.status).toBe(1);
     expect(r.report).toContain('the capture run failed: planted failure');
+  });
+
+  it('a row the harness would not write (a field it has no schema for): exit 2, naming the field, no report', () => {
+    const dir = copySet('parity-pass');
+    editManifest(dir, (rows) => rows.map((x, i) => (i === 2 ? withValue(x, 'pxPerDp', 0.25) : x)));
+    const r = run(dir);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/fb-dark-one-c-right\.1: .*validateRow.*"pxPerDp" is not a manifest field/);
+    expect(r.report).toBeNull();
+  });
+
+  it('a field row on the real-time clock has no fixed frame time, so no twin: named, not compared, and the rest still judged', () => {
+    const dir = copySet('parity-pass');
+    editManifest(dir, (rows) => rows.map((x, i) => (i === 1 ? withValue(x, 'clock', { mode: 'realtime', t: null, seq: 0 }) : x)));
+    const r = run(dir);
+    expect(r.status).toBe(0);
+    expect(r.report).toContain('not compared: light-three-low.1 field.abyss.light.three.low (clock realtime: no fixed frame time, so no twin)');
+    expect(r.report!.trimEnd().split(/\r?\n/).pop()).toBe('PASS: 3 rows within ±1 of their twins (1 field, 2 fallback); 1 row not compared, named above');
   });
 
   it('a run with no field or fallback row proves nothing: exit 1, and the other rows are named, not compared', () => {

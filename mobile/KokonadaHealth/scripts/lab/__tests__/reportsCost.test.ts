@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { surfaceRule, validatePlan } from '../capture.mjs';
 import { costRun, type Json } from '../reports/__fixtures__/proofs';
 
 jest.setTimeout(120000);
@@ -159,6 +160,46 @@ describe('fieldCost refuses what it cannot use', () => {
     expect(r.stderr).toContain('"proofs"');
   });
 
+  it('a manifest with no results list (where the harness keeps the RESULT lines): exit 2, naming "results"', () => {
+    const c = costRun();
+    const r = run({ plan: c.plan, manifest: set(c.manifest, 'results', undefined) });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('"results"');
+    expect(r.report).toBeNull();
+  });
+
+  it('a RESULT kept as a proof field (the assumed shape, not the harness\'s): exit 2, naming the field', () => {
+    const c = costRun();
+    const proofs = (c.manifest.proofs as Json[]).map((p) => (p.shot === 'cost-full' ? { ...p, result: costRun().manifest.results } : p));
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, proofs } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('"result"');
+  });
+
+  it('a result proof whose RESULT is missing from results: exit 2, the manifest does not hold together', () => {
+    const c = costRun();
+    const results = (c.manifest.results as Json[]).filter((x) => x.shot !== 'cost-full-heavy');
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, results } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/result proof of cost-full-heavy: the field "results" holds no RESULT/);
+  });
+
+  it('a RESULT for a shot whose result proof is missing: exit 2, the manifest does not hold together', () => {
+    const c = costRun();
+    const proofs = (c.manifest.proofs as Json[]).filter((p) => p.shot !== 'cost-low');
+    const r = run({ plan: c.plan, manifest: { ...c.manifest, proofs } });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain('cost-low');
+  });
+
+  it('a plan the harness would refuse (a cost shot without expect): exit 2, with the harness\'s sentence', () => {
+    const c = costRun();
+    const shots = (c.plan.shots as Json[]).map((s) => (s.id === 'cost-low' ? (({ expect: _e, ...rest }) => rest)(s) : s));
+    const r = run({ plan: { ...c.plan, shots }, manifest: c.manifest });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/validatePlan.*shots\[4\]\.expect must be/);
+  });
+
   it('a planned cost scene that is not cost.<direction>.<face>.<scene>.<tier>[.storm|.heavy|.empty]: exit 2, naming the shot', () => {
     const c = costRun();
     const shots = (c.plan.shots as Json[]).map((s) => (s.id === 'cost-low' ? { ...s, scene: 'cost.abyss.dim.three.low' } : s));
@@ -178,5 +219,31 @@ describe('fieldCost refuses what it cannot use', () => {
     const r = run(costRun(), { argv: ['--manifest', 'x.json', '--out', path.join(root, 'y.txt')] });
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('usage');
+  });
+});
+
+// The shipped cost plan, as the harness reads it: every cost shot asks for the bench's RESULT line (the harness's `result`
+// proof, B8-5b), or the manifest would carry none and fieldCost could only say it is missing; and every cost scene is held
+// by the harness's surface rule for `cost.` to READY's `ready` (UI-223).
+describe('the shipped v1-cost plan', () => {
+  const plan = JSON.parse(fs.readFileSync(path.join(APP, 'scripts/lab/capture-plans/v1-cost.json'), 'utf8')) as { id: string; shots: Array<{ id: string; scene: string; proof?: Json }> };
+
+  it('is a valid plan for the harness, with cost shots', () => {
+    expect(validatePlan(plan)).toEqual([]);
+    expect(plan.shots.length).toBeGreaterThanOrEqual(12);
+    expect(plan.shots.every((s) => s.scene.startsWith('cost.'))).toBe(true);
+  });
+
+  it('every cost shot carries the result proof, with a window inside the harness’s bound', () => {
+    for (const s of plan.shots) {
+      expect([s.id, s.proof?.kind]).toEqual([s.id, 'result']);
+      expect([s.id, Object.keys(s.proof!).sort()]).toEqual([s.id, ['kind', 'seconds']]);
+      expect(s.proof!.seconds as number).toBeGreaterThanOrEqual(30);
+      expect(s.proof!.seconds as number).toBeLessThanOrEqual(120);
+    }
+  });
+
+  it('every cost scene is held by the harness’s cost. rule to READY saying ready', () => {
+    for (const s of plan.shots) expect([s.scene, surfaceRule(s.scene)]).toEqual([s.scene, expect.objectContaining({ prefix: 'cost.', status: 'ready' })]);
   });
 });
