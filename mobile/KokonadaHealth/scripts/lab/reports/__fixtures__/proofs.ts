@@ -8,7 +8,8 @@
 //   · result: the proof { shot, kind: 'result', seconds, passed: true }, and the RESULT line itself in the manifest's
 //     top-level `results` as { shot, repeat, result };
 //   · record: the proof { shot, kind: 'record', seconds, passed: true }, and the file in `records`.
-// determinism is { shot, equal, hashes } for each shot with repeat > 1 (QA-078). Every plan made here is checked by the
+// determinism is { shot, equal, hashes } for each shot with repeat > 1 (QA-078); a shot allowed to move (a real-time
+// clock with motion on, not at the still tier) is launched once (validatePlan, capture.mjs movingReason). Every plan made here is checked by the
 // harness's validatePlan before it is returned. Synthetic numbers only: no device, no person.
 
 import { validatePlan } from '../../capture.mjs';
@@ -81,8 +82,9 @@ export function costRun(edit: (id: string, result: Json) => Json | null = (_, r)
 export function motionRun(): { plan: Json; manifest: Json } {
   const shots = [
     planShot('dark-rest-still', 'field.abyss.dark.rest.still', { repeat: 2, proof: { kind: 'zero-frames', seconds: 10 } }),
+    planShot('dark-rest-fixed', 'field.abyss.dark.rest.full', { repeat: 2, args: { clock: 'fixed', t: '11000', frames: '10' } }),
     planShot('dark-rest-reduced', 'field.abyss.dark.rest.full', { device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false }, proof: { kind: 'zero-frames', seconds: 10 } }),
-    planShot('dark-rest-full', 'field.abyss.dark.rest.full', { repeat: 2, proof: { kind: 'draws-frames', seconds: 10 } }),
+    planShot('dark-rest-full', 'field.abyss.dark.rest.full', { proof: { kind: 'draws-frames', seconds: 10 } }),
     planShot('rate-low', 'field.abyss.dark.three.low', { proof: { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } } }),
     planShot('rate-full', 'field.abyss.dark.three.full', { proof: { kind: 'rate', seconds: 10, band: { min: 110, max: 125 } } }),
     planShot('stats-full', 'field.abyss.dark.three.full', { proof: { kind: 'framestats', seconds: 10 } }),
@@ -97,7 +99,7 @@ export function motionRun(): { plan: Json; manifest: Json } {
   ];
   const determinism = [
     { shot: 'dark-rest-still', equal: true, hashes: ['1'.repeat(64), '1'.repeat(64)] },
-    { shot: 'dark-rest-full', equal: true, hashes: ['2'.repeat(64), '2'.repeat(64)] },
+    { shot: 'dark-rest-fixed', equal: true, hashes: ['2'.repeat(64), '2'.repeat(64)] },
   ];
   return { plan: plan('v1-motion', shots), manifest: runManifest('v1-motion', proofs, determinism) };
 }

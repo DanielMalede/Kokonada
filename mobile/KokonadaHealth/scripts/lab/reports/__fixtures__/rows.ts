@@ -142,6 +142,8 @@ export function manifest(rows: readonly Record<string, unknown>[], outcome: 'pas
     checks: [],
     results: [],
     records: [],
+    moving: [],
+    settleFailures: [],
   };
 }
 

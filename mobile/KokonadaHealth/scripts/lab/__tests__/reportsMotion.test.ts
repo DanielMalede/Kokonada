@@ -69,7 +69,7 @@ describe('motion on a sound run', () => {
     const after = (head: string, n: number) => L.slice(L.indexOf(head) + 1, L.indexOf(head) + 1 + n);
     expect(after('QA-078 determinism: every launch of a shot draws the same pixels', 2)).toEqual([
       '  dark-rest-still: 2 launches, equal (PASS)',
-      '  dark-rest-full: 2 launches, equal (PASS)',
+      '  dark-rest-fixed: 2 launches, equal (PASS)',
     ]);
     expect(after('QA-034/035 zero-frames: still tier and reduced motion draw nothing', 2)).toEqual([
       '  dark-rest-still: 0 frames in 10 s (PASS)',
@@ -86,10 +86,10 @@ describe('motion on a sound run', () => {
 
 describe('motion fails on a broken proof', () => {
   it('QA-078: launches that differ are listed, exit 1', () => {
-    const r = run(withDeterminism((d) => d.map((x) => (x.shot === 'dark-rest-full' ? { ...x, equal: false, hashes: ['2'.repeat(64), '3'.repeat(64)] } : x))));
+    const r = run(withDeterminism((d) => d.map((x) => (x.shot === 'dark-rest-fixed' ? { ...x, equal: false, hashes: ['2'.repeat(64), '3'.repeat(64)] } : x))));
     expect(r.status).toBe(1);
-    expect(r.report).toContain(`  dark-rest-full: 2 launches, DIFFER: ${'2'.repeat(12)}, ${'3'.repeat(12)} (FAIL)`);
-    expect(last(r.report)).toBe('FAIL: 1 problem: dark-rest-full determinism');
+    expect(r.report).toContain(`  dark-rest-fixed: 2 launches, DIFFER: ${'2'.repeat(12)}, ${'3'.repeat(12)} (FAIL)`);
+    expect(last(r.report)).toBe('FAIL: 1 problem: dark-rest-fixed determinism');
   });
 
   it('QA-078: the hashes decide, not the manifest’s equal flag', () => {
@@ -99,9 +99,9 @@ describe('motion fails on a broken proof', () => {
   });
 
   it('QA-078: a shot planned twice with no determinism record: exit 1', () => {
-    const r = run(withDeterminism((d) => d.filter((x) => x.shot !== 'dark-rest-full')));
+    const r = run(withDeterminism((d) => d.filter((x) => x.shot !== 'dark-rest-fixed')));
     expect(r.status).toBe(1);
-    expect(r.report).toContain('  dark-rest-full: planned 2 launches, no determinism record (FAIL)');
+    expect(r.report).toContain('  dark-rest-fixed: planned 2 launches, no determinism record (FAIL)');
   });
 
   it('a zero-frames proof that drew frames: exit 1', () => {
@@ -168,7 +168,7 @@ describe('motion refuses what it cannot use', () => {
     const shots = (m.plan.shots as Json[]).map((s) => (s.id === 'rate-full' ? { ...s, proof: { kind: 'rate', seconds: 10 } } : s));
     const r = run({ plan: { ...m.plan, shots }, manifest: m.manifest });
     expect(r.status).toBe(2);
-    expect(r.stderr).toMatch(/validatePlan.*shots\[4\]\.proof\.band must be \{ min, max \}/);
+    expect(r.stderr).toMatch(/validatePlan.*shots\[5\]\.proof\.band must be \{ min, max \}/);
     expect(r.report).toBeNull();
   });
 
@@ -177,7 +177,7 @@ describe('motion refuses what it cannot use', () => {
     const shots = (m.plan.shots as Json[]).map((s) => (s.id === 'stats-full' ? (({ expect: _e, ...rest }) => rest)(s) : s));
     const r = run({ plan: { ...m.plan, shots }, manifest: m.manifest });
     expect(r.status).toBe(2);
-    expect(r.stderr).toMatch(/validatePlan.*shots\[5\]\.expect must be/);
+    expect(r.stderr).toMatch(/validatePlan.*shots\[6\]\.expect must be/);
   });
 
   it.each([
