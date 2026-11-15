@@ -97,6 +97,10 @@ jest.mock('../../v2/field/fieldFrame.ts', () => {
 import { FieldFallback } from '../../v2/field/FieldFallback';
 import { FieldSurface } from '../../v2/field/FieldSurface';
 import { LabRoot } from '../LabRoot';
+import type { LabParams } from '../params';
+import { ProbeRegistry } from '../probe/Probe';
+import { FieldScene } from '../scenes/FieldScene';
+import { ShaderReportContext, type ShaderReport } from '../shaderReport';
 
 function setup(scene: string, t = '11000') {
   const lines: string[] = [];
@@ -216,5 +220,102 @@ describe('READY says which surface drew the scene (UI-223)', () => {
     expect(h.tree.root.findAllByType(FieldFallback)).toHaveLength(1);
     expect(h.of('ERROR')).toEqual([{ run: 'r', errors: [expect.stringMatching(/after READY.*ready.*fallback.*RangeError: planted builder throw/)] }]);
     expect(h.of('READY')).toHaveLength(1);
+  });
+});
+
+// UI-233 (RA-44): `ready` means FieldView drew a frame, not only that the effect compiled. READY's own frames are the JS
+// thread's; if they all land before the UI thread's first frame, the stage is blank (the uniforms are still null) yet
+// stable, and a READY saying `ready` would let a blank shot pass the harness. So the scene says `pending` until FieldView
+// signals its first drawn frame (FieldFirstFrameReport, which only the lab provides), and LabRoot holds READY while the
+// scene is pending: no READY is sent at all, and once the frame is drawn READY counts its frames afresh from there.
+describe('ready means FieldView drew a frame (UI-233, RA-44)', () => {
+  it('no UI frame before the measure and the ticks: no READY at all, however many frames go by', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY')).toEqual([]);
+    h.tick(20);
+    expect(h.of('READY')).toEqual([]);
+    expect(h.of('ERROR')).toEqual([]);
+    expect(h.tree.root.findByType(FieldSurface).props.uniforms.value).toBeNull();
+  });
+
+  it('after the first UI frame, READY counts its frames from there and says ready', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(5);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    expect(h.tree.root.findByType(FieldSurface).props.uniforms.value).not.toBeNull();
+    expect(h.of('READY')).toEqual([]);
+    h.tick(2);
+    expect(h.of('READY')).toEqual([]); // 2 of 3 frames since the first drawn one
+    h.tick(1);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+    h.tick(10);
+    h.uiFrames(5);
+    expect(h.of('READY')).toHaveLength(1);
+    expect(h.of('ERROR')).toEqual([]);
+  });
+
+  it('the stage measured before the field is even sized: READY waits for the drawn frame too', () => {
+    const h = setup(FIELD);
+    h.measure();
+    h.tick(10);
+    expect(h.of('READY')).toEqual([]);
+    h.sizeScene('field-scene.view');
+    h.tick(10);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+  });
+
+  it('a builder throw on the first UI frame: never ready, READY says fallback', () => {
+    planted.throw = true;
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['fallback', 'RangeError: planted builder throw']]);
+    expect(h.of('ERROR')).toEqual([]);
+  });
+
+  it('the scene says pending until FieldView\'s first drawn frame, and a scene change re-arms it', () => {
+    const reports: ShaderReport[] = [];
+    const clock = { t: { value: 11000 } } as never;
+    const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 11000, stepMs: 0, frames: 3 });
+    const element = (scene: string) => (
+      <ProbeRegistry onMeasure={() => {}}>
+        <ShaderReportContext.Provider value={(r) => reports.push(r)}>
+          <FieldScene clock={clock} t={11000} params={paramsOf(scene)} />
+        </ShaderReportContext.Provider>
+      </ProbeRegistry>
+    );
+    const last = () => reports[reports.length - 1];
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { tree = ReactTestRenderer.create(element('field.abyss.dark.one.intense.full')); });
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => {
+      tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+    });
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    const drawn = reports.length;
+    for (let i = 0; i < 5; i++) act(() => reanimated.__frame(16));
+    expect(reports).toHaveLength(drawn); // once per mount: later frames say nothing new
+
+    act(() => tree.update(element('field.abyss.dark.one.joy.full')));
+    expect(tree.root.findByType(FieldSurface).props.uniforms.value).toBeNull();
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    act(() => tree.unmount());
   });
 });
