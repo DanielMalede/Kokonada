@@ -260,8 +260,8 @@ const compositeGround = (frame: FieldFrame, x: number, y: number) => {
 const ONCE = Object.entries(hero).filter(([, s]) => s.placements !== undefined && !s.placements.some((p) => p.node === 'neutral')).map(([name]) => name);
 
 describe('criterion F: where each id appears once, and on both rest tables, the law is the law before D5b', () => {
-  it('the scenes: rest, the four one.* scenes, seam, three and replace, each id at most once', () => {
-    expect(ONCE.sort()).toEqual(['one.calm', 'one.intense', 'one.joy', 'one.reflective', 'replace', 'rest', 'seam', 'three']);
+  it('the scenes: rest, the four one.* scenes, the four near.* scenes, seam, three and replace, each id at most once', () => {
+    expect(ONCE.sort()).toEqual(['near.calm', 'near.intense', 'near.joy', 'near.reflective', 'one.calm', 'one.intense', 'one.joy', 'one.reflective', 'replace', 'rest', 'seam', 'three']);
     for (const name of ONCE) {
       const nodes = hero[name].placements!.map((p) => p.node);
       expect(new Set(nodes).size).toBe(nodes.length);
