@@ -98,9 +98,29 @@ export function parseWmDensity(text) {
   return Number(m[1]);
 }
 
+// The display's render rate, by the first source that prints one, in this order: the active mode's renderFrameRate
+// (AOSP), DisplayManager's mActiveRenderFrameRate, the active mode's peakRefreshRate (the S22+ on Android 16 prints these
+// two and no renderFrameRate in its mode), then the older renderFrameRate=, mRefreshRate= and refreshRate= keys. Each
+// key is a whole word, so peakRefreshRate= is never read as refreshRate=. A source that prints two different rates is a
+// null, never a guess.
+const RATE_NUMBER = '(\\d+(?:\\.\\d+)?)(?=[,}\\s]|$)';
+const RATE_SOURCES = [
+  (text) => distinct(text, ACTIVE_MODE).map((body) => RATES.renderFrameRate.exec(body)?.[1]),
+  (text) => distinct(text, new RegExp(`\\bmActiveRenderFrameRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, ACTIVE_MODE).map((body) => RATES.peakRefreshRate.exec(body)?.[1]),
+  (text) => distinct(text, new RegExp(`(?:^|[\\s,{])renderFrameRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, new RegExp(`\\bmRefreshRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, new RegExp(`(?:^|[\\s,{])refreshRate=${RATE_NUMBER}`)),
+];
+
+/** The display's render rate in Hz from dumpsys display, or null when no source prints one, or one prints two. */
 export function parseRefreshRate(text) {
-  const m = /renderFrameRate=([\d.]+)/.exec(text) ?? /mRefreshRate=([\d.]+)/.exec(text) ?? /refreshRate=([\d.]+)/.exec(text);
-  return m ? Number(m[1]) : null;
+  for (const source of RATE_SOURCES) {
+    const rates = [...new Set(source(text).filter((v) => v !== undefined).map(Number))];
+    if (rates.length === 1) return rates[0];
+    if (rates.length > 1) return null;
+  }
+  return null;
 }
 
 const BAR_TYPES = new Set(['statusBars', 'navigationBars', 'captionBar', 'ITYPE_STATUS_BAR', 'ITYPE_NAVIGATION_BAR', 'ITYPE_CAPTION_BAR']);
@@ -172,7 +192,8 @@ export function parseGles(text) {
 }
 
 const COLOR_MODE_LINE = /^\s*Current color mode: (.+)$/;
-const WIDE_COLOR_LINE = /^\s*Device has wide color built-in display: ([01])\s*$/;
+// AOSP's spelling, and the S22+'s on Android 16 (`Device supports wide color: 1`): both read, and they must agree.
+const WIDE_COLOR_LINE = /^\s*Device (?:has wide color built-in display|supports wide color): ([01])\s*$/;
 
 /** The current colour mode as SurfaceFlinger prints it, and whether the built-in display is wide colour. */
 export function parseDisplayColour(text) {
@@ -184,22 +205,31 @@ export function parseDisplayColour(text) {
   const wide = distinct(text, WIDE_COLOR_LINE);
   let wideColor = null;
   if (wide.length === 1) wideColor = wide[0] === '1';
-  else reasons.push(wide.length === 0 ? 'no "Device has wide color built-in display" line in dumpsys SurfaceFlinger' : `${wide.length} different "Device has wide color built-in display" lines in dumpsys SurfaceFlinger`);
+  else reasons.push(wide.length === 0 ? 'no "Device supports wide color" or "Device has wide color built-in display" line in dumpsys SurfaceFlinger' : `${wide.length} different wide-colour lines in dumpsys SurfaceFlinger`);
   return { colorMode, wideColor, reason: reasons.length ? reasons.join('; ') : null };
 }
 
 const ACTIVE_MODE = /mActiveSfDisplayMode=DisplayMode\{([^}]*)\}/;
-const RATES = { renderFrameRate: /\brenderFrameRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/, vsyncRate: /\bvsyncRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/ };
+const RATES = {
+  renderFrameRate: /(?:^|[\s,{])renderFrameRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+  peakRefreshRate: /(?:^|[\s,{])peakRefreshRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+  vsyncRate: /(?:^|[\s,{])vsyncRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+};
 
-/** The active display mode's render and vsync rates in dumpsys display: { refreshMode, reason }. */
+/**
+ * The active display mode's render and vsync rates in dumpsys display: { refreshMode, reason }. The render rate is the
+ * mode's renderFrameRate, or its peakRefreshRate when it prints none (the S22+ on Android 16), and the fact names the key
+ * it was read from: `renderFrameRate 120 Hz, vsyncRate 120 Hz` or `peakRefreshRate 120.00001 Hz, vsyncRate 120.00001 Hz`.
+ */
 export function parseRefreshMode(text) {
   const modes = distinct(text, ACTIVE_MODE).map((body) => {
-    const render = RATES.renderFrameRate.exec(body);
     const vsync = RATES.vsyncRate.exec(body);
-    return render && vsync ? `render ${Number(render[1])} Hz, vsync ${Number(vsync[1])} Hz` : null;
+    const key = RATES.renderFrameRate.test(body) ? 'renderFrameRate' : 'peakRefreshRate';
+    const render = RATES[key].exec(body);
+    return render && vsync ? `${key} ${Number(render[1])} Hz, vsyncRate ${Number(vsync[1])} Hz` : null;
   }).filter((m) => m !== null);
   const unique = [...new Set(modes)];
-  if (unique.length === 0) return { refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate and vsyncRate in dumpsys display' };
+  if (unique.length === 0) return { refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate or peakRefreshRate, and vsyncRate, in dumpsys display' };
   if (unique.length > 1) return { refreshMode: null, reason: `${unique.length} different active display modes in dumpsys display` };
   return { refreshMode: unique[0], reason: null };
 }

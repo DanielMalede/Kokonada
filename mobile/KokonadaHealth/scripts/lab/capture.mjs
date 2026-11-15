@@ -63,7 +63,8 @@ const numIn = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >=
 // rate (UI-171): the frames gfxinfo counts per second, inside the plan's band (the tier's cap on the device).
 // framestats: gfxinfo's jank summary, recorded and never judged (informational, DEC-082 is open).
 // result: the bench's RESULT line for this run, held to the plan's contract (lib/protocol.mjs checkResult).
-// record: screenrecord's raw frames at a reduced size (F6), kept beside the PNGs for the reports.
+// record: the phone's mp4 from screenrecord at a reduced size (F6), kept beside the PNGs with its sha256; the storm
+// report decodes it (this Android 16 build's screenrecord has no raw-frames output).
 const PROOFS = ['zero-frames', 'draws-frames', 'rate', 'framestats', 'result', 'record'];
 const PROOF_KEYS = {
   'zero-frames': ['kind', 'seconds'], 'draws-frames': ['kind', 'seconds'], rate: ['kind', 'seconds', 'band'],
@@ -71,6 +72,8 @@ const PROOF_KEYS = {
 };
 // screenrecord's own limit.
 const RECORD_MAX_SECONDS = 180;
+// Where the phone's shell may write a file the harness then pulls and removes.
+const RECORD_DIR = '/data/local/tmp';
 // The keys the harness reads, by object: any other is an error, so a check it would ignore cannot look like one (UI-215).
 const KEYS = {
   plan: ['id', 'app', 'readyTimeoutMs', 'settleMs', 'session', 'shots'],
@@ -153,6 +156,9 @@ export function validatePlan(plan) {
     else if (seen.has(s.id)) e.push(`${at}.id ${s.id} is used twice`);
     seen.add(s.id);
     if (!intIn(s.repeat, 1, 10)) e.push(`${at}.repeat must be an integer from 1 to 10`);
+    else if (s.repeat !== 1 && isObject(s.args) && isObject(s.device) && isObject(s.expect) && movingReason(s)) {
+      e.push(`${at}.repeat must be 1 for a shot allowed to move: its frames differ by design, so two launches never hash the same`);
+    }
     if (!TOKEN.test(s.scene ?? '')) e.push(`${at}.scene must be a plain token`);
     if (!isObject(s.args)) e.push(`${at}.args must be an object`);
     else for (const [k, v] of Object.entries(s.args)) {
@@ -279,6 +285,48 @@ export function surfaceProblem(scene, ready) {
   return `READY says shaderStatus ${JSON.stringify(status)}${why}: a ${rule.prefix}* shot must be drawn ${rule.drawn} (UI-223)`;
 }
 
+// B8-6: a policy scene (`field.<direction>.<face>.<hero>.policy`) draws at the tier the device's motion policy gives,
+// and READY says the tier it observed; the shot's expect.tier is the tier its device state implies. A READY whose tier
+// differs means the policy did not give that tier. A READY that names no tier is held only on a policy scene: a scene
+// whose id names its tier, or one that draws no field, may not report one.
+/** Why READY's observed tier is not the shot's expect.tier, or null. */
+export function tierProblem(scene, ready, expectTier) {
+  const tier = ready.tier ?? null;
+  if (tier === null && !scene.endsWith('.policy')) return null;
+  if (tier === expectTier) return null;
+  return `READY says tier ${JSON.stringify(tier)} but the shot's expect.tier is ${JSON.stringify(expectTier)} (the motion policy did not give the tier the device state implies)`;
+}
+
+// The settle check (two grabs settleMs apart must hash the same) is what proves a still shot still. A shot allowed to
+// move differs between its grabs by design (the moving controls, the cost and storm benches), so it is not
+// settle-checked: it is listed as moving instead, and its own proof (draws-frames, rate, a RESULT, a recording) is what
+// it shows. A shot is allowed to move only when ALL of these hold: its clock is real time, motion is on (animatorScale
+// above 0) and its expect.tier is not still. So every still shot keeps the check: a fixed or stepped clock, reduced
+// motion, or a still tier each make the shot still, and a still shot that moves is refused.
+/** Why a shot is allowed to move (not settle-checked), or null for a still shot. */
+export function movingReason(shot) {
+  if (shot.args.clock !== 'realtime' || !(shot.device.animatorScale > 0) || shot.expect.tier === 'still') return null;
+  return `a real-time clock with motion on at ${shot.expect.tier === null ? 'no fixed tier' : `the ${shot.expect.tier} tier`}: not settle-checked`;
+}
+
+/** Where two grabs differ inside a region: the pixel count and the bounding box in screen px (null when equal). */
+export function regionDifference(a, b, region) {
+  let pixels = 0;
+  let x0 = Infinity; let y0 = Infinity; let x1 = -1; let y1 = -1;
+  for (let y = region.y; y < region.y + region.height; y += 1) {
+    for (let x = region.x; x < region.x + region.width; x += 1) {
+      const i = (y * a.width + x) * 4;
+      if (a.rgba[i] === b.rgba[i] && a.rgba[i + 1] === b.rgba[i + 1] && a.rgba[i + 2] === b.rgba[i + 2] && a.rgba[i + 3] === b.rgba[i + 3]) continue;
+      pixels += 1;
+      if (x < x0) x0 = x;
+      if (y < y0) y0 = y;
+      if (x > x1) x1 = x;
+      if (y > y1) y1 = y;
+    }
+  }
+  return { pixels, box: pixels === 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 } };
+}
+
 // UI-216: the scenes lay themselves out from the top of the window (heroLayout), and the harness reads probe rects in
 // window coordinates as screen coordinates (classifyProbes). So READY's stage must be the app window, at 0,0, and the
 // window the whole screen; a pixel absorbs the layout's rounding to the pixel grid.
@@ -352,13 +400,25 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
     return;
   }
   if (proof.kind === 'record') {
+    // The S22+ dry run (Android 16, screenrecord v1.4): no --output-format, so screenrecord writes only an mp4, and its
+    // mp4 muxer needs a seekable file, so not stdout. The harness records to the phone's /data/local/tmp, pulls the file
+    // beside the PNGs and always removes it from the phone. The frames are decoded by the storm report, not here.
     const { width, height } = proof.size;
-    const bytes = await adb.execOut(['screenrecord', '--output-format=frames', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), '-'],
-      { timeoutMs: (proof.seconds + 30) * 1000 });
-    if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord returned no frame in ${proof.seconds} s`);
-    const file = `${shot.id}.frames`;
-    fs.writeFileSync(path.join(outDir, file), bytes);
-    out.records.push({ shot: shot.id, file, bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
+    const remote = `${RECORD_DIR}/kokonada-lab-${run}.mp4`;
+    const file = `${shot.id}.mp4`;
+    const local = path.join(outDir, file);
+    try {
+      await adb.shell(['screenrecord', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), remote], { timeoutMs: (proof.seconds + 30) * 1000 });
+      await adb.pull(remote, local);
+    } catch (e) {
+      throw new Error(`${shot.id}: the recording could not be taken: ${e.message}`);
+    } finally {
+      await adb.shell(['rm', '-f', remote]);
+    }
+    const bytes = fs.readFileSync(local);
+    if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord wrote no video in ${proof.seconds} s`);
+    if (bytes.length < 12 || bytes.subarray(4, 8).toString('latin1') !== 'ftyp') throw new Error(`${shot.id}: the recording is not an mp4 (no ftyp box at its start)`);
+    out.records.push({ shot: shot.id, file, format: 'mp4', bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
     out.proofs.push({ shot: shot.id, kind: 'record', seconds: proof.seconds, passed: true });
     return;
   }
@@ -406,6 +466,8 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
     const surface = surfaceProblem(shot.scene, payload);
     if (surface) throw new Error(`${shot.id}: ${surface}`);
+    const tier = tierProblem(shot.scene, payload, shot.expect.tier);
+    if (tier) throw new Error(`${shot.id}: ${tier}`);
     // The lab hears battery saver through an event that can be lost before React is ready, so its
     // READY is checked against the device itself, here and again after the grabs.
     const powerSaveAtReady = await readPowerSave(adb);
@@ -422,8 +484,18 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const screen = { width: first.width, height: first.height };
     const region = appRegion(screen, parseSystemBars(await adb.shell(['dumpsys', 'window'])));
     const appRegionHash = regionHash(first, region);
-    if (regionHash(second, region) !== appRegionHash) {
-      throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ in the app region`);
+    const motion = movingReason(shot);
+    if (motion) out.moving.push({ shot: shot.id, repeat, reason: motion });
+    else if (regionHash(second, region) !== appRegionHash) {
+      // Keep what was seen: both grabs (the app region) and where they differ, so a refusal can be looked at.
+      const diff = regionDifference(first, second, region);
+      const files = [1, 2].map((n) => `${shot.id}.${repeat}.settle-${n}.png`);
+      for (const [i, frame] of [first, second].entries()) {
+        fs.writeFileSync(path.join(outDir, files[i]), await encodePng({ width: region.width, height: region.height, rgba: cropRegion(frame, region) }));
+      }
+      out.settleFailures.push({ shot: shot.id, repeat, files, region, box: diff.box, pixels: diff.pixels });
+      const where = diff.box ? ` in ${diff.pixels} pixels inside x ${diff.box.x}, y ${diff.box.y}, ${diff.box.width} × ${diff.box.height}` : '';
+      throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ${where} (both kept: ${files.join(', ')})`);
     }
     // UI-225: an ERROR the lab sent after READY (a fallback that landed after it) makes the grabs a picture of nothing READY named.
     await judgeLines({ adb, lab, token: `${run}-grabs`, shot, plan, signal });
@@ -535,8 +607,8 @@ export async function capture({
   const startedAt = now().toISOString();
   const rows = [];
   const determinism = [];
-  /** @type {{ proofs: any[], checks: any[], results: any[], records: any[] }} */
-  const out = { proofs: [], checks: [], results: [], records: [] };
+  /** @type {{ proofs: any[], checks: any[], results: any[], records: any[], moving: any[], settleFailures: any[] }} */
+  const out = { proofs: [], checks: [], results: [], records: [], moving: [], settleFailures: [] };
   let failure = null;
   let restoreFailures = [];
   try {
@@ -570,6 +642,7 @@ export async function capture({
     commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
     device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt: now().toISOString(),
     rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
+    moving: out.moving, settleFailures: out.settleFailures,
   };
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

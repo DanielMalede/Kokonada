@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { capture, checkBuild, Refused, renderFacts, surfaceRule, validatePlan } from '../capture.mjs';
+import { capture, checkBuild, Refused, renderFacts, surfaceRule, tierProblem, validatePlan } from '../capture.mjs';
 import { decodePng } from '../lib/png.mjs';
 import { validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
@@ -23,14 +23,24 @@ const SURFACE_FLINGER = [
 ].join('\n');
 class LabDevice extends FakeDevice {
   surfaceFlinger = SURFACE_FLINGER;
-  recording: Buffer = Buffer.from(Array.from({ length: 64 }, (_, i) => i));
+  // What screenrecord writes: an mp4 (its box `ftyp` at offset 4). The phone's own files, by path, with real state:
+  // screenrecord writes one, pull reads it, rm removes it.
+  recording: Buffer = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(52, 7)]);
   recorded: string[][] = [];
+  files = new Map<string, Buffer>();
   // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
-  // were logged, a little later. `pending` is a line the lab logged that has not been delivered yet: it goes first.
+  // were logged, a little later.
   logDelayMs = 2;
   marksLost = false;
   async shell(args: string[]): Promise<string> {
     if (args.join(' ') === 'dumpsys SurfaceFlinger') { this.commands.push('dumpsys SurfaceFlinger'); return this.surfaceFlinger; }
+    if (args[0] === 'screenrecord') {
+      this.commands.push(args.join(' '));
+      this.recorded.push(args);
+      this.files.set(args[args.length - 1], this.recording);
+      return '';
+    }
+    if (args[0] === 'rm' && args[1] === '-f') { this.commands.push(args.join(' ')); this.files.delete(args[2]); return ''; }
     if (args[0] === 'log' && args[1] === '-t' && args[2] === 'ReactNativeJS') {
       this.commands.push(args.join(' '));
       if (!this.marksLost) setTimeout(() => this.emit(args.slice(3).join(' ')), this.logDelayMs);
@@ -40,9 +50,13 @@ class LabDevice extends FakeDevice {
   }
   /** A line the lab logs now, which logcat delivers after `ms`. */
   logLater(line: string, ms = 1) { setTimeout(() => this.emit(line), ms); }
-  async execOut(args: string[]): Promise<Buffer> {
-    if (args[0] === 'screenrecord') { this.commands.push(`exec-out ${args.join(' ')}`); this.recorded.push(args); return this.recording; }
-    return super.execOut(args);
+  async pull(remote: string, local: string): Promise<string> {
+    const file = this.files.get(remote);
+    if (file === undefined && remote.startsWith('/data/local/tmp/')) throw new Error(`adb pull ${remote} failed (exit 1): adb: error: remote object '${remote}' does not exist`);
+    if (file === undefined) return super.pull(remote, local);
+    this.commands.push(`pull ${remote}`);
+    fs.writeFileSync(local, file);
+    return '';
   }
 }
 const TOKENS = fs.readFileSync(path.resolve(__dirname, '../../../../../design-tokens/base.tokens.json'), 'utf8');
@@ -519,7 +533,7 @@ describe('B8-5a/5b: the facts each row states', () => {
     expect(row.expect).toEqual(NO_SCENE);
     expect([row.direction, row.face, row.renderScale, row.sampling]).toEqual([null, null, null, null]);
     expect(row.gl).toEqual({ renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65', reason: null });
-    expect(row.display).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null });
+    expect(row.display).toEqual({ colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'renderFrameRate 120 Hz, vsyncRate 120 Hz', reason: null });
     expect(row.skiaVersion).toBe('2.6.9');
     expect(row.stage).toEqual({ x: 0, y: 0, width: SCREEN.width, height: SCREEN.height });
     expect(row.shaderReason).toBeNull();
@@ -824,25 +838,46 @@ describe('the new proofs', () => {
     });
   });
 
-  describe('record: screenrecord frames (F6)', () => {
+  // The S22+ dry run: this build's screenrecord (v1.4) has no --output-format, so it writes only an mp4, and an mp4 is
+  // written to a seekable file, never to stdout. So the harness records to the phone's /data/local/tmp, pulls the file,
+  // and removes it; the storm report decodes the frames (a PNG directory, or the mp4 through an ffmpeg path it is given).
+  describe('record: the phone\'s mp4 (F6)', () => {
     const RECORD = { kind: 'record', seconds: 5, size: { width: 360, height: 780 } };
 
-    it('records raw frames at the plan\'s reduced size, keeps them beside the PNGs, and hashes them', async () => {
+    it('records an mp4 at the plan\'s reduced size on the phone, pulls it beside the PNGs, hashes it and removes it from the phone', async () => {
       const w = world();
       readyAs(w, { shaderStatus: 'ready', shaderReason: null });
       const { manifest } = await w.run({ plan: planOf(moving(RECORD)) });
-      expect(w.device.recorded).toEqual([['screenrecord', '--output-format=frames', '--size', '360x780', '--time-limit', '5', '-']]);
-      const bytes = fs.readFileSync(path.join(w.outDir, 'm.frames'));
+      expect(w.device.recorded).toHaveLength(1);
+      const [args] = w.device.recorded;
+      expect(args.slice(0, 5)).toEqual(['screenrecord', '--size', '360x780', '--time-limit', '5']);
+      expect(args[5]).toMatch(/^\/data\/local\/tmp\/kokonada-lab-m-1-[a-z0-9]+\.mp4$/);
+      expect(args).not.toContain('--output-format=frames');
+      const bytes = fs.readFileSync(path.join(w.outDir, 'm.mp4'));
       expect(bytes.equals(w.device.recording)).toBe(true);
-      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.frames', bytes: 64, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
+      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.mp4', format: 'mp4', bytes: w.device.recording.length, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
       expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
+      expect(w.device.files.size).toBe(0);
+      expect(w.device.commands).toContain(`rm -f ${args[5]}`);
     });
 
-    it('refuses an empty recording', async () => {
+    it.each([
+      ['an empty recording', Buffer.alloc(0), /m: screenrecord wrote no video/],
+      ['a file that is not an mp4', Buffer.from('not a video at all, just text'), /m: the recording is not an mp4/],
+    ])('refuses %s, and still removes the phone\'s file', async (_label, recording, why) => {
       const w = world();
       readyAs(w, { shaderStatus: 'ready', shaderReason: null });
-      w.device.recording = Buffer.alloc(0);
-      await refusedRun(w, planOf(moving(RECORD)), /m: screenrecord returned no frame/);
+      w.device.recording = recording;
+      await refusedRun(w, planOf(moving(RECORD)), why);
+      expect(w.device.files.size).toBe(0);
+    });
+
+    it('refuses a recording the phone never wrote: there is nothing to pull', async () => {
+      const w = world();
+      readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+      const shell = w.device.shell.bind(w.device);
+      w.device.shell = async (args: string[]) => (args[0] === 'screenrecord' ? '' : shell(args));
+      await refusedRun(w, planOf(moving(RECORD)), /m: .*does not exist/);
     });
   });
 });
@@ -970,5 +1005,111 @@ describe('the shipped v1-field plan, end to end on the fake phone', () => {
     expect(manifest.proofs.map((p: { kind: string; passed: boolean }) => [p.kind, p.passed])).toEqual([['draws-frames', true], ['zero-frames', true]]);
     expect(manifest.determinism.every((d: { equal: boolean }) => d.equal)).toBe(true);
     expect(w.device.state()).toEqual(w.before);
+  });
+});
+
+// B8-6: a policy scene's tier comes from the device's motion policy, and READY says the tier it observed; a shot's
+// expect.tier is the tier its device state implies. A READY whose tier differs means the policy did not give that tier:
+// the shot is refused. A scene whose id names its tier is held the same way when READY names a tier; a READY with no
+// tier (a scene that draws no policy field) is held only on a policy scene.
+describe('B8-6: READY\'s observed tier against the shot\'s expect.tier', () => {
+  const policyShot = (tier: string, device: Record<string, unknown>) => fieldShot('p', 'field.abyss.dark.three.policy', {
+    expect: { ...FIELD_EXPECT, tier }, device: { fontScale: 1, night: 'yes', animatorScale: 1, powerSave: false, ...device },
+  });
+
+  it('a policy shot whose READY tier is the one its device state implies passes, and its row records the tier', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, tier: 'still' });
+    const { manifest } = await w.run({ plan: planOf(policyShot('still', { animatorScale: 0 })) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.rows[0].motion).toMatchObject({ tier: 'still', reduceMotionObserved: true });
+    expect(manifest.rows[0].expect.tier).toBe('still');
+  });
+
+  it.each([
+    ['another tier', 'low', /p: READY says tier "low" but the shot's expect\.tier is "still" \(the motion policy did not give the tier the device state implies\)/],
+    ['no tier at all', undefined, /p: READY says tier null but the shot's expect\.tier is "still"/],
+  ])('a policy shot whose READY names %s is refused, and no row is written', async (_label, tier, why) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, ...(tier === undefined ? {} : { tier }) });
+    const manifest = await refusedRun(w, planOf(policyShot('still', { animatorScale: 0 })), why);
+    expect(manifest.rows).toEqual([]);
+  });
+
+  it('an id-tier field shot whose READY tier equals its expect passes; one READY contradicts is refused', async () => {
+    const ok = world();
+    readyAs(ok, { shaderStatus: 'ready', shaderReason: null, tier: 'full' });
+    expect((await ok.run({ plan: planOf(fieldShot('f', 'field.abyss.dark.three.full')) })).manifest.outcome).toBe('passed');
+    const bad = world();
+    readyAs(bad, { shaderStatus: 'ready', shaderReason: null, tier: 'low' });
+    await refusedRun(bad, planOf(fieldShot('f', 'field.abyss.dark.three.full')), /f: READY says tier "low" but the shot's expect\.tier is "full"/);
+  });
+
+  it('a READY with no tier is held only on a policy scene', () => {
+    expect(tierProblem('field.abyss.dark.three.full', {}, 'full')).toBeNull();
+    expect(tierProblem('smoke', {}, null)).toBeNull();
+    expect(tierProblem('smoke', { tier: null }, null)).toBeNull();
+    expect(tierProblem('field.abyss.dark.three.policy', {}, 'full')).toMatch(/READY says tier null/);
+    expect(tierProblem('field.abyss.dark.three.policy', { tier: 'full' }, 'full')).toBeNull();
+    expect(tierProblem('smoke', { tier: 'full' }, null)).toMatch(/READY says tier "full" but the shot's expect\.tier is null/);
+  });
+
+  it('reduced motion reaches React Native through transition_animation_scale: animatorScale 0 sets it, and battery saver through low_power', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null, tier: 'still', powerSave: true });
+    await w.run({ plan: planOf(policyShot('still', { animatorScale: 0, powerSave: true })) });
+    expect(w.device.commands).toContain('settings put global transition_animation_scale 0');
+    expect(w.device.commands).toContain('settings put global low_power 1');
+  });
+});
+
+// The S22+ dry run: a shot that is allowed to move (a real-time clock with motion on, at a tier that is not still)
+// differs between its two grabs by design, so it can never pass the settle check; and when a still shot fails it, the
+// harness kept nothing to look at. Rule: the settle check is skipped only for a shot that is allowed to move, and every
+// still shot keeps it: a fixed or stepped clock, reduced motion (animatorScale 0), or an expect.tier of still.
+describe('the settle check: still shots keep it, moving shots are listed instead', () => {
+  const moving = (extra: Record<string, unknown> = {}) => fieldShot('mv', 'field.abyss.dark.three.full', {
+    args: { clock: 'realtime', frames: '3' }, ...extra,
+  });
+  // every grab differs inside x 10..14, y 20..22 (a 5 × 3 patch of the app region)
+  const flicker = (w: ReturnType<typeof world>) => {
+    let n = 0;
+    w.device.frames = [() => { n += 1; const k = n; return rawFrame((x, y) => (x >= 10 && x < 15 && y >= 20 && y < 23 ? [k % 256, 0, 0, 255] : [x * 5, y * 3, 77, 255])); }];
+  };
+
+  it('a shot allowed to move passes though its grabs differ, and the manifest lists it as moving', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const { manifest } = await w.run({ plan: planOf(moving()) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.moving).toEqual([{ shot: 'mv', repeat: 1, reason: 'a real-time clock with motion on at the full tier: not settle-checked' }]);
+    expect(manifest.settleFailures).toEqual([]);
+  });
+
+  it.each([
+    ['a fixed clock', { args: { clock: 'fixed', t: '11000', frames: '3' } }],
+    ['reduced motion (animatorScale 0)', { device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false } }],
+    ['a still tier', { scene: 'field.abyss.dark.three.still', expect: { ...FIELD_EXPECT, tier: 'still' } }],
+  ])('a still shot on %s whose grabs differ is refused, and keeps both grabs and where they differ', async (_label, extra) => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const manifest = await refusedRun(w, planOf(moving(extra)), /mv: the frame did not settle: two grabs 0 ms apart differ in 15 pixels inside x 10, y 20, 5 × 3/);
+    expect(manifest.rows).toEqual([]);
+    expect(manifest.moving).toEqual([]);
+    expect(manifest.settleFailures).toEqual([{
+      shot: 'mv', repeat: 1, files: ['mv.1.settle-1.png', 'mv.1.settle-2.png'], region: { x: 0, y: STATUS_BAR, width: SCREEN.width, height: 70 },
+      box: { x: 10, y: 20, width: 5, height: 3 }, pixels: 15,
+    }]);
+    for (const file of manifest.settleFailures[0].files) {
+      const png = await decodePng(fs.readFileSync(path.join(w.outDir, file)));
+      expect([png.width, png.height]).toEqual([SCREEN.width, 70]);
+    }
+  });
+
+  it('a moving shot must launch once: its frames differ by design, so a repeat could never match', () => {
+    expect(validatePlan(planOf(moving({ repeat: 2 }))).join()).toMatch(/shots\[0\]\.repeat must be 1 for a shot allowed to move/);
+    expect(validatePlan(planOf(moving()))).toEqual([]);
   });
 });
