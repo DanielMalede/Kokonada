@@ -282,6 +282,18 @@ export function surfaceProblem(scene, ready) {
   return `READY says shaderStatus ${JSON.stringify(status)}${why}: a ${rule.prefix}* shot must be drawn ${rule.drawn} (UI-223)`;
 }
 
+// B8-6: a policy scene (`field.<direction>.<face>.<hero>.policy`) draws at the tier the device's motion policy gives,
+// and READY says the tier it observed; the shot's expect.tier is the tier its device state implies. A READY whose tier
+// differs means the policy did not give that tier. A READY that names no tier is held only on a policy scene: a scene
+// whose id names its tier, or one that draws no field, may not report one.
+/** Why READY's observed tier is not the shot's expect.tier, or null. */
+export function tierProblem(scene, ready, expectTier) {
+  const tier = ready.tier ?? null;
+  if (tier === null && !scene.endsWith('.policy')) return null;
+  if (tier === expectTier) return null;
+  return `READY says tier ${JSON.stringify(tier)} but the shot's expect.tier is ${JSON.stringify(expectTier)} (the motion policy did not give the tier the device state implies)`;
+}
+
 // UI-216: the scenes lay themselves out from the top of the window (heroLayout), and the harness reads probe rects in
 // window coordinates as screen coordinates (classifyProbes). So READY's stage must be the app window, at 0,0, and the
 // window the whole screen; a pixel absorbs the layout's rounding to the pixel grid.
@@ -421,6 +433,8 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
     const surface = surfaceProblem(shot.scene, payload);
     if (surface) throw new Error(`${shot.id}: ${surface}`);
+    const tier = tierProblem(shot.scene, payload, shot.expect.tier);
+    if (tier) throw new Error(`${shot.id}: ${tier}`);
     // The lab hears battery saver through an event that can be lost before React is ready, so its
     // READY is checked against the device itself, here and again after the grabs.
     const powerSaveAtReady = await readPowerSave(adb);
