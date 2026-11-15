@@ -978,7 +978,7 @@ describe('validatePlan is strict (UI-215)', () => {
     for (const proof of [
       { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } }, { kind: 'framestats', seconds: 10 }, { kind: 'result', seconds: 30 },
       { kind: 'record', seconds: 5, size: { width: 360, height: 780 } },
-    ]) expect(validatePlan({ ...PLAN, shots: [{ ...shot, proof }] })).toEqual([]);
+    ]) expect(validatePlan({ ...PLAN, shots: [{ ...shot, repeat: 1, proof }] })).toEqual([]); // a recorded shot launches once (RA-46)
     expect(validatePlan({ ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 8 } } }] })).toEqual([]);
   });
 });
