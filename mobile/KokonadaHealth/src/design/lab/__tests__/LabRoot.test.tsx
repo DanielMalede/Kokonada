@@ -105,6 +105,8 @@ describe('READY', () => {
       sentinel: LAB_SENTINEL,
       // The smoke scene draws no field, so it names no surface (UI-223: a field scene names its own).
       shaderStatus: null, shaderReason: null,
+      // Nor a motion tier (B8-6: a field scene names the tier FieldView drew at).
+      tier: null,
     }]);
     h.tick(10);
     expect(h.of('READY')).toHaveLength(1);
