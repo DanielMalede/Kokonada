@@ -938,3 +938,37 @@ describe('renderFacts: the render scale and sampling an expect tier implies', ()
     expect(renderFacts(null, TIERS)).toEqual({ renderScale: null, sampling: null });
   });
 });
+
+// The session's emulator dry run of v1-field (the B8 plan's "done" for B8-5b) runs this same path on a real phone. Here
+// the shipped plan runs end to end on the stateful fake: every shot launched, waited for, grabbed twice, judged after its
+// marker, its row valid with its catalogue facts, both proofs held, and the phone restored.
+describe('the shipped v1-field plan, end to end on the fake phone', () => {
+  it('passes every shot with a valid row, and restores the phone', async () => {
+    const plan = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../capture-plans/v1-field.json'), 'utf8'));
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, {
+      shaderStatus: extras.scene.startsWith('fallback.') ? 'fallback-scene' : 'ready', shaderReason: null,
+    }));
+    const shell = w.device.shell.bind(w.device);
+    let moving = false;
+    w.device.shell = async (args: string[]) => {
+      const line = args.join(' ');
+      if (line.startsWith('am start')) moving = line.includes('--es run dark-three-full-moving-control-');
+      const out = await shell(args);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && moving) w.device.gfxFrames = 1200;
+      return out;
+    };
+    const { manifest } = await w.run({ plan: { ...plan, readyTimeoutMs: 200, settleMs: 0 } });
+    expect(manifest.outcome).toBe('passed');
+    const launches = plan.shots.reduce((n: number, s: { repeat: number }) => n + s.repeat, 0);
+    expect(manifest.rows).toHaveLength(launches);
+    for (const row of manifest.rows) {
+      expect(validateRow(row)).toEqual([]);
+      const shot = plan.shots.find((s: { id: string }) => s.id === row.shot);
+      expect(row.expect).toEqual(shot.expect);
+    }
+    expect(manifest.proofs.map((p: { kind: string; passed: boolean }) => [p.kind, p.passed])).toEqual([['draws-frames', true], ['zero-frames', true]]);
+    expect(manifest.determinism.every((d: { equal: boolean }) => d.equal)).toBe(true);
+    expect(w.device.state()).toEqual(w.before);
+  });
+});
