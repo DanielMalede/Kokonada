@@ -144,8 +144,9 @@ describe('what each timer brackets', () => {
 
 describe('the bench runs the exported functions (F2), and only them', () => {
   it('fieldStep once per warm-up and recorded frame; renderFieldImage once per such frame and K per GPU sample, the first sample a warm-up', () => {
-    run(config(IDLE));
+    const { s } = run(config(IDLE));
     const { warmup, frames, gpuSamples, gpuRenders } = COUNTS;
+    expect([s.step.n, s.render.n, s.gpu.n]).toEqual([frames, frames, gpuSamples]); // the warm-ups are run, never recorded
     expect(calls.step).toHaveLength(warmup + frames);
     expect(calls.render).toBe(warmup + frames + (gpuSamples + 1) * gpuRenders);
     expect(calls.reads).toBe(gpuSamples + 1);
