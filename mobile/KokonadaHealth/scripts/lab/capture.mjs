@@ -378,6 +378,23 @@ export function witnessSampleProblems(layout, stage, region) {
 }
 
 /**
+ * The insets the witness laid out in, from READY: the region probe's dp edges against the stage's, each rounded to whole
+ * px over the pixel ratio (the scene's StatusBar.currentHeight is a float32: 74 px reads 73.99999…).
+ */
+export function witnessInsetsFromReady(ready) {
+  const k = ready.pixelRatio;
+  const stage = ready.probes.stage.dp;
+  const box = ready.probes.region.dp;
+  const whole = (dp) => Math.round(dp * k) / k;
+  return {
+    top: whole(box.y - stage.y),
+    right: whole(stage.x + stage.width - (box.x + box.width)),
+    bottom: whole(stage.y + stage.height - (box.y + box.height)),
+    left: whole(box.x - stage.x),
+  };
+}
+
+/**
  * Why a witness row's READY does not show its layout inside the app region, or []. The layout is rebuilt from READY: the
  * stage in dp, READY's pixel ratio and font scale, and the insets the region probe leaves inside the stage, each rounded
  * to whole px (the scene's StatusBar.currentHeight is a float32: 74 px reads 73.99999…).
@@ -388,13 +405,7 @@ export function witnessProblems({ face, ready, region, witness }) {
   const stage = ready.probes?.stage;
   const box = ready.probes?.region;
   if (!stage || !box) return [`READY has no ${stage ? 'region' : 'stage'} probe: the witness layout cannot be rebuilt`];
-  const whole = (dp) => Math.round(dp * k) / k;
-  const insets = {
-    top: whole(box.dp.y - stage.dp.y),
-    right: whole(stage.dp.x + stage.dp.width - (box.dp.x + box.dp.width)),
-    bottom: whole(stage.dp.y + stage.dp.height - (box.dp.y + box.dp.height)),
-    left: whole(box.dp.x - stage.dp.x),
-  };
+  const insets = witnessInsetsFromReady(ready);
   let layout;
   try {
     layout = witness.witnessLayout(face, stage.dp.width, stage.dp.height, k, ready.fontScale, insets);
