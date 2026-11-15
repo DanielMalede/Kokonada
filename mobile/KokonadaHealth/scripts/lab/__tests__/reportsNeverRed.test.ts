@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { without } from '../reports/__fixtures__/rows';
+import { withValue, without } from '../reports/__fixtures__/rows';
 import { CHECK_BAND } from '../../../src/design/v2/tokens/neverRedSweeps';
 
 jest.setTimeout(180000);
@@ -94,6 +94,56 @@ describe('neverRed flags planted red', () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toMatch(/validateRow.*"expect" is required.*"stage" is required/);
     expect(r.report).toBeNull();
+  });
+});
+
+// The witness scene (B8-2) plants patches that are wrong on purpose (the P3-misread, double-encoded and skip-encode
+// bytes) and may land in the band. Rule for now, to be confirmed by the designer: never-red judges field.*, fallback.*,
+// grain.*, cost.* and storm.* rows in full (and any other row: none is exempt but the witness); a witness.* row would be
+// judged outside its patches' rectangles, but the witness layout (src/design/lab/witness/witnessLayout.ts) is not in
+// this tree and the manifest carries no patch rectangle, so a witness.* row is listed as not judged, named, with a count,
+// never skipped silently.
+describe('neverRed and the witness rows (planted patches)', () => {
+  const asScene = (x: Record<string, unknown>, shot: string, scene: string, facts: Record<string, unknown> = {}) =>
+    ({ ...withValue(withValue(x, 'shot', shot), 'scene', scene), ...facts });
+  const asWitness = (x: Record<string, unknown>) =>
+    asScene(x, 'witness-dark', 'witness.abyss.dark', { expect: { direction: 'abyss', face: 'dark', hero: null, tier: null }, renderScale: null, sampling: null });
+  const NOT_JUDGED = 'not judged: witness-dark.1 witness.abyss.dark (planted patches: the witness layout is not in this tree and the manifest names no patch rectangle, so none can be excluded)';
+
+  it('a witness row with a planted red patch is not judged: named, counted, its pixels not listed, and with no other row nothing is proved', () => {
+    const dir = copySet('neverred-patch');
+    editManifest(dir, (rows) => [asWitness(rows[0])]);
+    const r = run(dir);
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 1, stderr: '' });
+    expect(r.report).toContain(NOT_JUDGED);
+    expect(r.report!.split(/\r?\n/).filter((l) => l.startsWith('  in band · '))).toEqual([]);
+    expect(lastLine(r.report)).toBe('FAIL: no row judged; 1 witness.* row not judged (planted patches), named above');
+  });
+
+  it('beside a witness row the other rows are still judged in full, and the verdict names the rows not judged', () => {
+    const dir = copySet('neverred-100');
+    editManifest(dir, (rows) => [rows[0], asWitness(rows[0])]);
+    const r = run(dir);
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
+    expect(r.report).toContain(`row dark-one-joy-still.1 field.abyss.dark.one.joy.still: ${PX} px, in the check band: 0`);
+    expect(r.report).toContain(NOT_JUDGED);
+    expect(lastLine(r.report)).toBe(`PASS: 1 rows, ${PX} px, none in the check band; 1 witness.* row not judged (planted patches), named above`);
+  });
+
+  it.each([
+    ['field.abyss.dark.one.joy.still', {}],
+    ['fallback.abyss.dark.rest', { expect: { direction: 'abyss', face: 'dark', hero: null, tier: null }, renderScale: null, sampling: null }],
+    ['grain.abyss.dark.full', { expect: { direction: 'abyss', face: 'dark', hero: null, tier: 'full' } }],
+    ['cost.abyss.dark.three.full.storm', { expect: { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' } }],
+    ['storm.abyss.dark.burst', { expect: { direction: 'abyss', face: 'dark', hero: null, tier: null }, renderScale: null, sampling: null }],
+  ])('a %s row is judged in full: its planted red patch is flagged, beside a witness row that is not', (scene, facts) => {
+    const dir = copySet('neverred-patch');
+    editManifest(dir, (rows) => [asScene(rows[0], 's', scene, facts), asWitness(rows[0])]);
+    const r = run(dir);
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 1, stderr: '' });
+    expect(r.report).toContain(`row s.1 ${scene}: ${PX} px, in the check band: 24`);
+    expect(r.report).toContain(NOT_JUDGED);
+    expect(lastLine(r.report)).toBe('FAIL: 1 of 1 judged rows have pixels in the check band (s.1): 24 px; 1 witness.* row not judged (planted patches), named above');
   });
 });
 
