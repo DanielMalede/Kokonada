@@ -156,6 +156,9 @@ export function validatePlan(plan) {
     else if (seen.has(s.id)) e.push(`${at}.id ${s.id} is used twice`);
     seen.add(s.id);
     if (!intIn(s.repeat, 1, 10)) e.push(`${at}.repeat must be an integer from 1 to 10`);
+    else if (s.repeat !== 1 && isObject(s.args) && isObject(s.device) && isObject(s.expect) && movingReason(s)) {
+      e.push(`${at}.repeat must be 1 for a shot allowed to move: its frames differ by design, so two launches never hash the same`);
+    }
     if (!TOKEN.test(s.scene ?? '')) e.push(`${at}.scene must be a plain token`);
     if (!isObject(s.args)) e.push(`${at}.args must be an object`);
     else for (const [k, v] of Object.entries(s.args)) {
@@ -292,6 +295,36 @@ export function tierProblem(scene, ready, expectTier) {
   if (tier === null && !scene.endsWith('.policy')) return null;
   if (tier === expectTier) return null;
   return `READY says tier ${JSON.stringify(tier)} but the shot's expect.tier is ${JSON.stringify(expectTier)} (the motion policy did not give the tier the device state implies)`;
+}
+
+// The settle check (two grabs settleMs apart must hash the same) is what proves a still shot still. A shot allowed to
+// move differs between its grabs by design (the moving controls, the cost and storm benches), so it is not
+// settle-checked: it is listed as moving instead, and its own proof (draws-frames, rate, a RESULT, a recording) is what
+// it shows. A shot is allowed to move only when ALL of these hold: its clock is real time, motion is on (animatorScale
+// above 0) and its expect.tier is not still. So every still shot keeps the check: a fixed or stepped clock, reduced
+// motion, or a still tier each make the shot still, and a still shot that moves is refused.
+/** Why a shot is allowed to move (not settle-checked), or null for a still shot. */
+export function movingReason(shot) {
+  if (shot.args.clock !== 'realtime' || !(shot.device.animatorScale > 0) || shot.expect.tier === 'still') return null;
+  return `a real-time clock with motion on at ${shot.expect.tier === null ? 'no fixed tier' : `the ${shot.expect.tier} tier`}: not settle-checked`;
+}
+
+/** Where two grabs differ inside a region: the pixel count and the bounding box in screen px (null when equal). */
+export function regionDifference(a, b, region) {
+  let pixels = 0;
+  let x0 = Infinity; let y0 = Infinity; let x1 = -1; let y1 = -1;
+  for (let y = region.y; y < region.y + region.height; y += 1) {
+    for (let x = region.x; x < region.x + region.width; x += 1) {
+      const i = (y * a.width + x) * 4;
+      if (a.rgba[i] === b.rgba[i] && a.rgba[i + 1] === b.rgba[i + 1] && a.rgba[i + 2] === b.rgba[i + 2] && a.rgba[i + 3] === b.rgba[i + 3]) continue;
+      pixels += 1;
+      if (x < x0) x0 = x;
+      if (y < y0) y0 = y;
+      if (x > x1) x1 = x;
+      if (y > y1) y1 = y;
+    }
+  }
+  return { pixels, box: pixels === 0 ? null : { x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1 } };
 }
 
 // UI-216: the scenes lay themselves out from the top of the window (heroLayout), and the harness reads probe rects in
@@ -451,8 +484,18 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const screen = { width: first.width, height: first.height };
     const region = appRegion(screen, parseSystemBars(await adb.shell(['dumpsys', 'window'])));
     const appRegionHash = regionHash(first, region);
-    if (regionHash(second, region) !== appRegionHash) {
-      throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ in the app region`);
+    const motion = movingReason(shot);
+    if (motion) out.moving.push({ shot: shot.id, repeat, reason: motion });
+    else if (regionHash(second, region) !== appRegionHash) {
+      // Keep what was seen: both grabs (the app region) and where they differ, so a refusal can be looked at.
+      const diff = regionDifference(first, second, region);
+      const files = [1, 2].map((n) => `${shot.id}.${repeat}.settle-${n}.png`);
+      for (const [i, frame] of [first, second].entries()) {
+        fs.writeFileSync(path.join(outDir, files[i]), await encodePng({ width: region.width, height: region.height, rgba: cropRegion(frame, region) }));
+      }
+      out.settleFailures.push({ shot: shot.id, repeat, files, region, box: diff.box, pixels: diff.pixels });
+      const where = diff.box ? ` in ${diff.pixels} pixels inside x ${diff.box.x}, y ${diff.box.y}, ${diff.box.width} × ${diff.box.height}` : '';
+      throw new Error(`${shot.id}: the frame did not settle: two grabs ${plan.settleMs} ms apart differ${where} (both kept: ${files.join(', ')})`);
     }
     // UI-225: an ERROR the lab sent after READY (a fallback that landed after it) makes the grabs a picture of nothing READY named.
     await judgeLines({ adb, lab, token: `${run}-grabs`, shot, plan, signal });
@@ -564,8 +607,8 @@ export async function capture({
   const startedAt = now().toISOString();
   const rows = [];
   const determinism = [];
-  /** @type {{ proofs: any[], checks: any[], results: any[], records: any[] }} */
-  const out = { proofs: [], checks: [], results: [], records: [] };
+  /** @type {{ proofs: any[], checks: any[], results: any[], records: any[], moving: any[], settleFailures: any[] }} */
+  const out = { proofs: [], checks: [], results: [], records: [], moving: [], settleFailures: [] };
   let failure = null;
   let restoreFailures = [];
   try {
@@ -599,6 +642,7 @@ export async function capture({
     commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
     device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt: now().toISOString(),
     rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
+    moving: out.moving, settleFailures: out.settleFailures,
   };
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

@@ -188,6 +188,13 @@ export function markArgs(token) {
   return ['log', '-t', 'ReactNativeJS', 'KOKONADA_HARNESS', 'MARK', safe(token, 'marker')];
 }
 
+/**
+ * How far a probe edge may lie past the screen or the app region and still be on it: READY's px are dp × the pixel
+ * ratio in floating point (the S22+ measured its full-screen stage at 2340.0000458 px on a 2340 px screen). The same
+ * pixel the stage check in capture.mjs allows.
+ */
+export const PROBE_TOLERANCE_PX = 1;
+
 /** How far READY's font scale may be from the one the harness set (round 2, resilience and architect). */
 export const FONT_SCALE_TOLERANCE = 0.01;
 
@@ -224,16 +231,20 @@ export function classifyProbes(probes, screen, app) {
   for (const [id, rect] of Object.entries(probes)) {
     const { x, y, width, height } = rect.px;
     let reason = null;
+    const t = PROBE_TOLERANCE_PX;
     if (!(width > 0 && height > 0)) reason = 'no size';
-    else if (x < 0 || y < 0 || x + width > screen.width || y + height > screen.height) reason = 'partly outside the screen';
-    else if (x < app.x || y < app.y || x + width > app.x + app.width || y + height > app.y + app.height) reason = 'partly under the system bars';
+    else if (x < -t || y < -t || x + width > screen.width + t || y + height > screen.height + t) reason = 'partly outside the screen';
+    else if (x < app.x - t || y < app.y - t || x + width > app.x + app.width + t || y + height > app.y + app.height + t) reason = 'partly under the system bars';
     if (reason) {
       excluded.push({ id, reason, px: { x, y, width, height } });
       continue;
     }
-    const x0 = Math.floor(x);
-    const y0 = Math.floor(y);
-    inside[id] = { x: x0, y: y0, width: Math.ceil(x + width) - x0, height: Math.ceil(y + height) - y0 };
+    // The whole pixels that cover it, inside the app region (an edge within the tolerance is the region's).
+    const x0 = Math.max(Math.floor(x), app.x);
+    const y0 = Math.max(Math.floor(y), app.y);
+    const x1 = Math.min(Math.ceil(x + width), app.x + app.width);
+    const y1 = Math.min(Math.ceil(y + height), app.y + app.height);
+    inside[id] = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
   }
   return { inside, excluded };
 }
