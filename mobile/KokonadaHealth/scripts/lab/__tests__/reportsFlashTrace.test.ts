@@ -301,6 +301,7 @@ describe('RA-47: the recording is bound to the run', () => {
     ['a failed run', 'manifest-failed.json', {}, /^manifest\.outcome is "failed", not "passed": planted failure$/],
     ['another mp4', 'manifest.json', { mp4Sha256: 'f'.repeat(64) }, /^manifest\.records\[0\]\.sha256 [0-9a-f]{64} is not the recording's f{64}$/],
     ['another size', 'manifest.json', { size: { width: 540, height: 1170 } }, /^manifest\.records\[0\]\.size 96x192 is not the recording's 540x1170$/],
+    ['the same width, another height', 'manifest.json', { size: { width: 96, height: 200 } }, /^manifest\.records\[0\]\.size 96x192 is not the recording's 96x200$/],
     ['the device\'s px per dp on a half-size recording', 'manifest.json', { pxPerDp: 1 },
       /^px per dp 1 is not the recording's 0\.5: manifest\.rows\[0\]\.device\.density 160 dpi is Android's density 1, × 96 px frames ÷ manifest\.rows\[0\]\.stage\.width 192$/],
     ['a shot with no record', 'manifest.json', { shot: 'planted-norecord' }, /^manifest\.records has no record for shot "planted-norecord"$/],
