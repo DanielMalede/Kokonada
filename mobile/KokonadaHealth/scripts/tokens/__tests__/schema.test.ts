@@ -185,6 +185,14 @@ describe('locks and the owner’s pending decisions', () => {
     const errors = errorsOf(planted(BASE, (j) => (j.field.tiers.$extensions['com.kokonada'].lock = 'designer')));
     expect(errors).toContainEqual(expect.stringMatching(/^base\.tokens\.json: field\.tiers: .*owner:DEC-084/));
   });
+
+  // DEC-084 is decided for the tier table (the owner, 2026-11-16); DEC-165 holds the rest of its question.
+  it('the tier table is marked decided (DEC-084)', () => {
+    const noStatus = errorsOf(planted(BASE, (j) => delete j.field.tiers.$extensions['com.kokonada'].status));
+    expect(noStatus).toContainEqual(expect.stringMatching(/^base\.tokens\.json: field\.tiers: .*decided/));
+    const stillProposed = errorsOf(planted(BASE, (j) => (j.field.tiers.$extensions['com.kokonada'].status = 'proposed')));
+    expect(stillProposed).toContainEqual(expect.stringMatching(/^base\.tokens\.json: field\.tiers: .*decided/));
+  });
 });
 
 // Designer B2 review §5 and §1c.
