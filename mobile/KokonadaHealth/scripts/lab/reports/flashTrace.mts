@@ -39,6 +39,12 @@
 // many 8-bit code values, default 1), --marker-min <codes> (the same for the marker, default 8; its two colours are about
 // 20 apart).
 //
+// The run (RA-47): with --manifest, the recording must be the run's record of the shot (lib/recordBinding.mjs): the run
+// passed, the shot's record has the mp4's sha256 and size (for --frames, frames.json's `source` names the mp4 the frames
+// were decoded from and their size), and the px per dp is the run's, Android's density × frame width ÷ stage width,
+// derived from the manifest; --px-per-dp is then an override that must agree, and --size defaults to the record's.
+// Without --manifest (a --marker run, planted or by hand) --px-per-dp is required and nothing is bound.
+//
 // Exit 0: PASS. Exit 1: FAIL. Exit 2: an input it cannot use, named, and no report; it never overwrites a report.
 
 import { spawn } from 'node:child_process';
@@ -49,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 
 import { relY, worstFlashesPerSecond } from '../../../src/design/v2/field/flashCount.ts';
 import { decodePng } from '../lib/png.mjs';
+import { recordingProblems, recordingPxPerDp } from './lib/recordBinding.mjs';
 
 const REPORT = 'flashTrace';
 /** S7: at most this many general flashes per cell in any 1 s window. */
@@ -85,7 +92,8 @@ interface Args {
   readonly mp4: string | null;
   readonly ffmpeg: string | null;
   readonly size: { width: number; height: number } | null;
-  readonly pxPerDp: number;
+  /** --px-per-dp: required without --manifest; with it, an override that must agree with the run's. */
+  readonly pxPerDp: number | null;
   readonly out: string;
   readonly region: Rect | null;
   readonly marker: Rect | null;
@@ -122,7 +130,7 @@ function parseArgs(argv: readonly string[]): Args {
   }
   if (v['--out'] === undefined) throw new FlashInputError(`${REPORT}: --out <report> is required`);
   if ((v['--frames'] === undefined) === (v['--mp4'] === undefined)) throw new FlashInputError(`${REPORT}: give --frames <dir> or --mp4 <file>, exactly one`);
-  const pxPerDp = positive(v['--px-per-dp'], '--px-per-dp (frame px per dp)', null);
+  const pxPerDp = v['--px-per-dp'] === undefined && v['--manifest'] !== undefined ? null : positive(v['--px-per-dp'], '--px-per-dp (frame px per dp)', null);
   const fromReady = v['--manifest'] !== undefined || v['--shot'] !== undefined;
   if (fromReady === (v['--marker'] !== undefined)) {
     throw new FlashInputError(`${REPORT}: give --manifest <manifest.json> --shot <id> (READY's marker probe) or --marker x,y,w,h, exactly one`);
@@ -282,16 +290,18 @@ function holdGrid(times: readonly number[]): { step: number; index: number[] } {
   return { step, index };
 }
 
-function analyse(an: Analyzer, times: readonly number[], a: Args, source: string, markerHow: string): { text: string; code: number } {
+function analyse(an: Analyzer, times: readonly number[], a: Args, source: string, markerHow: string, bound: Bound): { text: string; code: number } {
+  const k = bound.pxPerDp;
   if (times.length !== an.y.length) throw new FlashInputError(`${REPORT}: ${times.length} timestamps for ${an.y.length} frames`);
   const { step, index } = holdGrid(times);
   const lines: string[] = [
     `${REPORT} (B8-7: QA-068's S7 and UI-190), Abyss dark only; the CTA and voice-line regions need the hero (B6) and are not read`,
     `source: ${source}`,
+    ...(bound.line === null ? [] : [bound.line]),
     `frames: ${times.length}, ${fmt(times[0])} to ${fmt(times[times.length - 1])} ms; held to a ${fmt(step)} ms grid (each frame until the next, none dropped)`,
   ];
   const left = an.excluded.reduce((s, x) => s + x, 0);
-  lines.push(`grid: ${CELL_DP} dp cells of ${fmt(an.cellPx)} px at ${fmt(a.pxPerDp)} px per dp over ${rectText(an.region)} px: ${an.cells} cells, ${left} under the marker left out`);
+  lines.push(`grid: ${CELL_DP} dp cells of ${fmt(an.cellPx)} px at ${fmt(k)} px per dp over ${rectText(an.region)} px: ${an.cells} cells, ${left} under the marker left out`);
 
   const markerChanges: number[] = [];
   for (let i = 1; i < times.length; i++) {
@@ -317,7 +327,7 @@ function analyse(an: Analyzer, times: readonly number[], a: Args, source: string
     }
     if (n > MOST_FLASHES) over.push({ cell, n });
   }
-  const dpOf = (cell: CellRef) => `${fmt(an.region.x / a.pxPerDp + cell.col * CELL_DP)},${fmt(an.region.y / a.pxPerDp + cell.row * CELL_DP)}`;
+  const dpOf = (cell: CellRef) => `${fmt(an.region.x / k + cell.col * CELL_DP)},${fmt(an.region.y / k + cell.row * CELL_DP)}`;
   lines.push(`  worst: ${worst} in cell ${worstAt.col},${worstAt.row} (dp ${dpOf(worstAt)} ${CELL_DP}x${CELL_DP})`);
   const listed = over.slice(0, 20).map((o) => `cell ${o.cell.col},${o.cell.row}: ${o.n}`);
   if (over.length > 20) listed.push(`+${over.length - 20} more`);
@@ -403,11 +413,58 @@ function markerFor(a: Args, width: number, height: number): { rect: Rect; how: s
   return { rect, how: `from READY's marker probe ${rectText(probe)} screen px in shot ${name}, scaled by ${fmt(sx)}` };
 }
 
+// ---------------------------------------------------------------------------------------- the run
+
+interface Bound {
+  /** The px per dp the frames are read at. */
+  readonly pxPerDp: number;
+  /** The report's line naming the run, or null when none is bound. */
+  readonly line: string | null;
+}
+
+/** The recording bound to its run (RA-47), or --px-per-dp as given when no manifest is named. */
+function bindRun(a: Args, mp4Sha256: string, size: { width: number; height: number }): Bound {
+  if (a.manifest === null) return { pxPerDp: a.pxPerDp!, line: null };
+  if (!fs.existsSync(a.manifest)) throw new FlashInputError(`${REPORT}: no manifest at ${a.manifest}`);
+  const bytes = fs.readFileSync(a.manifest);
+  let m: unknown;
+  try {
+    m = JSON.parse(bytes.toString('utf8'));
+  } catch (e) {
+    throw new FlashInputError(`${REPORT}: ${a.manifest} is not JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const problems: string[] = recordingProblems(m, { shot: a.shot!, mp4Sha256, size, pxPerDp: a.pxPerDp ?? undefined });
+  if (problems.length > 0) throw new FlashInputError(`${REPORT}: the recording is not the run's record of shot ${a.shot} (${a.manifest}): ${problems.join('; ')}`);
+  const pxPerDp = recordingPxPerDp(m, a.shot!, size) as number;
+  const man = m as { rows: Array<{ shot: string; repeat: number }>; records: Array<{ shot: string; file: string }> };
+  const repeat = Math.max(...man.rows.filter((r) => r.shot === a.shot).map((r) => r.repeat));
+  const rec = man.records.find((r) => r.shot === a.shot)!;
+  return {
+    pxPerDp,
+    line: `run: manifest ${a.manifest} (sha256 ${sha256(bytes)}), outcome passed, shot ${a.shot}.${repeat}, record ${rec.file} sha256 ${mp4Sha256} ${size.width}x${size.height} px; `
+      + `${fmt(pxPerDp)} px per dp from the run${a.pxPerDp === null ? '' : ', --px-per-dp agrees'}`,
+  };
+}
+
+/** The shot's record's size in the named manifest, for an mp4 given no --size; null when it has none. */
+function recordSize(a: Args): { width: number; height: number } | null {
+  if (a.manifest === null || !fs.existsSync(a.manifest)) return null;
+  try {
+    const m = JSON.parse(fs.readFileSync(a.manifest, 'utf8')) as { records?: Array<{ shot?: unknown; size?: { width?: unknown; height?: unknown } }> };
+    const r = (m.records ?? []).find((x) => x.shot === a.shot);
+    const w = r?.size?.width;
+    const h = r?.size?.height;
+    return typeof w === 'number' && typeof h === 'number' ? { width: w, height: h } : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------------------- input 1: PNG frames
 
 const sha256 = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 
-async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string }> {
+async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string; bound: Bound }> {
   const listFile = path.join(dir, 'frames.json');
   if (!fs.existsSync(listFile)) throw new FlashInputError(`${REPORT}: no frames.json in ${dir}`);
   const raw = fs.readFileSync(listFile);
@@ -419,6 +476,20 @@ async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times
   }
   const frames = (list as { frames?: unknown }).frames;
   if (!Array.isArray(frames) || frames.length < 2) throw new FlashInputError(`${REPORT}: frames.json must hold { "frames": [...] } with at least 2 frames`);
+  // The mp4 the frames were decoded from, and their size: what the run binds (RA-47).
+  const src = (list as { source?: { mp4Sha256?: unknown; size?: { width?: unknown; height?: unknown } } }).source;
+  let bound: Bound;
+  let want: { width: number; height: number } | null = null;
+  if (a.manifest === null) bound = { pxPerDp: a.pxPerDp!, line: null };
+  else {
+    const w = src?.size?.width;
+    const h = src?.size?.height;
+    if (typeof src?.mp4Sha256 !== 'string' || !Number.isInteger(w) || !Number.isInteger(h)) {
+      throw new FlashInputError(`${REPORT}: frames.json names no source { mp4Sha256, size }: the run cannot bind its frames to a recording`);
+    }
+    want = { width: w as number, height: h as number };
+    bound = bindRun(a, src.mp4Sha256, want);
+  }
   const times: number[] = [];
   // One hash over the list and every frame in its order: the list alone names only file names and times.
   const hash = crypto.createHash('sha256').update(raw);
@@ -443,16 +514,19 @@ async function readFrameDir(dir: string, a: Args): Promise<{ an: Analyzer; times
       throw new FlashInputError(`${REPORT}: frames[${i}] (${f.file}): ${e instanceof Error ? e.message : String(e)}`);
     }
     if (an === null) {
+      if (want !== null && (png.width !== want.width || png.height !== want.height)) {
+        throw new FlashInputError(`${REPORT}: frames[${i}] (${f.file}) is ${png.width}x${png.height} px, not frames.json's source size ${want.width}x${want.height}`);
+      }
       const mk = markerFor(a, png.width, png.height);
       markerHow = mk.how;
-      an = new Analyzer(png.width, png.height, a.pxPerDp, a.region, mk.rect);
+      an = new Analyzer(png.width, png.height, bound.pxPerDp, a.region, mk.rect);
     }
     else if (png.width !== an.width || png.height !== an.height) {
       throw new FlashInputError(`${REPORT}: frames[${i}] (${f.file}) is ${png.width}x${png.height} px, frames[0] is ${an.width}x${an.height} px`);
     }
     an.add(png.rgba, `frames[${i}] (${f.file})`);
   }
-  return { an: an!, times, markerHow, source: `frames ${dir} (frames.json and its ${frames.length} PNGs, sha256 ${hash.digest('hex')})` };
+  return { an: an!, times, markerHow, bound, source: `frames ${dir} (frames.json and its ${frames.length} PNGs, sha256 ${hash.digest('hex')})` };
 }
 
 // ---------------------------------------------------------------------------------------- input 2: screenrecord's mp4
@@ -516,15 +590,19 @@ function checkMp4Args(a: Args): { mp4: string; ffmpeg: string; size: { width: nu
       + 'installing one waits for the owner\'s approval, so decode the mp4 to a --frames folder elsewhere or wait for it');
   }
   if (!fs.existsSync(a.ffmpeg)) throw new FlashInputError(`${REPORT}: ffmpeg not found at ${a.ffmpeg}`);
-  if (a.size === null) throw new FlashInputError(`${REPORT}: --mp4 needs --size <width>x<height>: the record proof's size (the manifest's records[].size)`);
+  const size = a.size ?? recordSize(a);
+  if (size === null) throw new FlashInputError(`${REPORT}: --mp4 needs --size <width>x<height>: the record proof's size (the manifest's records[].size)`);
   if (!fs.existsSync(a.mp4!)) throw new FlashInputError(`${REPORT}: no mp4 at ${a.mp4}`);
-  return { mp4: a.mp4!, ffmpeg: a.ffmpeg, size: a.size };
+  return { mp4: a.mp4!, ffmpeg: a.ffmpeg, size };
 }
 
-async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string }> {
+async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source: string; markerHow: string; bound: Bound }> {
   const { mp4, ffmpeg, size } = checkMp4Args(a);
+  const mp4Sha256 = sha256(fs.readFileSync(mp4));
+  // Bound before ffmpeg runs: another mp4 is refused without decoding a frame of it.
+  const bound = bindRun(a, mp4Sha256, size);
   const mk = markerFor(a, size.width, size.height);
-  const an = new Analyzer(size.width, size.height, a.pxPerDp, a.region, mk.rect);
+  const an = new Analyzer(size.width, size.height, bound.pxPerDp, a.region, mk.rect);
   const split = new RawFrameSplitter(size.width, size.height);
   let stderr = '';
   let count = 0;
@@ -553,7 +631,7 @@ async function readMp4(a: Args): Promise<{ an: Analyzer; times: number[]; source
     if (i > 0 && !(x.tMs > info[i - 1].tMs)) throw new FlashInputError(`${REPORT}: frame ${i}'s time ${x.tMs} ms must rise: frame ${i - 1}'s is ${info[i - 1].tMs} ms`);
   });
   if (count < 2) throw new FlashInputError(`${REPORT}: the mp4 holds ${count} frame${count === 1 ? '' : 's'}, at least 2 are needed`);
-  return { an, times: info.map((x) => x.tMs), markerHow: mk.how, source: `mp4 ${mp4} (sha256 ${sha256(fs.readFileSync(mp4))}) through ${ffmpeg}` };
+  return { an, times: info.map((x) => x.tMs), markerHow: mk.how, bound, source: `mp4 ${mp4} (sha256 ${mp4Sha256}) through ${ffmpeg}` };
 }
 
 // ---------------------------------------------------------------------------------------- the run
@@ -562,7 +640,7 @@ async function main(): Promise<number> {
   const a = parseArgs(process.argv.slice(2));
   if (fs.existsSync(a.out)) throw new FlashInputError(`${REPORT}: refusing to overwrite ${a.out}: a report never replaces an earlier one`);
   const input = a.frames !== null ? await readFrameDir(a.frames, a) : await readMp4(a);
-  const { text, code } = analyse(input.an, input.times, a, input.source, input.markerHow);
+  const { text, code } = analyse(input.an, input.times, a, input.source, input.markerHow, input.bound);
   fs.writeFileSync(a.out, text, { flag: 'wx' });
   process.stdout.write(text);
   return code;
