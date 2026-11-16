@@ -23,10 +23,12 @@
 //
 // planted.json, beside the sets, says what each set holds, for the test to read; odd-size.png is a 48 × 48 frame.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { encodePng } from '../../lib/png.mjs';
+import { manifest, row } from './rows.ts';
 import { STORM_MARKER_COLOURS, STORM_MARKER_DP } from '../../../../src/design/lab/storm/stormMarker.ts';
 import { relY } from '../../../../src/design/v2/field/flashCount.ts';
 import { DIRECTIONS } from '../../../../src/design/v2/tokens/tokens.generated.ts';
@@ -97,8 +99,11 @@ async function writeSet(name: string, painters: Painter[], markerAt: (i: number)
     fs.writeFileSync(path.join(dir, file), await encodePng({ width: W, height: H, rgba: draw({ cells, marker: markerAt(i) }) }));
     list.push({ file, tMs: i * FRAME_MS });
   }
-  fs.writeFileSync(path.join(dir, 'frames.json'), `${JSON.stringify({ frames: list }, null, 1)}\n`);
+  fs.writeFileSync(path.join(dir, 'frames.json'), `${JSON.stringify({ source: { mp4Sha256: PLANTED_MP4_SHA256, size: { width: W, height: H } }, frames: list }, null, 1)}\n`);
 }
+
+// Every set says it was decoded from one planted recording: the mp4 the manifest's record for the shot `planted` names.
+const PLANTED_MP4_SHA256 = crypto.createHash('sha256').update('the planted storm recording').digest('hex');
 
 const LO = greyAt(0.05);
 const HI = greyAt(0.3);
@@ -119,27 +124,52 @@ await writeSet('static', [], () => 0);
 // A frame of another size, for the size refusal.
 fs.writeFileSync(path.join(out, 'odd-size.png'), await encodePng({ width: 48, height: 48, rgba: new Uint8Array(48 * 48 * 4).fill(255) }));
 
-// A planted manifest, as capture.mjs writes its rows, on a screen twice the frames' size (192 × 384 px, the stage the
-// whole window as UI-216 requires), so READY's marker probe scales by 0.5 to the frames: the shot `planted` has the
-// marker where the scene puts it; `planted-right` where an RTL swap would (the right edge); `planted-under-bars` has it
-// left out of the capture (classifyProbes' excluded); `planted-squashed` has a stage of another aspect than the frames.
-// The screen is at 2K px per dp (twice the frames).
-const MK = { x: STORM_MARKER_DP.left * 2 * K, y: STORM_MARKER_DP.top * 2 * K, size: STORM_MARKER_DP.size * 2 * K };
-const rowOf = (shot: string, stage: { width: number; height: number }, probes: unknown) => ({
-  shot, repeat: 1, stage: { x: 0, y: 0, ...stage }, probes,
-});
+// The planted runs, built with the harness's own pieces (rows.ts: row() checks every row with validateRow; manifest() writes
+// capture.mjs's top-level fields), on a screen twice the frames' size (192 × 384 px at 160 dpi, Android's density 1), the
+// stage the whole window as UI-216 requires: the recording is half size, so its px per dp is 1 × 96 ÷ 192 = 0.5, and
+// READY's marker probe scales by 0.5. manifest.json passed; manifest-failed.json is the same run, failed. Its shots:
+//   planted              the bound recording: its record names the planted mp4 at 96 × 192, the marker where the scene puts it
+//   planted-right        the marker where an RTL swap would put it (the right edge)
+//   planted-under-bars   the marker under a system bar, so the harness left it out (classifyProbes' excluded)
+//   planted-squashed     a 192 × 300 screen: the stage scales to the frames unequally
+//   planted-other        a record of another mp4
+//   planted-size         a record of the planted mp4 at another size
+//   planted-norecord     a row and no record
 const SCREEN = { width: W * 2, height: H * 2 };
-const markerAt = (x: number) => ({ inside: { stage: { x: 0, y: 0, ...SCREEN }, marker: { x, y: MK.y, width: MK.size, height: MK.size } }, excluded: [] });
-fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify({
-  rows: [
-    rowOf('planted', SCREEN, markerAt(MK.x)),
-    rowOf('planted-right', SCREEN, markerAt(SCREEN.width - MK.size)),
-    rowOf('planted-under-bars', SCREEN, { inside: { stage: { x: 0, y: 0, ...SCREEN } }, excluded: [{ id: 'marker', reason: 'partly under the system bars', px: { x: 0, y: 0, width: 16, height: 16 } }] }),
-    rowOf('planted-squashed', { width: SCREEN.width, height: 300 }, markerAt(MK.x)),
-  ],
-}, null, 1)}\n`);
+const MK = { x: STORM_MARKER_DP.left, y: STORM_MARKER_DP.top, size: STORM_MARKER_DP.size };
+const plantedRow = (shot: string, opts: { x?: number; screen?: { width: number; height: number }; bars?: Array<{ x: number; y: number; width: number; height: number }> } = {}) => row({
+  shot, scene: 'storm.abyss.dark.idle-still', expect: { direction: 'abyss', face: 'dark', hero: null, tier: null },
+  file: `${shot}.1.png`, sha256: crypto.createHash('sha256').update(shot).digest('hex'),
+  screen: opts.screen ?? SCREEN, bars: opts.bars, density: 160, clock: { mode: 'realtime', t: null }, shaderStatus: 'ready',
+  probes: { marker: { x: opts.x ?? MK.x, y: MK.y, width: MK.size, height: MK.size } },
+});
+const record = (shot: string, sha256: string, size: { width: number; height: number }) => ({
+  shot, file: `${shot}.mp4`, format: 'mp4', bytes: 1000, sha256, seconds: 8, size,
+});
+const SIZE = { width: W, height: H };
+const rows = [
+  plantedRow('planted'),
+  plantedRow('planted-right', { x: SCREEN.width - MK.size }),
+  plantedRow('planted-under-bars', { bars: [{ x: 0, y: 0, width: SCREEN.width, height: 80 }] }),
+  plantedRow('planted-squashed', { screen: { width: SCREEN.width, height: 300 } }),
+  plantedRow('planted-other'),
+  plantedRow('planted-size'),
+  plantedRow('planted-norecord'),
+];
+const records = [
+  record('planted', PLANTED_MP4_SHA256, SIZE),
+  record('planted-right', PLANTED_MP4_SHA256, SIZE),
+  record('planted-under-bars', PLANTED_MP4_SHA256, SIZE),
+  record('planted-squashed', PLANTED_MP4_SHA256, SIZE),
+  record('planted-other', crypto.createHash('sha256').update('another recording').digest('hex'), SIZE),
+  record('planted-size', PLANTED_MP4_SHA256, { width: 540, height: 1170 }),
+];
+for (const [file, outcome] of [['manifest.json', 'passed'], ['manifest-failed.json', 'failed']] as const) {
+  fs.writeFileSync(path.join(out, file), `${JSON.stringify({ ...manifest(rows, outcome, 'v1-storm'), records }, null, 1)}\n`);
+}
 
 const planted = {
+  mp4Sha256: PLANTED_MP4_SHA256,
   size: { width: W, height: H }, pxPerDp: K, cellPx: CELL, frameMs: FRAME_MS,
   marker: { x: STORM_MARKER_DP.left * K, y: STORM_MARKER_DP.top * K, size: STORM_MARKER_DP.size * K, cell: '0,3' },
   greys: { lo: relY(LO), hi: relY(HI), mid: relY(MID), sub: relY(SUB), bright: relY(BRIGHT), ground: relY(GROUND) },
