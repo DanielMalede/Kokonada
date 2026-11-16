@@ -336,7 +336,7 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
     const proofs = plan.shots.filter((s) => s.proof !== undefined);
     const byTier = (tier: string) => proofs.filter((s) => implied(s.device) === tier).map((s) => [s.args.clock, s.proof!.kind]);
     expect(byTier('still')).toEqual([['realtime', 'zero-frames'], ['realtime', 'zero-frames']]); // reduced motion, alone and with battery saver
-    expect(byTier('low')).toEqual([['realtime', 'draws-frames']]);
-    expect(byTier('full')).toEqual([['realtime', 'draws-frames']]); // the positive control
+    expect(byTier('low')).toEqual([['realtime', 'draws-frames'], ['realtime', 'rate']]);
+    expect(byTier('full')).toEqual([['realtime', 'draws-frames'], ['realtime', 'rate']]); // the positive control, then the cap (UI-171)
   });
 });

@@ -140,6 +140,36 @@ describe('the plans together shoot every field and fallback scene of the catalog
   });
 });
 
+// UI-171 (RA-48): the frame cap is measured on the device. For each moving tier (fpsCap > 0 in field.tiers) some plan holds a
+// `rate` shot on a running clock at that tier, whose band holds the tier's fpsCap. The low tier's band must also lie below
+// the midpoint between its cap and the display's rate (the full tier's cap, the panel's rate), so an uncapped field (about
+// the display's rate, minus jitter) can never pass as capped. fpsCap comes from the tokens, never a literal.
+describe('the plans together measure the frame cap of every moving tier (UI-171, RA-48)', () => {
+  type RateShot = Shot & { proof?: { kind: string; band?: { min: number; max: number } } };
+  const FIELD_TIERS_TOKENS = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../../../../../design-tokens/base.tokens.json'), 'utf8')).field.tiers;
+  const capOf = (tier: string): number => FIELD_TIERS_TOKENS[tier].fpsCap.$value;
+  const MOVING = FIELD_TIERS.filter((tier) => capOf(tier) > 0);
+  const RATES = PLAN_FILES.flatMap((f) => load(f).shots as RateShot[]).filter((s) => s.proof?.kind === 'rate');
+
+  it('has cases: two moving tiers, low capped below full', () => {
+    expect([...MOVING].sort()).toEqual(['full', 'low']);
+    expect(capOf('low')).toBeLessThan(capOf('full'));
+  });
+
+  it.each(MOVING)('a rate shot at %s on a running clock, its band holding the tier’s fpsCap', (tier) => {
+    const shots = RATES.filter((s) => shotFacts(s).tier === tier && s.args.clock === 'realtime');
+    expect([tier, shots.length > 0]).toEqual([tier, true]);
+    for (const s of shots) expect([s.id, s.proof!.band!.min <= capOf(tier) && capOf(tier) <= s.proof!.band!.max]).toEqual([s.id, true]);
+  });
+
+  it('the low band cannot pass an uncapped field: it lies below the midpoint between low’s cap and the display’s rate', () => {
+    const shots = RATES.filter((s) => shotFacts(s).tier === 'low');
+    expect(shots.length).toBeGreaterThan(0);
+    const limit = (capOf('low') + capOf('full')) / 2;
+    for (const s of shots) expect([s.id, s.proof!.band!.max < limit]).toEqual([s.id, true]);
+  });
+});
+
 describe('the plans and the harness, against the lab', () => {
   it('the plans this branch ships are there (a plan another package adds later is checked once it exists)', () => {
     expect(PLAN_FILES).toEqual(expect.arrayContaining(['smoke.json', 'v1-field.json']));
