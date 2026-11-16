@@ -21,6 +21,8 @@ jest.mock('react-native-reanimated', () => {
       return ref.current;
     },
     useDerivedValue: (fn: () => unknown) => ({ get value() { return fn(); } }),
+    // The UI thread never runs here, so no surface renders an image: a scene stays `pending` (RA-50, surfaceFirstDraw.test.tsx).
+    useAnimatedReaction: () => {},
   };
 });
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());

@@ -30,6 +30,8 @@ jest.mock('react-native-reanimated', () => {
       return ref.current;
     },
     useDerivedValue: (fn: () => unknown) => ({ get value() { return fn(); } }),
+    // The UI thread never runs here, so no surface renders an image: a scene stays `pending` (RA-50, surfaceFirstDraw.test.tsx).
+    useAnimatedReaction: () => {},
     runOnJS: (fn: (...args: unknown[]) => void) => (...args: unknown[]) => fn(...args),
   };
 });
@@ -137,10 +139,12 @@ describe('the grain scene', () => {
     expect(got()[0]).not.toEqual(expected(id, 11000).strips[0]);
   });
 
-  it('reports ready while the field effect is ready', () => {
+  // RA-50: `ready` only once its three surfaces rendered an image; no UI frame runs here (surfaceFirstDraw.test.tsx draws).
+  it('reports pending while the field effect is ready and its surfaces have not drawn', () => {
     const r = mount('grain.abyss.light.low');
     layoutAs(r);
-    expect(reports.at(-1)).toEqual({ status: 'ready', reason: null });
+    expect(reports.at(-1)).toEqual({ status: 'pending', reason: null });
+    expect(reports.map((x) => x.status)).not.toContain('ready');
   });
 
   it('an effect that cannot draw: reports fallback with its reason, and draws FieldFallback, never a surface', () => {

@@ -14,9 +14,10 @@
 // It measures, and mounts what it draws only once its view has a size (UI-175). The stage and the three strips are its
 // probes; no React Native View paints a colour (UI-204). It says which surface drew it (UI-223, shaderReport.ts): `ready`
 // while the field effect is ready and the builder takes the scene's layout; otherwise `fallback` with the reason, and it
-// draws FieldFallback over the stage instead, as FieldView would.
+// draws FieldFallback over the stage instead, as FieldView would. `ready` means its three FieldSurfaces drew (RA-50): each
+// tells it through FieldSurfaceDrawReport once its UI thread rendered an image, and until all have it says `pending`.
 
-import React, { useContext, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../../v2/clock/fieldClock';
@@ -27,6 +28,7 @@ import { renderGeometry, renderSize, type FieldLayout, type FrameParams } from '
 import type { FieldGeometry } from '../../v2/field/fieldFrame';
 import { FieldSurface } from '../../v2/field/FieldSurface';
 import { emptyLedger, type Ledger } from '../../v2/field/placementLedger';
+import { FieldSurfaceDrawReport } from '../../v2/field/surfaceDrawReport';
 import { ledgerConfigFor } from '../../v2/field/statics';
 import { FIELD_STATICS } from '../fieldScenes';
 import { GRAIN_FACTORS, grainBase, grainParams, grainProbeId, grainSpec, scaleGrain, stripWidth } from '../grain/grainFrames';
@@ -73,7 +75,19 @@ export function GrainScene({ clock, params }: SceneProps) {
 
   const report = useContext(ShaderReportContext);
   const reason = effect.status !== 'ready' ? effect.reason : (setup?.error ?? null);
-  const status = reason === null ? 'ready' : 'fallback';
+  // The strips that have drawn, by id; ids carry the scene, so a scene change on the same mount starts from none.
+  const [drawnStrips, setDrawnStrips] = useState<ReadonlySet<string>>(() => new Set());
+  const listeners = useRef(new Map<string, () => void>());
+  const listenerFor = useCallback((strip: string) => {
+    let listener = listeners.current.get(strip);
+    if (listener === undefined) {
+      listener = () => setDrawnStrips((had) => (had.has(strip) ? had : new Set(had).add(strip)));
+      listeners.current.set(strip, listener);
+    }
+    return listener;
+  }, []);
+  const drawn = GRAIN_FACTORS.every((k) => drawnStrips.has(`${params.scene}|${grainProbeId(k)}`));
+  const status = reason !== null ? 'fallback' : drawn ? 'ready' : 'pending';
   useLayoutEffect(() => {
     report?.({ status, reason });
   }, [report, status, reason]);
@@ -83,7 +97,12 @@ export function GrainScene({ clock, params }: SceneProps) {
   let strips: React.ReactNode = <StripProbes width={setup?.width ?? 0} height={setup?.layout.height ?? 0} />;
   let fallback: React.ReactNode = null;
   if (setup !== null && effect.status === 'ready' && setup.error === null) {
-    strips = <GrainStrips clock={clock} setup={setup} effect={effect} pxPerDp={pxPerDp} renderScale={spec.renderScale} />;
+    strips = (
+      <GrainStrips
+        clock={clock} setup={setup} effect={effect} pxPerDp={pxPerDp} renderScale={spec.renderScale}
+        listenerFor={(strip) => listenerFor(`${params.scene}|${strip}`)}
+      />
+    );
   } else if (setup !== null) {
     fallback = (
       <View style={StyleSheet.absoluteFill}>
@@ -130,10 +149,12 @@ interface StripsProps {
   readonly effect: ReadyEffect;
   readonly pxPerDp: number;
   readonly renderScale: number;
+  /** The listener for one strip's surface, by its probe id. */
+  readonly listenerFor: (strip: string) => () => void;
 }
 
 /** One frame at the clock's time, on the UI thread, and a strip of it at each strength: all four from one t. */
-function GrainStrips({ clock, setup, effect, pxPerDp, renderScale }: StripsProps) {
+function GrainStrips({ clock, setup, effect, pxPerDp, renderScale, listenerFor }: StripsProps) {
   const { ledger, params, geometry } = setup;
   const statics = FIELD_STATICS;
   const base = useDerivedValue(() => grainBase(ledger, params, geometry, statics, clock.t.value).uniforms, [ledger, params, geometry, statics, clock]);
@@ -141,17 +162,18 @@ function GrainStrips({ clock, setup, effect, pxPerDp, renderScale }: StripsProps
   return (
     <StripProbes width={setup.width} height={setup.layout.height}>
       {strips.map((uniforms, i) => (
-        <FieldSurface
-          key={grainProbeId(GRAIN_FACTORS[i])}
-          uniforms={uniforms}
-          effect={effect.effect}
-          blueNoise={effect.blueNoiseShader}
-          width={setup.width}
-          height={setup.layout.height}
-          renderSize={setup.target}
-          pxPerDp={pxPerDp}
-          renderScale={renderScale}
-        />
+        <FieldSurfaceDrawReport.Provider key={grainProbeId(GRAIN_FACTORS[i])} value={listenerFor(grainProbeId(GRAIN_FACTORS[i]))}>
+          <FieldSurface
+            uniforms={uniforms}
+            effect={effect.effect}
+            blueNoise={effect.blueNoiseShader}
+            width={setup.width}
+            height={setup.layout.height}
+            renderSize={setup.target}
+            pxPerDp={pxPerDp}
+            renderScale={renderScale}
+          />
+        </FieldSurfaceDrawReport.Provider>
       ))}
     </StripProbes>
   );

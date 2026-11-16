@@ -9,6 +9,8 @@
 // never mounts FieldView (the witness needs no ledger, and FieldView takes no lab-only knob) and never imports scenes.ts,
 // so its closure reaches FieldSurface and not FieldView. It reports which surface drew it (UI-223): `ready` while the
 // process's one field effect is ready, else `fallback` with the effect's reason, and then it draws no field at all.
+// `ready` means every FieldSurface it mounted drew (RA-50): each tells it through FieldSurfaceDrawReport once its UI thread
+// rendered an image, and until all have the scene says `pending`, so LabRoot sends no READY for a stage still blank.
 //
 // Where it draws (the designer's witness BLOCK, dry run 2026-11-15): React Native on Android swaps left and right under
 // RTL, which mirrored W1a and W3 onto the canvas's patches, so the stage is laid out left to right whatever the locale
@@ -16,13 +18,14 @@
 // proves both on the device: a probe for that region and for every W1a and W3 patch (witnessProbes.ts), placed even when
 // it falls back, so READY always comes and says what drew it.
 
-import React, { useContext, useLayoutEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { Canvas, Rect } from '@shopify/react-native-skia';
 import { useSharedValue } from 'react-native-reanimated';
 import { fieldEffect } from '../../v2/field/effect';
 import { renderSize } from '../../v2/field/fieldDriver';
 import { FieldSurface } from '../../v2/field/FieldSurface';
+import { FieldSurfaceDrawReport } from '../../v2/field/surfaceDrawReport';
 import { packFrame } from '../../v2/field/uniforms';
 import type { LabParams } from '../params';
 import { Probe } from '../probe/Probe';
@@ -36,6 +39,8 @@ import { useMeasuredView } from './useMeasuredView';
 export const WITNESS_SCENE_PROBES: readonly string[] = WITNESS_PROBES;
 
 type ReadyEffect = Extract<ReturnType<typeof fieldEffect>, { status: 'ready' }>;
+/** The listener for one of the scene's surfaces, by its id (the scene's id, then W1b or W1a.<colour>). */
+type ListenerFor = (surface: string) => () => void;
 
 /** A lab scene's props, of which it reads only the launch's params: it never imports scenes.ts. */
 export function WitnessScene({ params }: { readonly params: LabParams }) {
@@ -48,29 +53,51 @@ export function WitnessScene({ params }: { readonly params: LabParams }) {
   const report = useContext(ShaderReportContext);
   const [effect] = useState(fieldEffect);
   const reason = effect.status === 'fallback' ? effect.reason : null;
+  // The surfaces that have drawn, by id; ids carry the scene, so a scene change on the same mount starts from none.
+  const [drawnSurfaces, setDrawnSurfaces] = useState<ReadonlySet<string>>(() => new Set());
+  const listeners = useRef(new Map<string, () => void>());
+  const listenerFor = useCallback<ListenerFor>((surface) => {
+    let listener = listeners.current.get(surface);
+    if (listener === undefined) {
+      listener = () => setDrawnSurfaces((had) => (had.has(surface) ? had : new Set(had).add(surface)));
+      listeners.current.set(surface, listener);
+    }
+    return listener;
+  }, []);
+  const surfaces = useMemo(() => (layout === null ? [] : [
+    `${params.scene}|W1b`, ...layout.patches.filter((p) => p.kind === 'W1a').map((p) => `${params.scene}|W1a.${p.colour}`),
+  ]), [layout, params.scene]);
+  const drawn = surfaces.length > 0 && surfaces.every((id) => drawnSurfaces.has(id));
+  const status = effect.status === 'ready' && !drawn ? 'pending' : effect.status;
   useLayoutEffect(() => {
-    report?.({ status: effect.status, reason });
-  }, [report, effect.status, reason]);
+    report?.({ status, reason });
+  }, [report, status, reason]);
   return (
     <Probe id="stage" style={styles.stage}>
       <View testID="witness-scene.view" style={styles.stage} onLayout={onLayout}>
         {layout === null ? <UnplacedProbes /> : <Probe id="region" style={at(layout.region)} />}
-        {layout !== null && (effect.status === 'ready' ? <Witness layout={layout} effect={effect} /> : <PatchProbes layout={layout} />)}
+        {layout !== null && (effect.status === 'ready'
+          ? <Witness layout={layout} effect={effect} scene={params.scene} listenerFor={listenerFor} />
+          : <PatchProbes layout={layout} />)}
       </View>
     </Probe>
   );
 }
 
-function Witness({ layout, effect }: { layout: WitnessLayout; effect: ReadyEffect }) {
+function Witness({ layout, effect, scene, listenerFor }: { layout: WitnessLayout; effect: ReadyEffect; scene: string; listenerFor: ListenerFor }) {
   const colours = witnessColours(layout.face);
   const colourOf = (name: string) => colours.find((c) => c.name === name) as WitnessColour;
   const painted = layout.patches.filter((p) => p.kind !== 'W1a' && p.kind !== 'W3');
   return (
     <>
-      <W1b layout={layout} effect={effect} />
+      <FieldSurfaceDrawReport.Provider value={listenerFor(`${scene}|W1b`)}>
+        <W1b layout={layout} effect={effect} />
+      </FieldSurfaceDrawReport.Provider>
       {layout.patches.filter((p) => p.kind === 'W1a').map((p) => (
         <PatchProbe key={p.colour} patch={p}>
-          <W1a rect={p.rect} colour={colourOf(p.colour)} layout={layout} effect={effect} />
+          <FieldSurfaceDrawReport.Provider value={listenerFor(`${scene}|W1a.${p.colour}`)}>
+            <W1a rect={p.rect} colour={colourOf(p.colour)} layout={layout} effect={effect} />
+          </FieldSurfaceDrawReport.Provider>
         </PatchProbe>
       ))}
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
