@@ -181,6 +181,24 @@ async function captureRun(plan: Record<string, unknown>, tmp: string, scenario: 
   return { ...result, outDir };
 }
 
+/**
+ * gfxinfo's frame count for each launch, as the plan's proofs ask the lab to draw: a draws-frames control 1200 frames in
+ * its window, a rate shot the middle of its band, anything else (a still) none.
+ */
+function drawsAsPlanned(plan: Plan) {
+  type Proofed = { id: string; proof?: { kind: string; seconds: number; band?: { min: number; max: number } } };
+  let frames = 0;
+  return (line: string, d: FakeDevice) => {
+    if (line.startsWith('am start')) {
+      const run = /--es run (\S+)/.exec(line)?.[1] ?? '';
+      const shot = (plan.shots as unknown as Proofed[]).filter((s) => run.startsWith(`${s.id}-`)).sort((a, b) => b.id.length - a.id.length)[0];
+      const p = shot?.proof;
+      frames = p?.kind === 'draws-frames' ? 1200 : p?.kind === 'rate' ? Math.round(((p.band!.min + p.band!.max) / 2) * p.seconds) : 0;
+    }
+    if (line.endsWith('gfxinfo com.kokonadahealth.lab reset')) d.gfxFrames = frames;
+  };
+}
+
 function report(script: string, args: string[], out: string) {
   const r = spawnSync(process.execPath, ['--no-warnings', path.join(REPORTS, script), ...args, '--out', out], { cwd: APP, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   return { status: r.status, stderr: r.stderr, report: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : null };
@@ -263,7 +281,8 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
   it('motion accepts it with the plan that ran: the determinism pairs, the still proof and its control', () => {
     const r = report('motion.mts', ['--plan', path.join(PLANS, 'v1-field.json'), '--manifest', fed], path.join(tmp, 'field-motion.txt'));
     expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
-    expect(last(r.report)).toBe(`PASS: ${plan.shots.filter((s) => s.repeat > 1).length} determinism pairs equal, 1 zero-frames, 1 draws-frames, 0 rate proofs; framestats informational`);
+    const kinds = (k: string) => plan.shots.filter((s) => (s as unknown as { proof?: { kind: string } }).proof?.kind === k).length;
+    expect(last(r.report)).toBe(`PASS: ${plan.shots.filter((s) => s.repeat > 1).length} determinism pairs equal, ${kinds('zero-frames')} zero-frames, ${kinds('draws-frames')} draws-frames, ${kinds('rate')} rate proofs; framestats informational`);
   });
 });
 
@@ -274,14 +293,10 @@ describe('the harness\'s v1-policy run, fed unmodified to lawParity and motion',
   beforeAll(async () => {
     const dir = fs.mkdtempSync(path.join(tmp, 'policy-'));
     const twins = twinsOf(plan, fs.mkdtempSync(path.join(tmp, 'policy-twins-')));
-    let moving = false;
     run = await captureRun(plan, dir, (extras, d) => {
       d.frames = [screenOf(twins.get(twinKey(extras.scene, tierOf(extras.scene, d))) ?? null)];
       d.emit(ready(extras, d));
-    }, (line, d) => {
-      if (line.startsWith('am start')) moving = /--es run \S+-moving-/.test(line);
-      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && moving) d.gfxFrames = 1200;
-    });
+    }, drawsAsPlanned(plan));
   });
 
   it('every row records the tier the policy picked, which is its expect\'s', () => {
@@ -305,6 +320,11 @@ describe('the harness\'s v1-policy run, fed unmodified to lawParity and motion',
     const r = report('motion.mts', ['--plan', path.join(PLANS, 'v1-policy.json'), '--manifest', run.manifestPath], path.join(tmp, 'policy-motion.txt'));
     expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: '' });
     expect(r.report).toContain('dark-three-policy-reduced-still: 0 frames in 10 s (PASS)');
+    // RA-48: the policy run's rate shots are judged against their bands.
+    const rates = plan.shots.filter((s) => (s as unknown as { proof?: { kind: string } }).proof?.kind === 'rate');
+    expect(rates.length).toBeGreaterThanOrEqual(2);
+    for (const s of rates) expect(r.report).toMatch(new RegExp(`^ {2}${s.id}: \\d+ frames in 10 s = [\\d.]+ fps, band [\\d.]+ to [\\d.]+ \\(PASS\\)$`, 'm'));
+    expect(last(r.report)).toMatch(new RegExp(`, ${rates.length} rate proofs; framestats informational$`));
   });
 });
 
