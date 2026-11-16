@@ -151,15 +151,19 @@ describe.each([
     expect(h.of('ERROR')).toEqual([]);
   });
 
-  it('one surface that cannot draw (no offscreen surface) holds READY, every other drawn; once it draws, READY comes', () => {
-    // The widest render target only: W1b over the whole stage for the witness, and every strip for the grain (all equal).
+  // `widest`: W1b over the whole stage for the witness, every strip for the grain (all equal). `last`: the surface whose
+  // reaction runs last on each UI frame (one read per surface per frame): the last W1a patch, or the third strip.
+  it.each(['widest', 'last'] as const)('the %s surface cannot draw (no offscreen surface): READY is held, every other drawn; once it draws, READY comes', (which) => {
     const h = setup(scene);
     h.sizeScene(view);
     h.measure();
     const widths = h.tree.root.findAllByType(FieldSurface).map((s) => s.props.renderSize.width as number);
     const widest = Math.max(...widths);
-    mockOffscreen.blocked = (w) => w === widest;
+    let calls = 0;
+    mockOffscreen.blocked = which === 'widest' ? (w) => w === widest : () => (calls++ % widths.length) === widths.length - 1;
     h.uiFrames(3);
+    // The others drew; only when every surface is the widest (the grain's equal strips) did none.
+    expect(mockOffscreen.made > 0).toBe(which === 'last' || widths.some((w) => w !== widest));
     h.tick(20);
     expect(h.of('READY')).toEqual([]);
     mockOffscreen.blocked = () => false;
