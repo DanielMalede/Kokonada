@@ -1317,6 +1317,18 @@ describe('RA-51: a failed rm after the recording', () => {
     expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
   });
 
+  it('a recording the phone wrote but could not be pulled is still removed from the phone', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    const pull = w.device.pull.bind(w.device);
+    w.device.pull = async (remote: string, local: string) => {
+      if (remote.endsWith('.mp4')) throw new Error(`adb pull ${remote} failed (exit 1): device offline`);
+      return pull(remote, local);
+    };
+    await refusedRun(w, planOf(recorded()), /m: the recording could not be taken: .*device offline/);
+    expect(w.device.files.size).toBe(0);
+  });
+
   it('a recording that failed keeps its own error, though rm fails too', async () => {
     const w = world();
     readyAs(w, { shaderStatus: 'ready', shaderReason: null });
