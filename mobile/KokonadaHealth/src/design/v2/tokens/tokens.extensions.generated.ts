@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: '60ee2dc13469fb48c334de2372a03ce941834f9152a641cc805bfb961470d295',
+  base: '813849069223af4f231d5715a469fb3a7f6e41c42d5b6c5f4f9278cbdf84692c',
   'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
 };
 
@@ -217,7 +217,7 @@ export const EXTENSIONS = {
     'field.dither': {
       rule: '± amplitude on OKLab L, one scalar per pixel, added before the sRGB encode and rounded once; per channel the 8-bit change is at most ceil(sigma), sigma = that channel\'s unrounded 8-bit change over ±amplitude of L at the pixel\'s colour (under 1 on every dark-face ground). Never per channel in sRGB.',
     },
-    'field.tiers': { status: 'proposed' },
+    'field.tiers': { status: 'decided' },
     'field.fallback': {
       stops: {
         position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1],

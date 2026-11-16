@@ -209,6 +209,9 @@ function checkOwnerDecisions(file, json, errors) {
   if (kokonada(json.field?.tiers).lock !== 'owner:DEC-084') {
     errors.push(`${file}: field.tiers: the tiers are the owner's: lock must be owner:DEC-084`);
   }
+  if (kokonada(json.field?.tiers).status !== 'decided') {
+    errors.push(`${file}: field.tiers: DEC-084 is decided for the tier table: status must be "decided"`);
+  }
 }
 
 /** Key-set and type parity: a path in most directions must be in all; a rarer one in none. */

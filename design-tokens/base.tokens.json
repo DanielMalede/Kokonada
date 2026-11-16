@@ -145,7 +145,7 @@
     },
     "noise": {"space":{"$type":"string","$value":"oklab.L"},"paintDither":{"$type":"number","$value":0}},
     "tiers": {
-      "$extensions": {"com.kokonada":{"lock":"owner:DEC-084","status":"proposed"}},
+      "$extensions": {"com.kokonada":{"lock":"owner:DEC-084","status":"decided"}},
       "full": {
         "renderScale": {"$type":"number","$value":0.5},
         "octaves": {"$type":"number","$value":3},
