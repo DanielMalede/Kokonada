@@ -305,6 +305,10 @@ export function tierProblem(scene, ready, expectTier) {
 // motion, or a still tier each make the shot still, and a still shot that moves is refused.
 /** Why a shot is allowed to move (not settle-checked), or null for a still shot. */
 export function movingReason(shot) {
+  // RA-46: a storm scene changes its taps and marker on its own JS timer, whatever the motion setting, so even its
+  // still-tier shots differ between grabs; a recorded shot's evidence is its recording. Neither claims to be still.
+  if (typeof shot.scene === 'string' && shot.scene.startsWith('storm.')) return 'a scene that changes on its own script (storm.*): not settle-checked';
+  if (shot.proof?.kind === 'record') return 'a recorded shot (its recording is the evidence): not settle-checked';
   if (shot.args.clock !== 'realtime' || !(shot.device.animatorScale > 0) || shot.expect.tier === 'still') return null;
   return `a real-time clock with motion on at ${shot.expect.tier === null ? 'no fixed tier' : `the ${shot.expect.tier} tier`}: not settle-checked`;
 }
@@ -485,18 +489,24 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
     const remote = `${RECORD_DIR}/kokonada-lab-${run}.mp4`;
     const file = `${shot.id}.mp4`;
     const local = path.join(outDir, file);
+    // RA-51: removing the phone's copy is always tried, and a failure there never replaces the recording's own error
+    // nor refuses a good recording: the record names the file left on the phone instead.
+    let leftover = null;
+    const removeRemote = async () => {
+      try { await adb.shell(['rm', '-f', remote]); } catch (e) { leftover = { remote, reason: e.message }; }
+    };
     try {
       await adb.shell(['screenrecord', '--size', `${width}x${height}`, '--time-limit', String(proof.seconds), remote], { timeoutMs: (proof.seconds + 30) * 1000 });
       await adb.pull(remote, local);
     } catch (e) {
+      await removeRemote();
       throw new Error(`${shot.id}: the recording could not be taken: ${e.message}`);
-    } finally {
-      await adb.shell(['rm', '-f', remote]);
     }
+    await removeRemote();
     const bytes = fs.readFileSync(local);
     if (bytes.length === 0) throw new Error(`${shot.id}: screenrecord wrote no video in ${proof.seconds} s`);
     if (bytes.length < 12 || bytes.subarray(4, 8).toString('latin1') !== 'ftyp') throw new Error(`${shot.id}: the recording is not an mp4 (no ftyp box at its start)`);
-    out.records.push({ shot: shot.id, file, format: 'mp4', bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height } });
+    out.records.push({ shot: shot.id, file, format: 'mp4', bytes: bytes.length, sha256: sha256(bytes), seconds: proof.seconds, size: { width, height }, leftover });
     out.proofs.push({ shot: shot.id, kind: 'record', seconds: proof.seconds, passed: true });
     return;
   }

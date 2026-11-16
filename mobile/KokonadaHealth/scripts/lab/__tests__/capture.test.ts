@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { capture, checkBuild, Refused, renderFacts, surfaceProblem, surfaceRule, tierProblem, validatePlan, witnessInsetsFromReady, witnessProblems, witnessSampleProblems } from '../capture.mjs';
+import { capture, checkBuild, movingReason, Refused, renderFacts, surfaceProblem, surfaceRule, tierProblem, validatePlan, witnessInsetsFromReady, witnessProblems, witnessSampleProblems } from '../capture.mjs';
+import { STORM_SCENE_SPECS } from '../../../src/design/lab/storm/stormScenes';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
 import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
@@ -872,7 +873,7 @@ describe('the new proofs', () => {
       expect(args).not.toContain('--output-format=frames');
       const bytes = fs.readFileSync(path.join(w.outDir, 'm.mp4'));
       expect(bytes.equals(w.device.recording)).toBe(true);
-      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.mp4', format: 'mp4', bytes: w.device.recording.length, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 } }]);
+      expect(manifest.records).toEqual([{ shot: 'm', file: 'm.mp4', format: 'mp4', bytes: w.device.recording.length, sha256: sha(bytes), seconds: 5, size: { width: 360, height: 780 }, leftover: null }]);
       expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
       expect(w.device.files.size).toBe(0);
       expect(w.device.commands).toContain(`rm -f ${args[5]}`);
@@ -977,7 +978,7 @@ describe('validatePlan is strict (UI-215)', () => {
     for (const proof of [
       { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } }, { kind: 'framestats', seconds: 10 }, { kind: 'result', seconds: 30 },
       { kind: 'record', seconds: 5, size: { width: 360, height: 780 } },
-    ]) expect(validatePlan({ ...PLAN, shots: [{ ...shot, proof }] })).toEqual([]);
+    ]) expect(validatePlan({ ...PLAN, shots: [{ ...shot, repeat: 1, proof }] })).toEqual([]); // a recorded shot launches once (RA-46)
     expect(validatePlan({ ...PLAN, shots: [{ ...shot, checks: { notFlat: { probe: 'mark', minRange: 8 } } }] })).toEqual([]);
   });
 });
@@ -1238,5 +1239,105 @@ describe('the witness row check', () => {
     const r = spawnSync(process.execPath, ['-e', script], { cwd: path.resolve(__dirname, '../../..'), encoding: 'utf8' });
     expect(r.status).toBe(0);
     expect(JSON.parse(r.stdout.trim())).toEqual({ patches: 30, problems: 1 });
+  });
+});
+
+// RA-46 (the resilience audit of B8 at 16665fb): a storm scene changes its taps and marker on its own JS timer whatever
+// the motion setting, so even its still-tier shots (animatorScale 0) differ between two grabs; and a recorded shot's
+// evidence is its recording. Neither is settle-checked: each is listed as moving, and its record proof is what it shows.
+describe('RA-46: a scene that changes on its own script, and a recorded shot, are not settle-checked', () => {
+  const STORM_PLAN = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../capture-plans/v1-storm.json'), 'utf8')) as { shots: Array<{ id: string; scene: string } & Record<string, unknown>> };
+
+  it('the auditor\'s pin: every v1-storm shot has a scene whose script changes, and movingReason names it', () => {
+    expect(STORM_PLAN.shots.length).toBeGreaterThan(0);
+    for (const shot of STORM_PLAN.shots) {
+      expect([shot.id, STORM_SCENE_SPECS[shot.scene].script.changes.length > 0]).toEqual([shot.id, true]);
+      expect([shot.id, movingReason(shot)]).toEqual([shot.id, expect.any(String)]);
+    }
+    expect(validatePlan(STORM_PLAN)).toEqual([]);
+  });
+
+  const flicker = (w: ReturnType<typeof world>) => {
+    let n = 0;
+    w.device.frames = [() => { n += 1; const k = n; return rawFrame((x, y) => (x < 5 && y > 10 && y < 14 ? [k % 256, 0, 0, 255] : [x * 5, y * 3, 77, 255])); }];
+  };
+
+  it('a still-tier storm shot (reduced motion) whose grabs differ passes, listed as moving for its script', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const shot = fieldShot('st', 'storm.abyss.dark.idle-still', {
+      args: { clock: 'realtime', frames: '3' }, device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false }, expect: { ...NO_SCENE, direction: 'abyss', face: 'dark' },
+    });
+    const { manifest } = await w.run({ plan: planOf(shot) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.moving).toEqual([{ shot: 'st', repeat: 1, reason: 'a scene that changes on its own script (storm.*): not settle-checked' }]);
+  });
+
+  it('a recorded shot whose grabs differ passes, listed as moving for its recording', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    flicker(w);
+    const shot = fieldShot('rc', 'field.abyss.dark.three.still', {
+      args: { clock: 'realtime', frames: '3' }, device: { fontScale: 1, night: 'yes', animatorScale: 0, powerSave: false },
+      expect: { ...FIELD_EXPECT, tier: 'still' }, proof: { kind: 'record', seconds: 5, size: { width: 360, height: 780 } },
+    });
+    const { manifest } = await w.run({ plan: planOf(shot) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.moving).toEqual([{ shot: 'rc', repeat: 1, reason: 'a recorded shot (its recording is the evidence): not settle-checked' }]);
+  });
+
+  it('a storm shot or a recorded shot must launch once', () => {
+    const storm = { ...STORM_PLAN.shots[0], repeat: 2 };
+    expect(validatePlan({ ...STORM_PLAN, shots: [storm] }).join()).toMatch(/shots\[0\]\.repeat must be 1 for a shot allowed to move/);
+  });
+});
+
+// RA-51: removing the phone's copy of a recording can fail after a good pull; that must not refuse a valid recording,
+// nor hide the real error of a recording that failed. The manifest keeps the record and names the file left behind.
+describe('RA-51: a failed rm after the recording', () => {
+  const RECORD = { kind: 'record', seconds: 5, size: { width: 360, height: 780 } };
+  const recorded = () => fieldShot('m', 'field.abyss.dark.three.low', { args: { clock: 'realtime', frames: '3' }, expect: { ...FIELD_EXPECT, tier: 'low' }, proof: RECORD });
+  const rmFails = (w: ReturnType<typeof world>) => {
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => {
+      if (args[0] === 'rm') throw new Error(`adb shell ${args.join(' ')} failed (exit 1): rm: Permission denied`);
+      return shell(args);
+    };
+  };
+
+  it('a good recording is kept, and the record names the file left on the phone and why', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    rmFails(w);
+    const { manifest } = await w.run({ plan: planOf(recorded()) });
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.records).toHaveLength(1);
+    expect(manifest.records[0].leftover).toEqual({ remote: expect.stringMatching(/^\/data\/local\/tmp\/kokonada-lab-m-1-[a-z0-9]+\.mp4$/), reason: expect.stringMatching(/rm: Permission denied/) });
+    expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'record', seconds: 5, passed: true }]);
+  });
+
+  it('a recording the phone wrote but could not be pulled is still removed from the phone', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    const pull = w.device.pull.bind(w.device);
+    w.device.pull = async (remote: string, local: string) => {
+      if (remote.endsWith('.mp4')) throw new Error(`adb pull ${remote} failed (exit 1): device offline`);
+      return pull(remote, local);
+    };
+    await refusedRun(w, planOf(recorded()), /m: the recording could not be taken: .*device offline/);
+    expect(w.device.files.size).toBe(0);
+  });
+
+  it('a recording that failed keeps its own error, though rm fails too', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => {
+      if (args[0] === 'rm') throw new Error('rm: Permission denied');
+      if (args[0] === 'screenrecord') return '';
+      return shell(args);
+    };
+    await refusedRun(w, planOf(recorded()), /m: the recording could not be taken: .*does not exist/);
   });
 });
