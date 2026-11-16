@@ -305,10 +305,10 @@ describe('RA-47: the recording is bound to the run', () => {
       /^px per dp 1 is not the recording's 0\.5: manifest\.rows\[0\]\.device\.density 160 dpi is Android's density 1, × 96 px frames ÷ manifest\.rows\[0\]\.stage\.width 192$/],
     ['a shot with no record', 'manifest.json', { shot: 'planted-norecord' }, /^manifest\.records has no record for shot "planted-norecord"$/],
     ['a shot with no row', 'manifest.json', { shot: 'nowhere' }, /^manifest\.rows has no row for shot "nowhere"$/],
-  ])('%s: refused, naming the field', (_why, file, change: { shot?: string }, why) => {
+  ])('%s: refused, naming the field', (_why, file, change, why) => {
     const { problems } = bind(file as string, { ...bound(), ...(change as object) });
     // A shot with no row has no record either: both are named, the row first.
-    expect(problems).toHaveLength(change.shot === 'nowhere' ? 2 : 1);
+    expect(problems).toHaveLength((change as { shot?: string }).shot === 'nowhere' ? 2 : 1);
     expect(problems[0]).toMatch(why as RegExp);
   });
 
