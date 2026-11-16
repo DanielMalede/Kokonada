@@ -9,6 +9,11 @@
 //     the same way as an ERROR, never a RESULT.
 //   · It says which surface it measures (UI-223): `ready` while the field effect, and for .heavy and .empty the
 //     calibration effect, is ready; else `fallback` with the reason.
+//   · Why it waits for no first-draw signal (RA-50, which the witness and grain scenes answer through FieldSurfaceDrawReport):
+//     it mounts no FieldSurface and no FieldView, so there is no on-screen field that could fail to draw, and its stage is
+//     blank by design. A cost shot is judged by its RESULT (the plan's `result` proof, costCapturePlan.test.ts), and a
+//     RESULT exists only after the bench rendered every recorded frame offscreen and read pixels back; a surface that
+//     never draws is "no offscreen surface", an ERROR. surfaceFirstDraw.test.tsx pins both.
 // Informational only: DEC-082 is open, and nothing here judges a number.
 
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';

@@ -198,7 +198,42 @@ describe('FieldSurface in the app: no listener, nothing more', () => {
     expect(told).toEqual([]);
     for (let i = 0; i < 5; i++) act(() => reanimated.__frame());
     expect(told).toEqual([1]);
+    // The offscreen surface goes away and comes back: the image is null, then rendered again. Still once per mount.
+    mockOffscreen.blocked = () => true;
+    act(() => reanimated.__frame());
+    mockOffscreen.blocked = () => false;
+    act(() => reanimated.__frame());
+    expect(told).toEqual([1]);
     act(() => tree.unmount());
     expect(mockUi.reactions.size).toBe(0);
+  });
+});
+
+// The cost scene gets no first-draw signal, and needs none (its header, RA-50): it mounts no on-screen field surface, and
+// its shots are judged by their RESULT, which only an offscreen render that drew can produce.
+describe('the cost scene: no on-screen surface, so RA-50 does not reach it', () => {
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  const APP = path.resolve(__dirname, '../../../..');
+
+  // Its import closure reaches both through `import type { SceneProps } from '../scenes'` (the scan reads type imports
+  // too), so the pin is what it mounts: measured and running, a cost scene draws neither, only its blank stage.
+  // The .heavy and .empty variants compile a calibration shader, which this Skia fake cannot; they mount the same tree.
+  it.each(['cost.abyss.dark.three.full', 'cost.abyss.light.three.low.storm'])('%s mounts no FieldSurface and no FieldView', (scene) => {
+    const { FieldView } = require('../../v2/field/FieldView') as typeof import('../../v2/field/FieldView');
+    const h = setup(scene);
+    h.sizeScene('cost-scene.view');
+    h.measure();
+    h.uiFrames(3);
+    h.tick(5);
+    expect(h.tree.root.findAll((n) => n.props.testID === 'cost-scene.view').length).toBeGreaterThan(0);
+    expect(h.tree.root.findAllByType(FieldSurface)).toHaveLength(0);
+    expect(h.tree.root.findAllByType(FieldView)).toHaveLength(0);
+  });
+
+  it('every cost shot is proved by its RESULT', () => {
+    const plan = JSON.parse(fs.readFileSync(path.join(APP, 'scripts/lab/capture-plans/v1-cost.json'), 'utf8')) as { shots: Array<{ scene: string; proof?: { kind: string } }> };
+    expect(plan.shots.length).toBeGreaterThan(0);
+    for (const shot of plan.shots) expect([shot.scene, shot.proof?.kind]).toEqual([shot.scene, 'result']);
   });
 });
