@@ -88,7 +88,9 @@ import { FIELD_FACES, FIELD_SCENES, HERO_SCENES } from '../fieldScenes';
 import { LAB_EVENTS, LabRoot } from '../LabRoot';
 import { parseLabArgs } from '../params';
 import { SCENES } from '../scenes';
-import { FieldScene } from '../scenes/FieldScene';
+import { FieldScene, LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
+import type { MotionPorts } from '../../v2/motion/ports';
+import { ProbeRegistry } from '../probe/Probe';
 
 const POLICY_IDS = FIELD_FACES.flatMap((face) => HERO_SCENES.map((hero) => `field.abyss.${face}.${hero}.policy`));
 
@@ -96,13 +98,17 @@ const POLICY_IDS = FIELD_FACES.flatMap((face) => HERO_SCENES.map((hero) => `fiel
 function reduceMotionDevice() {
   const emitter = new EventEmitter();
   let answer!: (on: boolean) => void;
-  const read = new Promise<boolean>((r) => { answer = r; });
+  let refuse!: (e: Error) => void;
+  const read = new Promise<boolean>((r, j) => { answer = r; refuse = j; });
+  read.catch(() => {}); // a refused read is the test's own doing; every consumer handles it
   return {
     source: {
       current: () => read,
       subscribe: (fn: (on: boolean) => void) => { emitter.on('change', fn); return () => { emitter.off('change', fn); }; },
     },
     answer: (on: boolean) => act(async () => { answer(on); await read; }),
+    /** The platform refuses the read (on Android, a settings read that throws). */
+    refuse: (message: string) => act(async () => { refuse(new Error(message)); await read.catch(() => {}); }),
     change: (on: boolean) => act(async () => { emitter.emit('change', on); }),
   };
 }
@@ -244,6 +250,37 @@ describe('READY says the tier the motion policy gave FieldView, as the device re
     expect(h.of('ERROR')).toEqual([{ run: 'r', errors: [expect.stringMatching(/tier changed after READY.*low.*still/)] }]);
   });
 
+  // UI-241 (a): a setting whose read is refused is never answered, so the policy keeps its cautious still for good and
+  // the scene's tier is never known: READY was held in silence until the harness timed out. Now the scene says which
+  // setting it could not read, and LabRoot sends one ERROR naming it, at once; nothing follows an ERROR.
+  it('reduced motion that cannot be read: one ERROR naming the setting and the reason, at once, and never a READY', async () => {
+    const h = setup(SCENE, { powerSave: false });
+    h.draw();
+    expect(h.of('ERROR')).toEqual([]);
+    await h.rm.refuse('Settings.Global unavailable');
+    expect(h.of('ERROR')).toEqual([{ run: 'r', errors: ['the tier cannot be known: the device\'s reduced-motion setting could not be read (Settings.Global unavailable)'] }]);
+    h.tick(20);
+    await h.rm.change(false); // a later answer cannot undo the ERROR: the harness already has it
+    h.tick(20);
+    expect(h.of('READY')).toEqual([]);
+    expect(h.of('ERROR')).toHaveLength(1);
+  });
+
+  it('a refused read after a change event answered the setting is ignored, as the policy ignores it: READY, no ERROR', async () => {
+    const h = setup(SCENE, { powerSave: false });
+    await h.rm.change(false);
+    await h.rm.refuse('late');
+    h.draw();
+    expect([h.fieldTier(), h.of('READY').map((r) => r.tier), h.of('ERROR')]).toEqual(['full', ['full'], []]);
+  });
+
+  it('an id-tier scene does not ask the policy, so a refused read is nothing to it: READY at its own tier', async () => {
+    const h = setup('field.abyss.dark.three.low', { powerSave: false });
+    await h.rm.refuse('unavailable');
+    h.draw();
+    expect([h.of('READY').map((r) => r.tier), h.of('ERROR')]).toEqual([['low'], []]);
+  });
+
   it('an id-tier scene keeps the tier its id names, whatever the device says, and READY says it at once', () => {
     const h = setup('field.abyss.dark.three.low', { powerSave: false });
     h.draw(); // reduced motion never answers: an id scene does not ask the policy
@@ -338,5 +375,46 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
     expect(byTier('still')).toEqual([['realtime', 'zero-frames'], ['realtime', 'zero-frames']]); // reduced motion, alone and with battery saver
     expect(byTier('low')).toEqual([['realtime', 'draws-frames'], ['realtime', 'rate']]);
     expect(byTier('full')).toEqual([['realtime', 'draws-frames'], ['realtime', 'rate']]); // the positive control, then the cap (UI-171)
+  });
+});
+
+// UI-241 (a), the other setting: in the lab battery saver is the activity's launch prop and events, which always answer,
+// so its refusal is reached through the scene's own ports, as LabRoot provides them.
+describe('a policy scene whose battery-saver setting cannot be read says so (UI-241 a)', () => {
+  const PARAMS = { run: 'r', scene: 'field.abyss.dark.three.policy', clock: 'fixed' as const, t: 11000, stepMs: 0, frames: 3 };
+  const mountWith = async (ports: MotionPorts) => {
+    const facts: SceneFacts[] = [];
+    await act(async () => {
+      ReactTestRenderer.create(
+        <LabMotionPortsContext.Provider value={ports}>
+          <SceneFactsContext.Provider value={(f) => facts.push(f)}>
+            <ProbeRegistry onMeasure={() => {}}>
+              <FieldScene clock={{ t: { value: 11000 } } as never} t={11000} params={PARAMS} />
+            </ProbeRegistry>
+          </SceneFactsContext.Provider>
+        </LabMotionPortsContext.Provider>,
+      );
+    });
+    return facts;
+  };
+  const answers = (value: boolean) => ({ read: () => Promise.resolve(value), subscribe: () => () => {} });
+  const refuses = (message: string) => ({ read: () => Promise.reject(new Error(message)), subscribe: () => () => {} });
+
+  it('battery saver refused: the tier is not known, and the scene names the setting and the reason', async () => {
+    const facts = await mountWith({ reduceMotion: answers(false), powerSave: refuses('PowerManager unavailable') });
+    expect(facts[facts.length - 1]).toEqual({ tier: null, unreadable: 'the device\'s battery-saver setting could not be read (PowerManager unavailable)' });
+  });
+
+  it('both refused: the first refusal is the one named, and it stays named', async () => {
+    const facts = await mountWith({ reduceMotion: refuses('a'), powerSave: refuses('b') });
+    const named = facts.filter((f) => f.unreadable !== undefined).map((f) => f.unreadable);
+    expect(new Set(named).size).toBe(1);
+    expect(named[0]).toMatch(/^the device's (reduced-motion|battery-saver) setting could not be read \((a|b)\)$/);
+  });
+
+  it('both answered: no setting is named', async () => {
+    const facts = await mountWith({ reduceMotion: answers(false), powerSave: answers(true) });
+    expect(facts.every((f) => f.unreadable === undefined)).toBe(true);
+    expect(facts[facts.length - 1]).toEqual({ tier: 'low' });
   });
 });
