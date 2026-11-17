@@ -27,6 +27,8 @@ const APP = path.resolve(__dirname, '../../..');
 const MAKE = path.join(APP, 'scripts/lab/reports/__fixtures__/makeFixtures.mts');
 
 type Row = Record<string, unknown>;
+/** READY's pixel ratio at 44 dpi: Android's float density, which the reader holds the row's pixelRatio to. */
+const PX44 = Math.fround(Math.fround(44) * Math.fround(1 / 160));
 
 let root: string;
 let result: Awaited<ReturnType<typeof againstRowsAlone>>;
@@ -49,9 +51,9 @@ beforeAll(async () => {
     as(fieldDark, 'v-face', [['scene', 'field.abyss.light.one.joy.still'], ['expect.face', 'light'], ['face', 'light'], ['uimode', 'day']]),
     as(fbDark, 'v-fb-face', [['scene', 'fallback.abyss.light.one.C.right'], ['expect.face', 'light'], ['face', 'light'], ['uimode', 'day']]),
     as(fieldLow, 'v-time', [['clock.t', 12500]]),
-    as(fieldLow, 'v-density', [['device.density', 44]]),
+    as(fieldLow, 'v-density', [['device.density', 44], ['pixelRatio', PX44]]),
     as(fieldLow, 'v-font', [['fontScale.requested', 1.3], ['fontScale.observed', 1.3], ['fontScale.app', 1.3]]),
-    as(fbDark, 'v-fb-density', [['device.density', 44]]),
+    as(fbDark, 'v-fb-density', [['device.density', 44], ['pixelRatio', PX44]]),
     as(fieldLow, 'v-stage', [['stage', { ...(fieldLow.stage as object), height: 240 }]]),
   ];
   fs.writeFileSync(path.join(share, 'manifest.json'), JSON.stringify({ ...fail, rows }));
