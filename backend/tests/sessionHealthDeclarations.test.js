@@ -379,4 +379,20 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(src('services/wearable/healthStoreV2.js')).toContain("if (fence.reason === 'consent_read_error') return false;");
     expect(src('services/wearable/healthSampleReconciliation.js')).toContain("if (fence.reason === 'consent_read_error' || fence.admitted) continue;");
   });
+
+  it('the three sample rows name the withdrawal, which erases them whether or not a grant was on file', () => {
+    const rows = retentionRows();
+    const bio = rows.find((l) => l.includes('(`BiometricLog`)'));
+    const health = rows.find((l) => l.includes('(`HealthSample`)'));
+    const vital = rows.find((l) => l.includes('(`VitalSample`)'));
+    expect(bio).toMatch(/ Deleted with the account, by per-wearable disconnect, and by a withdrawal of health-data consent\. \|$/);
+    expect(health).toMatch(/ Deleted with the account, by the disconnect of the provider that sent it, and by a withdrawal of health-data consent\. \|$/);
+    expect(vital).toContain('erased with the account, by per-wearable disconnect and by a withdrawal of health-data consent, and included in the subject\'s export');
+    // G3: these rows are not "removed when withdrawn by a user who had granted it" — the wearable erasure
+    // on a withdrawal runs for any account (consent.js: before, and outside, the hadGrantOnFile gate).
+    for (const row of [bio, health, vital]) expect(row).not.toMatch(WITHDRAWAL_REMOVES);
+    const consent = src('services/privacy/consent.js');
+    expect(consent.indexOf('await eraseWearableProvider(user, provider);')).toBeGreaterThan(-1);
+    expect(consent.indexOf('await eraseWearableProvider(user, provider);')).toBeLessThan(consent.indexOf('if (hadGrantOnFile) {'));
+  });
 });
