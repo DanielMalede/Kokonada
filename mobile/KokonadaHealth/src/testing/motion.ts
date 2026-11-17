@@ -97,18 +97,18 @@ function makeStepper(anim: Anim, from: number, start: number): Stepper {
       let iterFrom = from;
       let cur = makeStepper(anim.inner!, iterFrom, start);
       let target = anim.inner!.toValue ?? 0;
+      // As Reanimated's repeat (animation/repeat.ts): at most one iteration completes per frame. On that
+      // frame the finished iteration's end value is shown and the next one starts at `now`, unstepped,
+      // so no shape of inner animation (a zero-length sequence or delay included) can spin (RA-235-2).
       return (now) => {
-        let r = cur(now);
-        while (r.done) {
-          iteration += 1;
-          if (iteration >= total) return { value: r.value, done: true };
-          const next: Anim = anim.reverse ? { ...anim.inner!, toValue: iterFrom } : anim.inner!;
-          const nextFrom = anim.reverse ? target : iterFrom;
-          if (anim.reverse) { const t = target; target = iterFrom; iterFrom = t; }
-          cur = makeStepper(next, nextFrom, now);
-          r = cur(now);
-          if (r.done && (next.duration ?? 1) === 0) return { value: r.value, done: false }; // a zero-length loop never spins
-        }
+        const r = cur(now);
+        if (!r.done) return r;
+        iteration += 1;
+        if (iteration >= total) return { value: r.value, done: true };
+        const next: Anim = anim.reverse ? { ...anim.inner!, toValue: iterFrom } : anim.inner!;
+        const nextFrom = anim.reverse ? target : iterFrom;
+        if (anim.reverse) { const t = target; target = iterFrom; iterFrom = t; }
+        cur = makeStepper(next, nextFrom, now);
         return { value: r.value, done: false };
       };
     }

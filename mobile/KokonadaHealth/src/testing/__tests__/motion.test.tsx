@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import {
-  cancelAnimation, useDerivedValue, useReducedMotion, useSharedValue, withRepeat, withTiming, type SharedValue,
+  cancelAnimation, useDerivedValue, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming, type SharedValue,
 } from 'react-native-reanimated';
 import { useClock } from '@shopify/react-native-skia';
 import { Animated } from 'react-native';
@@ -184,6 +184,67 @@ describe('QA-046 · Reanimated animations and cancelAnimation', () => {
     frames(16);
     expect(motion.activeAnimations()).toBe(1);
     expect(() => motion.assertStill()).toThrow(/Reanimated animations: 1/);
+  });
+
+  // RA-235-2: a zero-length iteration must yield the frame, whatever its shape. A sequence or a delay has
+  // no duration of its own, so a guard that read `duration` let the reduced-motion shape spin forever
+  // inside one frame (synchronously: jest's timeout cannot fire). The spin counter turns that hang into
+  // a thrown error: it counts reads of the one field every new iteration reads.
+  const spinGuard = <T extends object>(target: T, key: string): T => {
+    let spins = 0;
+    return new Proxy(target, {
+      get(t, k, r) {
+        if (k === key && ++spins > 10_000) throw new Error('RA-235-2: the repeat stepper spun without yielding');
+        return Reflect.get(t, k, r);
+      },
+    });
+  };
+  const repeatOn = (make: () => unknown, reps: number, reverse = false) => {
+    let sv!: SharedValue<number>;
+    const Probe = () => {
+      sv = useSharedValue(0);
+      useEffect(() => { sv.value = withRepeat(make() as never, reps, reverse); }, []);
+      return null;
+    };
+    render(<Probe />);
+    return () => sv;
+  };
+
+  it.each([false, true])('withRepeat(withSequence(withTiming(1, 0 ms), withTiming(0, 0 ms)), -1, reverse=%s) yields every frame', (reverse) => {
+    repeatOn(() => {
+      const seq = withSequence(withTiming(1, { duration: 0 }), withTiming(0, { duration: 0 })) as unknown as { inners: unknown[] };
+      seq.inners = spinGuard(seq.inners, '0');
+      return seq;
+    }, -1, reverse);
+    expect(() => frames(16, 16)).not.toThrow();
+    expect(motion.activeAnimations()).toBe(1);
+  });
+
+  it('withRepeat(withDelay(0, withTiming(1, 0 ms)), -1) yields every frame', () => {
+    repeatOn(() => spinGuard(withDelay(0, withTiming(1, { duration: 0 })) as object, 'inner'), -1);
+    expect(() => frames(16, 16)).not.toThrow();
+    expect(motion.activeAnimations()).toBe(1);
+  });
+
+  it('a finite repeat of a zero-length sequence still finishes, one iteration per frame', () => {
+    const sv = repeatOn(() => withSequence(withTiming(1, { duration: 0 }), withTiming(0.5, { duration: 0 })), 3);
+    frames(16);
+    expect(motion.activeAnimations()).toBe(1);
+    frames(16, 16);
+    expect(motion.activeAnimations()).toBe(0);
+    expect(sv().value).toBe(0.5);
+  });
+
+  // Reanimated's repeat (animation/repeat.ts) completes at most one iteration per frame: on the frame an
+  // iteration finishes it publishes that iteration's end value, restarts the inner animation at `now`
+  // and returns false. It never catches up several iterations inside one long frame.
+  it('a timed repeat completes one iteration per frame and shows its end value on that frame', () => {
+    const sv = repeatOn(() => withTiming(1, { duration: 100 }), 3);
+    frames(250);
+    expect(sv().value).toBe(1);
+    expect(motion.activeAnimations()).toBe(1);
+    frames(50);
+    expect(sv().value).toBeCloseTo(0.5, 5); // iteration 2 restarted from 0 at t=250
   });
 
   it('a shared value owned by the unmounting component is cancelled by useSharedValue itself (Reanimated 4)', () => {
