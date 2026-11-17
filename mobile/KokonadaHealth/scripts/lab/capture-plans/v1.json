@@ -1,0 +1,19 @@
+{
+  "id": "v1",
+  "parts": [
+    { "plan": "smoke.json" },
+    {
+      "plan": "v1-grain.json",
+      "pause": "UI-092: the owner judges the grain swatch on the phone (three strips at x1, x0.71 and x0.5, both faces, Natural mode, a fixed brightness). Kept as it is: run the same command again. A grain change: commit, rebuild, install, then run it again (every part is captured anew)."
+    },
+    {
+      "plan": "v1-field.json",
+      "pause": "UI-244: the owner judges the light face on the phone (light one.intense, full, low and still; the fallback beside it). Kept as it is: run the same command again. A change: commit, rebuild, install, then run it again (every part is captured anew)."
+    },
+    { "plan": "v1-near.json" },
+    { "plan": "v1-witness.json" },
+    { "plan": "v1-policy.json" },
+    { "plan": "v1-cost.json" },
+    { "plan": "v1-storm.json" }
+  ]
+}
