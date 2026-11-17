@@ -13,14 +13,14 @@
 
 import * as path from 'path';
 import ts from 'typescript';
-import { APP_ROOT, TESTING_ROOT } from './productionImports';
+import { APP_ROOT, SRC_ROOT, TESTING_ROOT } from './productionImports';
 import { parseSource, readSource } from './sourceFiles';
 
 /**
- * The roots the guard enforces. Opt-in: v2 suites (src/design/v2) and pages (src/pages) join when
- * their trees are on main and their isolation rules admit src/testing (owed, see the OPS-067 report).
+ * The roots the guard enforces. Opt-in: the v2 suites (src/design/v2) joined once their tree was on
+ * main (RA-235-4); pages (src/pages) join when their tree is on main.
  */
-export const SPYON_GUARD_ROOTS: string[] = [TESTING_ROOT];
+export const SPYON_GUARD_ROOTS: string[] = [TESTING_ROOT, path.join(SRC_ROOT, 'design', 'v2')];
 
 export interface SpyOnSite {
   file: string;

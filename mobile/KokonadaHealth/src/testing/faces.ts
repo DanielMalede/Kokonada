@@ -17,9 +17,14 @@ export const FACES: readonly Face[] = ['light', 'dark'];
 
 export const NO_FACE = 'QA-111: the colour scheme was read before a face was set';
 
+/** The snapshot while the OS reports no display mode (MB-165, DEC-034): the hooks answer null. */
+const UNREPORTED = 'unreported';
+
 /** The one colour-scheme source while a guard is installed (platform.ts's Appearance fake reads it too). */
 export const faceSource = {
   face: null as Face | null,
+  /** True after setUnreported(): the OS reports no scheme on purpose (face stays null). */
+  unreported: false,
   listeners: new Set<() => void>(),
   installed: false,
   subscribe(listener: () => void): () => void {
@@ -28,14 +33,28 @@ export const faceSource = {
   },
   set(face: Face): void {
     faceSource.face = face;
+    faceSource.unreported = false;
     for (const l of [...faceSource.listeners]) l();
   },
+  setUnreported(): void {
+    faceSource.face = null;
+    faceSource.unreported = true;
+    for (const l of [...faceSource.listeners]) l();
+  },
+  snapshot: (): Face | typeof UNREPORTED | null => (faceSource.unreported ? UNREPORTED : faceSource.face),
 };
 
 export interface FaceGuard {
   install(): void;
   restore(): void;
   set(face: Face): void;
+  /**
+   * The OS reports no display mode (DEC-034: production shows the dark face): useColorScheme() and
+   * Appearance.getColorScheme() answer null. Counts as a face set for the per-test check, but toward
+   * neither face of the both-faces coverage.
+   */
+  setUnreported(): void;
+  /** The forced face; null before a face is set and while the scheme is unreported. */
   current(): Face | null;
   /** Renders that read the scheme, per face, since this guard was created. */
   readsByFace(): Record<Face, number>;
@@ -52,8 +71,9 @@ export function createFaceGuard(): FaceGuard {
   let preset: ((...args: unknown[]) => unknown) | undefined;
   let faceSet = false;
 
-  const useForcedScheme = (): Face => {
-    const face = useSyncExternalStore(faceSource.subscribe, () => faceSource.face);
+  const useForcedScheme = (): Face | null => {
+    const face = useSyncExternalStore(faceSource.subscribe, faceSource.snapshot);
+    if (face === UNREPORTED) return null; // not a face: no read counts toward coverage
     if (face === null) throw new Error(`${NO_FACE}: call faces.set('light' | 'dark') or use faces.each().`);
     reads[face] += 1;
     return face;
@@ -67,26 +87,40 @@ export function createFaceGuard(): FaceGuard {
       if (typeof preset !== 'function' || preset() !== 'light') {
         throw new Error('QA-111: the preset useColorScheme was mutated before the face harness captured it (a leaked jest.spyOn(...).mockReturnValue, OPS-017).');
       }
+      // RA-235-10: a queued mockReturnValueOnce / mockImplementationOnce outranks mockImplementation,
+      // so a leaked one would answer one read past the guard. Reset the queue, then install.
+      hook.mockReset();
       hook.mockImplementation(useForcedScheme);
       patcher.set(RN.Appearance, 'getColorScheme', () => {
+        if (faceSource.unreported) return null;
         if (faceSource.face === null) throw new Error(`${NO_FACE} (Appearance.getColorScheme)`);
         return faceSource.face;
       });
       faceSource.face = null;
+      faceSource.unreported = false;
       faceSource.installed = true;
       faceSet = false;
     },
     restore() {
-      if (preset) hook.mockImplementation(preset);
+      if (preset) {
+        hook.mockReset(); // a once-value queued while installed must not reach the next test either
+        hook.mockImplementation(preset);
+      }
       preset = undefined;
       patcher.restore();
       faceSource.face = null;
+      faceSource.unreported = false;
       faceSource.installed = false;
     },
     set(face: Face) {
       if (!faceSource.installed) throw new Error('QA-111: set() before install().');
       faceSet = true;
       faceSource.set(face);
+    },
+    setUnreported() {
+      if (!faceSource.installed) throw new Error('QA-111: setUnreported() before install().');
+      faceSet = true;
+      faceSource.setUnreported();
     },
     current: () => faceSource.face,
     readsByFace: () => ({ ...reads }),
@@ -111,6 +145,8 @@ export interface FaceGuardOptions {
 
 export interface Faces {
   set(face: Face): void;
+  /** The OS reports no scheme (see FaceGuard.setUnreported). */
+  setUnreported(): void;
   current(): Face | null;
   /** describe.each over both faces, each test forced to its face before it runs. */
   each(body: (face: Face) => void): void;
@@ -149,6 +185,7 @@ export function useFaceGuard(options: FaceGuardOptions = {}, hooks: FaceGuardHoo
   });
   return {
     set: (face) => guard.set(face),
+    setUnreported: () => guard.setUnreported(),
     current: () => guard.current(),
     each(body) {
       describe.each(FACES as Face[])('%s face', (face) => {

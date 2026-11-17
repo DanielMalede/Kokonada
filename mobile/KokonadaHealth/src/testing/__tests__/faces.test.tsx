@@ -99,6 +99,50 @@ describe('QA-111 · the face guard (driven through its own hooks)', () => {
     expect(endSuite()).toEqual([]);
   });
 
+  // MB-165 / DEC-034: a phone that reports no display mode gets the dark face. setUnreported() makes
+  // the OS answer null on purpose: it counts as "a face was set" for the per-test check, never toward
+  // both-faces coverage, and production's real useTheme() resolves it.
+  it('setUnreported(): the OS reports no scheme, the real useTheme() resolves dark, and the test passes', () => {
+    const { registrars, runTest } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    let seen: unknown[] = [];
+    let raw: unknown[] = [];
+    function Raw() { raw = [RN.useColorScheme(), RN.Appearance.getColorScheme()]; return null; }
+    const { bodyError, afterErrors } = runTest(() => {
+      faces.setUnreported();
+      const tree = render(<><Ink /><Raw /></>);
+      seen = [tree.root.findByProps({ testID: 'ink' }).props.children, inkOf(tree)];
+    });
+    expect(bodyError).toBeNull();
+    expect(afterErrors).toEqual([]);
+    expect(raw).toEqual([null, null]);
+    expect(seen).toEqual(['dark', colors.dark.content.primary]);
+  });
+
+  it('setUnreported() counts toward neither face: a suite that rendered only it fails the coverage check', () => {
+    const { registrars, runTest, endSuite } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    const { bodyError, afterErrors } = runTest(() => { faces.setUnreported(); render(<Ink />); });
+    expect([bodyError, afterErrors]).toEqual([null, []]);
+    expect(faces.readsByFace()).toEqual({ light: 0, dark: 0 });
+    expect(endSuite().map(String).join(' ')).toContain('rendered neither face');
+  });
+
+  it('a face set after setUnreported() is reported again', () => {
+    const { registrars, runTest } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    let seen: unknown = null;
+    const { bodyError } = runTest(() => {
+      faces.setUnreported();
+      const tree = render(<Ink />);
+      act(() => { faces.set('light'); });
+      seen = inkOf(tree);
+      expect(faces.current()).toBe('light');
+    });
+    expect(bodyError).toBeNull();
+    expect(seen).toBe(colors.light.content.primary);
+  });
+
 });
 
 describe('QA-111 · the real wiring: useFaceGuard() and faces.each() in a live suite', () => {
@@ -130,6 +174,41 @@ describe('QA-111 · capture and restore of the preset (no spyOn, no leak)', () =
     } finally {
       hook.mockImplementation(preset);
     }
+  });
+
+  // RA-235-10: a queued once-value outranks mockImplementation, so a leaked mockReturnValueOnce would
+  // answer one read past the guard. install() resets the queue before it installs its own hook.
+  it('a pending mockReturnValueOnce(dark) does not reach a test forced to light', () => {
+    const preset = hook.getMockImplementation()!;
+    let seen: unknown;
+    function Probe() { seen = RN.useColorScheme(); return null; }
+    hook.mockReturnValueOnce('dark');
+    const guard = createFaceGuard();
+    guard.install();
+    try {
+      guard.set('light');
+      render(<Probe />);
+    } finally {
+      unmountAll();
+      guard.restore();
+      hook.mockReset();
+      hook.mockImplementation(preset);
+    }
+    expect(seen).toBe('light');
+  });
+
+  it('restore() drops a once-value queued while the guard was installed, and puts the preset back by identity', () => {
+    const preset = hook.getMockImplementation();
+    const guard = createFaceGuard();
+    guard.install();
+    hook.mockReturnValueOnce('dark');
+    guard.restore();
+    const restored = hook.getMockImplementation();
+    const leaked = hook();
+    hook.mockReset();
+    hook.mockImplementation(preset!);
+    expect(restored).toBe(preset);
+    expect(leaked).toBe('light');
   });
 
   it('a mid-session face change re-renders a mounted consumer, as the real hook (Appearance-subscribed) does', () => {

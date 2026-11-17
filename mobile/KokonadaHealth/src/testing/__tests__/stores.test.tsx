@@ -9,15 +9,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import emotionReducer from '../../state/cold/emotionSlice';
 import { createWarmStore } from '../../state/warm/warmStore';
 import { SystemStateDock } from '../../navigation/SystemStateDock';
+import ts from 'typescript';
 import { APP_ROOT, productionFiles } from '../guards/productionImports';
+import { parseSource, readSource } from '../guards/sourceFiles';
 import { loadMutant } from '../mutant';
 import {
   APP_STORE_SINGLETONS, STORE_FACTORIES, storeCallSites, trackAppStores, trackStore, unregisteredStores,
 } from '../stores';
-
-// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
-// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
-jest.setTimeout(30000);
 
 // QA-045 (stores half): every zustand store and the redux store expose a live subscribe count.
 // GenerateScreen.test.tsx:660-692 hand-rolls this per screen with jest.spyOn on four stores; this is
@@ -62,6 +60,44 @@ describe('QA-045 · every store in production is in the registry', () => {
     ]);
   });
 
+  // RA-235-12: the shapes the scan was blind to, each planted in memory (no file is written under src).
+  describe('planted: every way a module can make a store', () => {
+    const quote = String.fromCharCode(39);
+    const from = (names: string, mod: string) => 'import ' + names + ' from ' + quote + mod + quote + ';';
+    const file = path.join(APP_ROOT, 'src/experience/planted/plantedStore.ts');
+    const unregisteredIn = (source: string) => unregisteredStores(storeCallSites([file], () => source));
+    const K = 'src/experience/planted/plantedStore.ts#';
+
+    it.each([
+      ['a curried create<T>()(…) at module scope',
+        [from('{ create }', 'zustand'), 'export const curried = create<{ n: number }>()(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'curried']],
+      ['a curried create<T>()(…) inside a factory, and the singleton it makes',
+        [from('{ create }', 'zustand'), 'export function makeCurried() { return create<{ n: number }>()(() => ({ n: 0 })); }', 'export const fromCurried = makeCurried();'],
+        ['factory ' + K + 'makeCurried', 'singleton ' + K + 'fromCurried']],
+      ['a default import of the factory',
+        [from('create', 'zustand'), 'export const viaDefault = create(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'viaDefault']],
+      ['a namespace import of the factory, at module scope and in a factory',
+        [from('* as Z', 'zustand/vanilla'), 'export const viaNamespace = Z.createStore(() => ({ n: 0 }));', 'export function makeNs() { return Z.createStore(() => ({ n: 0 })); }'],
+        ['factory ' + K + 'makeNs', 'singleton ' + K + 'viaNamespace']],
+      ['export default createStore(…)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export default createStore(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'default']],
+      ['export default of a known factory call',
+        [from('{ createStore }', 'zustand/vanilla'), 'export function makeIt() { return createStore(() => ({ n: 0 })); }', 'export default makeIt();'],
+        ['factory ' + K + 'makeIt', 'singleton ' + K + 'default']],
+      ['a class-field store (one per instance: the class is the factory)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export class Holder { store = createStore(() => ({ n: 0 })); }'],
+        ['factory ' + K + 'Holder']],
+      ['a static class-field store (one per module)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export class Registry { static store = createStore(() => ({ n: 0 })); }'],
+        ['singleton ' + K + 'Registry.store']],
+    ] as const)('%s', (_name, lines, expected) => {
+      expect(unregisteredIn(lines.join('\n'))).toEqual(expected);
+    });
+  });
+
   it('each registered singleton loads as a store with subscribe()', () => {
     for (const s of APP_STORE_SINGLETONS) expect(typeof s.load().subscribe).toBe('function');
     expect(STORE_FACTORIES.length).toBeGreaterThan(0);
@@ -99,7 +135,8 @@ describe('QA-045 · live subscribe counts (zustand)', () => {
     } finally {
       t.restore();
     }
-  });
+    // loadMutant cold-loads @babel/core in the test VM; under full-suite contention that overran 5 s (q3-final-jest).
+  }, 30000);
 
   it('the wrapped store still behaves as the real one (a set reaches the subscriber), and restore() is by identity', () => {
     const warm = createWarmStore();
@@ -126,6 +163,31 @@ describe('QA-045 · live subscribe counts (zustand)', () => {
     } finally {
       app.restore();
     }
+  });
+});
+
+// RA-235-9: only the mutant-loading tests get the long timeout; every other test keeps jest's 5 s.
+describe('the timeout is scoped to the tests that load a mutant', () => {
+  it('no file-wide jest.setTimeout, and exactly the tests that call loadMutant pass 30 000 ms', () => {
+    const sf = parseSource(readSource(__filename), __filename);
+    const fileWide: number[] = [];
+    const timed: Array<{ name: string; mutant: boolean; timeout: string | null }> = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression)
+        && n.expression.expression.text === 'jest' && n.expression.name.text === 'setTimeout') fileWide.push(n.getStart(sf));
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'it' && n.arguments.length >= 2) {
+        let mutant = false;
+        const find = (m: ts.Node): void => { if (ts.isIdentifier(m) && m.text === 'loadMutant') mutant = true; ts.forEachChild(m, find); };
+        find(n.arguments[1]);
+        const t = n.arguments[2];
+        timed.push({ name: n.arguments[0].getText(sf), mutant, timeout: t ? t.getText(sf) : null });
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    expect(fileWide).toEqual([]);
+    expect(timed.filter((t) => t.mutant).length).toBeGreaterThan(0);
+    for (const t of timed) expect([t.name, t.timeout]).toEqual([t.name, t.mutant ? '30000' : null]);
   });
 });
 
