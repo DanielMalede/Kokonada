@@ -29,7 +29,13 @@
 //   · the ledger behind the clock (RA-40): At a capped tier, each stall over motion.dtClamp that directly follows a
 //     skipped frame may leave the placement ledger up to one display frame behind the field clock. The lag adds up
 //     over stalls but is never observable, because nothing reads ledger time against clock time: it only lengthens a
-//     crossfade in progress by that much, and a settled ledger is unaffected.
+//     crossfade in progress by that much, and a settled ledger is unaffected;
+//   · the lab's signals, heard through context, never props (FieldView takes no lab-only knob; the app mounts no
+//     listener, so nothing is told): the first-frame signal (FieldFirstFrameReport, firstFrameReport.ts, UI-233 and
+//     RA-44), told once per mount from the frame worklet, through runOnJS, on the first frame whose builder wrote
+//     uniforms (a builder error tells nothing); the surface-draw signal (FieldSurfaceDrawReport, surfaceDrawReport.ts,
+//     RA-50), which FieldView does not send: the FieldSurface it mounts tells it once its UI thread rendered an image;
+//     and the fallback reason (FieldFallbackReport, fallbackReport.ts, UI-223), which FieldFallback tells.
 //
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.

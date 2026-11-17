@@ -26,7 +26,13 @@ export interface CostResultBody {
   readonly scene: string;
   /** Recorded step frames. */
   readonly frames: number;
-  /** The frame callback's rate over the recorded frames, per second. */
+  /**
+   * The frame callback's rate over the recorded frames, per second: the rate the bench achieved, not the panel's refresh
+   * rate (UI-241). A bench slower than a frame drops the callback's rate below the panel's, and nothing here reads the
+   * panel. The name is the wire contract's (the harness, scripts/lab/lib/protocol.mjs, and the reports read it), so it
+   * stays; read it as "the bench's achieved frame rate". The panel's rate is read from the device by the harness, never
+   * from this.
+   */
   readonly displayHz: number;
   readonly stepUs: Quantiles;
   readonly renderUs: Quantiles;

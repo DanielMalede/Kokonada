@@ -252,6 +252,7 @@ export function benchBody(s: BenchState): CostResultBody {
     kind: 'cost',
     scene: s.scene,
     frames: s.recorded,
+    // The rate the bench achieved over its recorded frames, not the panel's (UI-241; costResult.ts keeps the name).
     displayHz: Math.round((((s.recorded - 1) * 1000) / span) * 10) / 10,
     stepUs: histSummary(s.step),
     renderUs: histSummary(s.render),
