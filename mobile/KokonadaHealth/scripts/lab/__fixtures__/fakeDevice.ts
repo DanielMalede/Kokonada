@@ -6,6 +6,10 @@ import fs from 'node:fs';
 // persist, logcat delivers lines to whoever listens, `am start` launches the lab (a scenario hook
 // decides what the lab prints), screencap returns raw frames with AOSP's header, and every command
 // is logged in order so a test can see what happened to the phone and when.
+// What the phone does after a command returns (the launched lab's lines, and a line handed to
+// logLater, which logcat delivers) happens on a later turn of the event loop, in the order it was
+// set going, and never on a timer: a timer shorter than the OS tick waits for the tick (15.5 ms
+// measured on Windows), and a whole plan chains two per launch (UI-263).
 
 export type Extras = Record<string, string>;
 export type Scenario = (extras: Extras, device: FakeDevice) => void;
@@ -65,6 +69,11 @@ export class FakeDevice {
     for (const fn of [...this.listeners]) fn(line);
   }
 
+  /** A line the phone logs now, which logcat delivers a little later: after the command returns, in the order logged. */
+  logLater(line: string) {
+    setImmediate(() => this.emit(line));
+  }
+
   // ---- the adb surface lib/adb.mjs exposes ----
   async run(args: string[]): Promise<string> {
     if (args[0] === 'shell') return this.shell(args.slice(1));
@@ -107,7 +116,7 @@ export class FakeDevice {
     if (cmd === 'am' && rest[0] === 'start') {
       const extras: Extras = {};
       for (let i = 0; i < rest.length; i += 1) if (rest[i] === '--es') { extras[rest[i + 1]] = rest[i + 2]; i += 2; }
-      setTimeout(() => this.scenario(extras, this), 0);
+      setImmediate(() => this.scenario(extras, this));
       return 'Starting: Intent { cmp=x }\nStatus: ok\n';
     }
     throw new Error(`fake adb: unsupported shell ${line}`);
