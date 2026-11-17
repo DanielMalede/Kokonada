@@ -67,6 +67,9 @@ export function createFaceGuard(): FaceGuard {
       if (typeof preset !== 'function' || preset() !== 'light') {
         throw new Error('QA-111: the preset useColorScheme was mutated before the face harness captured it (a leaked jest.spyOn(...).mockReturnValue, OPS-017).');
       }
+      // RA-235-10: a queued mockReturnValueOnce / mockImplementationOnce outranks mockImplementation,
+      // so a leaked one would answer one read past the guard. Reset the queue, then install.
+      hook.mockReset();
       hook.mockImplementation(useForcedScheme);
       patcher.set(RN.Appearance, 'getColorScheme', () => {
         if (faceSource.face === null) throw new Error(`${NO_FACE} (Appearance.getColorScheme)`);
@@ -77,7 +80,10 @@ export function createFaceGuard(): FaceGuard {
       faceSet = false;
     },
     restore() {
-      if (preset) hook.mockImplementation(preset);
+      if (preset) {
+        hook.mockReset(); // a once-value queued while installed must not reach the next test either
+        hook.mockImplementation(preset);
+      }
       preset = undefined;
       patcher.restore();
       faceSource.face = null;

@@ -132,6 +132,41 @@ describe('QA-111 · capture and restore of the preset (no spyOn, no leak)', () =
     }
   });
 
+  // RA-235-10: a queued once-value outranks mockImplementation, so a leaked mockReturnValueOnce would
+  // answer one read past the guard. install() resets the queue before it installs its own hook.
+  it('a pending mockReturnValueOnce(dark) does not reach a test forced to light', () => {
+    const preset = hook.getMockImplementation()!;
+    let seen: unknown;
+    function Probe() { seen = RN.useColorScheme(); return null; }
+    hook.mockReturnValueOnce('dark');
+    const guard = createFaceGuard();
+    guard.install();
+    try {
+      guard.set('light');
+      render(<Probe />);
+    } finally {
+      unmountAll();
+      guard.restore();
+      hook.mockReset();
+      hook.mockImplementation(preset);
+    }
+    expect(seen).toBe('light');
+  });
+
+  it('restore() drops a once-value queued while the guard was installed, and puts the preset back by identity', () => {
+    const preset = hook.getMockImplementation();
+    const guard = createFaceGuard();
+    guard.install();
+    hook.mockReturnValueOnce('dark');
+    guard.restore();
+    const restored = hook.getMockImplementation();
+    const leaked = hook();
+    hook.mockReset();
+    hook.mockImplementation(preset!);
+    expect(restored).toBe(preset);
+    expect(leaked).toBe('light');
+  });
+
   it('a mid-session face change re-renders a mounted consumer, as the real hook (Appearance-subscribed) does', () => {
     const guard = createFaceGuard();
     guard.install();
