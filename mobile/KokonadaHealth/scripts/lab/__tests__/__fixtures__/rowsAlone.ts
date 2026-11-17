@@ -20,14 +20,22 @@ export interface Run {
   readonly crops: ReadonlyMap<string, Buffer>;
   /** The CanvasKit surfaces the run made (countSurfaces.cjs): two per field twin rendered, one per fallback twin. */
   readonly surfaces: number;
+  /** The surfaces by the thread they were made on, and by size: 0 is the main thread. */
+  readonly threads: ReadonlyArray<{ thread: number; size: string }>;
 }
 
-/** lawParity on a manifest, in a child node, with the CanvasKit surfaces it makes counted. */
-export function runLawParity(manifestFile: string, out: string): Promise<Run> {
-  const count = `${out}.surfaces`;
+/**
+ * lawParity on a manifest, in a child node, with the CanvasKit surfaces it makes recorded; `failSurface` ("WxH") is one
+ * CanvasKit will not make, a worker thread asked for `exitSurface` exits, and with `throwInWorker` each worker throws
+ * uncaught as it starts (countSurfaces.cjs). A run still going after 5 minutes is killed (status null): a report that
+ * waits forever fails.
+ */
+export function runLawParity(manifestFile: string, out: string, failSurface = '', exitSurface = '', throwInWorker = false): Promise<Run> {
+  const record = `${out}.surfaces`;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--no-warnings', '--require', COUNTER, SCRIPT, '--manifest', manifestFile, '--out', out], {
-      cwd: APP, env: { ...process.env, UI239_SURFACES: count }, stdio: ['ignore', 'ignore', 'pipe'],
+      cwd: APP, env: { ...process.env, UI239_SURFACES: record, UI239_FAIL_SURFACE: failSurface, UI239_EXIT_SURFACE: exitSurface, UI239_THROW_IN_WORKER: throwInWorker ? '1' : '' },
+      stdio: ['ignore', 'ignore', 'pipe'], timeout: 300000,
     });
     let stderr = '';
     child.stderr.setEncoding('utf8');
@@ -35,10 +43,14 @@ export function runLawParity(manifestFile: string, out: string): Promise<Run> {
     child.on('error', reject);
     child.on('close', (status) => {
       const crops = `${out.replace(/\.txt$/, '')}.crops`;
+      const made = fs.existsSync(record) ? fs.readFileSync(record, 'utf8').split('\n').filter((l) => l !== '').map((l) => {
+        const [thread, size] = l.split(' ');
+        return { thread: Number(thread), size };
+      }) : [];
       resolve({
         status, stderr, report: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '',
         crops: fs.existsSync(crops) ? new Map(fs.readdirSync(crops).map((f) => [f, fs.readFileSync(path.join(crops, f))])) : new Map(),
-        surfaces: fs.existsSync(count) ? Number(fs.readFileSync(count, 'utf8')) : NaN,
+        surfaces: made.length, threads: made,
       });
     });
   });
@@ -64,14 +76,16 @@ export interface RowAlone {
   /** The row's crops (file, base64) in its own report, and the same files in the run's (null where missing). */
   readonly cropsOwn: Array<[string, string]>;
   readonly cropsShared: Array<[string, string | null]>;
+  /** The surfaces the row alone made, by thread. */
+  readonly threads: Run['threads'];
 }
 
 /**
  * The run's report and crops against each row's own: each row in a manifest of its own beside the run's PNGs, at most
  * `parallel` at a time.
  */
-export async function againstRowsAlone(manifestFile: string, outDir: string, parallel = 4): Promise<{ whole: Run; rows: RowAlone[] }> {
-  const whole = await runLawParity(manifestFile, path.join(outDir, 'whole.txt'));
+export async function againstRowsAlone(manifestFile: string, outDir: string, parallel = 4, failSurface = ''): Promise<{ whole: Run; rows: RowAlone[] }> {
+  const whole = await runLawParity(manifestFile, path.join(outDir, 'whole.txt'), failSurface);
   const m = JSON.parse(fs.readFileSync(manifestFile, 'utf8')) as { rows: Row[] };
   const rows: RowAlone[] = new Array(m.rows.length);
   let next = 0;
@@ -80,11 +94,11 @@ export async function againstRowsAlone(manifestFile: string, outDir: string, par
       const r = m.rows[i];
       const single = path.join(path.dirname(manifestFile), `alone-${i}.json`);
       fs.writeFileSync(single, JSON.stringify({ ...m, rows: [r] }));
-      const alone = await runLawParity(single, path.join(outDir, `alone-${i}.txt`));
+      const alone = await runLawParity(single, path.join(outDir, `alone-${i}.txt`), failSurface);
       const name = `${r.shot}.${r.repeat}`;
       const files = [...alone.crops.keys()].filter((f) => f.startsWith(`${name}.`));
       rows[i] = {
-        name, status: alone.status, stderr: alone.stderr, own: section(alone.report, name), shared: section(whole.report, name),
+        name, status: alone.status, stderr: alone.stderr, own: section(alone.report, name), shared: section(whole.report, name), threads: alone.threads,
         cropsOwn: files.map((f) => [f, alone.crops.get(f)!.toString('base64')]),
         cropsShared: files.map((f) => [f, whole.crops.get(f)?.toString('base64') ?? null]),
       };

@@ -145,6 +145,71 @@ describe('shareTwins: one render per distinct twin, shared across rows, held onl
     await expect(share.twinAt(1)).rejects.toThrow('row L: no twin');
   });
 
+  it('with no look-ahead, a twin is rendered when its first row is asked for, not before', async () => {
+    const f = fakeRenderer();
+    const B = { ...FIELD, name: 'B.1', face: 'light' };
+    const share = shareTwins([{ kind: 'field', shot: FIELD }, { kind: 'field', shot: B }], f.render);
+    expect(f.calls).toEqual([]);
+    await share.twinAt(0);
+    expect(f.calls).toEqual(['dark-one-joy-full.1']);
+    await share.twinAt(1);
+    expect(f.calls).toEqual(['dark-one-joy-full.1', 'B.1']);
+  });
+
+  it('looking ahead n: the next n distinct twins are rendering before their rows are reached, never more, each once', async () => {
+    const started: string[] = [];
+    const finish = new Map<string, () => void>();
+    const render = (job: Job) => {
+      started.push(String(job.shot.name));
+      return new Promise<string>((resolve) => finish.set(String(job.shot.name), () => resolve(String(job.shot.name))));
+    };
+    const named = (n: string): Shot => ({ ...FIELD, name: `${n}.1`, tMs: n.charCodeAt(0) });
+    const [A, B, C, D, E] = ['A', 'B', 'C', 'D', 'E'].map(named);
+    const jobs: Job[] = [A, repeatOf(A, 2), B, C, D, E].map((shot) => ({ kind: 'field' as const, shot }));
+    const share = shareTwins(jobs, render, { ahead: 2 });
+    // Before any row: the first two distinct twins.
+    expect(started).toEqual(['A.1', 'B.1']);
+    const row0 = share.twinAt(0);
+    expect(started).toEqual(['A.1', 'B.1', 'C.1']); // A reached: two ahead of it
+    finish.get('A.1')!();
+    await expect(row0).resolves.toBe('A.1');
+    await expect(share.twinAt(1)).resolves.toBe('A.1');
+    expect(started).toEqual(['A.1', 'B.1', 'C.1']); // A's repeat reaches no new twin
+    const row2 = share.twinAt(2);
+    expect(started).toEqual(['A.1', 'B.1', 'C.1', 'D.1']);
+    finish.get('B.1')!();
+    await expect(row2).resolves.toBe('B.1');
+    const row3 = share.twinAt(3);
+    expect(started).toEqual(['A.1', 'B.1', 'C.1', 'D.1', 'E.1']);
+    finish.get('C.1')!();
+    await row3;
+    for (const n of ['D.1', 'E.1']) finish.get(n)!();
+    await expect(share.twinAt(4)).resolves.toBe('D.1');
+    await expect(share.twinAt(5)).resolves.toBe('E.1');
+    expect(started).toEqual(['A.1', 'B.1', 'C.1', 'D.1', 'E.1']);
+    expect(share.held()).toBe(0);
+  });
+
+  it('a twin rendered ahead that fails is no unhandled rejection: it fails its own row, when that row is reached', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown) => unhandled.push(e);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const render = async (job: Job) => {
+        if (job.shot.face === 'light') throw new Error(`row ${job.shot.name}: no twin`);
+        return job.shot.name;
+      };
+      const share = shareTwins([{ kind: 'field', shot: FIELD }, { kind: 'field', shot: { ...FIELD, name: 'L.1', face: 'light' } }], render, { ahead: 2 });
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(unhandled).toEqual([]);
+      await expect(share.twinAt(0)).resolves.toBe('dark-one-joy-full.1');
+      await expect(share.twinAt(1)).rejects.toThrow('row L.1: no twin');
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
   it('rows are taken in order: asking for a row out of order is refused', async () => {
     const f = fakeRenderer();
     const share = shareTwins([{ kind: 'field', shot: FIELD }, { kind: 'field', shot: repeatOf(FIELD, 2) }], f.render);

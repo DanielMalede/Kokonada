@@ -17,8 +17,9 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { withValue } from '../reports/__fixtures__/rows';
-import { againstRowsAlone } from './__fixtures__/rowsAlone';
+import { againstRowsAlone, runLawParity } from './__fixtures__/rowsAlone';
 
 jest.setTimeout(600000);
 
@@ -77,6 +78,55 @@ describe('lawParity shares twins, and its report is the one each row gets alone'
     // Alone, each row renders its own: 9 field rows and 5 fallback rows.
     expect(result.rows.reduce((n, x) => n + (x.cropsOwn.length > 0 ? 2 : 1), 0)).toBe(2 * 9 + 5);
     expect(result.whole.surfaces).toBe(2 * 7 + 4);
+  });
+
+  it('draws its distinct field twins on worker threads, as many as the machine spares up to 4, each worker at least one; the fallback twins on its own thread', () => {
+    const workers = Math.min(4, os.availableParallelism() - 1, 7);
+    const off = result.whole.threads.filter((s) => s.thread !== 0);
+    if (workers < 2) {
+      expect(off).toEqual([]);
+      return;
+    }
+    expect(off).toHaveLength(2 * 7);
+    expect(new Set(off.map((s) => s.thread)).size).toBe(workers);
+    expect(result.whole.threads.filter((s) => s.thread === 0)).toHaveLength(4);
+    // A row alone has one twin: no worker is worth starting for it.
+    for (const x of result.rows) expect({ row: x.name, threads: [...new Set(x.threads.map((s) => s.thread))] }).toEqual({ row: x.name, threads: [0] });
+  });
+
+  it('a twin that fails on a worker fails the run as it fails the row alone: exit 2, the same words, no report', async () => {
+    // v-stage's stage (103 × 240 px) is the one surface CanvasKit will not make here (its MakeSurface gives null).
+    const out = fs.mkdtempSync(path.join(root, 'fail-'));
+    const failing = await againstRowsAlone(path.join(root, 'share', 'manifest.json'), out, 4, '103x240');
+    const alone = failing.rows.find((x) => x.name === 'v-stage.1')!;
+    expect(alone.status).toBe(2);
+    expect(alone.stderr).toMatch(/^lawParity: could not run: .+\n$/);
+    expect({ status: failing.whole.status, stderr: failing.whole.stderr, report: failing.whole.report }).toEqual({ status: 2, stderr: alone.stderr, report: '' });
+    if (Math.min(4, os.availableParallelism() - 1) >= 2) expect(failing.whole.threads.filter((s) => s.size === '103x240').map((s) => s.thread !== 0)).toEqual([true]);
+    // Every other row alone is judged as before.
+    const others = failing.rows.filter((x) => x.name !== 'v-stage.1');
+    expect(others.map((x) => x.stderr)).toEqual(others.map(() => ''));
+  });
+
+  it.each([['exits mid-twin', 'exit 9'], ['throws uncaught', 'planted uncaught error']])('a worker that %s fails the run, saying so, and nothing waits for it: exit 2, no report', async (how, why) => {
+    if (Math.min(4, os.availableParallelism() - 1) < 2) return;
+    const out = fs.mkdtempSync(path.join(root, 'exit-'));
+    const r = how === 'exits mid-twin'
+      ? await runLawParity(path.join(root, 'share', 'manifest.json'), path.join(out, 'whole.txt'), '', '103x240')
+      : await runLawParity(path.join(root, 'share', 'manifest.json'), path.join(out, 'whole.txt'), '', '', true);
+    expect({ status: r.status, stderr: r.stderr, report: r.report }).toEqual({ status: 2, stderr: `lawParity: could not run: a twin worker stopped: ${why}\n`, report: '' });
+    expect(fs.existsSync(path.join(out, 'whole.crops'))).toBe(false);
+  });
+
+  it('a worker\'s failed twin keeps its kind and words: an input error stays one (no "could not run"), any other error is the other kind', () => {
+    const lib = (f: string) => JSON.stringify(pathToFileURL(path.join(APP, 'scripts/lab/reports/lib', f)).href);
+    const code = `const W = await import(${lib('twinWorkers.mts')});
+const E = await import(${lib('evidence.mts')});
+const back = (e) => { const r = W.errorFrom(structuredClone(W.failureOf(e))); return [r instanceof E.EvidenceInputError, r instanceof Error, r.message]; };
+console.log(JSON.stringify([back(new E.EvidenceInputError('row a: the manifest field "x" is missing')), back(new TypeError('null has no getCanvas')), back('a thrown string')]));`;
+    const r = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', code], { cwd: APP, encoding: 'utf8' });
+    expect(r.stderr).toBe('');
+    expect(JSON.parse(r.stdout)).toEqual([[true, true, 'row a: the manifest field "x" is missing'], [false, true, 'null has no getCanvas'], [false, true, 'a thrown string']]);
   });
 
   it('each row\'s section of the run\'s report is its own report\'s, byte for byte', () => {
