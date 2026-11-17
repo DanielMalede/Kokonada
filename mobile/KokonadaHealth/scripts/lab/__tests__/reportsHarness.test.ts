@@ -23,6 +23,7 @@ import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
 import { manifest as fixtureManifest } from '../reports/__fixtures__/rows';
+import { againstRowsAlone } from './__fixtures__/rowsAlone';
 import { renderScaleFor } from '../../../src/design/v2/field/fieldDriver';
 import { encodePng } from '../lib/png.mjs';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
@@ -278,6 +279,28 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
     const n = fixedField() + fallbacks();
     expect(r.report!.split(/\r?\n/).filter((l) => / px compared, max \|Δ\| 0, over 1: 0$/.test(l))).toHaveLength(n);
     expect(last(r.report)).toBe(`PASS: ${n} rows within ±1 of their twins (${fixedField()} field, ${fallbacks()} fallback); 2 rows not compared, named above`);
+  });
+
+  it('UI-239: lawParity renders each distinct twin once, and each row\'s section and crops are the ones it gets alone', async () => {
+    const alone = await againstRowsAlone(fed, fs.mkdtempSync(path.join(tmp, 'field-alone-')));
+    expect({ status: alone.whole.status, stderr: alone.whole.stderr }).toEqual({ status: 0, stderr: '' });
+    const compared = alone.rows.filter((x) => x.own.length > 0);
+    expect(compared).toHaveLength(fixedField() + fallbacks());
+    for (const x of alone.rows) {
+      expect({ row: x.name, status: x.status, stderr: x.stderr, section: x.shared.join('\n'), crops: x.cropsShared })
+        .toEqual({ row: x.name, status: x.own.length > 0 ? 0 : 1, stderr: '', section: x.own.join('\n'), crops: x.cropsOwn });
+    }
+    expect(alone.whole.crops.size).toBe(alone.rows.reduce((n, x) => n + x.cropsOwn.length, 0));
+    // The distinct twins, from the plan alone: a fixed field shot's twin is its scene at its frame time and font scale
+    // (the tier is the scene's), a fallback shot's its scene and font scale; the phone's stage and density are one.
+    type Shot = { scene: string; args: { clock?: string; t?: string }; device: { fontScale: number } };
+    const shots = plan.shots as unknown as Shot[];
+    const distinct = (keep: (s: Shot) => boolean, key: (s: Shot) => string) => new Set(shots.filter(keep).map(key)).size;
+    const fieldTwins = distinct((s) => s.scene.startsWith('field.') && s.args.clock === 'fixed', (s) => `${s.scene}|${s.args.t}|${s.device.fontScale}`);
+    const fallbackTwins = distinct((s) => s.scene.startsWith('fallback.'), (s) => `${s.scene}|${s.device.fontScale}`);
+    expect(fieldTwins).toBeLessThan(fixedField());
+    expect(fallbackTwins).toBeLessThan(fallbacks());
+    expect(alone.whole.surfaces).toBe(2 * fieldTwins + fallbackTwins);
   });
 
   it('neverRed accepts it: every row judged in full, none in the check band', () => {
