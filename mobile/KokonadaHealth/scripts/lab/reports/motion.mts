@@ -8,17 +8,20 @@
 //   · QA-034/035: each zero-frames proof drew 0 frames in its window (the still tier, reduced motion);
 //   · the draws-frames proofs, their positive controls, drew some;
 //   · UI-171: each rate proof's frames per second (frames over seconds) lies inside the band its plan gives, ends
-//     included (at low, the tier's cap; at full, no cap below the display's rate);
+//     included (at low, the tier's cap; at full, no cap below the display's rate). RA-52: a low-tier proof whose display
+//     ran at or below its band's ceiling (battery saver, Standard 60 Hz) cannot see the cap: it is "cap not observable",
+//     neither PASS nor FAIL, and the run is INCONCLUSIVE for UI-171 unless another low-tier rate proof, taken where the
+//     display ran above its band, passed;
 //   · framestats is printed and never judged (informational). Other proof kinds (result, record) belong to other reports.
 //
-// Exit 1: a determinism record that differs or is missing, a zero-frames proof that drew, a control that did not, a rate
+// Exit 3: INCONCLUSIVE (nothing failed, but UI-171's low-tier cap was never observable). Exit 1: a determinism record that differs or is missing, a zero-frames proof that drew, a control that did not, a rate
 // outside its band, a proof the plan names that the manifest lacks, or a failed capture run. Exit 2: an input it cannot
 // use (a field missing or malformed, named; a manifest of another plan; an existing report), and no report.
 
 import fs from 'node:fs';
 
 import { EvidenceInputError, writeNewFile } from './lib/evidence.mts';
-import { fmt, loadRun, readDeterminism, readFrames, readProof, runArgs, type PlanShot, type Proof } from './lib/proofs.mts';
+import { fmt, loadRun, readDeterminism, readDisplay, readFrames, readProof, runArgs, type PlanShot, type Proof } from './lib/proofs.mts';
 
 const REPORT = 'motion';
 const SECTIONS: ReadonlyArray<{ kind: string; head: string }> = [
@@ -45,6 +48,9 @@ function main(): number {
   if (runFailed) lines.push(`the capture run failed: ${manifest.failure ?? `outcome ${JSON.stringify(manifest.outcome)}`}`);
   const problems: string[] = [];
   const counts: Record<string, number> = { determinism: 0, 'zero-frames': 0, 'draws-frames': 0, rate: 0 };
+  // RA-52: the low-tier rate proofs whose display could not show the cap, and whether any low-tier proof that could passed.
+  const unobservable: string[] = [];
+  let lowObserved = false;
 
   // QA-078
   lines.push('QA-078 determinism: every launch of a shot draws the same pixels');
@@ -90,8 +96,15 @@ function main(): number {
       if (kind === 'rate') {
         const band = s.proof.band!;
         const fps = frames / seconds;
+        const hz = readDisplay(proof, REPORT).refreshHz;
+        line += ` = ${fmt(fps)} fps, band ${fmt(band.min)} to ${fmt(band.max)}, display ${fmt(hz)} Hz`;
+        if (s.tier === 'low' && band.max >= hz) {
+          lines.push(`${line}: cap not observable (display at ${fmt(hz)} Hz)`);
+          unobservable.push(`${s.id}: display at ${fmt(hz)} Hz`);
+          continue;
+        }
         ok = fps >= band.min && fps <= band.max;
-        line += ` = ${fmt(fps)} fps, band ${fmt(band.min)} to ${fmt(band.max)}`;
+        if (ok && s.tier === 'low') lowObserved = true;
       } else {
         ok = kind === 'zero-frames' ? frames === 0 : frames > 0;
       }
@@ -106,12 +119,16 @@ function main(): number {
   let verdict: string;
   if (problems.length > 0) verdict = `FAIL: ${problems.length} problem${problems.length === 1 ? '' : 's'}: ${problems.join(', ')}`;
   else if (runFailed) verdict = 'FAIL: the capture run failed, so its proofs are not evidence';
-  else verdict = `PASS: ${counts.determinism} determinism pairs equal, ${counts['zero-frames']} zero-frames, ${counts['draws-frames']} draws-frames, ${counts.rate} rate proofs; framestats informational`;
+  else if (unobservable.length > 0 && !lowObserved) verdict = `INCONCLUSIVE: UI-171’s low-tier cap was not observable (${unobservable.join(', ')}); no low-tier rate proof was taken above its band; nothing else failed`;
+  else {
+    const unseen = unobservable.length > 0 ? `; ${unobservable.length} low-tier rate proof${unobservable.length === 1 ? '' : 's'} not observable (${unobservable.join(', ')})` : '';
+    verdict = `PASS: ${counts.determinism} determinism pairs equal, ${counts['zero-frames']} zero-frames, ${counts['draws-frames']} draws-frames, ${counts.rate} rate proofs; framestats informational${unseen}`;
+  }
   lines.push(verdict);
   const text = `${lines.join('\n')}\n`;
   writeNewFile(a.out, text);
   process.stdout.write(text);
-  return verdict.startsWith('PASS') ? 0 : 1;
+  return verdict.startsWith('PASS') ? 0 : verdict.startsWith('INCONCLUSIVE') ? 3 : 1;
 }
 
 // exitCode, never process.exit() (reportsCanvasKitExit.test.ts): the library this imports loads CanvasKit.

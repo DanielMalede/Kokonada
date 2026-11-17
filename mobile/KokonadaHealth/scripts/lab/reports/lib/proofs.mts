@@ -6,8 +6,9 @@
 //   · the plan is one the harness's validatePlan accepts, or it is refused with the harness's own sentences; a planned
 //     proof is the plan shot's `proof`: { kind, seconds }, a rate's also `band` { min, max } in frames per second;
 //   · a manifest proof is what capture.mjs runProof pushes, exactly those fields (PROOF_FIELDS): zero-frames and
-//     draws-frames { shot, kind, seconds, frames, passed }; rate { shot, kind, seconds, frames, fps, band, passed }, its
-//     fps frames over seconds and its band and seconds the plan's; framestats { ..., frames, janky, jankPercent, reason,
+//     draws-frames { shot, kind, seconds, frames, passed }; rate { shot, kind, seconds, frames, fps, band, display, passed },
+//     its fps frames over seconds, its band and seconds the plan's, and display { refreshHz, mode, key } the display's
+//     refresh rate read during the proof (RA-52); framestats { ..., frames, janky, jankPercent, reason,
 //     passed: null } (informational, its numbers null with a reason when gfxinfo had none); result and record
 //     { shot, kind, seconds, passed };
 //   · a cost shot's RESULT line is NOT in its proof: the harness keeps it in the manifest's top-level `results` as
@@ -67,6 +68,8 @@ export interface PlanShot {
   readonly id: string;
   readonly scene: string;
   readonly repeat: number;
+  /** The shot's expect tier (the catalogue's, F4), or null for a scene with none. */
+  readonly tier: string | null;
   readonly proof: PlannedProof | null;
 }
 export interface Plan {
@@ -101,7 +104,8 @@ function readPlanShot(s: unknown, i: number, report: string): PlanShot {
     }
     proof = { kind: q.kind as string, seconds: q.seconds as number, band };
   }
-  return { id: id as string, scene: s.scene as string, repeat: s.repeat as number, proof };
+  const tier = isObject(s.expect) && typeof s.expect.tier === 'string' ? s.expect.tier : null;
+  return { id: id as string, scene: s.scene as string, repeat: s.repeat as number, tier, proof };
 }
 
 export interface RunManifest {
@@ -161,7 +165,7 @@ export interface Proof {
 const PROOF_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'zero-frames': ['shot', 'kind', 'seconds', 'frames', 'passed'],
   'draws-frames': ['shot', 'kind', 'seconds', 'frames', 'passed'],
-  rate: ['shot', 'kind', 'seconds', 'frames', 'fps', 'band', 'passed'],
+  rate: ['shot', 'kind', 'seconds', 'frames', 'fps', 'band', 'display', 'passed'],
   framestats: ['shot', 'kind', 'seconds', 'frames', 'janky', 'jankPercent', 'reason', 'passed'],
   result: ['shot', 'kind', 'seconds', 'passed'],
   record: ['shot', 'kind', 'seconds', 'passed'],
@@ -203,6 +207,19 @@ export function readFrames(proof: Proof, report: string): { seconds: number; fra
     refuse(report, where, 'fps', `is ${JSON.stringify(proof.raw.fps)}, not its frames over its seconds (${(frames as number) / (seconds as number)})`);
   }
   return { seconds: seconds as number, frames: frames as number };
+}
+
+/** The display a rate proof was taken at (RA-52): its refresh rate in Hz, read during the proof, and the mode and key it came from. */
+export function readDisplay(proof: Proof, report: string): { refreshHz: number; mode: string | null; key: string | null } {
+  const where = `the manifest's ${proof.kind} proof of ${proof.shot}`;
+  const d = proof.raw.display;
+  if (!isObject(d)) refuse(report, where, 'display', 'is missing or not an object: a rate proof says the display rate it was taken at');
+  const dd = d as Record<string, unknown>;
+  if (!finite(dd.refreshHz) || !(dd.refreshHz > 0)) refuse(report, where, 'display.refreshHz', `must be a finite number above 0, got ${JSON.stringify(dd.refreshHz)}`);
+  for (const f of ['mode', 'key']) {
+    if (dd[f] === undefined || (dd[f] !== null && typeof dd[f] !== 'string')) refuse(report, where, `display.${f}`, `must be a string or null, got ${JSON.stringify(dd[f])}`);
+  }
+  return { refreshHz: dd.refreshHz as number, mode: dd.mode as string | null, key: dd.key as string | null };
 }
 
 /**
