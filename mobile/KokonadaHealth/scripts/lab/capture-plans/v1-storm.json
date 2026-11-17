@@ -32,7 +32,7 @@
         "direction": "abyss",
         "face": "dark",
         "hero": null,
-        "tier": null
+        "tier": "full"
       },
       "proof": {
         "kind": "record",
@@ -65,7 +65,7 @@
         "direction": "abyss",
         "face": "dark",
         "hero": null,
-        "tier": null
+        "tier": "still"
       },
       "proof": {
         "kind": "record",
@@ -98,7 +98,7 @@
         "direction": "abyss",
         "face": "dark",
         "hero": null,
-        "tier": null
+        "tier": "still"
       },
       "proof": {
         "kind": "record",
@@ -131,7 +131,7 @@
         "direction": "abyss",
         "face": "dark",
         "hero": null,
-        "tier": null
+        "tier": "still"
       },
       "proof": {
         "kind": "record",

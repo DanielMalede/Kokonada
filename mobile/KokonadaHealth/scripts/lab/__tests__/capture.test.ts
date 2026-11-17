@@ -1078,6 +1078,14 @@ describe('B8-6: READY\'s observed tier against the shot\'s expect.tier', () => {
     expect(tierProblem('smoke', { tier: 'full' }, null)).toMatch(/READY says tier "full" but the shot's expect\.tier is null/);
   });
 
+  it('a storm scene says its case\'s tier (UI-241): held to the plan\'s expect.tier like any scene that names one', () => {
+    expect(tierProblem('storm.abyss.dark.first-still', { tier: 'still' }, 'still')).toBeNull();
+    expect(tierProblem('storm.abyss.dark.first-full', { tier: 'full' }, 'full')).toBeNull();
+    // A storm plan still saying expect.tier null is refused once READY names the tier.
+    expect(tierProblem('storm.abyss.dark.first-still', { tier: 'still' }, null)).toMatch(/READY says tier "still" but the shot's expect\.tier is null/);
+    expect(tierProblem('storm.abyss.dark.first-full', { tier: 'still' }, 'full')).toMatch(/READY says tier "still" but the shot's expect\.tier is "full"/);
+  });
+
   it('reduced motion reaches React Native through transition_animation_scale: animatorScale 0 sets it, and battery saver through low_power', async () => {
     const w = world();
     readyAs(w, { shaderStatus: 'ready', shaderReason: null, tier: 'still', powerSave: true });
