@@ -41,11 +41,22 @@ const MAX_FRAMES = 600;
 // (protocol.ts), and formatLine would throw instead of sending the ERROR. Both parts are cut to a budget in characters
 // (each at most 6 bytes once escaped in JSON), so the message stays near 3000 bytes at worst, whatever the launch or the
 // catalogue holds.
-const MAX_SCENE_ECHO = 120;
 const MAX_FAMILIES_CHARS = 360;
 
+/**
+ * The most characters of a launch value an ERROR echoes (UI-241): every echo (an unknown key, a value that is not a
+ * number, an unknown scene) is cut to this many code points, the last an ellipsis, so one long extra cannot pass the
+ * 4000 bytes of a protocol line. Cut by code points, a surrogate pair is never split. Many echoes together can still
+ * pass it (60 unknown keys of 100 characters): LabRoot then sends a short ERROR instead (launchErrorBound.test.tsx).
+ */
+export const MAX_ECHO = 120;
+
+function echo(value: string): string {
+  const points = [...value];
+  return points.length <= MAX_ECHO ? value : `${points.slice(0, MAX_ECHO - 1).join('')}…`;
+}
+
 function unknownScene(scene: string, known: readonly string[]): string {
-  const echo = scene.length <= MAX_SCENE_ECHO ? scene : `${scene.slice(0, MAX_SCENE_ECHO - 1)}…`;
   const families = [...new Set(known.map((id) => (id.includes('.') ? `${id.slice(0, id.indexOf('.'))}.*` : id)))];
   let listed = '';
   let shown = 0;
@@ -56,7 +67,7 @@ function unknownScene(scene: string, known: readonly string[]): string {
     shown += 1;
   }
   if (shown < families.length) listed = `${listed}${shown === 0 ? '' : ', '}+${families.length - shown} more`;
-  return `scene "${echo}" is not a lab scene (${known.length} known: ${listed})`;
+  return `scene "${echo(scene)}" is not a lab scene (${known.length} known: ${listed})`;
 }
 
 /**
@@ -79,10 +90,10 @@ export function parseLabArgs(
 
   for (const key of nonStringKeys) {
     if (KEYS.includes(key)) typeError(key);
-    else errors.push(`unknown key "${key}"`);
+    else errors.push(`unknown key "${echo(key)}"`);
   }
   for (const [key, value] of Object.entries(raw ?? {})) {
-    if (!KEYS.includes(key)) errors.push(`unknown key "${key}"`);
+    if (!KEYS.includes(key)) errors.push(`unknown key "${echo(key)}"`);
     else if (typeof value !== 'string') typeError(key);
     else values[key] = value;
   }
@@ -114,7 +125,7 @@ export function parseLabArgs(
     if (v === undefined) return wrongType.has(key) ? null : undefined;
     // A long enough digit string passes the pattern and still becomes Infinity.
     if (!DECIMAL.test(v) || !Number.isFinite(Number(v))) {
-      errors.push(`${key} must be a finite decimal number (got "${v}")`);
+      errors.push(`${key} must be a finite decimal number (got "${echo(v)}")`);
       return null;
     }
     return Number(v);

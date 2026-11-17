@@ -24,6 +24,10 @@
 //     it: FieldView takes no new prop. The scene tells LabRoot the tier it observed (SceneFactsContext) for READY, and
 //     only once the policy has answered: until both settings were heard and the policy's tier is the one they give,
 //     the policy's cautious still is not the device's answer, and the scene says the tier is not known yet.
+//   · A setting that cannot be read (UI-241): a read the platform refuses, before any change event answered the setting,
+//     leaves it unanswered for good (the policy keeps its cautious still), so the tier can never be known. The scene
+//     then says which setting and why (SceneFacts.unreadable), once, the first refusal; LabRoot sends an ERROR naming it
+//     instead of holding READY until the harness times out. A read that never settles at all is not seen here.
 
 import React, { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
@@ -41,9 +45,15 @@ import { useMeasuredView } from './useMeasuredView';
 
 export const FIELD_SCENE_PROBES = ['stage'] as const;
 
-/** What a scene observed, for READY (B8-6): the tier FieldView draws at, or null while it is not known yet. */
-export type SceneFacts = { readonly tier: MotionTier | null };
-/** LabRoot listens: a scene that reports a null tier holds READY, and a known tier that changes after READY is an ERROR. */
+/**
+ * What a scene observed, for READY (B8-6): the tier FieldView draws at, or null while it is not known yet; and, when a
+ * setting the tier needs cannot be read (UI-241), which one and why: the tier will never be known.
+ */
+export type SceneFacts = { readonly tier: MotionTier | null; readonly unreadable?: string };
+/**
+ * LabRoot listens: a scene that reports a null tier holds READY, a known tier that changes after READY is an ERROR, and so
+ * is a setting the scene says it cannot read.
+ */
 export const SceneFactsContext = createContext<((facts: SceneFacts) => void) | null>(null);
 /** The device's reduced-motion and battery-saver settings as the motion policy's ports; LabRoot provides them, once. */
 export const LabMotionPortsContext = createContext<MotionPorts | null>(null);
@@ -53,6 +63,7 @@ const CONFIDENCE = 1;
 const GENESIS = false;
 
 type Heard = { reduceMotion: boolean | null; powerSave: boolean | null };
+const SETTING_NAMES: Readonly<Record<keyof Heard, string>> = { reduceMotion: 'reduced-motion', powerSave: 'battery-saver' };
 
 /**
  * The ports, passed through to the policy, with what each setting last said. A late read after a change event is not
@@ -60,15 +71,22 @@ type Heard = { reduceMotion: boolean | null; powerSave: boolean | null };
  * give (resolveMotionTier, the policy's own table): a render between a setting's answer and the policy's catching up
  * says not known, never a stale tier.
  */
-function observedPorts(ports: MotionPorts) {
+function observedPorts(ports: MotionPorts, onUnreadable: (why: string) => void) {
   const heard: Heard = { reduceMotion: null, powerSave: null };
   const tap = (key: keyof Heard, source: SignalSource): SignalSource => {
     let changed = false;
     return {
-      read: () => source.read().then((value) => {
-        if (!changed) heard[key] = value;
-        return value;
-      }),
+      read: () => {
+        const read = source.read();
+        // A refusal after a change event answered the setting is ignored, as the policy ignores a late read.
+        read.then(undefined, (e: unknown) => {
+          if (!changed) onUnreadable(`the device's ${SETTING_NAMES[key]} setting could not be read (${e instanceof Error ? e.message : String(e)})`);
+        });
+        return read.then((value) => {
+          if (!changed) heard[key] = value;
+          return value;
+        });
+      },
       subscribe: (onChange) => source.subscribe((value) => {
         changed = true;
         heard[key] = value;
@@ -95,17 +113,21 @@ export function FieldScene(props: SceneProps) {
 function PolicyFieldScene({ spec, ...props }: SceneProps & { spec: FieldSceneSpec }) {
   const ports = useContext(LabMotionPortsContext);
   if (ports === null) throw new Error(`lab scene "${spec.id}" takes its tier from the motion policy, but no LabRoot gave it the device's settings`);
-  const [observed] = useState(() => observedPorts(ports));
+  // The first setting that could not be read, kept: the tier stays unknown for the mount's life.
+  const [unreadable, setUnreadable] = useState<string | null>(null);
+  const [observed] = useState(() => observedPorts(ports, (why) => setUnreadable((first) => first ?? why)));
   const tier = useMotionPolicy(observed.ports);
-  return <FieldStage {...props} spec={spec} tier={tier} observed={observed.known(tier)} />;
+  return <FieldStage {...props} spec={spec} tier={tier} observed={unreadable === null ? observed.known(tier) : null} unreadable={unreadable} />;
 }
 
-function FieldStage({ clock, spec, tier, observed }: SceneProps & {
+function FieldStage({ clock, spec, tier, observed, unreadable = null }: SceneProps & {
   spec: FieldSceneSpec;
   /** The tier FieldView draws at. */
   tier: MotionTier | null;
   /** The tier READY may say, or null while it is not known. */
   observed: MotionTier | null;
+  /** A setting the tier needs that could not be read, and why (UI-241). */
+  unreadable?: string | null;
 }) {
   const { size, onLayout } = useMeasuredView();
   const layout = useMemo(
@@ -115,8 +137,8 @@ function FieldStage({ clock, spec, tier, observed }: SceneProps & {
   const report = useContext(ShaderReportContext);
   const facts = useContext(SceneFactsContext);
   useLayoutEffect(() => {
-    facts?.({ tier: observed });
-  }, [facts, observed]);
+    facts?.(unreadable === null ? { tier: observed } : { tier: null, unreadable });
+  }, [facts, observed, unreadable]);
   const [effect] = useState(fieldEffect);
   // FieldFallback's reason, bound to the scene it fell back in, as the drawn frame is: a scene change mounts a fresh
   // FieldView, and an earlier scene's fallback says nothing about it.
