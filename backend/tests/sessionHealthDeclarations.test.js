@@ -506,7 +506,15 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
 
   it('H-9: the Art. 9 section names the Suunto webhook as the fourth consent-gated ingestion route', () => {
     const bullet = art9().split('\n').find((l) => l.startsWith('- **H-9 is now fully closed'));
-    expect(bullet).toContain('All four special-category ingestion routes are consent-gated: `/apple/push` and `/health/batch` via the session-authed `requireConsent` middleware; `POST /integrations/suunto/webhook` (session-authed) via the same check made inline in its handler, before any parsing or write;');
+    expect(bullet).toContain('All four special-category ingestion routes are consent-gated: `/apple/push` and `/health/batch` via the session-authed `requireConsent` middleware; `POST /integrations/suunto/webhook` (session-authed) via the same check made inline in its handler, before the signature is verified or the payload handled;');
+    // R287-5: the watch lane's clause, and the live socket event under the same check.
+    expect(bullet).toContain('`POST /integrations/watch/hr` (the device-token-authed live BLE heart-rate lane, which has no session req.user) via an inline check');
+    expect(bullet).toContain('running BEFORE any body validation or socket delivery. The live socket event biometric_push applies the same current-grant check and drops a reading without one. <!-- verified:');
+    expect(bullet).not.toContain('before any parsing or write;');
+    expect(bullet).not.toContain('previously the one gap');
+    const bh = src('sockets/biometricHandler.js');
+    const push = bh.slice(bh.indexOf("socket.on('biometric_push', async (payload) => {"), bh.indexOf("socket.on('biometric_push', async (payload) => {") + 600);
+    expect(push).toMatch(/if \(!\(await admitHealthProcessing\(uid\)\)\) \{[\s\S]*?return;\s*\}\s*handleBiometricReading\(socket, source, raw\);/);
     expect(bullet).toContain('backend/app/controllers/integrationsController.js suuntoWebhook');
     expect(bullet).toContain('backend/tests/suuntoConsentGate.test.js');
     expect(bullet).not.toContain('All three special-category ingestion routes');
