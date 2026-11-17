@@ -23,6 +23,8 @@ describe('QA-043 · the full-project tsc ratchet', () => {
     expect(() => validateBaseline({ ...baseline, total: baseline.total + 1 })).toThrow(/total/);
     expect(() => validateBaseline({ ...baseline, diagnostics: { 'src/x.ts|TS0': 0 } })).toThrow(/count/);
     expect(() => validateBaseline({ ...baseline, diagnostics: { 'src/x.ts': 1 } })).toThrow(/key/);
+    expect(() => validateBaseline({ ...baseline, sha: baseline.sha.slice(0, 7) })).toThrow(/sha/);
+    expect(() => validateBaseline({ ...baseline, typescript: 'latest' })).toThrow(/typescript/);
   });
 
   it('counts every diagnostic of the program (none filtered), keyed by file and code', () => {

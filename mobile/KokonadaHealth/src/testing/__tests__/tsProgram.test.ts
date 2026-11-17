@@ -48,6 +48,13 @@ describe('the tsconfig loader', () => {
     expect(() => loadTsConfig(PLANTED_CONFIG, overlayParseHost({ [PLANTED_CONFIG]: text }))).toThrow(message);
   }, TIMEOUT);
 
+  it('planted config (in memory) that parses cleanly with strict on but lists no files (a solution-style config) is refused', () => {
+    // TypeScript accepts `files: []` without error when the config has references, so only the loader's
+    // own empty-files guard stands between this config and a program over nothing.
+    const text = '{ "compilerOptions": { "strict": true }, "files": [], "references": [{ "path": "./tsconfig.json" }] }';
+    expect(() => loadTsConfig(PLANTED_CONFIG, overlayParseHost({ [PLANTED_CONFIG]: text }))).toThrow(/lists no files/);
+  });
+
   it('a config file that does not exist is refused', () => {
     expect(() => loadTsConfig(at('tsconfig.absent.json'))).toThrow(/tsconfig\.absent\.json/);
   });
@@ -62,7 +69,7 @@ describe('the in-process program', () => {
     expect(() => createTsProgram([], parsed)).toThrow(/no root files/);
   });
 
-  it('a root outside the project is refused', () => {
+  it('a root that does not exist is refused', () => {
     expect(() => createTsProgram([at('src/no-such-file.ts')], parsed)).toThrow(/no-such-file/);
   });
 
