@@ -16,9 +16,10 @@ import { APP_ROOT, productionFiles } from '../guards/productionImports';
 import { loadMutant } from '../mutant';
 import { installTeardownProbes, missingRouteFixtures, navigatorRoutes, ROUTE_FIXTURES, type TeardownProbes } from '../teardown';
 
-// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
-// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
-jest.setTimeout(30000);
+// A test that plants a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts);
+// under full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file),
+// so only those tests get MUTANT_TIMEOUT_MS; every other test keeps the default.
+const MUTANT_TIMEOUT_MS = 30000;
 
 // QA-103 (S10-1): every subscription, listener, loop, timer and clock a page opens is closed on
 // unmount. The harness composes the shared fakes (QA-044 platform, QA-045 stores and socket, QA-046
@@ -147,7 +148,7 @@ describe('QA-103 · teardown parity across every category', () => {
     await act(async () => { tree = ReactTestRenderer.create(<SafeAreaProvider initialMetrics={METRICS}><Mutant store={warm} /></SafeAreaProvider>); });
     await act(async () => { tree.unmount(); });
     expect(() => probes.assertParity(before)).toThrow(/store dock-warm: 1 more/);
-  });
+  }, MUTANT_TIMEOUT_MS);
 
   it('the timer registry follows real timers: a fired timeout is no longer live', async () => {
     const before = probes.snapshot();
