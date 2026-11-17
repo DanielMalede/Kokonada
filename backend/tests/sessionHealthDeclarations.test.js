@@ -552,5 +552,21 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     for (const stale of [`${EXPORT}:32 `, `${EXPORT}:38-40`, `${EXPORT}:23,41`, `${ERASURE}:21,96`, `${EXPORT}:26-79`, `${ROUTES}:79,83`, `${ROUTES}:21-24,79,83`]) {
       expect(d).not.toContain(stale);
     }
+    // R287-6, C287-4: the Play declaration's citations, re-anchored on the same code.
+    const AUTH = 'backend/app/controllers/authController.js';
+    const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
+    const storeCites = [
+      [`${ROUTES}:88 (medical-profile backfill)`, () => expect(span(ROUTES, 88)).toContain('requireConsent(HEALTH_CONSENT), healthBatchIngest')],
+      [`${AUTH}:216-240;`, () => { expect(span(AUTH, 216)).toBe('exports.deleteAccount = async (req, res, next) => {'); expect(span(AUTH, 240)).toBe('};'); }],
+      [`${ERASURE}:43-99 `, () => { expect(span(ERASURE, 43)).toBe('async function eraseUserChildData(userId) {'); expect(span(ERASURE, 99)).toContain('await ConsentRecord.deleteMany({ userId });'); }],
+      [`${EXPORT}:31-47,66-87;`, () => { expect(span(EXPORT, 31)).toBe('const COLLECTIONS = ['); expect(span(EXPORT, 66)).toBe('async function exportUserData(userId) {'); }],
+    ];
+    for (const [cite, holds] of storeCites) {
+      expect(store).toContain(cite);
+      holds();
+    }
+    for (const stale of [`${ROUTES}:81`, `${AUTH}:220-245`, `${ERASURE}:33-49`, `${EXPORT}:26-79`]) {
+      expect(store).not.toContain(stale);
+    }
   });
 });

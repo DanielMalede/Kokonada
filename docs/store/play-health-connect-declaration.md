@@ -72,7 +72,7 @@ not a Health Connect permission), but is consent-gated identically.
 > calibration is what lets the app interpret a live reading as elevated, recovered, or resting
 > *relative to that individual*, which materially improves how well the generated music matches
 > their state. Historic access is used for one-time baseline establishment plus occasional
-> re-baselining — not continuous bulk history retrieval. <!-- verified backfill use case: backend/app/routes/integrations.js:81 (medical-profile backfill) -->
+> re-baselining — not continuous bulk history retrieval. <!-- verified backfill use case: backend/app/routes/integrations.js:88 (medical-profile backfill) -->
 
 ## 4. Data Safety form answers (Android app)
 
@@ -85,8 +85,8 @@ not a Health Connect permission), but is consent-gated identically.
 | Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. <!-- NEEDS VERIFICATION: the state estimate (bio:affect:, Retention, the user-scoped cache row) is written for every user who generates a playlist and kept 2 hours, which is not ephemeral processing; if the owner's NF-A decision (DAN015-Q3) classes it as health data, Health info is collected from every such user and "Optional" no longer holds. File no Health and fitness answer before that decision. --> |
 | Encrypted in transit | **Yes** (HTTPS/TLS on every network call). |
 | Encrypted at rest | **Yes** — AES-256-GCM field-level encryption of biometric and OAuth fields (ADR 0005). |
-| Users can request deletion | **Yes** — in-app **Delete account** (`DELETE /api/auth/account`) hard-deletes all user-owned data (incl. `BiometricLog`, `MedicalProfile`, `ConsentRecord`) + user-scoped Redis, plus a documented deletion URL. <!-- verified: backend/app/controllers/authController.js:220-245; backend/app/services/privacy/erasure.js:33-49 --> |
-| Users can access/export their data | **Yes** — authenticated `GET /api/auth/account/export` returns the subject's own records (health decrypted, credentials redacted). <!-- verified: backend/app/services/privacy/userDataExport.js:26-79; backend/app/routes/auth.js:24 --> |
+| Users can request deletion | **Yes** — in-app **Delete account** (`DELETE /api/auth/account`) hard-deletes all user-owned data (incl. `BiometricLog`, `MedicalProfile`, `ConsentRecord`) + user-scoped Redis, plus a documented deletion URL. <!-- verified: backend/app/controllers/authController.js:216-240; backend/app/services/privacy/erasure.js:43-99 --> |
+| Users can access/export their data | **Yes** — authenticated `GET /api/auth/account/export` returns the subject's own records (health decrypted, credentials redacted). <!-- verified: backend/app/services/privacy/userDataExport.js:31-47,66-87; backend/app/routes/auth.js:24 --> |
 | Purposes | App functionality; Personalization. **Not** advertising, **not** tracking. |
 | Third-party SDK collection | None — no ad/analytics SDKs. |
 
