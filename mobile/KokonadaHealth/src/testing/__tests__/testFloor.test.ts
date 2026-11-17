@@ -26,6 +26,8 @@ describe('countMarkers (calls, never text)', () => {
     ['describe.only', t('describe.only'), 0, 1],
     ['fit', t('fit'), 0, 1],
     ['fdescribe', t('fdescribe'), 0, 1],
+    ['it.failing', t('it.failing'), 1, 0],
+    ['test.failing', t('test.failing'), 1, 0],
     ['a plain test', t('it') + t('test') + t('describe'), 0, 0],
     ['a skip spelled in a string', 'const s = ' + q('it.skip(x) xit( fit(') + ';', 0, 0],
     ['.skip on something else', 'player.skip(); queue.only(1);', 0, 0],
@@ -40,9 +42,9 @@ describe('checkFloor (QA-041 interim floor)', () => {
   const plain = t('it');
   const sources: Record<string, string> = { [FILES[0]]: plain, [FILES[1]]: plain + t('it.skip'), [FILES[2]]: plain };
   const read = (f: string) => sources[f] ?? null;
-  const baseline = { sha: '0'.repeat(40), listTestsCount: 3, skipCount: 1, measuredAt: '2026-11-17T00:00:00Z', command: 'planted' };
-  const decided = (dec: string) => (dec === 'DEC-091' ? 'DECIDED' : dec === 'DEC-039' ? 'OPEN' : null);
-  const retireC = { kind: 'file' as const, target: FILES[2], dec: 'DEC-091', reason: 'planted' };
+  const baseline = { sha: '0'.repeat(40), listTestsCount: 3, skipCount: 1, measuredAt: '2026-11-17T00:00:00Z', command: 'planted', paths: FILES };
+  const decided = (dec: string) => (dec === 'DEC-900' ? 'DECIDED' : dec === 'DEC-901' ? 'OPEN' : null);
+  const retireC = { kind: 'file' as const, target: FILES[2], dec: 'DEC-900', reason: 'planted' };
 
   it('measures the list and its markers', () => {
     expect(measureFloor(FILES, read)).toEqual({ listTestsCount: 3, skipCount: 1, onlyCount: 0, onlyFiles: [], unreadable: [] });
@@ -56,7 +58,7 @@ describe('checkFloor (QA-041 interim floor)', () => {
 
   it('planted: a list missing one file with no RETIRE entry is red', () => {
     expect(checkFloor(baseline, FILES.slice(0, 2), read, [], decided)).toEqual([
-      'jest runs 2 test files; the floor is 3 (baseline 3 at 000000000000, minus 0 retired): a test file was removed without a RETIRE entry',
+      'src/c/__tests__/c.test.ts: in the baseline at 000000000000, jest no longer runs it, and no RETIRE entry names it',
     ]);
   });
 
@@ -65,11 +67,18 @@ describe('checkFloor (QA-041 interim floor)', () => {
   });
 
   it('planted: a RETIRE entry citing a missing or not-DECIDED DEC is red and lowers nothing', () => {
-    expect(checkFloor(baseline, FILES.slice(0, 2), read, [{ ...retireC, dec: 'DEC-039' }], decided)).toEqual([
-      'RETIRE file src/c/__tests__/c.test.ts: DEC-039 is OPEN, not DECIDED',
-      'jest runs 2 test files; the floor is 3 (baseline 3 at 000000000000, minus 0 retired): a test file was removed without a RETIRE entry',
+    expect(checkFloor(baseline, FILES.slice(0, 2), read, [{ ...retireC, dec: 'DEC-901' }], decided)).toEqual([
+      'RETIRE file src/c/__tests__/c.test.ts: DEC-901 is OPEN, not DECIDED',
+      'src/c/__tests__/c.test.ts: in the baseline at 000000000000, jest no longer runs it, and no RETIRE entry names it',
     ]);
     expect(checkFloor(baseline, FILES.slice(0, 2), read, [{ ...retireC, dec: 'DEC-998' }], decided)[0]).toBe('RETIRE file src/c/__tests__/c.test.ts: DEC-998 does not exist');
+  });
+
+  it('planted: a RETIRE entry for a file never in the baseline is red and lowers nothing', () => {
+    const extra = 'src/d/__tests__/d.test.ts';
+    expect(checkFloor(baseline, FILES, read, [{ ...retireC, target: extra }], decided)).toEqual([
+      'RETIRE file src/d/__tests__/d.test.ts: not in the baseline at 000000000000 (only a baseline test file is retired)',
+    ]);
   });
 
   it('red on a RETIRE entry for a file jest still runs', () => {

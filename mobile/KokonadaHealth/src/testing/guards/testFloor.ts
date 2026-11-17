@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // The interim QA-041 floor (D8 rule 6), until QA-041 proper (numTotalTests from `jest --ci --json` in
-// CI) has its CI step: the number of test files `jest --listTests` returns never drops below the
-// recorded baseline minus the files named in RETIRE entries, the count of skip and todo markers
+// CI) has its CI step: every test file `jest --listTests` returned at the baseline is still returned,
+// or is named by a RETIRE entry, the count of skip and todo markers
 // (.skip, xit, xtest, xdescribe, .todo) never rises above its baseline, and nothing is focused
 // (.only, fit, fdescribe). Markers are read as calls and references through the TypeScript parser, so
 // a planted source spelled inside a string is never counted. The baseline is never raised by this
@@ -13,10 +13,18 @@ import { checkRetireEntries, type DecStatus, type RetireEntry } from './retire';
 import { parseSource } from './sourceFiles';
 
 /** Structurally TEST_FLOOR in src/__contracts__/testFloor.baseline.ts. */
-export interface FloorBaseline { sha: string; listTestsCount: number; skipCount: number; measuredAt: string; command: string }
+export interface FloorBaseline {
+  sha: string;
+  listTestsCount: number;
+  skipCount: number;
+  measuredAt: string;
+  command: string;
+  /** every test file jest listed at sha: sorted, posix, relative to the app. */
+  paths: readonly string[];
+}
 
 const TEST_ROOTS = new Set(['it', 'test', 'describe']);
-const SKIP_PROPS = new Set(['skip', 'todo']);
+const SKIP_PROPS = new Set(['skip', 'todo', 'failing']); // .failing holds nothing while it passes (#291 audit RA-3)
 const SKIP_IDS = new Set(['xit', 'xtest', 'xdescribe']);
 const ONLY_IDS = new Set(['fit', 'fdescribe']);
 
@@ -83,18 +91,20 @@ export function checkFloor(
 ): string[] {
   const entries = retire.filter((e) => e.kind === 'file');
   const run = new Set(listTests);
+  const inBaseline = new Set(baseline.paths);
+  const at = baseline.sha.slice(0, 12);
   const failures = checkRetireEntries(entries, decStatus);
-  let retired = 0;
+  const retired = new Set<string>();
   for (const e of entries) {
-    if (run.has(e.target)) failures.push(`RETIRE file ${e.target}: jest still runs it`);
-    else if (checkRetireEntries([e], decStatus).length === 0) retired += 1;
+    if (!inBaseline.has(e.target)) failures.push(`RETIRE file ${e.target}: not in the baseline at ${at} (only a baseline test file is retired)`);
+    else if (run.has(e.target)) failures.push(`RETIRE file ${e.target}: jest still runs it`);
+    else if (checkRetireEntries([e], decStatus).length === 0) retired.add(e.target);
   }
   const m = measureFloor(listTests, read);
   for (const f of m.unreadable) failures.push(`${f} is listed by jest but cannot be read`);
-  const at = baseline.sha.slice(0, 12);
-  const floor = baseline.listTestsCount - retired;
-  if (m.listTestsCount < floor) {
-    failures.push(`jest runs ${m.listTestsCount} test files; the floor is ${floor} (baseline ${baseline.listTestsCount} at ${at}, minus ${retired} retired): a test file was removed without a RETIRE entry`);
+  // Each baseline file, not a count: new files never stand in for a deleted one (#291 audit RA-1).
+  for (const f of baseline.paths) {
+    if (!run.has(f) && !retired.has(f)) failures.push(`${f}: in the baseline at ${at}, jest no longer runs it, and no RETIRE entry names it`);
   }
   if (m.skipCount > baseline.skipCount) {
     failures.push(`${m.skipCount} skip/todo markers (.skip, x*, .todo); the floor allows ${baseline.skipCount} (baseline at ${at})`);

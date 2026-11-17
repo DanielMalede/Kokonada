@@ -57,6 +57,11 @@ describe('indexTests (QA-040: a full name is the describe path plus the title)',
     expect(tests.filter((t) => !t.dynamic)).toHaveLength(8);
   });
 
+  it('reads it.failing and test.failing as skipped: they pass only while their body fails', () => {
+    const failing = ['it.failing(' + q('a') + ', () => {});', 'test.failing(' + q('b') + ', () => {});'].join(String.fromCharCode(10));
+    expect(indexTests(failing, 'planted.test.ts').map((t) => [t.fullName, t.skipped])).toEqual([['a', true], ['b', true]]);
+  });
+
   it('reads CRLF sources the same as LF', () => {
     expect(indexTests(SRC.split('\n').join('\r\n'), 'planted.test.ts').map((t) => t.fullName)).toEqual(tests.map((t) => t.fullName));
   });

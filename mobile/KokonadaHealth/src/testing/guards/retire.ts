@@ -25,7 +25,9 @@ export interface Pin { id: string; file: string; fullTitle: string; statements: 
 
 export type DecStatus = (dec: string) => string | null;
 
-const DEC_ID = /^DEC-\d{3}$/;
+const DEC_ID = /^DEC-\d{3,}$/;
+/** The RETIRE rule (DEC-091) and its refinement (DEC-142) say who signs; they are never the signature (#291 audit RA-2). */
+export const RULE_DECS: ReadonlySet<string> = new Set(['DEC-091', 'DEC-142']);
 
 /** The `status:` of a decision record's front matter, or null when there is none. */
 export function parseDecStatus(text: string): string | null {
@@ -52,6 +54,7 @@ export function checkRetireEntries(entries: readonly RetireEntry[], decStatus: D
     if (seen.has(key)) { failures.push(`${who}: named twice`); continue; }
     seen.add(key);
     if (!DEC_ID.test(e.dec)) { failures.push(`${who}: ${e.dec} is not a DEC-nnn id`); continue; }
+    if (RULE_DECS.has(e.dec)) { failures.push(`${who}: ${e.dec} is the RETIRE rule itself, not a signature`); continue; }
     const status = decStatus(e.dec);
     if (status === null) failures.push(`${who}: ${e.dec} does not exist`);
     else if (status !== 'DECIDED') failures.push(`${who}: ${e.dec} is ${status}, not DECIDED`);

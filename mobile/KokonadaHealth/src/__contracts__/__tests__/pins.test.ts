@@ -10,6 +10,8 @@ import { REPO_ROOT, checkPins, checkRetireEntries, readDecStatus, sha256, statem
 // values. The pins are read from the real tree (backend/tests/consent.test.js included); the planted
 // controls change the real sources in memory (D8 rule 2).
 
+// Planted RETIRE signatures come from this stub, never from live decision records (#291 audit RA-8).
+const stub = (dec: string) => (dec === 'DEC-900' ? 'DECIDED' : dec === 'DEC-901' ? 'OPEN' : null);
 const read = (file: string): string | null => {
   const abs = path.join(REPO_ROOT, file);
   return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
@@ -77,10 +79,9 @@ describe('QA-118 · v1 pins are retired, never re-pointed', () => {
   it('planted: a pinned test deleted is red without a RETIRE entry and green with a valid one', () => {
     const p = pin('appflow-splash-dwell');
     const gone = (f: string) => (f === p.file ? null : read(f));
-    expect(checkPins([p], gone, [], readDecStatus)).toEqual([`pin ${p.id}: ${JSON.stringify(p.fullTitle)} is gone from ${p.file} with no RETIRE entry`]);
-    const entry = { kind: 'pin' as const, target: p.id, dec: 'DEC-091', reason: 'planted' };
-    expect(readDecStatus('DEC-091')).toBe('DECIDED');
-    expect(checkPins([p], gone, [entry], readDecStatus)).toEqual([]);
-    expect(checkPins([p], gone, [{ ...entry, dec: 'DEC-039' }], readDecStatus)).toEqual(['RETIRE pin appflow-splash-dwell: DEC-039 is OPEN, not DECIDED']);
+    expect(checkPins([p], gone, [], stub)).toEqual([`pin ${p.id}: ${JSON.stringify(p.fullTitle)} is gone from ${p.file} with no RETIRE entry`]);
+    const entry = { kind: 'pin' as const, target: p.id, dec: 'DEC-900', reason: 'planted' };
+    expect(checkPins([p], gone, [entry], stub)).toEqual([]);
+    expect(checkPins([p], gone, [{ ...entry, dec: 'DEC-901' }], stub)).toEqual(['RETIRE pin appflow-splash-dwell: DEC-901 is OPEN, not DECIDED']);
   });
 });

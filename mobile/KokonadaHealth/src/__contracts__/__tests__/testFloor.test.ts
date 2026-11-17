@@ -13,6 +13,8 @@ import { type FloorBaseline, checkFloor, measureFloor } from '../../testing/guar
 // numTotalTests in CI, waits for its CI step (OPS-412). Planted controls are in memory (D8 rule 2).
 
 const BASELINE: FloorBaseline = TEST_FLOOR;
+// Planted RETIRE signatures come from this stub, never from live decision records (#291 audit RA-8).
+const stub = (dec: string) => (dec === 'DEC-900' ? 'DECIDED' : dec === 'DEC-901' ? 'OPEN' : null);
 const read = (file: string): string | null => {
   const abs = path.join(APP_ROOT, file);
   return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
@@ -41,11 +43,10 @@ describe('QA-041 interim floor · test files and skips never fall silently', () 
     const gone = 'src/experience/playback/__tests__/NowPlayingScreen.test.tsx';
     const without = list.filter((f) => f !== gone);
     expect(without).toHaveLength(list.length - 1);
-    expect(checkFloor(atToday, without, read, RETIRE, readDecStatus)).toHaveLength(1);
-    expect(readDecStatus('DEC-091')).toBe('DECIDED');
-    expect(checkFloor(atToday, without, read, [...RETIRE, { kind: 'file', target: gone, dec: 'DEC-091', reason: 'planted' }], readDecStatus)).toEqual([]);
-    expect(checkFloor(atToday, without, read, [...RETIRE, { kind: 'file', target: gone, dec: 'DEC-039', reason: 'planted' }], readDecStatus))
-      .toContain(`RETIRE file ${gone}: DEC-039 is OPEN, not DECIDED`);
+    expect(checkFloor(atToday, without, read, RETIRE, stub)).toEqual([`${gone}: in the baseline at ${BASELINE.sha.slice(0, 12)}, jest no longer runs it, and no RETIRE entry names it`]);
+    expect(checkFloor(atToday, without, read, [...RETIRE, { kind: 'file', target: gone, dec: 'DEC-900', reason: 'planted' }], stub)).toEqual([]);
+    expect(checkFloor(atToday, without, read, [...RETIRE, { kind: 'file', target: gone, dec: 'DEC-901', reason: 'planted' }], stub))
+      .toContain(`RETIRE file ${gone}: DEC-901 is OPEN, not DECIDED`);
   });
 
   it('planted: one real test turned it.skip in memory is red', () => {

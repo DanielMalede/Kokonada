@@ -16,7 +16,7 @@ export interface ContractRef { file: string; fullTitle: string }
 export interface IndexedTest {
   /** jest's full name: the describe titles and the test title, joined by spaces. */
   fullName: string;
-  /** under x*, .skip, .todo, or inside a skipped describe. */
+  /** under x*, .skip, .todo, .failing, or inside a skipped describe. */
   skipped: boolean;
   /** a title (its own or an ancestor's) the source does not spell out: a .each table, a template with an expression, any other expression. */
   dynamic: boolean;
@@ -28,6 +28,8 @@ export const DYNAMIC = '<dynamic>';
 const DESCRIBES = new Set(['describe', 'xdescribe', 'fdescribe']);
 const TESTS = new Set(['it', 'test', 'xit', 'xtest', 'fit']);
 const SKIPPING_ROOTS = new Set(['xit', 'xtest', 'xdescribe']);
+// it.failing passes only while its body fails, so it holds no contract: read as skipped (#291 audit RA-3).
+const SKIPPING_PROPS = new Set(['skip', 'todo', 'failing']);
 
 /** The callee chain of a test call: the root identifier and every property name on the way, outermost last. */
 function calleeChain(e: ts.Expression): { root: string | null; names: string[]; each: boolean } {
@@ -57,7 +59,7 @@ export function indexTests(source: string, fileName: string): IndexedTest[] {
         const literal = ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg);
         const ownDynamic = each || !literal;
         const title = ownDynamic ? DYNAMIC : (arg as ts.StringLiteralLike).text;
-        const ownSkipped = SKIPPING_ROOTS.has(root as string) || names.includes('skip') || names.includes('todo');
+        const ownSkipped = SKIPPING_ROOTS.has(root as string) || names.some((name) => SKIPPING_PROPS.has(name));
         if (isTest) {
           out.push({ fullName: [...titles, title].join(' '), skipped: skipped || ownSkipped, dynamic: dynamic || ownDynamic, call: n });
           return;
