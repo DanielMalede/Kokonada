@@ -3,7 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { colors } from '../../design/tokens';
 import { contrastRatio, flatten, parseHex, AA_NORMAL } from '../../design/contrast';
-import { textScrimFill } from '../../design/auroraSurfaces';
+import { glassFor, textScrimFill } from '../../design/auroraSurfaces';
+import { FACES } from '../faces';
 import { composite, parseColor, renderedContrast, toHex } from '../backdrop';
 
 // QA-119: a jest contrast assertion computes its backdrop from the RENDERED ancestor chain,
@@ -26,10 +27,14 @@ const textIn = (el: React.ReactElement) => {
 
 // The v1 field's worst moments, built from the tokens: each aurora blob at its own alpha over each end
 // of the canvas gradient, under LivingAurora's 0.42 veil (LivingAurora.tsx:21).
+// MB-167: these samples are v1 STAND-INS (the v1 aurora tokens and LivingAurora's 0.42 veil). When
+// ADR-0017's v2 tokens land they are replaced by the V1 field's measured worst moments, in both faces.
+// This jest helper never replaces the G11 on-device contrast measurement; it only stops a test from
+// judging copy against a backdrop it never sits on.
 const VEIL = 0.42;
-const fieldSamples = () => [C.surface.canvasTop, C.surface.canvasBottom].flatMap((canvas) =>
-  [canvas, ...Object.values(C.aurora.blobs).map((b) => toHex(composite(parseColor(b.color), b.alpha, parseColor(canvas))))]
-    .map((under) => toHex(composite(parseColor(C.surface.veilColor), VEIL, parseColor(under)))));
+const fieldSamples = (S: typeof C = C) => [S.surface.canvasTop, S.surface.canvasBottom].flatMap((canvas) =>
+  [canvas, ...Object.values(S.aurora.blobs).map((b) => toHex(composite(parseColor(b.color), b.alpha, parseColor(canvas))))]
+    .map((under) => toHex(composite(parseColor(S.surface.veilColor), VEIL, parseColor(under)))));
 const OPTIONS = () => ({ field: fieldSamples(), scrims: [textScrimFill(C, 'dark')] });
 
 describe('QA-119 · the backdrop is the rendered chain', () => {
@@ -61,25 +66,6 @@ describe('QA-119 · the backdrop is the rendered chain', () => {
     );
     const faded = toHex(composite(parseColor(C.content.primary), 0.5, parseColor(C.surface.base)));
     expect(renderedContrast(node, OPTIONS()).ratio).toBeCloseTo(contrastRatio(faded, C.surface.base), 2);
-  });
-
-  it('planted: a glass bar over the field, with no declared scrim, fails', () => {
-    const node = textIn(
-      <View style={{ backgroundColor: C.aurora.glass.night.bg }}><Text testID="copy" style={{ color: C.content.primary }}>Tab</Text></View>,
-    );
-    expect(() => renderedContrast(node, OPTIONS())).toThrow(/reaches the field without a declared scrim/);
-  });
-
-  it('a declared scrim over the field: judged against every field sample, the worst reported', () => {
-    const node = textIn(
-      <View style={{ backgroundColor: textScrimFill(C, 'dark') }}><Text testID="copy" style={{ color: C.content.primary }}>Copy</Text></View>,
-    );
-    const r = renderedContrast(node, OPTIONS());
-    expect(r.throughField).toBe(true);
-    const scrim = parseColor(textScrimFill(C, 'dark'));
-    const each = fieldSamples().map((s) => contrastRatio(C.content.primary, toHex(composite(scrim, scrim.a, parseColor(s)))));
-    expect(r.ratio).toBeCloseTo(Math.min(...each), 2);
-    expect(r.ratio).toBeGreaterThanOrEqual(AA_NORMAL); // the densified scrim floor holds (auroraSurfaces.ts)
   });
 
   it('the field reached through a chain with no layer at all also fails', () => {
@@ -171,6 +157,60 @@ describe('RA-235-1 · QA-119: a field drawn as an earlier sibling under an opaqu
     const r = renderedContrast(textIn(el), SIB);
     expect(r.throughField).toBe(false);
     expect(r.ratio).toBeCloseTo(contrastRatio(C.content.primary, C.surface.base), 6);
+  });
+});
+
+// MB-166: the field cases run in BOTH faces, each with its own canvas, veil, glass and scrim.
+describe.each(FACES)('QA-119 · the field, %s face', (face) => {
+  const S = colors[face];
+  const field = fieldSamples(S);
+  const scrimFill = textScrimFill(S, face);
+  const glass = glassFor(S, face).bg; // Day glass on light, Nocturne glass on dark
+  const opts = { field, scrims: [scrimFill] };
+  const expectedWorst = (layers: string[]) => Math.min(...field.map((f) => contrastRatio(S.content.primary,
+    toHex(layers.reduce((under, l) => { const c = parseColor(l); return composite(c, c.a, under); }, parseColor(f))))));
+
+  it("the face samples are this face's own field", () => {
+    expect(field).toContain(toHex(composite(parseColor(S.surface.veilColor), VEIL, parseColor(S.surface.canvasTop))));
+    expect(new Set(field).size).toBeGreaterThan(1);
+  });
+
+  it(`planted: a ${face === 'light' ? 'light-ground Day' : 'Nocturne'} glass bar over the field, with no declared scrim, fails`, () => {
+    const node = textIn(<View style={{ backgroundColor: glass }}><Text testID="copy" style={{ color: S.content.primary }}>Tab</Text></View>);
+    expect(() => renderedContrast(node, opts)).toThrow(/reaches the field without a declared scrim/);
+  });
+
+  it('planted: the same glass bar over a field drawn as an earlier sibling under an opaque root fails', () => {
+    const node = textIn(
+      <View style={{ flex: 1, backgroundColor: S.surface.base }}>
+        <View style={StyleSheet.absoluteFill}><View style={{ flex: 1, backgroundColor: S.surface.canvasTop }} /></View>
+        <View style={{ backgroundColor: glass }}><Text testID="copy" style={{ color: S.content.primary }}>Tab</Text></View>
+      </View>,
+    );
+    expect(() => renderedContrast(node, opts)).toThrow(/QA-119: .*drawn beneath the text/);
+  });
+
+  it('a declared scrim over the field: judged against every field sample, the worst reported', () => {
+    const node = textIn(<View style={{ backgroundColor: scrimFill }}><Text testID="copy" style={{ color: S.content.primary }}>Copy</Text></View>);
+    const r = renderedContrast(node, opts);
+    expect(r.throughField).toBe(true);
+    expect(r.ratio).toBeCloseTo(expectedWorst([scrimFill]), 2);
+    expect(r.ratio).toBeGreaterThanOrEqual(AA_NORMAL); // the densified scrim floor holds (auroraSurfaces.ts)
+  });
+
+  it('a declared scrim under glass, over a sibling field under an opaque root: every sample judged', () => {
+    const node = textIn(
+      <View style={{ flex: 1, backgroundColor: S.surface.base }}>
+        <View style={StyleSheet.absoluteFill}><View style={{ flex: 1, backgroundColor: S.surface.canvasTop }} /></View>
+        <View style={{ backgroundColor: scrimFill }}>
+          <View style={{ backgroundColor: glass }}><Text testID="copy" style={{ color: S.content.primary }}>Tab</Text></View>
+        </View>
+      </View>,
+    );
+    const r = renderedContrast(node, opts);
+    expect(r.throughField).toBe(true);
+    expect(r.ratio).toBeCloseTo(expectedWorst([scrimFill, glass]), 2);
+    expect(r.ratio).toBeGreaterThanOrEqual(AA_NORMAL);
   });
 });
 
