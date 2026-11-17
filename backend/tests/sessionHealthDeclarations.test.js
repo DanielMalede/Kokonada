@@ -503,7 +503,7 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
       'DNS only, not proxied',
       'GitHub\'s words: "When a GitHub Pages site is visited, the visitor\'s IP address is logged and stored for security purposes, regardless of whether the visitor has signed into GitHub or not."',
       '<!-- NEEDS VERIFICATION: true once the Pages custom domain is set and the pages are published (DAN-104); until then nothing is served at the domain. GitHub\'s text: docs.github.com "About GitHub Pages", Data collection, fetched 2026-11-17. -->',
-      'The app sends them nothing. The recipients below see the site\'s visitors and the mail, not the app\'s data.',
+      'The recipients below see the site\'s visitors and the mail, not the app\'s data.',
       '| ⟨OWNER FACT: the personal mailbox\'s provider⟩ |',
       '⟨OWNER DECISION: period⟩',
       '⟨OWNER DECISION: and to keep a record of a privacy request⟩',
@@ -512,11 +512,22 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     const routing = w.split('\n').find((l) => l.startsWith('| **Cloudflare** (Email Routing for `privacy@kokonada.com`)'));
     expect(routing).toContain('health information included; Cloudflare states that it "will not store or access the emails", and keeps a record of each routed message (sender, recipient, subject, message ID and what it did with the message), which can be queried for 31 days <!-- NEEDS VERIFICATION: Cloudflare developer docs, Email Routing analytics, fetched 2026-11-17; whether Cloudflare keeps the record longer than the query window is not in that page (Cloudflare DPA and privacy policy: UNRETRIEVED). --> | Forwarded to the owner\'s personal mailbox |');
     expect(w).not.toContain('Cloudflare keeps a record of the routing activity');
-    // C287-7: the app opens the policy page in the device's browser and sends the site nothing.
-    expect(w).toContain('The app\'s privacy link opens this page in the device\'s browser (`PrivacyPolicyLink.tsx`); the app itself sends the site nothing.');
+    // C287-7, round 2 (regulatory new finding 1): the app opens the policy in two places, the browser
+    // and the Health Connect screen's WebView, at the address legalLinks.ts holds until MB-142.
+    expect(w).toContain('The app opens the policy in two places: its privacy link opens it in the device\'s browser (`PrivacyPolicyLink.tsx`), and the Health Connect privacy-policy screen loads it inside the app (`PermissionsRationaleActivity.kt`, a WebView with JavaScript off). Both request the address in `legalLinks.ts` `PRIVACY_POLICY_URL`, which is `https://kokonada.github.io/privacy/` until `MB-142` moves it here (DEC-186). The request carries what a browser sends, such as the IP address and a user agent. <!-- NEEDS VERIFICATION: whether the Android WebView also sends the app\'s package name (X-Requested-With) is unverified; check on a device before any sentence says the site cannot tell the request came from the app. -->');
+    expect(w).not.toContain('the app itself sends the site nothing');
+    expect(w).not.toContain('The app sends them nothing.');
     const link = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/src/legal/PrivacyPolicyLink.tsx'), 'utf8');
     expect(link).toContain('.then(() => Linking.openURL(PRIVACY_POLICY_URL))');
     expect(link).not.toMatch(/\bfetch\(|WebView/);
+    const links = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/src/legal/legalLinks.ts'), 'utf8');
+    expect(links).toContain("export const PRIVACY_POLICY_URL = 'https://kokonada.github.io/privacy/';");
+    const strings = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/android/app/src/main/res/values/strings.xml'), 'utf8');
+    expect(strings).toContain('<string name="privacy_policy_url" translatable="false">https://kokonada.github.io/privacy/</string>');
+    const rationale = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/android/app/src/main/java/com/kokonadahealth/PermissionsRationaleActivity.kt'), 'utf8');
+    expect(rationale).toContain('val uri = Uri.parse(getString(R.string.privacy_policy_url))');
+    expect(rationale).toContain('web.settings.javaScriptEnabled = false');
+    expect(rationale).toContain('web.loadUrl(policy.toString())');
     // The app's sub-processors stay app-only: none of the site's recipients is listed there.
     expect(section(d, 'Sub-processors (who touches the data, and what they receive)')).not.toMatch(/kokonada\.com|Cloudflare|GitHub Pages/);
   });
