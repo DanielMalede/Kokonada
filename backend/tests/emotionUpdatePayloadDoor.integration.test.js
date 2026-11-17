@@ -19,6 +19,10 @@
 // the whole emotion generation path through to the persisted session. Faked: the socket.io socket (a
 // stateful stand-in) and the generation's outside dependencies, as in
 // emotionUpdateRetiredActivity.integration.test.js.
+//
+// DAN-131: the note is stored only under a CURRENT health grant (the owner's ruling of 2026-10-28), so the
+// tests that pin what is STORED give their listener a real grant; a listener without one has the note
+// shape the generation and store '' (noteConsentStorage.integration.test.js has the full evidence).
 
 process.env.NODE_ENV = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
@@ -84,6 +88,8 @@ jest.mock('../app/services/spotifySessionPlaylist', () => ({
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const User = require('../app/models/User');
+const ConsentRecord = require('../app/models/ConsentRecord');
+const { recordConsent, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../app/services/geminiEngine');
 const { registerBiometricHandler, _resetDebounceState, _debounceMap } = require('../app/sockets/biometricHandler');
@@ -101,7 +107,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   jest.clearAllMocks();
-  await Promise.all([User.deleteMany({}), PlaylistSession.deleteMany({})]);
+  await Promise.all([User.deleteMany({}), ConsentRecord.deleteMany({}), PlaylistSession.deleteMany({})]);
 });
 afterEach(() => { _resetDebounceState(); });
 
@@ -110,11 +116,12 @@ beforeEach(() => { quiet = ['warn', 'info', 'log'].map((m) => jest.spyOn(console
 afterEach(() => { quiet.forEach((s) => s.mockRestore()); });
 
 let seq = 0;
-async function listener() {
+async function listener({ consenting = false } = {}) {
   seq += 1;
   const user = new User({ ssoProvider: 'google', ssoId: `sso-door-${seq}`, email: `door-${seq}@example.com` });
   user.setToken('spotifyToken', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
   await user.save();
+  if (consenting) await recordConsent(user._id, { purpose: HEALTH_CONSENT_PURPOSE, dataCategories: ['heart_rate'] });
   return user;
 }
 
@@ -145,8 +152,8 @@ const plainTaps = (taps) => taps.map(({ x, y }) => ({ x, y }));
 
 // What a client sends before Generate: its intent, then the request. Returns what the socket held,
 // the session row written for this moment, and what the model was asked.
-async function generationAfter(intent) {
-  const user = await listener();
+async function generationAfter(intent, { consenting = false } = {}) {
+  const user = await listener({ consenting });
   const socket = openSocket(user);
   socket._trigger('emotion_update', { mode: 'manual', ...intent });
   const held = _debounceMap.get(socket.id);
@@ -221,6 +228,12 @@ describe('emotion_update keeps at most three valid taps, and the moment is writt
     expect(asked.emotionTaps).toEqual([]);
     expect(asked.textPrompt).toBe('calm evening');
     expect(plainTaps(session.emotionTaps)).toEqual([{ x: 0, y: 0 }]); // the schema's no-tap placeholder
+    expect(session.contextPrompt).toBe(''); // DAN-131: no health grant, so the note shapes the mix and is not kept
+  });
+
+  it('control — with a current health grant the same prompt-only moment stores its note', async () => {
+    const { session, asked } = await generationAfter({ taps: 'abc', textPrompt: 'calm evening' }, { consenting: true });
+    expect(asked.textPrompt).toBe('calm evening');
     expect(session.contextPrompt).toBe('calm evening');
   });
 
@@ -258,7 +271,7 @@ describe('emotion_update keeps a bounded string prompt, and the moment is writte
 
   it('a 501-character prompt is cut to its first 500 characters, held, asked and stored', async () => {
     const prompt = `${'a'.repeat(499)}bc`;
-    const { heldPrompt, session, asked } = await generationAfter({ taps: [A], textPrompt: prompt });
+    const { heldPrompt, session, asked } = await generationAfter({ taps: [A], textPrompt: prompt }, { consenting: true });
     expect(heldPrompt).toBe(`${'a'.repeat(499)}b`);
     expect(asked.textPrompt).toBe(`${'a'.repeat(499)}b`);
     expect(session.contextPrompt).toBe(`${'a'.repeat(499)}b`);
@@ -266,7 +279,7 @@ describe('emotion_update keeps a bounded string prompt, and the moment is writte
 
   it('control: a 500-character prompt is kept whole', async () => {
     const prompt = `${'z'.repeat(499)}!`;
-    const { heldPrompt, session, asked } = await generationAfter({ taps: [A], textPrompt: prompt });
+    const { heldPrompt, session, asked } = await generationAfter({ taps: [A], textPrompt: prompt }, { consenting: true });
     expect(heldPrompt).toBe(prompt);
     expect(asked.textPrompt).toBe(prompt);
     expect(session.contextPrompt).toBe(prompt);

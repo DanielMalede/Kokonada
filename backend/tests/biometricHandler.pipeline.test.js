@@ -1664,6 +1664,112 @@ describe('session-history honesty (records what actually drove the generation)',
   });
 });
 
+// DAN-131 (the owner's ruling of 2026-10-28): a note from a user with no CURRENT health grant shapes
+// that generation and is never kept — not in PlaylistSession.contextPrompt, not in the socket's state
+// after the run that read it. Consent is read per generation, through the gate's one definition, and
+// only when there is a note to keep: a run with no note reads nothing (the mood-only path stays free of
+// a consent read). Real-Mongo evidence: noteConsentStorage.integration.test.js.
+describe('DAN-131 — a note is stored only under a current health grant', () => {
+  const consent = require('../app/services/privacy/consent');
+  const GRANTED = { granted: true, currentVersion: 1, staleVersion: false };
+  const NOT_GRANTED = { granted: false, currentVersion: 1, staleVersion: false };
+  const NOTE = 'slept badly, something soft';
+  const taps = [{ x: -0.2, y: -0.4 }];
+
+  afterEach(() => { consent.getConsentStatus.mockResolvedValue(GRANTED); });
+
+  it.each([
+    ['never granted', () => consent.getConsentStatus.mockResolvedValue(NOT_GRANTED)],
+    ['granted at an older version (stale)', () => consent.getConsentStatus.mockResolvedValue({ granted: true, currentVersion: 2, staleVersion: true })],
+    ['unreadable (fail closed)', () => consent.getConsentStatus.mockRejectedValue(new Error('MongoServerSelectionError'))],
+  ])('consent %s: the note shapes the generation, the session stores "", and the socket drops it', async (_label, arrange) => {
+    arrange();
+    const socket = makeSocket();
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalledWith(expect.objectContaining({ textPrompt: NOTE }));
+    expect(PlaylistSession.create).toHaveBeenCalledTimes(1);
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
+    expect(state.lastTextPrompt).toBe('');
+    expect(consent.getConsentStatus).toHaveBeenCalledWith('user-123', 'health_biometric_processing');
+  });
+
+  it('a note-only request (no taps, no chip) still routes to the mood pipeline without a grant', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const state = makeState({ lastEmotionTaps: [], lastTextPrompt: NOTE });
+
+    await generateAndEmitPlaylist(makeSocket(), 'emotion', state);
+
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalledWith(expect.objectContaining({ textPrompt: NOTE }));
+    expect(geminiEngine.adjustBiometricPlaylist).not.toHaveBeenCalled();
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
+  });
+
+  it('control — a current grant: the note is stored and the socket keeps holding it, as before', async () => {
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
+
+    await generateAndEmitPlaylist(makeSocket(), 'emotion', state);
+
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe(NOTE);
+    expect(state.lastTextPrompt).toBe(NOTE);
+  });
+
+  it('no note: consent is not read for a mood-only run', async () => {
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: '', stableHR: null, latestActivity: null });
+
+    await generateAndEmitPlaylist(makeSocket(), 'emotion', state);
+
+    expect(consent.getConsentStatus).not.toHaveBeenCalled();
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
+  });
+
+  it('a newer note that arrives while the consent read is pending is not dropped with the old one', async () => {
+    let answer;
+    consent.getConsentStatus.mockImplementation(() => new Promise((r) => { answer = r; }));
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
+
+    const run = generateAndEmitPlaylist(makeSocket(), 'emotion', state);
+    // The run takes its note before it asks; the next emotion_update replaces the held one meanwhile.
+    for (let i = 0; i < 20 && !answer; i += 1) await new Promise((r) => setImmediate(r));
+    expect(answer).toBeDefined();
+    state.lastTextPrompt = 'a newer note';
+    answer(NOT_GRANTED);
+    await run;
+
+    expect(geminiEngine.buildEmotionPlaylist).toHaveBeenCalledWith(expect.objectContaining({ textPrompt: NOTE }));
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
+    expect(state.lastTextPrompt).toBe('a newer note'); // its own generation decides for it
+  });
+
+  it('a heart or biometric run never stores a held note, and is unchanged otherwise', async () => {
+    consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
+
+    await generateAndEmitPlaylist(makeSocket(), 'biometric', state);
+
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
+    expect(geminiEngine.buildEmotionPlaylist).not.toHaveBeenCalled();
+  });
+});
+
+describe('DAN-131 — a withdrawal on the open socket drops the held note', () => {
+  const { withholdSocketBiometrics } = require('../app/sockets/biometricHandler');
+
+  it('withholdSocketBiometrics clears the held note with the held biometrics', () => {
+    const socket = makeSocket();
+    registerBiometricHandler(socket);
+    socket._trigger('emotion_update', { taps: [{ x: 0.1, y: 0.1 }], textPrompt: 'tired today' });
+    expect(_debounceMap.get(socket.id).lastTextPrompt).toBe('tired today');
+
+    expect(withholdSocketBiometrics(socket.id)).toBe(true);
+
+    expect(_debounceMap.get(socket.id).lastTextPrompt).toBe('');
+    expect(_debounceMap.get(socket.id).lastEmotionTaps).toEqual([{ x: 0.1, y: 0.1 }]); // the taps are not health data
+  });
+});
+
 describe('serve ledger wiring (variance engine, Phase 3)', () => {
   const serveLedger = require('../app/services/ledger/serveLedger');
 
@@ -3637,7 +3743,7 @@ describe('request_heart_playlist — Art.9 gate (N1)', () => {
 describe('withholdSocketBiometrics (H3b)', () => {
   const { withholdSocketBiometrics } = require('../app/sockets/biometricHandler');
 
-  it('clears the Art.9 fields, keeps intent/mode/reqId/liveMode/playbackRate, and never creates state for an unknown socket', async () => {
+  it('clears the Art.9 fields and the held note (DAN-131), keeps taps/chip/mode/reqId/liveMode/playbackRate, and never creates state for an unknown socket', async () => {
     const socket = makeSocket();
     registerBiometricHandler(socket);
     await socket._trigger('biometric_push', {
@@ -3660,10 +3766,10 @@ describe('withholdSocketBiometrics (H3b)', () => {
     expect(held).toEqual(expect.objectContaining({
       stableHR: null, pendingHR: null, servedHR: null, filterState: null, playWindow: null,
       liveBaselines: null, liveNights: null, latestActivity: null, stableActivity: null,
-      pendingActivity: null, servedBioMoodKey: null, timer: null,
+      pendingActivity: null, servedBioMoodKey: null, timer: null, lastTextPrompt: '',
     }));
     expect(held).toEqual(expect.objectContaining({
-      lastEmotionTaps: [{ x: 0.4, y: -0.2 }], lastTextPrompt: 'rainy walk', lastActivity: 'walking',
+      lastEmotionTaps: [{ x: 0.4, y: -0.2 }], lastActivity: 'walking',
       lastMode: 'export', lastReqId: 41, liveMode: true, playbackRate: { tokens: 3 },
     }));
 
