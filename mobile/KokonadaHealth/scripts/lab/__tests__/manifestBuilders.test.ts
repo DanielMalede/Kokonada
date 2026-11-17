@@ -155,9 +155,9 @@ describe('validateManifest: the manifest\'s top level', () => {
     ['a list', [], /must be an object/],
     ['a field it does not know', { colour: 'red' }, /^colour is not a manifest field$/],
     ['an outcome that is neither', { outcome: 'partly' }, /^outcome must be one of passed, failed$/],
-    ['a passed run with a failure', { failure: 'x' }, /outcome "passed" needs failure null and no restore failure/],
-    ['a passed run with a restore failure', { restoreFailures: ['x'] }, /outcome "passed" needs failure null and no restore failure/],
-    ['a failed run with nothing that failed', { outcome: 'failed' }, /outcome "failed" needs a failure or a restore failure/],
+    ['a passed run with a failure', { failure: 'x' }, /^outcome is "passed", but failure is not null or restoreFailures is not empty$/],
+    ['a passed run with a restore failure', { restoreFailures: ['x'] }, /^outcome is "passed", but failure is not null or restoreFailures is not empty$/],
+    ['a failed run with nothing that failed', { outcome: 'failed' }, /^outcome is "failed", but failure is null and restoreFailures is empty$/],
     ['an empty failure', { outcome: 'failed', failure: '' }, /^failure must be a string or null$/],
     ['a restore failure that is not a sentence', { outcome: 'failed', restoreFailures: [3] }, /^restoreFailures\[0\] must be a non-empty string$/],
     ['a commit that is not a full sha', { commit: 'abc' }, /^commit must be 40 lowercase hex/],
@@ -177,8 +177,8 @@ describe('validateManifest: the manifest\'s top level', () => {
     ['a finish before the start', { finishedAt: '2026-11-15T09:00:00.000Z' }, /^finishedAt must not be before startedAt$/],
     ['rows that are not a list', { rows: {} }, /^rows must be a list$/],
     ['a row that is not an object', { rows: ['x'] }, /^rows\[0\] must be an object$/],
-    ['a determinism entry with a short hash', { determinism: [{ shot: 's', equal: true, hashes: ['ab'] }] }, /^determinism\[0\]\.hashes\[0\] must be 64 lowercase hex/],
-    ['a determinism entry without equal', { determinism: [{ shot: 's', hashes: [] }] }, /^determinism\[0\]\.equal is required$/],
+    ['determinism that is not a list', { determinism: {} }, /^determinism must be a list$/],
+    ['a determinism entry that is not an object', { determinism: ['x'] }, /^determinism\[0\] must be an object$/],
     ['proofs that are not a list', { proofs: null }, /^proofs must be a list$/],
     ['a check that is not an object', { checks: [1] }, /^checks\[0\] must be an object$/],
     ['results that are not a list', { results: 'x' }, /^results must be a list$/],
@@ -196,7 +196,8 @@ describe('validateManifest: the manifest\'s top level', () => {
     expect(validateManifest({ ...good(), render: { ...RENDER, gl: { renderer: null, gles: null, reason: 'dumpsys SurfaceFlinger: timeout' } } })).toEqual([]);
   });
 
-  it('a row is the readers\' and validateRow\'s to judge, not the top level\'s', () => {
+  it('a row is the readers\' and validateRow\'s to judge, not the top level\'s; an entry of another list its report\'s', () => {
     expect(validateManifest({ ...good(), rows: [{ shot: 'x' }] })).toEqual([]);
+    expect(validateManifest({ ...good(), determinism: [{ shot: 's', equal: true }] })).toEqual([]);
   });
 });

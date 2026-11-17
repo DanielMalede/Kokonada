@@ -10,6 +10,7 @@
 //     so the device's own density would make every cell twice as big and average its flashes away.
 // Pure: no file is read here. Each problem names the manifest field it read.
 
+import { validateManifest } from '../../lib/manifest.mjs';
 import { androidDensity } from './evidence.mts';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -61,6 +62,9 @@ export function recordingPxPerDp(manifest, shot, size) {
  */
 export function recordingProblems(manifest, { shot, mp4Sha256, size, pxPerDp }) {
   if (!isObject(manifest)) return ['the manifest is not an object'];
+  // UI-240: the harness's validateManifest holds the top level before any field of it is read.
+  const top = validateManifest(manifest);
+  if (top.length > 0) return top.map((e) => `manifest.${e}`);
   if (manifest.outcome !== 'passed') {
     const why = typeof manifest.failure === 'string' && manifest.failure.length > 0 ? `: ${manifest.failure}` : '';
     return [`manifest.outcome is ${JSON.stringify(manifest.outcome ?? null)}, not "passed"${why}`];

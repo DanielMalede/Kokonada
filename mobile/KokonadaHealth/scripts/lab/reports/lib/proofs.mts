@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { validatePlan } from '../../capture.mjs';
+import { validateManifest } from '../../lib/manifest.mjs';
 import { EvidenceInputError } from './evidence.mts';
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -134,8 +135,13 @@ export function loadRun(planFile: string, manifestFile: string, report: string):
   if (!isObject(m.value)) throw new EvidenceInputError(`${report}: the manifest ${manifestFile} is not an object`);
   const mv = m.value;
   const where = `the manifest ${manifestFile}`;
+  // UI-240: the harness's validateManifest holds the top level (its lists among it) before any field is read.
+  const top = validateManifest(mv) as string[];
+  if (top.length > 0) {
+    const field = (e: string) => (e.indexOf(' ') > 0 ? `the field "${e.slice(0, e.indexOf(' '))}" ${e.slice(e.indexOf(' ') + 1)}` : e);
+    throw new EvidenceInputError(`${report}: ${where} is not one the harness writes (scripts/lab/lib/manifest.mjs validateManifest): ${top.map(field).join('; ')}`);
+  }
   if (mv.plan !== plan.id) refuse(report, where, 'plan', `is ${JSON.stringify(mv.plan)}, not the plan's id ${plan.id}`);
-  for (const list of ['proofs', 'determinism', 'results']) if (!Array.isArray(mv[list])) refuse(report, where, list, 'is missing or not a list');
   return {
     plan,
     manifest: {

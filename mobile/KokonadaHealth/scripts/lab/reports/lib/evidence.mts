@@ -47,7 +47,7 @@ import { FIELD_UNIFORM_FLOATS, packFrame } from '../../../../src/design/v2/field
 import { CHECK_BAND } from '../../../../src/design/v2/tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../../../src/design/v2/tokens/tokens.extensions.generated.ts';
 import { DIRECTIONS, type DirectionId, type Face } from '../../../../src/design/v2/tokens/tokens.generated.ts';
-import { validateRow } from '../../lib/manifest.mjs';
+import { validateManifest, validateRow } from '../../lib/manifest.mjs';
 import { cropRegion, decodePng } from '../../lib/png.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -339,7 +339,11 @@ export function loadManifest(file: string): Manifest {
     throw new EvidenceInputError(`the manifest ${file} is not JSON: ${(e as Error).message}`);
   }
   if (!isObject(m)) throw new EvidenceInputError(`the manifest ${file} is not an object`);
-  if (!Array.isArray(m.rows)) throw new EvidenceInputError(`the manifest ${file}: the field "rows" is missing or not a list`);
+  // UI-240: the harness's validateManifest holds the top level, as validateRow holds each row (readCaptureRow).
+  const top = validateManifest(m) as string[];
+  if (top.length > 0) {
+    throw new EvidenceInputError(`the manifest ${file} is not one the harness writes (scripts/lab/lib/manifest.mjs validateManifest): ${top.map(named).join('; ')}`);
+  }
   return {
     file: path.resolve(file), dir: path.dirname(path.resolve(file)), sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
     plan: m.plan ?? null, outcome: m.outcome ?? null, failure: m.failure ?? null, commit: m.commit ?? null, rows: m.rows,

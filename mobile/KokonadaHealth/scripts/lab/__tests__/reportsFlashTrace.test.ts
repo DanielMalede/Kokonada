@@ -313,6 +313,16 @@ describe('RA-47: the recording is bound to the run', () => {
     expect(problems[0]).toMatch(why as RegExp);
   });
 
+  // UI-240: the top level is validateManifest's before any field of it is read.
+  it('UI-240: a manifest whose top level is not the harness\'s is refused before it is read, naming the field', () => {
+    const m = JSON.parse(fs.readFileSync(path.join(sets, 'manifest.json'), 'utf8'));
+    delete m.stamp;
+    fs.writeFileSync(path.join(sets, 'manifest-nostamp.json'), JSON.stringify(m));
+    expect(bind('manifest-nostamp.json', bound()).problems).toEqual(['manifest.stamp is required']);
+    fs.writeFileSync(path.join(sets, 'manifest-bare.json'), JSON.stringify({ outcome: 'passed', rows: m.rows, records: m.records }));
+    expect(bind('manifest-bare.json', bound()).problems).toContain('manifest.commit is required');
+  });
+
   const refusedRun = (args: string[], why: RegExp) => {
     const r = run(args);
     expect([r.status, r.report]).toEqual([2, null]);

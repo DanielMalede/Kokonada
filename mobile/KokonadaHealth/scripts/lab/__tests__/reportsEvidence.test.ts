@@ -21,7 +21,7 @@ import { PixelRatio } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { validateRow } from '../lib/manifest.mjs';
-import { row, withValue, without, type Rect } from '../reports/__fixtures__/rows';
+import { manifest, row, withValue, without, type Rect } from '../reports/__fixtures__/rows';
 import { srgbToOklab } from '../../../src/design/v2/color/oklab';
 import { isRed } from '../../../src/design/v2/color/redBand';
 import { CHECK_BAND } from '../../../src/design/v2/tokens/neverRedSweeps';
@@ -289,7 +289,7 @@ describe('B8-8c: the capture behind a row, and its crops', () => {
 
   it('loads the PNG of a row, checked against its sha256 and its region’s size, and crops a rect of it', async () => {
     const sha = await plant(6, 5, (x, y) => [x, y, 7]);
-    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ rows: [captureRow(sha, { x: 3, y: 9, width: 6, height: 5 })] }));
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest([captureRow(sha, { x: 3, y: 9, width: 6, height: 5 })])));
     const r = lib<Result<{ width: number; height: number; crop: number[] }>>(
       'const m = E.loadManifest(input); const img = await E.loadCapture(m, E.readCaptureRow(m.rows[0], "test")); const c = E.cropRgba(img, { x: 2, y: 1, width: 2, height: 2 }); return { width: img.width, height: img.height, crop: Array.from(c.rgba) };',
       path.join(dir, 'manifest.json'),
@@ -300,16 +300,29 @@ describe('B8-8c: the capture behind a row, and its crops', () => {
 
   it('a PNG whose bytes are not the row’s sha256 is refused, naming "sha256"', async () => {
     await plant(6, 5, () => [1, 2, 3]);
-    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ rows: [captureRow('d'.repeat(64), { x: 0, y: 0, width: 6, height: 5 })] }));
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest([captureRow('d'.repeat(64), { x: 0, y: 0, width: 6, height: 5 })])));
     const r = lib<Result<unknown>>('const m = E.loadManifest(input); return await E.loadCapture(m, E.readCaptureRow(m.rows[0], "test"));', path.join(dir, 'manifest.json'));
     expect(r.error).toEqual({ name: expect.anything(), message: expect.stringContaining('"sha256"'), isInput: true });
   });
 
   it('a PNG of another size than its region is refused, naming "region"', async () => {
     const sha = await plant(6, 5, () => [1, 2, 3]);
-    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ rows: [captureRow(sha, { x: 0, y: 0, width: 6, height: 6 })] }));
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest([captureRow(sha, { x: 0, y: 0, width: 6, height: 6 })])));
     const r = lib<Result<unknown>>('const m = E.loadManifest(input); return await E.loadCapture(m, E.readCaptureRow(m.rows[0], "test"));', path.join(dir, 'manifest.json'));
     expect(r.error).toEqual({ name: expect.anything(), message: expect.stringContaining('"region"'), isInput: true });
+  });
+
+  // UI-240: every report reads a manifest through loadManifest, which holds its top level to the harness's validateManifest.
+  it.each([
+    ['a bare list of rows', (m: Record<string, unknown>) => ({ rows: m.rows }), /validateManifest\): the manifest field "plan" is required; the manifest field "outcome" is required/],
+    ['a manifest without its commit', (m: Record<string, unknown>) => ({ ...m, commit: undefined }), /validateManifest\): the manifest field "commit" is required$/],
+    ['a passed run with a failure', (m: Record<string, unknown>) => ({ ...m, failure: 'x' }), /validateManifest\): the manifest field "outcome" is "passed", but failure is not null/],
+  ])('UI-240: %s is refused before a row is read, naming the field', async (_label, edit, why) => {
+    const sha = await plant(6, 5, () => [1, 2, 3]);
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(edit(manifest([captureRow(sha, { x: 0, y: 0, width: 6, height: 5 })]))));
+    const r = lib<Result<unknown>>('return E.loadManifest(input).rows.length;', path.join(dir, 'manifest.json'));
+    expect(r.error).toEqual({ name: 'EvidenceInputError', message: expect.stringMatching(why), isInput: true });
+    expect(r.error!.message).toMatch(/^the manifest .*manifest\.json is not one the harness writes \(scripts\/lab\/lib\/manifest\.mjs validateManifest\): /);
   });
 
   it('magnify repeats each pixel factor × factor times (nearest), for the ×8 crops', () => {

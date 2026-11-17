@@ -215,7 +215,8 @@ const object = check(isObject, 'must be an object');
 const objects = [object];
 
 // The top level: the run's facts, strict like a row. A row is judged by validateRow where it is read (the harness before it
-// keeps the row, every report's reader before it reads one); here a row is only an object in the list.
+// keeps the row, every report's reader before it reads one); here a row is only an object in the list. So is an entry of
+// the other lists: each report that reads one holds it to its own reader (reports/lib/proofs.mts, recordBinding.mjs).
 const MANIFEST = {
   plan: string,
   outcome: oneOf(['passed', 'failed']),
@@ -233,7 +234,7 @@ const MANIFEST = {
   startedAt: iso,
   finishedAt: iso,
   rows: objects,
-  determinism: [{ shot: string, equal: boolean, hashes: [hex64] }],
+  determinism: objects,
   proofs: objects,
   checks: objects,
   results: objects,
@@ -253,8 +254,8 @@ export function validateManifest(manifest) {
     errors.push(`stamp.commit must be the manifest's commit ${m.commit}, got ${m.stamp.commit}`);
   }
   const failed = (m.failure !== null && m.failure !== undefined) || (Array.isArray(m.restoreFailures) && m.restoreFailures.length > 0);
-  if (m.outcome === 'passed' && failed) errors.push('outcome "passed" needs failure null and no restore failure');
-  if (m.outcome === 'failed' && !failed) errors.push('outcome "failed" needs a failure or a restore failure');
+  if (m.outcome === 'passed' && failed) errors.push('outcome is "passed", but failure is not null or restoreFailures is not empty');
+  if (m.outcome === 'failed' && !failed) errors.push('outcome is "failed", but failure is null and restoreFailures is empty');
   if (typeof m.startedAt === 'string' && typeof m.finishedAt === 'string' && ISO.test(m.startedAt) && ISO.test(m.finishedAt)
     && Date.parse(m.finishedAt) < Date.parse(m.startedAt)) {
     errors.push('finishedAt must not be before startedAt');
