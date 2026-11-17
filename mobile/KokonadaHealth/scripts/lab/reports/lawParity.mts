@@ -22,6 +22,11 @@
 // neither may exist (a report never overwrites). Exit 0: every compared row within ±1 of its twin in a passed run;
 // 1: a pixel over 1, a failed capture run, or nothing to compare; 2: an input it cannot use (a manifest field missing or
 // malformed, named; a PNG that is not its row's; an output that exists; no --manifest or --out), and no report.
+//
+// Each distinct twin is rendered once and shared by every row whose twin it is (a shot's repeats; lib/twinShare.mjs),
+// and when a run has two or more distinct field twins they are drawn on worker threads ahead of the walk
+// (lib/twinWorkers.mts): a twin is nearly all of the time (UI-239). The report is the one each row gets alone
+// (reportsLawParityShare.test.ts).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,6 +55,8 @@ import {
   type Rect,
   type Rgba,
 } from './lib/evidence.mts';
+import { shareTwins, twinKey } from './lib/twinShare.mjs';
+import { fieldTwinWorkers, twinWorkerCount } from './lib/twinWorkers.mts';
 
 const REPORT = 'lawParity';
 /** ±1 per channel: the B8 tolerance (UI-183). Not this report's to widen. */
@@ -233,43 +240,53 @@ async function main(): Promise<number> {
   const failing: string[] = [];
   let fields = 0;
   let fallbacks = 0;
-  for (let i = 0; i < jobs.length; i++) {
-    const job = jobs[i];
-    const capture = captures[i];
-    const twin = job.kind === 'field' ? await renderFieldTwin(job.shot) : await renderFallbackTwin(job.shot);
-    const regionAt = job.kind === 'field' ? (x: number, y: number) => fieldRegion(twin as FieldTwin, x, y) : fallbackRegioner(twin as FallbackTwin);
-    const c = compare(capture, job.shot.stage, twin, regionAt);
-    if (job.kind === 'field') fields++;
-    else fallbacks++;
-    lines.push(`row ${job.shot.name} ${job.shot.scene}: ${job.kind === 'field' ? 'field twin' : 'FieldFallback twin'}, ${c.pixels} px compared, max |Δ| ${c.max}, over ${TOLERANCE}: ${c.over.length}`);
-    lines.push(`  |Δ| histogram (largest channel per pixel): ${histogram(c.perPixel)}`);
-    ['R', 'G', 'B'].forEach((ch, n) => lines.push(`  |Δ| histogram ${ch}: ${histogram(c.perChannel[n])}`));
-    lines.push(`  over ${TOLERANCE} by region: ${REGIONS.map((r) => `${r} ${c.over.filter((o) => o.region === r).length}`).join(', ')}`);
-    lines.push(`  not compared: ${c.stageOutside} px of the stage outside the app region (under the system bars), ${c.captureOutside} px of the app region outside the stage`);
-    for (const r of REGIONS) {
-      for (const o of c.over.filter((v) => v.region === r)) {
-        lines.push(`  over ${TOLERANCE} · ${o.region} · (${o.x}, ${o.y}) capture (${o.capture.join(', ')}) twin (${o.twin.join(', ')}) |Δ| (${o.delta.join(', ')})`);
+  // One twin per distinct input, shared across the rows that need it and dropped after the last; the distinct field
+  // twins drawn on workers ahead of the walk when there are two or more (UI-239).
+  const workerCount = twinWorkerCount(new Set(jobs.filter((j) => j.kind === 'field').map((j) => twinKey(j.kind, j.shot))).size);
+  const workers = workerCount > 0 ? fieldTwinWorkers(workerCount) : null;
+  const drawField = workers ? (shot: FieldShot) => workers.render(shot) : renderFieldTwin;
+  const twins = shareTwins(jobs, (job: Job): Promise<FieldTwin | FallbackTwin> => (job.kind === 'field' ? drawField(job.shot) : renderFallbackTwin(job.shot)), { ahead: 2 * workerCount });
+  try {
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      const capture = captures[i];
+      const twin = await twins.twinAt(i);
+      const regionAt = job.kind === 'field' ? (x: number, y: number) => fieldRegion(twin as FieldTwin, x, y) : fallbackRegioner(twin as FallbackTwin);
+      const c = compare(capture, job.shot.stage, twin, regionAt);
+      if (job.kind === 'field') fields++;
+      else fallbacks++;
+      lines.push(`row ${job.shot.name} ${job.shot.scene}: ${job.kind === 'field' ? 'field twin' : 'FieldFallback twin'}, ${c.pixels} px compared, max |Δ| ${c.max}, over ${TOLERANCE}: ${c.over.length}`);
+      lines.push(`  |Δ| histogram (largest channel per pixel): ${histogram(c.perPixel)}`);
+      ['R', 'G', 'B'].forEach((ch, n) => lines.push(`  |Δ| histogram ${ch}: ${histogram(c.perChannel[n])}`));
+      lines.push(`  over ${TOLERANCE} by region: ${REGIONS.map((r) => `${r} ${c.over.filter((o) => o.region === r).length}`).join(', ')}`);
+      lines.push(`  not compared: ${c.stageOutside} px of the stage outside the app region (under the system bars), ${c.captureOutside} px of the app region outside the stage`);
+      for (const r of REGIONS) {
+        for (const o of c.over.filter((v) => v.region === r)) {
+          lines.push(`  over ${TOLERANCE} · ${o.region} · (${o.x}, ${o.y}) capture (${o.capture.join(', ')}) twin (${o.twin.join(', ')}) |Δ| (${o.delta.join(', ')})`);
+        }
+      }
+      if (job.kind === 'field') {
+        const t = twin as FieldTwin;
+        const k = t.inputs.pxPerDp;
+        const cx = t.inputs.layout.centre[0] * k;
+        const cy = t.inputs.layout.centre[1] * k;
+        const R = t.inputs.layout.radius * k;
+        for (const [edge, x] of [['ring-inner', cx + t.frame.ringInner * R], ['ring-outer', cx + R]] as const) {
+          const at = cropAt(twin, capture, job.shot.stage, x, cy);
+          const file = `${job.shot.name}.${edge}.x${ZOOM}.png`;
+          crops.push({ file, image: cropPanels(capture, job.shot.stage, twin, at) });
+          lines.push(`  crop ${edge} ×${ZOOM}: ${file}, ${CROP} × ${CROP} px at (${at.x + job.shot.stage.x}, ${at.y + job.shot.stage.y}), panels: capture | twin | |Δ| × ${DELTA_GAIN}`);
+        }
+      }
+      if (c.over.length > 0) {
+        failing.push(job.shot.name);
+        lines.push(`  FAIL: ${c.over.length} px over ±${TOLERANCE}`);
+      } else {
+        lines.push('  PASS');
       }
     }
-    if (job.kind === 'field') {
-      const t = twin as FieldTwin;
-      const k = t.inputs.pxPerDp;
-      const cx = t.inputs.layout.centre[0] * k;
-      const cy = t.inputs.layout.centre[1] * k;
-      const R = t.inputs.layout.radius * k;
-      for (const [edge, x] of [['ring-inner', cx + t.frame.ringInner * R], ['ring-outer', cx + R]] as const) {
-        const at = cropAt(twin, capture, job.shot.stage, x, cy);
-        const file = `${job.shot.name}.${edge}.x${ZOOM}.png`;
-        crops.push({ file, image: cropPanels(capture, job.shot.stage, twin, at) });
-        lines.push(`  crop ${edge} ×${ZOOM}: ${file}, ${CROP} × ${CROP} px at (${at.x + job.shot.stage.x}, ${at.y + job.shot.stage.y}), panels: capture | twin | |Δ| × ${DELTA_GAIN}`);
-      }
-    }
-    if (c.over.length > 0) {
-      failing.push(job.shot.name);
-      lines.push(`  FAIL: ${c.over.length} px over ±${TOLERANCE}`);
-    } else {
-      lines.push('  PASS');
-    }
+  } finally {
+    await workers?.close();
   }
   lines.push(...skipped);
 
