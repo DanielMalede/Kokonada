@@ -465,4 +465,19 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     // The app's sub-processors stay app-only: none of the site's recipients is listed there.
     expect(section(d, 'Sub-processors (who touches the data, and what they receive)')).not.toMatch(/kokonada\.com|Cloudflare|GitHub Pages/);
   });
+
+  it('H-9: the Art. 9 section names the Suunto webhook as the fourth consent-gated ingestion route', () => {
+    const bullet = art9().split('\n').find((l) => l.startsWith('- **H-9 is now fully closed'));
+    expect(bullet).toContain('All four special-category ingestion routes are consent-gated: `/apple/push` and `/health/batch` via the session-authed `requireConsent` middleware; `POST /integrations/suunto/webhook` (session-authed) via the same check made inline in its handler, before any parsing or write;');
+    expect(bullet).toContain('backend/app/controllers/integrationsController.js suuntoWebhook');
+    expect(bullet).toContain('backend/tests/suuntoConsentGate.test.js');
+    expect(bullet).not.toContain('All three special-category ingestion routes');
+    // The route is session-authed (below router.use(auth)), and its handler reads consent before the write.
+    const routes = src('routes/integrations.js');
+    expect(routes.indexOf("router.post('/suunto/webhook',       suuntoWebhook);")).toBeGreaterThan(routes.indexOf('router.use(auth);'));
+    const ctrl = src('controllers/integrationsController.js');
+    const handler = ctrl.slice(ctrl.indexOf('exports.suuntoWebhook = async'), ctrl.indexOf('exports.wearableStatus'));
+    expect(handler).toContain('const reason = denialReason(await getConsentStatus(req.user._id, HEALTH_CONSENT_PURPOSE));');
+    expect(handler.indexOf('getConsentStatus')).toBeLessThan(handler.indexOf('suunto.handleWebhook('));
+  });
 });
