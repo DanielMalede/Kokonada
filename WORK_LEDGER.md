@@ -90,7 +90,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/dan015-privacy-prep`
 - paths: `TASKS.md`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `docs/store/play-health-connect-declaration.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #287
 - started: 2026-11-17
 
 ### M04
