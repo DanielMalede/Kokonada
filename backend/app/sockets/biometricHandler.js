@@ -898,9 +898,12 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // closed-vocabulary tags) but the session stores '' and the socket stops holding it. Only a run that
     // has a note to keep reads consent; a mood-only run still reads nothing.
     const keepNote = useEmotion && !!note && await admitHealthProcessing(userId);
+    // Only a mood run that read consent and did not admit storage drops the held note: a heart,
+    // biometric or skip_loop run never reads consent for it, and the client's building retry re-sends
+    // request_playlist without a fresh emotion_update, so that retried mood run must still find it.
     // Only the note THIS run took: a newer emotion_update that landed during the read is its own
     // run's to decide.
-    if (note && !keepNote && state.lastTextPrompt === note) state.lastTextPrompt = '';
+    if (useEmotion && note && !keepNote && state.lastTextPrompt === note) state.lastTextPrompt = '';
     // The mood the critic, strict personalization and the serve ledger key off.
     // The heart-rate branch now gets a SYNTHETIC, deterministic bio:* moodKey
     // (bio:<band>:<activity>) — closing the old moodKey=null blacklist bypass.
