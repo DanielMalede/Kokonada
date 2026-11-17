@@ -177,6 +177,10 @@ describe('DAN-015 D-2 · the stored physiological profile has its own Retention 
     expect(profileRow()).toBeTruthy();
     expect(profileRow()).toContain('**No retention limit of its own**');
     expect(fs.readFileSync(path.join(MODELS_DIR, 'MedicalProfile.js'), 'utf8')).not.toMatch(/expireAfterSeconds/);
+    // RA-6: the compiled schema too, so a TTL declared another way (a path's `expires`) is caught.
+    const indexes = require('../app/models/MedicalProfile').schema.indexes();
+    expect(indexes.length).toBeGreaterThan(0); // the userId index: the check is not vacuous
+    expect(indexes.filter(([, opts]) => opts && (opts.expireAfterSeconds != null || opts.expires != null))).toEqual([]);
   });
 
   it('names the three sample models the all-or-nothing rule counts', () => {

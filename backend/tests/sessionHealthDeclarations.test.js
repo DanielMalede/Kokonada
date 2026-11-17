@@ -354,8 +354,12 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(cacheRow()).toContain('Whether an estimate made without health data is health-derived data is an owner decision (NF-A, DAN015-Q3); the policy discloses it either way.');
     const targets = src('services/generation/targetsBuilder.js');
     expect(targets).toContain('const affect = await resolveAffect({');
-    expect(targets).not.toMatch(/healthWriteFence|healthConsentGate|getConsentStatus|privacy\/consent/);
+    // RA-5: no consent check anywhere on the path that writes the estimate: the builder, the service and the cache.
+    const CONSENT_CHECK = /healthWriteFence|healthConsentGate|getConsentStatus|privacy\/consent|consentState|getConsentState/;
+    expect(targets).not.toMatch(CONSENT_CHECK);
     const affect = src('services/biosonic/affectService.js');
+    expect(affect).not.toMatch(CONSENT_CHECK);
+    expect(src('services/biosonic/affectCache.js')).not.toMatch(CONSENT_CHECK);
     expect(affect).toContain('const affectDisabled = () => disabled(process.env.WAVE4_AFFECT_DISABLED);');
     expect(affect).toContain("tzOffsetMinutes = 0, now, persist = 'background',"); // saved without waiting
   });
@@ -409,7 +413,15 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     // The daily sweep finishes only the session-health erasure; it never retries the other steps.
     expect(src('services/privacy/sessionHealthSweep.js')).not.toMatch(/eraseWearableProvider|purgeLearnedPersonalization|purgeUserJobs/);
     // The withdrawal answers with the consent status, whatever the erasure reported.
-    expect(src('controllers/consentController.js')).toMatch(/await withdrawConsent\(req\.user\._id, purpose\);\n/);
+    // RA-4: the call is a bare statement (its result is not read), and the handler's next answer is the
+    // consent status, with no error status in between.
+    const ctrl = src('controllers/consentController.js');
+    const call = ctrl.match(/^\s+await withdrawConsent\(req\.user\._id, purpose\);$/m);
+    expect(call).toBeTruthy();
+    const rest = ctrl.slice(call.index + call[0].length, ctrl.indexOf('\n};', call.index));
+    const answer = rest.indexOf('res.json(await getConsentStatus(');
+    expect(answer).toBeGreaterThan(-1);
+    expect(rest.slice(0, answer)).not.toContain('res.status(');
     // The app offers the withdrawal only while a grant is on file, so a second withdrawal is not offered.
     const vault = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/src/experience/profile/VaultConsentPanel.tsx'), 'utf8');
     const button = vault.indexOf('accessibilityLabel="withdraw-consent"');
