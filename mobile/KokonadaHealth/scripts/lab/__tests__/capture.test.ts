@@ -9,7 +9,7 @@ import { STORM_SCENE_SPECS } from '../../../src/design/lab/storm/stormScenes';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
 import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
-import { validateRow } from '../lib/manifest.mjs';
+import { validateManifest, validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame, SCREEN, STATUS_BAR } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
@@ -1386,5 +1386,31 @@ describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
     w.device.scenario = (extras, d) => { launch += 1; const n = launch; d.frames = [screen(1, (x, y) => [x, y, n, 255])]; base(extras, d); };
     await expect(w.run({ now: () => FIXED })).rejects.toThrow(/QA-078/);
     expect(sha(bytesOf(w))).toBe(GOLDEN.failed);
+  });
+});
+
+describe('UI-240: the harness validates the manifest\'s top level before it writes it', () => {
+  it('a top level that is not valid is never written: the run throws naming the field and keeps its own failure, the phone restored', async () => {
+    const w = world();
+    const shell = w.device.shell.bind(w.device);
+    // A phone whose model getprop reads empty: the first row is refused, and the run's device facts are no manifest's.
+    w.device.shell = async (args: string[]) => (args.join(' ') === 'getprop ro.product.model' ? '\n' : shell(args));
+    const error = await w.run().then(() => null, (e: Error) => e);
+    expect(error?.message).toMatch(/^the manifest is not valid, so it was not written: device\.model must be a non-empty string/);
+    expect(error?.message).toMatch(/smoke-fixed\.1: the manifest row is not valid: device\.model must be a non-empty string/);
+    expect(fs.existsSync(path.join(w.outDir, 'manifest.json'))).toBe(false);
+    expect(w.device.state()).toEqual(w.before);
+  });
+
+  it('every manifest it writes is one validateManifest accepts, passed or failed', async () => {
+    const passed = world();
+    const { manifest } = await passed.run();
+    expect(validateManifest(manifest)).toEqual([]);
+    const failed = world();
+    failed.device.scenario = () => {};
+    await expect(failed.run()).rejects.toThrow(/READY/);
+    const written = JSON.parse(fs.readFileSync(path.join(failed.outDir, 'manifest.json'), 'utf8'));
+    expect(written.outcome).toBe('failed');
+    expect(validateManifest(written)).toEqual([]);
   });
 });

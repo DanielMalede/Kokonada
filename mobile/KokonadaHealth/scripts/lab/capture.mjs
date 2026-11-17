@@ -37,7 +37,7 @@ import { createAdb } from './lib/adb.mjs';
 import {
   applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
 } from './lib/device.mjs';
-import { buildManifest, buildRow, readSkiaVersion, validateRow } from './lib/manifest.mjs';
+import { buildManifest, buildRow, readSkiaVersion, validateManifest, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
 import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, PROBE_TOLERANCE_PX, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
@@ -638,7 +638,8 @@ const isInside = (parent, child) => {
 
 /**
  * Runs a capture plan. Throws Refused before the phone is touched; otherwise the phone is restored
- * and manifest.json written on every exit path.
+ * and manifest.json written on every exit path, unless its top level is not valid (validateManifest): then nothing is
+ * written and the error says why.
  * @param {{ plan: any, appRoot: string, repoRoot: string, outDir: string, apkPath: string, adb: any,
  *           git: { head(): string, porcelain(): string }, sleep?: (ms: number) => Promise<unknown>,
  *           now?: () => Date, signal?: AbortSignal, log?: (message: string) => void,
@@ -713,6 +714,12 @@ export async function capture({
   const manifest = buildManifest({
     planId: plan.id, failure, restoreFailures, build, facts, render, startedAt, finishedAt: now().toISOString(), rows, determinism, out,
   });
+  // UI-240: a top level no reader would accept is never written; the run's own failure and restore stay in the error.
+  const topLevel = validateManifest(manifest);
+  if (topLevel.length) {
+    const run = [failure?.message, restoreFailures.length ? `the phone was not fully restored: ${restoreFailures.join('; ')}` : null].filter(Boolean);
+    throw new Error([`the manifest is not valid, so it was not written: ${topLevel.join('; ')}`, ...run].join('\n'));
+  }
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   if (failure) {
