@@ -6,7 +6,8 @@
 // a registry of live timers, and snapshots all of their live counts. A test snapshots before mount,
 // unmounts, and assertParity() names every category whose count changed. The route manifest reads
 // the routes from the real navigator source; a page registers its fixture in ROUTE_FIXTURES when it
-// lands, and a route without one is reported (missingRouteFixtures).
+// lands, and a route without one is reported (missingRouteFixtures). OWED_ROUTE_FIXTURES names, exactly,
+// the routes that may lack one today, and assertRouteManifest holds the navigator to it.
 
 import type React from 'react';
 import ts from 'typescript';
@@ -189,4 +190,30 @@ export function navigatorRoutes(files: string[], read: (file: string) => string 
 
 export function missingRouteFixtures(routes: string[], fixtures: Record<string, RouteFixture> = ROUTE_FIXTURES): string[] {
   return routes.filter((r) => !(r in fixtures));
+}
+
+/**
+ * The routes registered today without a fixture, sorted. It can only shrink: a page that registers
+ * its fixture removes its route from here, and a new route must land with its fixture.
+ */
+export const OWED_ROUTE_FIXTURES: readonly string[] = ['Generate', 'History', 'NowPlaying', 'Profile', 'Pulse'];
+
+/**
+ * Throws unless the routes without a fixture are exactly OWED_ROUTE_FIXTURES: a route missing a
+ * fixture that is not owed (a new route), or an owed route that has a fixture or no longer exists
+ * (a stale entry), is named.
+ */
+export function assertRouteManifest(
+  routes: string[],
+  fixtures: Record<string, RouteFixture> = ROUTE_FIXTURES,
+  owed: readonly string[] = OWED_ROUTE_FIXTURES,
+): void {
+  const missing = missingRouteFixtures(routes, fixtures);
+  const unowed = missing.filter((r) => !owed.includes(r)).sort();
+  const stale = owed.filter((r) => !missing.includes(r));
+  const lines = [
+    ...unowed.map((r) => `  route ${r} has no fixture: register one in ROUTE_FIXTURES`),
+    ...stale.map((r) => `  ${r} is owed but ${r in fixtures ? 'has a fixture' : 'is no navigator route'}: remove it from OWED_ROUTE_FIXTURES`),
+  ];
+  if (lines.length) throw new Error(`QA-103: the route manifest drifted:\n${lines.join('\n')}`);
 }

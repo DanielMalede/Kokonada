@@ -14,7 +14,8 @@ import { TAB_ROUTES } from '../../navigation/tabRoutes';
 import { FakeSocketServer, type FakeSocket } from '../socket';
 import { APP_ROOT, productionFiles } from '../guards/productionImports';
 import { loadMutant } from '../mutant';
-import { installTeardownProbes, missingRouteFixtures, navigatorRoutes, ROUTE_FIXTURES, type TeardownProbes } from '../teardown';
+import { assertRouteManifest, installTeardownProbes, missingRouteFixtures, navigatorRoutes, OWED_ROUTE_FIXTURES, ROUTE_FIXTURES, type TeardownProbes } from '../teardown';
+import { readSource } from '../guards/sourceFiles';
 
 // A test that plants a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts);
 // under full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file),
@@ -176,5 +177,34 @@ describe('QA-103 · the route manifest', () => {
 
   it('starts empty: pages register their fixtures as they land (D8 rule 3; the per-route run is owed at P1)', () => {
     expect(Object.keys(ROUTE_FIXTURES)).toEqual([]);
+  });
+
+  it('every route without a fixture is on the owed list, exactly: the list can only shrink', () => {
+    const missing = missingRouteFixtures(navigatorRoutes(productionFiles()));
+    expect([...missing].sort()).toEqual(OWED_ROUTE_FIXTURES);
+    expect([...OWED_ROUTE_FIXTURES].sort()).toEqual(OWED_ROUTE_FIXTURES);
+    expect(() => assertRouteManifest(navigatorRoutes(productionFiles()))).not.toThrow();
+  });
+
+  it('planted: a new navigator route with no fixture (an extra file, in memory) fails the manifest, naming it', () => {
+    const quote = String.fromCharCode(39);
+    const plantedFile = path.join(APP_ROOT, 'src/navigation/PlantedNavigator.tsx');
+    const planted = 'export const N = () => <Tab.Navigator><Tab.Screen name=' + quote + 'PlantedRoute' + quote + ' component={X} /></Tab.Navigator>;';
+    const read = (f: string) => (f === plantedFile ? planted : readSource(f));
+    const routes = navigatorRoutes([...productionFiles(), plantedFile], read);
+    expect(routes).toContain('PlantedRoute');
+    expect(() => assertRouteManifest(routes)).toThrow(/PlantedRoute/);
+  });
+
+  it('planted: a route that gained a fixture but is still on the owed list fails (remove it from the list)', () => {
+    const routes = navigatorRoutes(productionFiles());
+    const paid = OWED_ROUTE_FIXTURES[0];
+    expect(paid).toBeDefined();
+    expect(() => assertRouteManifest(routes, { ...ROUTE_FIXTURES, [paid]: () => null })).toThrow(new RegExp(paid));
+  });
+
+  it('planted: an owed route that no navigator registers any more fails (remove it from the list)', () => {
+    const routes = navigatorRoutes(productionFiles()).filter((r) => r !== OWED_ROUTE_FIXTURES[0]);
+    expect(() => assertRouteManifest(routes)).toThrow(new RegExp(OWED_ROUTE_FIXTURES[0]));
   });
 });
