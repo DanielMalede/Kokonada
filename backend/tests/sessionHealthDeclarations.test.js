@@ -432,8 +432,18 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
 
   it('BE-097: the Play Personal info answer declares the User IDs the account is keyed by, as required', () => {
     const line = doc().split('\n').find((l) => l.includes('Personal info →'));
-    expect(line).toBe('  - Personal info → **Email address**, **Name** (optional), **User IDs** (the sign-in provider\'s subject). Purpose: Account management. Linked to user. Optional/required: required (email, User IDs).');
-    expect(fs.readFileSync(path.join(APP, 'models/User.js'), 'utf8')).toContain('ssoId:       { type: String, required: true },');
+    expect(line).toBe('  - Personal info → **Email address**, **Name** (optional), **User IDs** (the account ID, the sign-in provider\'s subject or, for a password account, the normalized email, and the Garmin user ID when Garmin is connected). Purpose: Account management. Linked to user. Optional/required: required (email, User IDs).');
+    const user = fs.readFileSync(path.join(APP, 'models/User.js'), 'utf8');
+    expect(user).toContain('ssoId:       { type: String, required: true },');
+    expect(user).toContain('garminUserId:      encryptedString({ default: null }),');
+    // R287-4, C287-5: a password account's ssoId is its normalized email; the export names the account ID and the Garmin ID.
+    const signup = src('services/auth/passwordAuth.js');
+    expect(signup).toContain('const email = normalizeEmail(rawEmail);');
+    expect(signup).toContain("const user = await User.create({ ssoProvider: 'password', ssoId: email, email });");
+    const exporter = src('services/privacy/userDataExport.js');
+    expect(exporter).toContain('subjectId:  String(userId),');
+    expect(exporter).toContain('garminUserId:     u.garminUserId,');
+    expect(src('controllers/integrationsController.js')).toContain('user.garminUserId = garminUserId;');
     // C287-2, R287-2: the Play declaration's Data safety row declares the same User IDs.
     const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
     expect(store.split('\n').find((l) => l.startsWith('| Other data types collected |'))).toBe('| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |');
