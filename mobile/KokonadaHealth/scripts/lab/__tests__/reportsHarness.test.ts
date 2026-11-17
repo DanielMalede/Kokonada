@@ -18,11 +18,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { capture } from '../capture.mjs';
-import { validateRow } from '../lib/manifest.mjs';
+import { validateManifest, validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
-import { manifest as fixtureManifest } from '../reports/__fixtures__/rows';
+import { manifest as fixtureManifest, row as fixtureRow } from '../reports/__fixtures__/rows';
 import { renderScaleFor } from '../../../src/design/v2/field/fieldDriver';
 import { encodePng } from '../lib/png.mjs';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
@@ -256,6 +256,27 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
 
   it('the fixtures\' manifest has exactly the harness\'s top-level fields', () => {
     expect(Object.keys(fixtureManifest([])).sort()).toEqual(Object.keys(run.manifest).sort());
+  });
+
+  // UI-240: the fixtures build through the harness's own builders (lib/manifest.mjs buildRow, buildManifest), so their
+  // row and manifest have the harness's fields in the harness's order, and a top level validateManifest accepts.
+  it('UI-240: the fixtures\' row and manifest are the harness\'s, field for field and in order, and both validate', () => {
+    const r = fixtureRow({
+      shot: 'f', scene: 'smoke', expect: { direction: null, face: null, hero: null, tier: null }, file: 'f.1.png', sha256: '0'.repeat(64),
+      screen: { width: W, height: H }, density: DPI, shaderStatus: null,
+    });
+    const paths = (v: unknown, at = ''): string[] => (v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.entries(v as Record<string, unknown>).flatMap(([k, x]) => [`${at}${k}`, ...paths(x, `${at}${k}.`)]) : []);
+    // The free-form maps (probes by id, the stamp's tokens) and the tier-dependent sampling are left out of the comparison.
+    const fixed = (p: string[]) => p.filter((x) => !/^(probes|sampling|stamp\.tokens)\./.test(x));
+    const harnessRow = run.manifest.rows[0];
+    expect(Object.keys(r)).toEqual(Object.keys(harnessRow));
+    expect(fixed(paths(r))).toEqual(fixed(paths(harnessRow)));
+    const m = fixtureManifest([r]);
+    expect(Object.keys(m)).toEqual(Object.keys(run.manifest));
+    expect(paths(m).filter((x) => !/^(rows|stamp\.tokens)\./.test(x))).toEqual(paths(run.manifest).filter((x) => !/^(rows|stamp\.tokens)\./.test(x)));
+    expect(validateManifest(m)).toEqual([]);
+    expect(validateManifest(run.manifest)).toEqual([]);
   });
 
   // The counts are the plan's, so a plan that grows (more fallback stills) keeps this test honest.
