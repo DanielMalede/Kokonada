@@ -11,7 +11,7 @@ import { APP_ROOT } from '../guards/productionImports';
 
 // Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
 // full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
-jest.setTimeout(30000);
+const MUTANT_TIMEOUT_MS = 30000; // given per test, only to the tests that compile a mutant (RA-235-9)
 
 // QA-110: gesture tests fire real handler callbacks. The global mock (jest.setup.js:61-68) is a Proxy
 // that accepts ANY method name and swallows every callback, so the wheel's gesture-to-commit path
@@ -54,7 +54,7 @@ describe('QA-110 · the real wheel through the gesture fake', () => {
     renderWheel(Mutant, onCommit);
     act(() => { gestures.tap(0, { x: SIZE * 0.75, y: SIZE * 0.25 }); });
     expect(onCommit).not.toHaveBeenCalled();
-  });
+  }, MUTANT_TIMEOUT_MS);
 
   it('a tap held past the wheel\'s maxDuration fails: onEnd never runs, onFinalize(false) does', () => {
     const onCommit = jest.fn();

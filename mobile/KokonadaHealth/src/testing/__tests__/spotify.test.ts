@@ -9,7 +9,7 @@ import { APP_ROOT } from '../guards/productionImports';
 
 // Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
 // full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
-jest.setTimeout(30000);
+const MUTANT_TIMEOUT_MS = 30000; // given per test, only to the tests that compile a mutant (RA-235-9)
 
 // QA-048: page tests drive the player through a stateful fake covering not installed, not logged in or
 // not authorised, connecting, connected, foreign track, remote disconnected and command failure. The
@@ -140,7 +140,7 @@ describe('QA-048 · listener counts', () => {
     await c.dispose();
     expect(fake.liveListeners().playerStateChanged).toBe(1);
     expect(() => fake.assertNoLiveListeners()).toThrow(/playerStateChanged: 1/);
-  });
+  }, MUTANT_TIMEOUT_MS);
 
   it('restore() puts the global mock back by identity', () => {
     const before = SpotifyRemote.connect;
