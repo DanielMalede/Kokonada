@@ -88,14 +88,15 @@ const clip = (reason: string | null) => (reason === null || reason.length <= MAX
 
 /**
  * The launch's ERROR (UI-241): every error, or, when together they cannot make one protocol line (formatLine throws: many
- * unknown keys, each already clipped by params.ts), one short error that says so, with how many there were and the first,
- * clipped. Never a throw: a launch the lab refuses always tells the harness why.
+ * unknown keys, each already clipped by params.ts), one short error that says so, with how many there were and the first.
+ * The first is bounded by params.ts (every echo clipped; the longest single error, the unknown-scene message, budgeted near
+ * 3000 bytes), so this line fits. Never a throw: a launch the lab refuses always tells the harness why.
  */
 function launchErrorLine(run: string | null, errors: readonly string[]): string {
   try {
     return formatLine('ERROR', { run, errors });
   } catch (e) {
-    return formatLine('ERROR', { run, errors: [`the launch was refused with ${errors.length} errors, too many for one line (${clip((e as Error).message)}); the first: ${clip(errors[0] ?? '')}`] });
+    return formatLine('ERROR', { run, errors: [`the launch was refused with ${errors.length} errors, too many for one line (${(e as Error).message}); the first: ${errors[0] ?? ''}`] });
   }
 }
 
