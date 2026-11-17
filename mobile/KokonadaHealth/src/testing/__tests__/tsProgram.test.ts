@@ -70,8 +70,14 @@ describe('the in-process program', () => {
     const clean = createTsProgram([CONTRAST], parsed);
     expect(diagnosticsOf(clean.program, CONTRAST)).toEqual([]);
     const text = ts.sys.readFile(CONTRAST)!;
-    // The overlay key may use either separator: it is matched on the canonical path.
-    const planted = createTsProgram([CONTRAST], parsed, { [CONTRAST.split('/').join('\\')]: `${text}\nexport const planted: number = 'not a number';\n` });
+    // The overlay key is matched on the canonical path, so a non-normalised spelling of the same file
+    // works. The key must really differ from the plain path, or this proves nothing.
+    // Forward slashes and a `..` segment: a separator on every OS. (A backslash is a separator only on
+    // Windows; on Linux it is a filename character, so a backslash key names another file there.)
+    const key = [...APP_ROOT.split(path.sep), 'src', 'design', '..', 'design', 'contrast.ts'].join('/');
+    expect(key).not.toBe(CONTRAST);
+    expect(canonical(key)).toBe(canonical(CONTRAST));
+    const planted = createTsProgram([CONTRAST], parsed, { [key]: `${text}\nexport const planted: number = 'not a number';\n` });
     expect(diagnosticsOf(planted.program, CONTRAST).map((d) => d.code)).toEqual([2322]);
   }, TIMEOUT);
 
