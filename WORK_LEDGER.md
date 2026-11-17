@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `BE-229` (TASKS)
-- title: No sleep-derived token from the user's note reaches the Groq prompt; the music effect applies deterministically after the model returns
-- branch: `fix/be229-no-sleep-tag-to-groq`
-- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/youtubeDeclarations.test.js`, `TASKS.md`
+- task: `DAN-015` (TASKS)
+- title: Re-anchor docs/PRIVACY_DECLARATIONS.md on main (D-1, D-2, BE-122 retry line, Groq row, site and mailbox recipients) and its pin tests; no publication
+- branch: `docs/dan015-privacy-prep`
+- paths: `TASKS.md`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `docs/store/play-health-connect-declaration.md`
 - resources: none
 - state: claimed
-- started: 2026-10-28
+- started: 2026-11-17
 
 ### M04
 _free_
