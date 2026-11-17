@@ -62,6 +62,44 @@ describe('QA-045 · every store in production is in the registry', () => {
     ]);
   });
 
+  // RA-235-12: the shapes the scan was blind to, each planted in memory (no file is written under src).
+  describe('planted: every way a module can make a store', () => {
+    const quote = String.fromCharCode(39);
+    const from = (names: string, mod: string) => 'import ' + names + ' from ' + quote + mod + quote + ';';
+    const file = path.join(APP_ROOT, 'src/experience/planted/plantedStore.ts');
+    const unregisteredIn = (source: string) => unregisteredStores(storeCallSites([file], () => source));
+    const K = 'src/experience/planted/plantedStore.ts#';
+
+    it.each([
+      ['a curried create<T>()(…) at module scope',
+        [from('{ create }', 'zustand'), 'export const curried = create<{ n: number }>()(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'curried']],
+      ['a curried create<T>()(…) inside a factory, and the singleton it makes',
+        [from('{ create }', 'zustand'), 'export function makeCurried() { return create<{ n: number }>()(() => ({ n: 0 })); }', 'export const fromCurried = makeCurried();'],
+        ['factory ' + K + 'makeCurried', 'singleton ' + K + 'fromCurried']],
+      ['a default import of the factory',
+        [from('create', 'zustand'), 'export const viaDefault = create(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'viaDefault']],
+      ['a namespace import of the factory, at module scope and in a factory',
+        [from('* as Z', 'zustand/vanilla'), 'export const viaNamespace = Z.createStore(() => ({ n: 0 }));', 'export function makeNs() { return Z.createStore(() => ({ n: 0 })); }'],
+        ['factory ' + K + 'makeNs', 'singleton ' + K + 'viaNamespace']],
+      ['export default createStore(…)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export default createStore(() => ({ n: 0 }));'],
+        ['singleton ' + K + 'default']],
+      ['export default of a known factory call',
+        [from('{ createStore }', 'zustand/vanilla'), 'export function makeIt() { return createStore(() => ({ n: 0 })); }', 'export default makeIt();'],
+        ['factory ' + K + 'makeIt', 'singleton ' + K + 'default']],
+      ['a class-field store (one per instance: the class is the factory)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export class Holder { store = createStore(() => ({ n: 0 })); }'],
+        ['factory ' + K + 'Holder']],
+      ['a static class-field store (one per module)',
+        [from('{ createStore }', 'zustand/vanilla'), 'export class Registry { static store = createStore(() => ({ n: 0 })); }'],
+        ['singleton ' + K + 'Registry.store']],
+    ] as const)('%s', (_name, lines, expected) => {
+      expect(unregisteredIn(lines.join('\n'))).toEqual(expected);
+    });
+  });
+
   it('each registered singleton loads as a store with subscribe()', () => {
     for (const s of APP_STORE_SINGLETONS) expect(typeof s.load().subscribe).toBe('function');
     expect(STORE_FACTORIES.length).toBeGreaterThan(0);
