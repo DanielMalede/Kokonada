@@ -102,6 +102,17 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 > until it is executed, treat this row as UNVERIFIED for launch purposes. <!-- NEEDS VERIFICATION: DPA/ZDR execution is a portal/legal action, not confirmable from code -->
 > ZDR is not documented to disable prompt caching; no copy may say Groq retains nothing.
 
+## Website and privacy mailbox (outside the app)
+
+The site `https://kokonada.com/` and the policy page `https://kokonada.com/privacy/` are static pages with no cookie, no analytics and no third-party request. The app sends them nothing. The recipients below see the site's visitors and the mail, not the app's data.
+
+| Recipient | Role | What it receives | Where it goes |
+| :--- | :--- | :--- | :--- |
+| **GitHub** (GitHub Pages, organization `kokonada`) | Hosts the site and the policy page | Each visitor's IP address. GitHub's words: "When a GitHub Pages site is visited, the visitor's IP address is logged and stored for security purposes, regardless of whether the visitor has signed into GitHub or not." How long GitHub keeps it is set by GitHub. | GitHub's logs <!-- NEEDS VERIFICATION: true once the Pages custom domain is set and the pages are published (DAN-104); until then nothing is served at the domain. GitHub's text: docs.github.com "About GitHub Pages", Data collection, fetched 2026-11-17. --> |
+| **Cloudflare** (DNS for `kokonada.com`, every record DNS only, not proxied) | Answers DNS lookups for the domain | The DNS queries for `kokonada.com` that resolvers send; no page request and no message passes through it as a proxy | — |
+| **Cloudflare** (Email Routing for `privacy@kokonada.com`) | Receives each message to the privacy mailbox and forwards it | The whole message: the sender's address and name, the subject, the text and any attachment, which can hold anything the sender writes, health information included; Cloudflare keeps a record of the routing activity | Forwarded to the owner's personal mailbox |
+| ⟨OWNER FACT: the personal mailbox's provider⟩ | Holds the forwarded messages | The forwarded message | Kept there for ⟨OWNER DECISION: period⟩, used to answer the message ⟨OWNER DECISION: and to keep a record of a privacy request⟩ |
+
 ## Retention
 
 | Data | Retention | Mechanism |

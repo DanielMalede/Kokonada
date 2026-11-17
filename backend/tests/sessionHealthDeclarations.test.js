@@ -444,4 +444,25 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(lines[atlas + 1]).toBe('<!-- NEEDS VERIFICATION: the MongoDB Atlas region is unrecorded (DAN-018); Railway per the coordinator\'s read of 2026-11-17; Vercel was torn down on 2026-09-23 (DAN-002) and its row removed. -->');
     expect(lines).toContain('- [ ] Re-verify inventory after Web Sunset removes web-only surfaces (drops the Vercel sub-processor). (Vercel torn down 2026-09-23, `DAN-002`)');
   });
+
+  it('W: the website and the privacy mailbox have their own section, between the Sub-processors and Retention', () => {
+    const TITLE = 'Website and privacy mailbox (outside the app)';
+    const d = doc();
+    const w = section(d, TITLE);
+    expect(w).toBeTruthy();
+    expect(d.indexOf(`## ${TITLE}`)).toBeGreaterThan(d.indexOf('> ZDR is not documented to disable prompt caching; no copy may say Groq retains nothing.'));
+    expect(d.indexOf(`## ${TITLE}`)).toBeLessThan(d.indexOf('\n## Retention'));
+    for (const phrase of [
+      '`privacy@kokonada.com`',
+      'DNS only, not proxied',
+      'GitHub\'s words: "When a GitHub Pages site is visited, the visitor\'s IP address is logged and stored for security purposes, regardless of whether the visitor has signed into GitHub or not."',
+      '<!-- NEEDS VERIFICATION: true once the Pages custom domain is set and the pages are published (DAN-104); until then nothing is served at the domain. GitHub\'s text: docs.github.com "About GitHub Pages", Data collection, fetched 2026-11-17. -->',
+      'The app sends them nothing. The recipients below see the site\'s visitors and the mail, not the app\'s data.',
+      '| ⟨OWNER FACT: the personal mailbox\'s provider⟩ |',
+      '⟨OWNER DECISION: period⟩',
+      '⟨OWNER DECISION: and to keep a record of a privacy request⟩',
+    ]) expect(w).toContain(phrase);
+    // The app's sub-processors stay app-only: none of the site's recipients is listed there.
+    expect(section(d, 'Sub-processors (who touches the data, and what they receive)')).not.toMatch(/kokonada\.com|Cloudflare|GitHub Pages/);
+  });
 });
