@@ -25,6 +25,11 @@ describe('QA-115 · the action-props scanner', () => {
     ['a destructured empty function default', 'const S = ({ onTap = function () {} }: P) => null;', ['onTap:noop-default']],
     ['a destructured noop identifier default', 'function S({ onClose = noop }: P) { return null; }', ['onClose:noop-default']],
     ['a renamed destructured no-op default', 'function S({ onOpen: open = () => undefined }: P) { return null; }', ['onOpen:noop-default']],
+    ['an optional prop typed by an indexed access to a callback', 'interface P { onPress?: PressableProps[' + q('onPress') + '] }', ['onPress:optional-prop']],
+    ['an optional prop typed Function', 'interface P { onPress?: Function }', ['onPress:optional-prop']],
+    ['a required prop that admits undefined', 'interface P { onPress: (() => void) | undefined }', ['onPress:optional-prop']],
+    ['a destructured default returning null', 'function S({ onPress = () => null }: P) { return null; }', ['onPress:noop-default']],
+    ['a destructured Function.prototype default', 'function S({ onPress = Function.prototype }: P) { return null; }', ['onPress:noop-default']],
   ])('planted positive: %s is flagged', (_name, src, expected) => {
     expect(kinds(src)).toEqual(expected);
   });
@@ -35,6 +40,9 @@ describe('QA-115 · the action-props scanner', () => {
     ['an optional callback not named on[A-Z]', 'interface P { once?: () => void; offset?: () => void; render?: () => void }'],
     ['a destructured real handler default', 'function S({ onPress = handlePress }: P) { return null; }'],
     ['a destructured default that does something', 'function S({ onPress = () => track(1) }: P) { return null; }'],
+    ['a required callback prop with a non-callback union member', 'interface P { onPress: (() => void) | null }'],
+    ['an optional prop typed by an indexed access to a non-callback key', 'interface P { onSurface?: SkeletonProps[' + q('surface') + '] }'],
+    ['a destructured default returning a value that is not null', 'function S({ onPress = () => 0 }: P) { return null; }'],
     ['a destructured default whose block does something', 'function S({ onPress = () => { track(1); } }: P) { return null; }'],
     ['text that only looks like a prop', 'const s = ' + q('interface P { onPress?: () => void }') + ';'],
   ])('planted negative: %s is not flagged', (_name, src) => {
