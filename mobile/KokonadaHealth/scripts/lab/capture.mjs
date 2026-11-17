@@ -1,6 +1,7 @@
 // The Design Lab capture harness (OPS-100).
 //
 //   node scripts/lab/capture.mjs --plan scripts/lab/capture-plans/smoke.json --out <folder outside the repo> [--serial <id>] [--apk <file>]
+//   node scripts/lab/capture.mjs --plan scripts/lab/capture-plans/v1.json --out <folder>   a session plan: its parts in order (B8-10)
 //   node scripts/lab/capture.mjs --check [--apk <file>]       the build's stamp chain only; no phone
 //   node scripts/lab/capture.mjs --restore --out <folder> [--serial <id>]   put the phone back from that run's saved state
 //
@@ -23,7 +24,8 @@
 // line) or record (screenrecord frames, F6). READY's stage must be the app window (UI-216), and an ERROR the lab sends
 // after READY, up to the end of the shot, refuses it (UI-225).
 //
-// Exit codes: 0 passed · 1 the capture failed (or the phone was not fully restored) · 2 refused.
+// Exit codes: 0 passed · 1 the capture failed (or the phone was not fully restored) · 2 refused · 3 a session paused for
+// the owner (run the same command again to go on).
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -752,6 +754,174 @@ export async function capture({
   return { manifestPath, manifest };
 }
 
+// ---- the session plan (B8-10) -----------------------------------------------------------------
+//
+// The evidence session is one run over a session plan (capture-plans/v1.json): { id, parts: [{ plan, pause? }] }, the
+// part plans by file name, beside it, in the order they run. A part is a plan of shots as strict as when it runs alone:
+// every part is loaded and checked by validatePlan before the phone is touched. A session copies no shot, so a part and
+// the session can never drift apart, and each part keeps its own folder and manifest, the one its reports read.
+// A part that names a pause stops the session after it is captured (the owner judges something on the phone); the same
+// command again skips every part already captured at this build (a passed manifest at this commit and APK), so neither
+// a pause nor a failure, a refusal or a dropped connection costs a finished part. A part folder left by a failed or older
+// attempt is moved aside to <id>.old-<n>, never mixed in, and when that attempt left the phone changed (its saved state
+// on disk and no restore recorded) the phone is put back from that saved state first.
+
+const SESSION_KEYS = { session: ['id', 'parts'], part: ['plan', 'pause'] };
+const PART_FILE = /^[a-z0-9-]{1,40}\.json$/;
+const PAUSE_MAX = 600;
+
+/** True when a capture-plans document is a session plan (it lists part plans), not a plan of shots. */
+export function isSessionPlan(doc) {
+  return isObject(doc) && Object.prototype.hasOwnProperty.call(doc, 'parts');
+}
+
+const unknownSessionKeys = (value, keys, at, e) => {
+  for (const k of Object.keys(value)) if (!keys.includes(k)) e.push(`${at ? `${at}.` : ''}${k} is not a session key`);
+};
+
+/**
+ * A session plan and the part plans it names, read from planDir. Returns every problem as sentences ([] when valid) and
+ * the parts loaded, in order: { file, plan, pause } (pause null when the part names none).
+ */
+export function loadSession(session, planDir) {
+  const e = [];
+  const parts = [];
+  if (!isObject(session)) return { errors: ['the session plan must be an object'], parts };
+  unknownSessionKeys(session, SESSION_KEYS.session, '', e);
+  if (!ID.test(session.id ?? '')) e.push('id must be a short lowercase token');
+  if (!Array.isArray(session.parts) || session.parts.length === 0) return { errors: [...e, 'parts must be a non-empty list'], parts };
+  const files = new Set();
+  const ids = new Set();
+  let app = null;
+  session.parts.forEach((p, i) => {
+    const at = `parts[${i}]`;
+    if (!isObject(p)) { e.push(`${at} must be { plan, pause? }`); return; }
+    unknownSessionKeys(p, SESSION_KEYS.part, at, e);
+    if (p.pause !== undefined && !(typeof p.pause === 'string' && p.pause.length >= 1 && p.pause.length <= PAUSE_MAX && !/[\r\n\u0000-\u001f]/.test(p.pause))) {
+      e.push(`${at}.pause must be one line of text, 1 to ${PAUSE_MAX} characters`);
+    }
+    if (typeof p.plan !== 'string' || !PART_FILE.test(p.plan)) { e.push(`${at}.plan must be a plan file beside the session (a lowercase name ending .json)`); return; }
+    if (files.has(p.plan)) { e.push(`${at}.plan ${p.plan} is listed twice`); return; }
+    files.add(p.plan);
+    let text;
+    try { text = fs.readFileSync(path.join(planDir, p.plan), 'utf8'); } catch { e.push(`${at} ${p.plan} cannot be read`); return; }
+    let plan;
+    try { plan = JSON.parse(text); } catch { e.push(`${at} ${p.plan} is not JSON`); return; }
+    if (isSessionPlan(plan)) { e.push(`${at} ${p.plan} is a session plan: a session lists plans of shots only`); return; }
+    const planErrors = validatePlan(plan);
+    for (const pe of planErrors) e.push(`${at} ${p.plan}: ${pe}`);
+    if (planErrors.length) return;
+    if (ids.has(plan.id)) e.push(`${at} ${p.plan}: the plan id ${plan.id} is used by another part (each part has its own folder)`);
+    ids.add(plan.id);
+    if (app === null) app = plan.app;
+    else if (JSON.stringify(plan.app) !== JSON.stringify(app)) e.push(`${at} ${p.plan}: app must be the first part's (one lab APK serves the session)`);
+    parts.push({ file: p.plan, plan, pause: p.pause ?? null });
+  });
+  return { errors: e, parts };
+}
+
+const readJson = (file) => {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+};
+
+/** The first free <dir>.old-<n>. */
+function asideName(dir) {
+  for (let n = 1; ; n += 1) if (!fs.existsSync(`${dir}.old-${n}`)) return `${dir}.old-${n}`;
+}
+
+/**
+ * Runs a session plan: each part through capture(), into <outDir>/<part id>/, in order. Throws Refused before the phone
+ * is touched (the session, a part, the output folder or the build), and rethrows a part's failure or refusal after
+ * writing <outDir>/session.json; returns { status: 'passed' | 'paused', pause, sessionPath, parts }.
+ * @param {{ session: any, planDir: string, appRoot: string, repoRoot: string, outDir: string, apkPath: string, adb: any,
+ *           git: { head(): string, porcelain(): string }, sleep?: (ms: number) => Promise<unknown>, now?: () => Date,
+ *           signal?: AbortSignal, log?: (message: string) => void,
+ *           witness?: { witnessLayout: Function, witnessProbeProblems: Function } }} options
+ */
+export async function captureSession({ session, planDir, outDir, log = console.log, now = () => new Date(), ...rest }) {
+  const { errors, parts } = loadSession(session, planDir);
+  if (errors.length) throw new Refused(`the session plan is not valid:\n  ${errors.join('\n  ')}`);
+  const { appRoot, repoRoot, apkPath, adb, git } = rest;
+  if (!path.isAbsolute(outDir) || isInside(repoRoot, outDir)) {
+    throw new Refused(`the output folder ${outDir} is inside the repository (or not absolute): evidence never goes into git`);
+  }
+  const sessionPath = path.join(outDir, 'session.json');
+  const earlier = fs.existsSync(sessionPath) ? readJson(sessionPath) : null;
+  if (earlier !== null && earlier.session !== session.id) throw new Refused(`${outDir} holds session ${earlier.session}, not ${session.id}: use another folder`);
+  const build = checkBuild({ appRoot, apkPath, git });
+
+  const states = parts.map((p) => ({ file: p.file, id: p.plan.id, dir: p.plan.id, state: 'not run', manifest: null }));
+  const record = (status, { pause = null, failure = null } = {}) => {
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(sessionPath, `${JSON.stringify({
+      session: session.id, status, pause, failure, commit: build.head, apkSha256: build.apkSha256, updatedAt: now().toISOString(), parts: states,
+    }, null, 2)}\n`);
+  };
+
+  for (const [i, part] of parts.entries()) {
+    const st = states[i];
+    const dir = path.join(outDir, part.plan.id);
+    const manifestFile = path.join(dir, 'manifest.json');
+    const done = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
+    if (done && done.outcome === 'passed' && done.plan === part.plan.id && done.commit === build.head && done.apkSha256 === build.apkSha256) {
+      Object.assign(st, { state: 'captured earlier', manifest: path.join(part.plan.id, 'manifest.json') });
+      log(`part ${i + 1}/${parts.length} ${part.plan.id}: captured earlier at this build, kept`);
+      continue;
+    }
+    if (fs.existsSync(dir)) {
+      // An earlier attempt: a phone it left changed is put back from that attempt's saved state before anything else.
+      const saved = readJson(path.join(dir, 'device-original-state.json'));
+      if (saved?.snapshot && (done === null || (Array.isArray(done.restoreFailures) && done.restoreFailures.length > 0))) {
+        const failures = await restoreDevice(adb, saved.snapshot);
+        if (failures.length) {
+          const failure = new Error(`${part.plan.id}: the phone could not be put back from the earlier attempt's saved state: ${failures.join('; ')}`);
+          Object.assign(st, { state: 'failed' });
+          record('failed', { failure: failure.message });
+          throw failure;
+        }
+        log(`part ${i + 1}/${parts.length} ${part.plan.id}: the phone is put back from the earlier attempt's saved state`);
+      }
+      const aside = asideName(dir);
+      fs.renameSync(dir, aside);
+      log(`part ${i + 1}/${parts.length} ${part.plan.id}: the earlier attempt is kept at ${path.basename(aside)}`);
+    }
+    log(`part ${i + 1}/${parts.length} ${part.plan.id}: capturing`);
+    try {
+      await capture({ ...rest, plan: part.plan, outDir: dir, log, now });
+    } catch (err) {
+      Object.assign(st, { state: 'failed', manifest: fs.existsSync(manifestFile) ? path.join(part.plan.id, 'manifest.json') : null });
+      record(err instanceof Refused ? 'refused' : 'failed', { failure: `${part.plan.id}: ${err.message}` });
+      throw err;
+    }
+    Object.assign(st, { state: 'captured', manifest: path.join(part.plan.id, 'manifest.json') });
+    if (part.pause !== null) {
+      record('paused', { pause: part.pause });
+      return { status: 'paused', pause: part.pause, sessionPath, parts: states };
+    }
+  }
+  record('passed');
+  return { status: 'passed', pause: null, sessionPath, parts: states };
+}
+
+/** What the CLI prints and exits with for a session that returned: 0 passed (each part's manifest), 3 paused. */
+export function sessionOutcome(result, outDir) {
+  if (result.status === 'paused') {
+    const captured = result.parts.filter((p) => p.state !== 'not run');
+    const next = result.parts.find((p) => p.state === 'not run');
+    return {
+      code: 3,
+      message: [
+        `paused after ${captured[captured.length - 1].id}: ${result.pause}`,
+        `the parts captured so far are kept: run the same command again to go on from ${next ? next.id : 'the end'}`,
+      ].join('\n'),
+    };
+  }
+  return {
+    code: 0,
+    message: [`passed: ${result.sessionPath}`, ...result.parts.map((p) => `  ${p.id} (${p.state}): ${path.join(outDir, p.manifest)}`)].join('\n'),
+  };
+}
+
 // ---- the CLI --------------------------------------------------------------------------
 
 function gitIn(cwd) {
@@ -793,6 +963,15 @@ async function main(argv) {
     const controller = new AbortController();
     process.once('SIGINT', () => { console.error('interrupted: restoring the phone'); controller.abort(); });
     const plan = JSON.parse(fs.readFileSync(path.resolve(args.plan), 'utf8'));
+    if (isSessionPlan(plan)) {
+      const result = await captureSession({
+        session: plan, planDir: path.dirname(path.resolve(args.plan)), appRoot, repoRoot: git.root(), outDir, apkPath: path.resolve(args.apk), adb, git,
+        signal: controller.signal,
+      });
+      const { code, message } = sessionOutcome(result, outDir);
+      console.log(message);
+      return code;
+    }
     const { manifestPath } = await capture({
       plan, appRoot, repoRoot: git.root(), outDir, apkPath: path.resolve(args.apk), adb, git, signal: controller.signal,
     });
