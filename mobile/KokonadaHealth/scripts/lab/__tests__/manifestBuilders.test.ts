@@ -90,6 +90,9 @@ describe('buildRow: one row from the sources the harness holds', () => {
   it.each([
     ['a day face', { observed: { fontScale: 1.15, night: 'no', animatorScales: { window: 1, transition: 1, animator: 1 } } }, (r: any) => [r.uimode, r.motion.reduceMotionObserved], ['day', false]],
     ['a READY with no tier, t, shader status or reason', { ready: { ...sources().ready, tier: undefined, t: undefined, shaderStatus: undefined, shaderReason: undefined } }, (r: any) => [r.motion.tier, r.clock.t, r.shaderStatus, r.shaderReason], [null, null, null, null]],
+    // Reduced motion reaches React Native through transition_animation_scale alone (B8-6), never the animator scale.
+    ['the transition scale 0, the animator scale 1', { observed: { fontScale: 1.15, night: 'yes', animatorScales: { window: 1, transition: 0, animator: 1 } } }, (r: any) => r.motion.reduceMotionObserved, true],
+    ['the transition scale 1, the animator scale 0', { observed: { fontScale: 1.15, night: 'yes', animatorScales: { window: 1, transition: 1, animator: 0 } } }, (r: any) => r.motion.reduceMotionObserved, false],
     ['a READY saying power save false', { ready: { ...sources().ready, powerSave: false } }, (r: any) => r.motion.powerSaveObserved, false],
     ['a READY whose shader reason is a sentence', { ready: { ...sources().ready, shaderReason: 'the effect did not compile' } }, (r: any) => r.shaderReason, 'the effect did not compile'],
     ['a stamp without tokens', { build: { ...BUILD, stamp: { ...STAMP, tokens: undefined } } }, (r: any) => r.stamp.tokens, {}],
