@@ -5,7 +5,7 @@ import { ApiClient } from '../../net/apiClient';
 import { HistoryRow } from '../../experience/history/HistoryRow';
 import { relativeTime } from '../../experience/history/historyFormat';
 import { FakeApi, sameRequest } from '../api';
-import { installFakeClock, negativeAges, type FakeClock } from '../clock';
+import { installFakeClock, negativeAges, renderedTexts, type FakeClock } from '../clock';
 import { createFaceGuard } from '../faces';
 
 // QA-047: a fake API client scripts latency, status, body and failure per request, and a fake clock
@@ -84,6 +84,37 @@ describe('QA-047 · the scriptable fake API under the real ApiClient', () => {
     expect(sameRequest(api.log[0], api.log[1])).toBe(true);
     expect(sameRequest(api.log[0], api.log[2])).toBe(false);
   });
+
+  it('the last scripted answer repeats for every later request', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x').reply(500, { n: 1 }).reply(200, { n: 2 });
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i += 1) statuses.push((await api.fetch('https://api.test/api/x', { method: 'GET' })).status);
+    expect(statuses).toEqual([500, 200, 200, 200]);
+  });
+
+  it('scripted headers are readable case-insensitively, as the Headers of fetch are (Retry-After, Content-Type)', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x')
+      .reply(429, { error: 'slow down' }, { headers: { 'Retry-After': '30', 'content-type': 'application/json' } })
+      .replies([{ status: 200, body: {}, headers: { 'X-Next': 'b' } }]);
+    const first = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(first.headers.get('retry-after')).toBe('30');
+    expect(first.headers.get('RETRY-AFTER')).toBe('30');
+    expect(first.headers.get('Content-Type')).toBe('application/json');
+    expect(first.headers.has('retry-after')).toBe(true);
+    expect(first.headers.get('X-Absent')).toBeNull();
+    const second = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(second.headers.get('x-next')).toBe('b');
+    expect(second.headers.get('retry-after')).toBeNull();
+  });
+
+  it('a malformed-JSON answer carries its scripted headers too', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x').malformedJson(502, { headers: { 'Content-Type': 'text/html' } });
+    const res = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(res.headers.get('content-type')).toBe('text/html');
+  });
 });
 
 describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic one', () => {
@@ -108,7 +139,7 @@ describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic 
       faces.set('dark');
       const created = new Date(Date.now() - 5 * 60_000).toISOString(); // five minutes ago
       const item = { id: 's1', createdAt: created, moodKey: 'calm', title: 'Evening', source: 'manual' } as any;
-      const texts = () => { let t!: ReactTestRenderer.ReactTestRenderer; act(() => { t = ReactTestRenderer.create(<HistoryRow item={item} now={new Date()} onPress={() => {}} />); }); const out = t.root.findAllByType(Text).map((n) => String(n.props.children)); act(() => { t.unmount(); }); return out; };
+      const texts = () => { let t!: ReactTestRenderer.ReactTestRenderer; act(() => { t = ReactTestRenderer.create(<HistoryRow item={item} now={new Date()} onPress={() => {}} />); }); const out = renderedTexts(t); act(() => { t.unmount(); }); return out; };
       expect(texts()).toContain('5m ago');
       clock.jumpWall(-60 * 60_000);
       const after = texts();
@@ -125,6 +156,24 @@ describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic 
     expect(negativeAges([naive(created)])).toEqual([]);
     clock.jumpWall(-60 * 60_000);
     expect(negativeAges([naive(created), 'Just now', 'in 55 minutes'])).toEqual(['-55m ago', 'in 55 minutes']);
+  });
+
+  it.each([['NaNm ago'], ['Infinityh ago'], ['−55m ago'], ['− 1 h ago'], ['-Infinity min ago'], ['in NaN minutes'], ['Updated −3 hours ago']])('flags %s', (t) => {
+    expect(negativeAges([t])).toEqual([t]);
+  });
+
+  it('leaves honest ages and hyphenated copy alone (negative control for the minus rule)', () => {
+    expect(negativeAges(['5m ago', 'Just now', '2h ago', '5-10 min ago', 'Check-in 5m ago', 'Re-synced 2 hours ago', 'Mid-session · 3m ago', 'Top-5 mins ago', 'Yesterday'])).toEqual([]);
+  });
+
+  it('a JSX-interpolated negative age ({age}m ago) is read as rendered and flagged', () => {
+    const Row = ({ age }: { age: number }) => <Text>{age}m ago</Text>;
+    let t!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { t = ReactTestRenderer.create(<><Row age={-55} /><Row age={NaN} /><Row age={5} /></>); });
+    const texts = renderedTexts(t);
+    act(() => { t.unmount(); });
+    expect(texts).toEqual(['-55m ago', 'NaNm ago', '5m ago']);
+    expect(negativeAges(texts)).toEqual(['-55m ago', 'NaNm ago']);
   });
 
   it('restore() returns to real timers and the preset performance.now', () => {
