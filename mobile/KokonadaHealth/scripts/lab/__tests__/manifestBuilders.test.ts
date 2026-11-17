@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { buildManifest, buildRow, validateManifest, validateRow } from '../lib/manifest.mjs';
+import { androidDensity, buildManifest, buildRow, rowPixelRatio, validateManifest, validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 
 // UI-240. The manifest row and the manifest are built by one pair of functions (lib/manifest.mjs buildRow and
@@ -74,6 +74,7 @@ describe('buildRow: one row from the sources the harness holds', () => {
       skiaVersion: '2.6.9',
       shaderReason: null,
       stage: STAGE_PX,
+      pixelRatio: 2.625,
     });
     expect(validateRow(row)).toEqual([]);
   });
@@ -82,7 +83,7 @@ describe('buildRow: one row from the sources the harness holds', () => {
     expect(Object.keys(buildRow(sources()))).toEqual([
       'shot', 'repeat', 'file', 'sha256', 'appRegionHash', 'commit', 'stamp', 'device', 'app', 'scene', 'direction', 'face', 'fontScale',
       'motion', 'locale', 'isRTL', 'clock', 'shaderStatus', 'uimode', 'animatorScales', 'forceDark', 'colorSpace', 'region', 'probes',
-      'timestamps', 'expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage',
+      'timestamps', 'expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage', 'pixelRatio',
     ]);
   });
 
@@ -93,6 +94,8 @@ describe('buildRow: one row from the sources the harness holds', () => {
     ['a READY whose shader reason is a sentence', { ready: { ...sources().ready, shaderReason: 'the effect did not compile' } }, (r: any) => r.shaderReason, 'the effect did not compile'],
     ['a stamp without tokens', { build: { ...BUILD, stamp: { ...STAMP, tokens: undefined } } }, (r: any) => r.stamp.tokens, {}],
     ['a scene with no tier', { renderFacts: { renderScale: null, sampling: null } }, (r: any) => [r.renderScale, r.sampling], [null, null]],
+    ['READY\'s pixel ratio, as READY sent it (never the density\'s)', { ready: { ...sources().ready, pixelRatio: 2.6250004 } }, (r: any) => r.pixelRatio, 2.6250004],
+    ['a READY with no pixel ratio: none (validateRow refuses the row)', { ready: { ...sources().ready, pixelRatio: undefined } }, (r: any) => 'pixelRatio' in r && r.pixelRatio !== undefined, false],
   ])('%s', (_label, over, pick, want) => {
     expect(pick(buildRow(sources(over)))).toEqual(want);
   });
@@ -199,5 +202,43 @@ describe('validateManifest: the manifest\'s top level', () => {
   it('a row is the readers\' and validateRow\'s to judge, not the top level\'s; an entry of another list its report\'s', () => {
     expect(validateManifest({ ...good(), rows: [{ shot: 'x' }] })).toEqual([]);
     expect(validateManifest({ ...good(), determinism: [{ shot: 's', equal: true }] })).toEqual([]);
+  });
+});
+
+// UI-240: a row's px per dp is READY's pixel ratio (PixelRatio.get(), which is Android's DisplayMetrics.density), never one
+// derived from the density. The density is kept only as a cross-check: Android's float density for the row's dpi
+// (densityDpi × (1f / 160) in float) must agree with the pixel ratio within 1e-6, or the row is refused.
+describe('rowPixelRatio: the px per dp every report reads', () => {
+  const at = (pixelRatio: unknown, density: unknown = 420) => ({ pixelRatio, device: { density } });
+
+  it.each([[40, 0.25], [160, 1], [420, 2.625], [450, 2.8125], [411, 2.5687501430511475], [393, 2.456249952316284]])('Android\'s float density at %i dpi is %d', (dpi, k) => {
+    expect(androidDensity(dpi)).toBe(k);
+  });
+
+  it('is READY\'s pixel ratio when the density agrees', () => {
+    expect(rowPixelRatio(at(2.625))).toEqual({ pixelRatio: 2.625 });
+    expect(rowPixelRatio(at(2.5687501430511475, 411))).toEqual({ pixelRatio: 2.5687501430511475 });
+  });
+
+  it('is READY\'s own value within 1e-6 of the density\'s, not the density\'s', () => {
+    expect(rowPixelRatio(at(2.625 + 9e-7))).toEqual({ pixelRatio: 2.625 + 9e-7 });
+    expect(rowPixelRatio(at(2.625 - 9e-7))).toEqual({ pixelRatio: 2.625 - 9e-7 });
+    // Float noise only: 411 / 160 is 1.4e-7 from Android's float density, inside the agreement, and the row's value stands.
+    expect(rowPixelRatio(at(2.56875, 411))).toEqual({ pixelRatio: 2.56875 });
+  });
+
+  it.each([
+    ['a pixel ratio 2e-6 off the density\'s', at(2.625 + 2e-6), 'pixelRatio', /^is 2\.625002, not Android's density 2\.625 for device\.density 420 dpi: they must agree within 1e-6$/],
+    ['a pixel ratio of another density (420 dpi read as 2.75)', at(2.75), 'pixelRatio', /^is 2\.75, not Android's density 2\.625 for device\.density 420 dpi/],
+    ['a row with no pixel ratio', { device: { density: 420 } }, 'pixelRatio', /^is missing: the px per dp is READY's pixel ratio, never one derived from the density$/],
+    ['a pixel ratio of zero', at(0), 'pixelRatio', /^must be READY's pixel ratio, a finite number above 0, got 0$/],
+    ['a pixel ratio that is a string', at('2.625'), 'pixelRatio', /^must be READY's pixel ratio, a finite number above 0, got "2\.625"$/],
+    ['a row with no density to check it by', { pixelRatio: 2.625, device: {} }, 'device.density', /^must be a dpi above 0, got null$/],
+    ['a density of zero', at(2.625, 0), 'device.density', /^must be a dpi above 0, got 0$/],
+    ['a row that is not an object', null, 'pixelRatio', /^is missing/],
+  ])('refuses %s, naming the field', (_label, row, field, why) => {
+    const r = rowPixelRatio(row) as { field: string; why: string };
+    expect(r.field).toBe(field);
+    expect(r.why).toMatch(why);
   });
 });

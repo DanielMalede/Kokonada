@@ -89,11 +89,11 @@ const FIELD_NEEDS = [
   'file', 'sha256', 'scene', 'region', 'region.x', 'region.y', 'region.width', 'region.height',
   'expect', 'expect.direction', 'expect.face', 'expect.hero', 'expect.tier',
   'clock', 'clock.mode', 'clock.t', 'renderScale', 'sampling', 'sampling.filter', 'sampling.mipmap',
-  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app',
+  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app', 'pixelRatio',
 ];
 const FALLBACK_NEEDS = [
   'file', 'sha256', 'scene', 'region', 'expect', 'expect.direction', 'expect.face',
-  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app',
+  'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app', 'pixelRatio',
 ];
 
 describe('B8-8c: the typed reader of a manifest row', () => {
@@ -158,6 +158,23 @@ describe('B8-8c: the typed reader of a manifest row', () => {
     const r = lib<Result<{ pxPerDp: number }>>('return E.readFieldShot(input, "lawParity");', fieldRow({ density }));
     expect(r.error).toBeUndefined();
     expect(r.ok!.pxPerDp).toBe(k);
+  });
+
+  // UI-240: the px per dp is the row's pixelRatio (READY's), the density only its cross-check within 1e-6.
+  it.each(['readFieldShot', 'readFallbackShot'])('%s: the px per dp is the row\'s own pixel ratio, not the density\'s', (reader) => {
+    const make = reader === 'readFieldShot' ? fieldRow : fallbackRow;
+    const k = 0.25 + 8e-7;
+    const r = lib<Result<{ pxPerDp: number }>>(`return E.${reader}(input, "lawParity");`, make({ pixelRatio: k }));
+    expect(r.error).toBeUndefined();
+    expect(r.ok!.pxPerDp).toBe(k);
+  });
+
+  it.each(['readFieldShot', 'readFallbackShot'])('%s: a pixel ratio that is not Android\'s density for the row\'s dpi is refused, naming "pixelRatio"', (reader) => {
+    const make = reader === 'readFieldShot' ? fieldRow : fallbackRow;
+    for (const k of [0.25 + 2e-6, 0.5]) {
+      const r = lib<Result<unknown>>(`return E.${reader}(input, "lawParity");`, make({ pixelRatio: k }));
+      expect(r.error).toEqual({ name: 'EvidenceInputError', message: expect.stringMatching(new RegExp(`the manifest field "pixelRatio" is ${k}, not Android's density 0\\.25 for device\\.density 40 dpi`)), isInput: true });
+    }
   });
 
   it('a stage READY measured as dp × the ratio (float noise, far under a pixel) is placed on whole pixels', () => {

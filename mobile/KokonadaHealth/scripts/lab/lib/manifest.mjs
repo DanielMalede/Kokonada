@@ -6,6 +6,9 @@
 // facts adb read (F5: a fact the harness could not read is null, and then its object says why), the Skia version of
 // the lockfile at HEAD, READY's shader reason (UI-226) and READY's stage rect (UI-216). No tap coordinate and no emotion
 // value is a manifest field (T1).
+// UI-240: a row also carries READY's pixel ratio, the px per dp every report reads (rowPixelRatio); the row and the
+// manifest are built here (buildRow, buildManifest) for the harness and the reports' fixtures alike, and the manifest's
+// top level has its own validator (validateManifest).
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
@@ -26,6 +29,7 @@ const sha1 = check((v) => typeof v === 'string' && SHA1.test(v), 'must be 40 low
 const literal = (x) => check((v) => v === x, `must be ${JSON.stringify(x)}`);
 const oneOf = (list) => check((v) => list.includes(v), `must be one of ${list.join(', ')}`);
 const nullableOneOf = (list) => check((v) => v === null || list.includes(v), `must be one of ${list.join(', ')} or null`);
+const positive = check((v) => typeof v === 'number' && Number.isFinite(v) && v > 0, 'must be a finite number > 0');
 const nullablePositive = check((v) => v === null || (typeof v === 'number' && Number.isFinite(v) && v > 0), 'must be a finite number > 0 or null');
 const semver = check((v) => typeof v === 'string' && SEMVER.test(v), 'must be a semver version');
 const iso = check((v) => typeof v === 'string' && ISO.test(v) && !Number.isNaN(Date.parse(v)), 'must be an ISO 8601 UTC timestamp');
@@ -77,6 +81,8 @@ const SCHEMA = {
   shaderReason: nullableString,
   // READY's stage probe in px (window coordinates, which the harness requires to be the screen's).
   stage: PX,
+  // UI-240: READY's pixel ratio (PixelRatio.get(), Android's DisplayMetrics.density): the px per dp every report reads.
+  pixelRatio: positive,
 };
 
 // A fact object whose facts may be null: then, and only then, its reason says why.
@@ -154,7 +160,7 @@ export function readSkiaVersion(text) {
  * @param {{ shot: any, repeat: number, file: string, sha256: string, appRegionHash: string, build: any, app: { package: string },
  *           facts: any, frame: { width: number, height: number, colorSpace: string }, observed: any, ready: any,
  *           region: any, probes: any, timestamps: { launched: Date, ready: Date, captured: Date },
- *           renderFacts: { renderScale: number|null, sampling: object|null }, render: { gl: any, display: any } }} s
+ *           renderFacts: { renderScale: number|null, sampling: any }, render: { gl: any, display: any } }} s
  *   shot: the plan's shot; build: what checkBuild verified, with skiaVersion; facts: readDeviceFacts; frame: the first grab;
  *   observed: applyShot's settings; ready: READY's payload; probes: classifyProbes; renderFacts: capture.mjs renderFacts.
  */
@@ -189,13 +195,14 @@ export function buildRow({ shot, repeat, file, sha256, appRegionHash, build, app
     skiaVersion: build.skiaVersion,
     shaderReason: typeof ready.shaderReason === 'string' && ready.shaderReason.length > 0 ? ready.shaderReason : null,
     stage: { x: stage.x, y: stage.y, width: stage.width, height: stage.height },
+    pixelRatio: ready.pixelRatio,
   };
 }
 
 /**
  * The run's manifest around its rows. Pure. The run failed when a shot failed or a restore step did.
  * @param {{ planId: string, failure: Error|null, restoreFailures: string[], build: any, facts: any, render: any,
- *           startedAt: string, finishedAt: string, rows: object[], determinism: object[],
+ *           startedAt: string, finishedAt: string, rows: any[], determinism: any[],
  *           out: { proofs: any[], checks: any[], results: any[], records: any[], moving: any[], settleFailures: any[] } }} p
  */
 export function buildManifest({ planId, failure, restoreFailures, build, facts, render, startedAt, finishedAt, rows, determinism, out }) {
@@ -261,4 +268,34 @@ export function validateManifest(manifest) {
     errors.push('finishedAt must not be before startedAt');
   }
   return errors;
+}
+
+// ---- UI-240: the px per dp
+
+/**
+ * Android's px per dp for a density: DisplayMetrics.density = densityDpi × DENSITY_DEFAULT_SCALE (1f / 160), computed in
+ * float, which React Native's PixelRatio.get() returns as it is. At 411 dpi that is 2.5687501430511475, not 2.56875.
+ */
+export function androidDensity(dpi) {
+  return Math.fround(Math.fround(dpi) * Math.fround(1 / 160));
+}
+
+/** How far READY's pixel ratio may be from Android's density for the row's dpi: float noise, never a second density. */
+export const PIXEL_RATIO_AGREEMENT = 1e-6;
+
+/**
+ * A row's px per dp: READY's pixel ratio, held to Android's float density for the row's device.density within
+ * PIXEL_RATIO_AGREEMENT, the density only a cross-check. { pixelRatio } or, naming the field, { field, why }.
+ */
+export function rowPixelRatio(row) {
+  const k = isObject(row) ? row.pixelRatio : undefined;
+  if (k === undefined) return { field: 'pixelRatio', why: "is missing: the px per dp is READY's pixel ratio, never one derived from the density" };
+  if (!(typeof k === 'number' && Number.isFinite(k) && k > 0)) return { field: 'pixelRatio', why: `must be READY's pixel ratio, a finite number above 0, got ${JSON.stringify(k)}` };
+  const dpi = isObject(row.device) ? row.device.density : undefined;
+  if (!(typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0)) return { field: 'device.density', why: `must be a dpi above 0, got ${JSON.stringify(dpi ?? null)}` };
+  const android = androidDensity(dpi);
+  if (!(Math.abs(k - android) <= PIXEL_RATIO_AGREEMENT)) {
+    return { field: 'pixelRatio', why: `is ${k}, not Android's density ${android} for device.density ${dpi} dpi: they must agree within ${PIXEL_RATIO_AGREEMENT.toExponential()}` };
+  }
+  return { pixelRatio: k };
 }

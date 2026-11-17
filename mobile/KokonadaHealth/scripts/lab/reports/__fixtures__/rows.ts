@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { renderFacts } from '../../capture.mjs';
-import { buildManifest, buildRow, readSkiaVersion, validateRow } from '../../lib/manifest.mjs';
+import { androidDensity, buildManifest, buildRow, readSkiaVersion, validateRow } from '../../lib/manifest.mjs';
 import { appRegion } from '../../lib/png.mjs';
 import { classifyProbes } from '../../lib/protocol.mjs';
 import { makeStamp } from '../../lib/stamp.mjs';
@@ -42,8 +42,10 @@ export interface RowInput {
   readonly stage?: Rect;
   /** READY's other probes in screen px (the witness's region probe, say), classified by the harness as it classifies the stage. */
   readonly probes?: Readonly<Record<string, Rect>>;
-  /** `wm density`, dpi: the device's px per dp is Android's density from it. */
+  /** `wm density`, dpi: the cross-check of READY's pixel ratio (Android's float density from it). */
   readonly density: number;
+  /** READY's pixel ratio (PixelRatio.get()), the px per dp: Android's float density for `density` by default, as on a phone. */
+  readonly pixelRatio?: number;
   readonly fontScale?: number;
   /** The clock READY reports: fixed at t 11000 by default; realtime has no t. */
   readonly clock?: { readonly mode: 'fixed' | 'stepped' | 'realtime'; readonly t: number | null };
@@ -115,6 +117,7 @@ export function row(input: RowInput): Record<string, unknown> {
       tier: input.observedTier === undefined ? input.expect.tier : input.observedTier,
       shaderStatus: input.shaderStatus, shaderReason: input.shaderReason ?? null,
       probes: { stage: { px: { ...stage } } },
+      pixelRatio: input.pixelRatio ?? androidDensity(input.density),
     },
     region: { ...region },
     probes: classifyProbes({ stage: { px: { ...stage } }, ...Object.fromEntries(Object.entries(input.probes ?? {}).map(([id, px]) => [id, { px: { ...px } }])) }, screen, region),
@@ -138,7 +141,7 @@ export function manifest(rows: readonly Record<string, unknown>[], outcome: 'pas
     render: RENDER,
     startedAt: '2026-11-15T00:00:00Z',
     finishedAt: '2026-11-15T00:01:00Z',
-    rows,
+    rows: [...rows],
     determinism: [],
     out: { proofs: [], checks: [], results: [], records: [], moving: [], settleFailures: [] },
   }) as Record<string, unknown>;

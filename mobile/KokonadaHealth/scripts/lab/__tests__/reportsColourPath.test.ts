@@ -255,7 +255,7 @@ describe('colourPath refuses what it cannot use', () => {
     expect(r.report).toContain('the capture run failed: planted failure');
   });
 
-  it.each(['display.colorMode', 'display', 'device.density', 'stage', 'stage.height', 'fontScale', 'renderScale', 'expect.face'])('a witness row without "%s": exit 2, naming the field, no report', (field) => {
+  it.each(['display.colorMode', 'display', 'device.density', 'stage', 'stage.height', 'fontScale', 'renderScale', 'expect.face', 'pixelRatio'])('a witness row without "%s": exit 2, naming the field, no report', (field) => {
     const dir = copy();
     editRows(dir, (rows) => rows.map((x) => (x.scene === 'smoke' ? x : without(x, field))));
     const r = run(dir);
@@ -268,6 +268,9 @@ describe('colourPath refuses what it cannot use', () => {
     ['a renderScale that is not the witness tier’s', 'renderScale', 0.33],
     ['a face that is not the scene’s', 'expect.face', 'light'],
     ['a density that is not a whole positive number', 'device.density', 0],
+    // UI-240: the px per dp is READY's pixel ratio, held to Android's density for the row's dpi within 1e-6.
+    ['a pixel ratio that is not Android\'s density for the row\'s dpi', 'pixelRatio', 0.76],
+    ['a pixel ratio 2e-6 off the density\'s', 'pixelRatio', 0.500002],
   ])('%s: exit 2, naming the field', (_, field, value) => {
     const dir = copy();
     editRows(dir, (rows) => rows.map((x) => (x.scene === 'smoke' ? x : withValue(x, field, value))));

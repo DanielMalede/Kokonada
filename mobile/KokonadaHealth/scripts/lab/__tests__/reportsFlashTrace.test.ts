@@ -303,7 +303,7 @@ describe('RA-47: the recording is bound to the run', () => {
     ['another size', 'manifest.json', { size: { width: 540, height: 1170 } }, /^manifest\.records\[0\]\.size 96x192 is not the recording's 540x1170$/],
     ['the same width, another height', 'manifest.json', { size: { width: 96, height: 200 } }, /^manifest\.records\[0\]\.size 96x192 is not the recording's 96x200$/],
     ['the device\'s px per dp on a half-size recording', 'manifest.json', { pxPerDp: 1 },
-      /^px per dp 1 is not the recording's 0\.5: manifest\.rows\[0\]\.device\.density 160 dpi is Android's density 1, × 96 px frames ÷ manifest\.rows\[0\]\.stage\.width 192$/],
+      /^px per dp 1 is not the recording's 0\.5: manifest\.rows\[0\]\.pixelRatio 1 \(READY's, Android's density for device\.density 160 dpi\), × 96 px frames ÷ manifest\.rows\[0\]\.stage\.width 192$/],
     ['a shot with no record', 'manifest.json', { shot: 'planted-norecord' }, /^manifest\.records has no record for shot "planted-norecord"$/],
     ['a shot with no row', 'manifest.json', { shot: 'nowhere' }, /^manifest\.rows has no row for shot "nowhere"$/],
   ])('%s: refused, naming the field', (_why, file, change, why) => {
@@ -321,6 +321,19 @@ describe('RA-47: the recording is bound to the run', () => {
     expect(bind('manifest-nostamp.json', bound()).problems).toEqual(['manifest.stamp is required']);
     fs.writeFileSync(path.join(sets, 'manifest-bare.json'), JSON.stringify({ outcome: 'passed', rows: m.rows, records: m.records }));
     expect(bind('manifest-bare.json', bound()).problems).toContain('manifest.commit is required');
+  });
+
+  // UI-240: the run's px per dp is the row's pixelRatio (READY's), the density only its cross-check within 1e-6.
+  it('UI-240: the px per dp is the row\'s pixel ratio; one the density contradicts is refused, naming the field', () => {
+    const m = JSON.parse(fs.readFileSync(path.join(sets, 'manifest.json'), 'utf8'));
+    m.rows[0].pixelRatio = 1 + 8e-7;
+    fs.writeFileSync(path.join(sets, 'manifest-k.json'), JSON.stringify(m));
+    expect(bind('manifest-k.json', { ...bound(), pxPerDp: undefined })).toEqual({ problems: [], pxPerDp: ((1 + 8e-7) * 96) / 192 });
+    m.rows[0].pixelRatio = 2;
+    fs.writeFileSync(path.join(sets, 'manifest-k2.json'), JSON.stringify(m));
+    expect(bind('manifest-k2.json', bound())).toEqual({
+      problems: ["manifest.rows[0].pixelRatio is 2, not Android's density 1 for device.density 160 dpi: they must agree within 1e-6"], pxPerDp: null,
+    });
   });
 
   const refusedRun = (args: string[], why: RegExp) => {
