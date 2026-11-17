@@ -35,7 +35,7 @@ import { spawnSync } from 'node:child_process';
 import { findMarkers, readSentinel } from './assertLabExcluded.mjs';
 import { createAdb } from './lib/adb.mjs';
 import {
-  applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
+  applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readDisplayMode, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
 } from './lib/device.mjs';
 import { androidDensity, buildManifest, buildRow, PIXEL_RATIO_AGREEMENT, readSkiaVersion, validateManifest, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
@@ -487,6 +487,27 @@ async function judgeLines({ adb, lab, token, shot, plan, signal }) {
   if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
 }
 
+/** The display mode now, as a rate proof records it ({ refreshHz, mode, key, reason }); a dumpsys that fails is its reason. */
+async function readDisplayDuring(adb) {
+  try {
+    return readDisplayMode(await adb.shell(['dumpsys', 'display']));
+  } catch (e) {
+    return { refreshHz: null, mode: null, key: null, reason: `dumpsys display: ${e.message}` };
+  }
+}
+
+/**
+ * RA-52: a full-tier rate band can only show the tier's cap when the display runs at least as fast as the band's
+ * minimum; a display held at 60 Hz (Standard mode, or battery saver) never could. Why a plan's full-tier rate band cannot
+ * pass on this display, or null. Low-tier bands are left to the proof, which records the display it ran under.
+ */
+export function rateDisplayProblem(shot, refreshRate) {
+  if (shot.proof?.kind !== 'rate' || shot.expect?.tier !== 'full') return null;
+  const { min } = shot.proof.band;
+  const why = refreshRate === null || refreshRate === undefined ? 'its rate cannot be read' : refreshRate >= min ? null : `it runs at ${refreshRate} Hz`;
+  return why === null ? null : `${shot.id}: a full-tier rate band from ${min} frames/s needs the display at ${min} Hz or more, but ${why} (set the screen's motion smoothness to its high rate, battery saver off, and capture again)`;
+}
+
 async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
   const { proof } = shot;
   const pkg = plan.app.package;
@@ -529,6 +550,8 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
   }
   await adb.shell(['dumpsys', 'gfxinfo', pkg, 'reset']);
   await sleep(proof.seconds * 1000);
+  // RA-52: the display mode the proof ran under, read during it (battery saver holds the display at 60 Hz).
+  const display = proof.kind === 'rate' ? await readDisplayDuring(adb) : null;
   const text = await adb.shell(['dumpsys', 'gfxinfo', pkg]);
   if (proof.kind === 'framestats') {
     out.proofs.push({ shot: shot.id, kind: 'framestats', seconds: proof.seconds, ...parseJank(text), passed: null });
@@ -539,7 +562,7 @@ async function runProof({ plan, shot, adb, lab, run, outDir, sleep, out }) {
     const fps = frames / proof.seconds;
     const { min, max } = proof.band;
     const passed = fps >= min && fps <= max;
-    out.proofs.push({ shot: shot.id, kind: 'rate', seconds: proof.seconds, frames, fps, band: { min, max }, passed });
+    out.proofs.push({ shot: shot.id, kind: 'rate', seconds: proof.seconds, frames, fps, band: { min, max }, passed, display });
     if (!passed) throw new Error(`${shot.id}: ${fps} frames/s in ${proof.seconds} s is outside the band ${min} to ${max} (UI-171)`);
     return;
   }
@@ -691,6 +714,8 @@ export async function capture({
   if (installProblems.length) throw new Refused(installProblems.join('\n'));
   const facts = await readDeviceFacts(adb);
   if (facts.forceDark) throw new Refused('force-dark is on: the OS repaints apps dark (debug.hwui.force_dark=true). Switch it off and capture again.');
+  const rateProblems = plan.shots.map((s) => rateDisplayProblem(s, facts.refreshRate)).filter((p) => p !== null);
+  if (rateProblems.length) throw new Refused(rateProblems.join('\n'));
   // F5: the GPU and the display's colour facts, read once; a fact adb does not give is null with its reason, never refused.
   const render = await readRenderFacts(adb);
 
@@ -761,6 +786,8 @@ export async function capture({
 // on disk and no restore recorded) the phone is put back from that saved state first.
 
 const SESSION_KEYS = { session: ['id', 'parts'], part: ['plan', 'pause'] };
+/** RA-53: during a pause an edit here refuses the resume, and a commit forces a rebuild and a full re-capture. */
+export const KEEP_STILL = 'write nothing in this checkout until the session passes: a change or a commit here captures every part again; record notes in another worktree';
 const PART_FILE = /^[a-z0-9-]{1,40}\.json$/;
 const PAUSE_MAX = 600;
 
@@ -844,7 +871,11 @@ export async function captureSession({ session, planDir, outDir, log = console.l
   if (earlier !== null && earlier.session !== session.id) throw new Refused(`${outDir} holds session ${earlier.session}, not ${session.id}: use another folder`);
   const build = checkBuild({ appRoot, apkPath, git });
 
-  const states = parts.map((p) => ({ file: p.file, id: p.plan.id, dir: p.plan.id, state: 'not run', manifest: null }));
+  const states = parts.map((p) => ({ file: p.file, id: p.plan.id, dir: p.plan.id, state: 'not run', manifest: null, pause: null, pausedAt: null }));
+  const earlierPause = (id) => {
+    const e = Array.isArray(earlier?.parts) ? earlier.parts.find((x) => x?.id === id) : undefined;
+    return typeof e?.pause === 'string' ? { pause: e.pause, pausedAt: typeof e.pausedAt === 'string' ? e.pausedAt : null } : null;
+  };
   const record = (status, { pause = null, failure = null } = {}) => {
     fs.mkdirSync(outDir, { recursive: true });
     fs.writeFileSync(sessionPath, `${JSON.stringify({
@@ -858,7 +889,7 @@ export async function captureSession({ session, planDir, outDir, log = console.l
     const manifestFile = path.join(dir, 'manifest.json');
     const done = fs.existsSync(manifestFile) ? readJson(manifestFile) : null;
     if (done && done.outcome === 'passed' && done.plan === part.plan.id && done.commit === build.head && done.apkSha256 === build.apkSha256) {
-      Object.assign(st, { state: 'captured earlier', manifest: path.join(part.plan.id, 'manifest.json') });
+      Object.assign(st, { state: 'captured earlier', manifest: path.join(part.plan.id, 'manifest.json') }, earlierPause(part.plan.id) ?? {});
       log(`part ${i + 1}/${parts.length} ${part.plan.id}: captured earlier at this build, kept`);
       continue;
     }
@@ -876,7 +907,15 @@ export async function captureSession({ session, planDir, outDir, log = console.l
         log(`part ${i + 1}/${parts.length} ${part.plan.id}: the phone is put back from the earlier attempt's saved state`);
       }
       const aside = asideName(dir);
-      fs.renameSync(dir, aside);
+      try {
+        fs.renameSync(dir, aside);
+      } catch (e) {
+        const held = e?.code === 'EPERM' || e?.code === 'EBUSY';
+        const message = held ? `${part.plan.id}: close what holds ${dir} open and run again (${e.code})` : `${part.plan.id}: the earlier attempt cannot be moved aside: ${e.message}`;
+        Object.assign(st, { state: 'failed' });
+        record(held ? 'refused' : 'failed', { failure: message });
+        throw held ? new Refused(message) : new Error(message);
+      }
       log(`part ${i + 1}/${parts.length} ${part.plan.id}: the earlier attempt is kept at ${path.basename(aside)}`);
     }
     log(`part ${i + 1}/${parts.length} ${part.plan.id}: capturing`);
@@ -889,12 +928,35 @@ export async function captureSession({ session, planDir, outDir, log = console.l
     }
     Object.assign(st, { state: 'captured', manifest: path.join(part.plan.id, 'manifest.json') });
     if (part.pause !== null) {
+      Object.assign(st, { pause: part.pause, pausedAt: now().toISOString() });
       record('paused', { pause: part.pause });
       return { status: 'paused', pause: part.pause, sessionPath, parts: states };
     }
   }
   record('passed');
   return { status: 'passed', pause: null, sessionPath, parts: states };
+}
+
+/**
+ * RA-54: the saved state --restore puts the phone back from. A single run's folder holds it at the top; a session's keeps
+ * it in each part's folder, so the part restored is the one with a saved state and no passed manifest (a killed or failed
+ * part), or a manifest whose restore failed. Returns { from, failures }; throws Refused when there is none.
+ */
+export async function restoreFolder({ outDir, adb }) {
+  let from = path.join(outDir, 'device-original-state.json');
+  if (!fs.existsSync(from) && fs.existsSync(path.join(outDir, 'session.json'))) {
+    const changed = fs.readdirSync(outDir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).filter((name) => {
+      if (!fs.existsSync(path.join(outDir, name, 'device-original-state.json'))) return false;
+      const m = readJson(path.join(outDir, name, 'manifest.json'));
+      return m === null || m.outcome !== 'passed' || (Array.isArray(m.restoreFailures) && m.restoreFailures.length > 0);
+    });
+    if (changed.length === 0) throw new Refused(`no part of the session in ${outDir} left a saved state without a passed manifest: nothing to restore`);
+    if (changed.length > 1) throw new Refused(`parts ${changed.join(', ')} in ${outDir} each left a saved state: run --restore --out on the one to put back`);
+    from = path.join(outDir, changed[0], 'device-original-state.json');
+  }
+  const saved = readJson(from);
+  if (!saved?.snapshot) throw new Refused(`no saved state to restore from in ${outDir}`);
+  return { from, failures: await restoreDevice(adb, saved.snapshot) };
 }
 
 /** What the CLI prints and exits with for a session that returned: 0 passed (each part's manifest), 3 paused. */
@@ -907,6 +969,7 @@ export function sessionOutcome(result, outDir) {
       message: [
         `paused after ${captured[captured.length - 1].id}: ${result.pause}`,
         `the parts captured so far are kept: run the same command again to go on from ${next ? next.id : 'the end'}`,
+        KEEP_STILL,
       ].join('\n'),
     };
   }
@@ -947,10 +1010,9 @@ async function main(argv) {
     if (!args.out) { console.error('--out <folder outside the repository> is required'); return 2; }
     const outDir = path.resolve(args.out);
     if (args.restore) {
-      const saved = JSON.parse(fs.readFileSync(path.join(outDir, 'device-original-state.json'), 'utf8'));
-      const failures = await restoreDevice(adb, saved.snapshot);
-      if (failures.length) { console.error(`not fully restored:\n  ${failures.join('\n  ')}`); return 1; }
-      console.log('the phone is restored');
+      const { from, failures } = await restoreFolder({ outDir, adb });
+      if (failures.length) { console.error(`not fully restored from ${from}:\n  ${failures.join('\n  ')}`); return 1; }
+      console.log(`the phone is restored from ${from}`);
       return 0;
     }
     if (!args.plan) { console.error('--plan <capture plan> is required'); return 2; }

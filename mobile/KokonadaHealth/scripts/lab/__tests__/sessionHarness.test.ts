@@ -329,6 +329,16 @@ describe('the v1 session on one fake phone', () => {
     expect(launchesPerRun).toEqual([launchesOf(['smoke', 'v1-grain']), launchesOf(['v1-field']), launchesOf(['v1-near', 'v1-witness', 'v1-policy', 'v1-cost', 'v1-storm'])]);
   });
 
+  // RA-57: the final session.json keeps the record that the owner's two pauses happened, carried across the resumes.
+  it('the final session.json still names each pause and when it happened; a part that never paused names none', () => {
+    const s = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const byId = Object.fromEntries(s.parts.map((p: { id: string; pause: string | null; pausedAt: string | null }) => [p.id, p]));
+    expect(byId['v1-grain'].pause).toContain('UI-092');
+    expect(byId['v1-field'].pause).toContain('UI-244');
+    for (const id of ['v1-grain', 'v1-field']) expect([id, Number.isNaN(Date.parse(byId[id].pausedAt))]).toEqual([id, false]);
+    for (const p of s.parts.filter((x: { id: string }) => !['v1-grain', 'v1-field'].includes(x.id))) expect([p.id, p.pause, p.pausedAt]).toEqual([p.id, null, null]);
+  });
+
   it('every part has its own folder and a passed manifest of its own plan, every planned launch a row', () => {
     for (const { plan } of PARTS) {
       const m = JSON.parse(fs.readFileSync(manifestOf(plan.id), 'utf8'));

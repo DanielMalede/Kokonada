@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { captureSession, isSessionPlan, loadSession, Refused, sessionOutcome, validatePlan } from '../capture.mjs';
+import { captureSession, isSessionPlan, loadSession, Refused, restoreFolder, sessionOutcome, validatePlan } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame, STATUS_BAR } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
@@ -26,6 +26,9 @@ const SKIA_LOCK = JSON.stringify({ name: 'app', lockfileVersion: 3, packages: { 
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
 const APP = { package: 'com.kokonadahealth.lab', activity: 'com.kokonadahealth.lab.DesignLabActivity' };
 const NO_SCENE = { direction: null, face: null, hero: null, tier: null };
+
+// RA-53: during a pause, an edit in this checkout refuses the resume, and a commit forces a rebuild and a full re-capture.
+const KEEP_STILL = 'write nothing in this checkout until the session passes: a change or a commit here captures every part again; record notes in another worktree';
 
 // ---- v1.json, the session the owner runs ------------------------------------------------------------------------------
 
@@ -55,6 +58,10 @@ describe('capture-plans/v1.json, the evidence session', () => {
     expect(pauses.map(([f]: string[]) => f)).toEqual(['v1-grain.json', 'v1-field.json']);
     expect(pauses[0][1]).toContain('UI-092');
     expect(pauses[1][1]).toContain('UI-244');
+  });
+
+  it('RA-53: every pause tells the owner to write nothing in this checkout until the session passes', () => {
+    for (const p of loaded.parts.filter((x: { pause: string | null }) => x.pause !== null)) expect([p.file, p.pause.includes(KEEP_STILL)]).toEqual([p.file, true]);
   });
 });
 
@@ -354,6 +361,79 @@ describe('the CLI with a session plan', () => {
     expect(paused.message).toBe([
       'paused after two: judge it',
       'the parts captured so far are kept: run the same command again to go on from three',
+      KEEP_STILL,
     ].join('\n'));
+  });
+});
+
+// RA-54: --restore with a session folder: a session keeps each part's saved state in <out>/<part>/, so the phone is put
+// back from the part that has a saved state but no passed manifest (or one whose restore failed).
+describe("restoreFolder (the CLI's --restore)", () => {
+  const SNAPSHOT = { settings: { 'system/font_scale': '0.8', 'global/window_animation_scale': '1.0', 'global/transition_animation_scale': '1.0', 'global/animator_duration_scale': '1.0', 'global/low_power': '0', 'global/stay_on_while_plugged_in': null }, night: 'yes' };
+
+  it("--restore given a session folder restores the killed part's saved state", async () => {
+    const w = world();
+    await w.run({ id: 's', parts: [{ plan: 'one.json' }] });
+    const before = w.device.state();
+    fs.mkdirSync(path.join(w.outDir, 'two'));
+    fs.writeFileSync(path.join(w.outDir, 'two', 'device-original-state.json'), JSON.stringify({ takenAt: 'x', snapshot: SNAPSHOT }));
+    w.device.settings.set('system/font_scale', '1.3');
+    w.device.night = 'no';
+    const r = await restoreFolder({ outDir: w.outDir, adb: w.device });
+    expect(r).toEqual({ from: path.join(w.outDir, 'two', 'device-original-state.json'), failures: [] });
+    expect(w.device.state()).toEqual(before);
+  });
+
+  it('a part whose restore failed is restored again; a passed part is not', async () => {
+    const w = world();
+    await w.run({ id: 's', parts: [{ plan: 'one.json' }, { plan: 'two.json' }] });
+    const manifest = path.join(w.outDir, 'two', 'manifest.json');
+    fs.writeFileSync(manifest, JSON.stringify({ ...JSON.parse(fs.readFileSync(manifest, 'utf8')), outcome: 'failed', restoreFailures: ['restore x: boom'] }));
+    expect((await restoreFolder({ outDir: w.outDir, adb: w.device })).from).toBe(path.join(w.outDir, 'two', 'device-original-state.json'));
+  });
+
+  it('a session folder with no part that left the phone changed is refused, naming the folder', async () => {
+    const w = world();
+    await w.run({ id: 's', parts: [{ plan: 'one.json' }] });
+    await expect(restoreFolder({ outDir: w.outDir, adb: w.device })).rejects.toThrow(/no part of the session .* left a saved state without a passed manifest/);
+    await expect(restoreFolder({ outDir: w.outDir, adb: w.device })).rejects.toBeInstanceOf(Refused);
+  });
+
+  it("a single run's folder still restores from its own saved state", async () => {
+    const w = world();
+    const out = path.join(w.tmp, 'single');
+    fs.mkdirSync(out);
+    fs.writeFileSync(path.join(out, 'device-original-state.json'), JSON.stringify({ takenAt: 'x', snapshot: SNAPSHOT }));
+    w.device.night = 'no';
+    expect(await restoreFolder({ outDir: out, adb: w.device })).toEqual({ from: path.join(out, 'device-original-state.json'), failures: [] });
+    expect(w.device.night).toBe('yes');
+  });
+});
+
+// RA-58: on Windows a part folder cannot be moved aside while a file in it is open (EPERM, EBUSY): a refusal that says so,
+// with session.json written, never an unrecorded crash.
+describe('RA-58: a part folder held open', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  it.each(['EPERM', 'EBUSY'])('%s moving an earlier attempt aside refuses, records session.json, and the next run goes on', async (code) => {
+    const w = world();
+    fs.mkdirSync(path.join(w.outDir, 'one'), { recursive: true });
+    jest.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw Object.assign(new Error(`${code}: resource busy or locked, rename`), { code }); });
+    const err = await w.run().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(Refused);
+    expect((err as Error).message).toMatch(new RegExp(`one: close what holds .*one open and run again \\(${code}\\)`));
+    const s = w.readSession();
+    expect([s.status, s.failure]).toEqual(['refused', expect.stringMatching(/close what holds/)]);
+    expect(w.launches()).toEqual([]);
+    jest.restoreAllMocks();
+    expect((await w.run()).status).toBe('passed');
+  });
+
+  it('another rename error is not taken for an open file', async () => {
+    const w = world();
+    fs.mkdirSync(path.join(w.outDir, 'one'), { recursive: true });
+    jest.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw Object.assign(new Error('ENOSPC: no space left'), { code: 'ENOSPC' }); });
+    await expect(w.run()).rejects.toThrow(/ENOSPC/);
+    expect(w.readSession().status).toBe('failed');
   });
 });

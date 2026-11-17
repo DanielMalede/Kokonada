@@ -773,7 +773,7 @@ describe('the new proofs', () => {
       const w = world();
       drawing(w, 600);
       const { manifest } = await w.run({ plan: planOf(moving(RATE)) });
-      expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'rate', seconds: 10, frames: 600, fps: 60, band: { min: 55, max: 62 }, passed: true }]);
+      expect(manifest.proofs).toEqual([{ shot: 'm', kind: 'rate', seconds: 10, frames: 600, fps: 60, band: { min: 55, max: 62 }, passed: true, display: { refreshHz: 120, mode: 'renderFrameRate 120 Hz, vsyncRate 120 Hz', key: 'renderFrameRate', reason: null } }]);
     });
 
     it.each([
@@ -1482,5 +1482,75 @@ describe('UI-240: the harness validates the manifest\'s top level before it writ
     const written = JSON.parse(fs.readFileSync(path.join(failed.outDir, 'manifest.json'), 'utf8'));
     expect(written.outcome).toBe('failed');
     expect(validateManifest(written)).toEqual([]);
+  });
+});
+
+// RA-52: Android holds the display at 60 Hz in battery saver, so a rate band can only see the tier's cap when the display
+// runs faster than the cap. The rate proof records the display mode it ran under, read during the proof; and a plan with
+// a full-tier rate band is refused before the phone is touched when the display runs below the band's minimum.
+describe('RA-52: the display a rate proof ran under', () => {
+  const rateShot = (tier: string, band: { min: number; max: number }) => fieldShot('r', `field.abyss.dark.three.${tier}`, {
+    args: { clock: 'realtime', frames: '3' }, expect: { ...FIELD_EXPECT, tier }, proof: { kind: 'rate', seconds: 10, band },
+  });
+  const display = (w: ReturnType<typeof world>, before: string, during: string) => {
+    let reset = false;
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => {
+      const line = args.join(' ');
+      if (line === 'dumpsys display') return reset ? during : before;
+      const out = await shell(args);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset')) { reset = true; w.device.gfxFrames = 600; }
+      return out;
+    };
+  };
+  const mode = (hz: number) => `mActiveSfDisplayMode=DisplayMode{id=1, width=1080, height=2340, renderFrameRate=${hz}.0, vsyncRate=${hz}.0}`;
+
+  it('records the display mode read during the proof, not before it', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    display(w, mode(120), mode(120));
+    // The display drops to 60 Hz while the proof runs (its 10 s sleep): only a reading during the proof sees it.
+    let proofRunning = false;
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => (args.join(' ') === 'dumpsys display' && proofRunning ? mode(60) : shell(args));
+    const sleep = async (ms: number) => { if (ms === 10000) proofRunning = true; };
+    const { manifest } = await w.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })), sleep });
+    expect(manifest.proofs[0].display).toEqual({ refreshHz: 60, mode: 'renderFrameRate 60 Hz, vsyncRate 60 Hz', key: 'renderFrameRate', reason: null });
+  });
+
+  it('a display mode it cannot read is recorded null with its reason', async () => {
+    const w = world();
+    readyAs(w, { shaderStatus: 'ready', shaderReason: null });
+    display(w, mode(120), 'nothing here');
+    const { manifest } = await w.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })) });
+    expect(manifest.proofs[0].display).toMatchObject({ refreshHz: null, mode: null, key: null, reason: expect.stringMatching(/no mActiveSfDisplayMode/) });
+  });
+
+  it.each([
+    ['the display at Standard 60 Hz', mode(60), /r: a full-tier rate band from 102 frames\/s needs the display at 102 Hz or more, but it runs at 60 Hz/],
+    ['a display rate it cannot read', 'nothing here', /r: a full-tier rate band from 102 frames\/s needs the display at 102 Hz or more, but its rate cannot be read/],
+  ])('a full-tier rate band is refused before the phone is touched: %s', async (_label, text, why) => {
+    const w = world();
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => (args.join(' ') === 'dumpsys display' ? text : shell(args));
+    await expect(w.run({ plan: planOf(rateShot('full', { min: 102, max: 132 })) })).rejects.toThrow(why);
+    await expect(w.run({ plan: planOf(rateShot('full', { min: 102, max: 132 })) })).rejects.toBeInstanceOf(Refused);
+    expect(w.mutations()).toEqual([]);
+  });
+
+  it('a full-tier band the display can reach, and a low-tier band at 60 Hz, are not refused', async () => {
+    const ok = world();
+    readyAs(ok, { shaderStatus: 'ready', shaderReason: null });
+    const shell = ok.device.shell.bind(ok.device);
+    ok.device.shell = async (args: string[]) => {
+      const out = await shell(args);
+      if (args.join(' ').endsWith('gfxinfo com.kokonadahealth.lab reset')) ok.device.gfxFrames = 1200;
+      return out;
+    };
+    expect((await ok.run({ plan: planOf(rateShot('full', { min: 102, max: 132 })) })).manifest.outcome).toBe('passed');
+    const low = world();
+    readyAs(low, { shaderStatus: 'ready', shaderReason: null });
+    display(low, mode(60), mode(60));
+    expect((await low.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })) })).manifest.outcome).toBe('passed');
   });
 });

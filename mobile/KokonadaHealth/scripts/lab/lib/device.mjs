@@ -222,16 +222,26 @@ const RATES = {
  * it was read from: `renderFrameRate 120 Hz, vsyncRate 120 Hz` or `peakRefreshRate 120.00001 Hz, vsyncRate 120.00001 Hz`.
  */
 export function parseRefreshMode(text) {
+  const { mode, reason } = readDisplayMode(text);
+  return { refreshMode: mode, reason };
+}
+
+/**
+ * RA-52: the same reading as a fact a rate proof records: { refreshHz, mode, key, reason } — the active mode's render rate
+ * as a number, its mode string, and the key the rate was read from; all null with a reason when it cannot be read.
+ */
+export function readDisplayMode(text) {
   const modes = distinct(text, ACTIVE_MODE).map((body) => {
     const vsync = RATES.vsyncRate.exec(body);
     const key = RATES.renderFrameRate.test(body) ? 'renderFrameRate' : 'peakRefreshRate';
     const render = RATES[key].exec(body);
-    return render && vsync ? `${key} ${Number(render[1])} Hz, vsyncRate ${Number(vsync[1])} Hz` : null;
+    return render && vsync ? { refreshHz: Number(render[1]), mode: `${key} ${Number(render[1])} Hz, vsyncRate ${Number(vsync[1])} Hz`, key } : null;
   }).filter((m) => m !== null);
-  const unique = [...new Set(modes)];
-  if (unique.length === 0) return { refreshMode: null, reason: 'no mActiveSfDisplayMode with renderFrameRate or peakRefreshRate, and vsyncRate, in dumpsys display' };
-  if (unique.length > 1) return { refreshMode: null, reason: `${unique.length} different active display modes in dumpsys display` };
-  return { refreshMode: unique[0], reason: null };
+  const unique = [...new Map(modes.map((m) => [m.mode, m])).values()];
+  const none = (reason) => ({ refreshHz: null, mode: null, key: null, reason });
+  if (unique.length === 0) return none('no mActiveSfDisplayMode with renderFrameRate or peakRefreshRate, and vsyncRate, in dumpsys display');
+  if (unique.length > 1) return none(`${unique.length} different active display modes in dumpsys display`);
+  return { ...unique[0], reason: null };
 }
 
 /** The GPU and the display facts a manifest row records, read once for the run. A dumpsys that fails is its reason. */
