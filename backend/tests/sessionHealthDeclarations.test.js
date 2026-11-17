@@ -435,4 +435,13 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(line).toBe('  - Personal info → **Email address**, **Name** (optional), **User IDs** (the sign-in provider\'s subject). Purpose: Account management. Linked to user. Optional/required: required (email, User IDs).');
     expect(fs.readFileSync(path.join(APP, 'models/User.js'), 'utf8')).toContain('ssoId:       { type: String, required: true },');
   });
+
+  it('hosting: Railway names its region and the cache it keeps on disk; Vercel, torn down, is no longer a row', () => {
+    const lines = doc().split('\n');
+    expect(lines.find((l) => l.startsWith('| **Railway**'))).toBe('| **Railway** | Application/API hosting, and the cache and job queue (Redis, kept on a disk volume as a snapshot written every 60 seconds when a key changed), in Railway\'s US West region (California, United States) | All application traffic (encrypted in transit), and what the cache and job-queue rows of **Retention** list | — | <!-- verified: Railway service config read by the coordinator on 2026-11-17 (region sfo; Redis 8.2.9, persistent volume, --save 60 1); not code, re-read before each store submission. Whether Railway backs up that volume, and for how long, is unrecorded. -->');
+    expect(lines.filter((l) => l.startsWith('| **Vercel**'))).toEqual([]);
+    const atlas = lines.findIndex((l) => l.startsWith('| **MongoDB Atlas**'));
+    expect(lines[atlas + 1]).toBe('<!-- NEEDS VERIFICATION: the MongoDB Atlas region is unrecorded (DAN-018); Railway per the coordinator\'s read of 2026-11-17; Vercel was torn down on 2026-09-23 (DAN-002) and its row removed. -->');
+    expect(lines).toContain('- [ ] Re-verify inventory after Web Sunset removes web-only surfaces (drops the Vercel sub-processor). (Vercel torn down 2026-09-23, `DAN-002`)');
+  });
 });
