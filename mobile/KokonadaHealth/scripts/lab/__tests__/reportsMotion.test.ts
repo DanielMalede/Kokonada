@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { motionRun, type Json } from '../reports/__fixtures__/proofs';
+import { DISPLAY_120, DISPLAY_60, motionRun, planShot, plan as fixturePlan, type Json } from '../reports/__fixtures__/proofs';
 
 jest.setTimeout(120000);
 
@@ -77,8 +77,8 @@ describe('motion on a sound run', () => {
     ]);
     expect(after('draws-frames: the positive control draws', 1)).toEqual(['  dark-rest-full: 1187 frames in 10 s (PASS)']);
     expect(after('UI-171 rate: frames per second inside the plan’s band', 2)).toEqual([
-      '  rate-low: 598 frames in 10 s = 59.8 fps, band 55 to 62 (PASS)',
-      '  rate-full: 1190 frames in 10 s = 119 fps, band 110 to 125 (PASS)',
+      '  rate-low: 598 frames in 10 s = 59.8 fps, band 55 to 62, display 120 Hz (PASS)',
+      '  rate-full: 1190 frames in 10 s = 119 fps, band 110 to 125, display 120 Hz (PASS)',
     ]);
     expect(after('framestats (informational, never judged)', 1)).toEqual(['  stats-full: seconds 10, frames 1190, janky 18, jankPercent 1.5 (informational)']);
   });
@@ -117,9 +117,9 @@ describe('motion fails on a broken proof', () => {
   });
 
   it.each([
-    ['rate-low', 640, '  rate-low: 640 frames in 10 s = 64 fps, band 55 to 62 (FAIL)'],
-    ['rate-low', 540, '  rate-low: 540 frames in 10 s = 54 fps, band 55 to 62 (FAIL)'],
-    ['rate-full', 900, '  rate-full: 900 frames in 10 s = 90 fps, band 110 to 125 (FAIL)'],
+    ['rate-low', 640, '  rate-low: 640 frames in 10 s = 64 fps, band 55 to 62, display 120 Hz (FAIL)'],
+    ['rate-low', 540, '  rate-low: 540 frames in 10 s = 54 fps, band 55 to 62, display 120 Hz (FAIL)'],
+    ['rate-full', 900, '  rate-full: 900 frames in 10 s = 90 fps, band 110 to 125, display 120 Hz (FAIL)'],
   ])('a rate outside its band (%s at %i frames): exit 1', (shot, frames, line) => {
     const r = run(withProof(shot, (p) => ({ ...p, frames, fps: frames / 10, passed: false })));
     expect(r.status).toBe(1);
@@ -148,6 +148,68 @@ describe('motion fails on a broken proof', () => {
     const r = run({ plan: m.plan, manifest: { ...m.manifest, outcome: 'failed', failure: 'planted failure' } });
     expect(r.status).toBe(1);
     expect(r.report).toContain('the capture run failed: planted failure');
+  });
+});
+
+// RA-52 (S2): a low-tier rate proof taken while the display itself runs at or below the band's ceiling (battery saver, or
+// the phone set to Standard, 60 Hz) cannot see the tier's cap: frames at 60 per second are what the display allows, capped
+// or not. Such a proof is neither PASS nor FAIL but "cap not observable", and the run is INCONCLUSIVE for UI-171 (exit 3)
+// unless another low-tier rate proof, taken where the display ran above the band, passed.
+describe('RA-52: the low tier’s cap is observable only above the display’s rate', () => {
+  const at60 = () => withProof('rate-low', (p) => ({ ...p, display: DISPLAY_60 }));
+  /** The motion run with a second low-tier rate shot, its proof as given. */
+  function withSecondLow(proof: Json) {
+    const m = at60();
+    const shots = [...(m.plan.shots as Json[]), planShot('rate-low-2', 'field.abyss.light.three.low', { proof: { kind: 'rate', seconds: 10, band: { min: 55, max: 62 } } })];
+    return { plan: fixturePlan('v1-motion', shots), manifest: { ...m.manifest, proofs: [...(m.manifest.proofs as Json[]), { shot: 'rate-low-2', kind: 'rate', seconds: 10, band: { min: 55, max: 62 }, passed: true, ...proof }] } };
+  }
+
+  it('a low-tier rate proof at a 60 Hz display, in its band, is not PASS: cap not observable, the run INCONCLUSIVE, exit 3', () => {
+    const r = run(at60());
+    expect(r.status).toBe(3);
+    expect(r.report).toContain('  rate-low: 598 frames in 10 s = 59.8 fps, band 55 to 62, display 60 Hz: cap not observable (display at 60 Hz)');
+    expect(r.report).not.toMatch(/^ {2}rate-low: .*\(PASS\)$/m);
+    expect(last(r.report)).toBe('INCONCLUSIVE: UI-171’s low-tier cap was not observable (rate-low: display at 60 Hz); no low-tier rate proof was taken above its band; nothing else failed');
+  });
+
+  it('a display exactly at the band’s ceiling cannot see the cap either', () => {
+    const r = run(withProof('rate-low', (p) => ({ ...p, display: { ...DISPLAY_60, refreshHz: 62 } })));
+    expect(r.status).toBe(3);
+    expect(r.report).toContain('display 62 Hz: cap not observable (display at 62 Hz)');
+  });
+
+  it('a low-tier rate proof at a 120 Hz display, in its band, is PASS', () => {
+    const r = run(motionRun());
+    expect(r.status).toBe(0);
+    expect(r.report).toContain('  rate-low: 598 frames in 10 s = 59.8 fps, band 55 to 62, display 120 Hz (PASS)');
+  });
+
+  it('another low-tier rate proof taken at 120 Hz that passed decides it: PASS, the 60 Hz proof still not counted', () => {
+    const r = run(withSecondLow({ frames: 600, fps: 60, display: DISPLAY_120 }));
+    expect(r.status).toBe(0);
+    expect(r.report).toContain('display 60 Hz: cap not observable (display at 60 Hz)');
+    expect(r.report).toContain('  rate-low-2: 600 frames in 10 s = 60 fps, band 55 to 62, display 120 Hz (PASS)');
+    expect(last(r.report)).toBe('PASS: 2 determinism pairs equal, 2 zero-frames, 1 draws-frames, 2 rate proofs; framestats informational; 1 low-tier rate proof not observable (rate-low: display at 60 Hz)');
+  });
+
+  it('a second low-tier proof also at 60 Hz does not decide it: INCONCLUSIVE', () => {
+    const r = run(withSecondLow({ frames: 600, fps: 60, display: DISPLAY_60 }));
+    expect(r.status).toBe(3);
+    expect(last(r.report)).toMatch(/^INCONCLUSIVE: /);
+  });
+
+  it('a failure elsewhere wins over INCONCLUSIVE: exit 1', () => {
+    const m = at60();
+    const proofs = (m.manifest.proofs as Json[]).map((p) => (p.shot === 'rate-full' ? { ...p, frames: 900, fps: 90, passed: false } : p));
+    const r = run({ plan: m.plan, manifest: { ...m.manifest, proofs } });
+    expect(r.status).toBe(1);
+    expect(last(r.report)).toBe('FAIL: 1 problem: rate-full rate');
+  });
+
+  it('a full-tier proof is not held to the cap rule: at a 60 Hz display, out of its band, it fails', () => {
+    const r = run(withProof('rate-full', (p) => ({ ...p, frames: 600, fps: 60, display: DISPLAY_60, passed: false })));
+    expect(r.status).toBe(1);
+    expect(r.report).toContain('  rate-full: 600 frames in 10 s = 60 fps, band 110 to 125, display 60 Hz (FAIL)');
   });
 });
 
@@ -188,6 +250,11 @@ describe('motion refuses what it cannot use', () => {
     ['a proof whose seconds are not the plan’s', 'dark-rest-full', (p: Json) => ({ ...p, seconds: 5 }), '"seconds"'],
     ['a proof field the harness does not write', 'dark-rest-still', (p: Json) => ({ ...p, p99Ms: 14 }), '"p99Ms"'],
     ['a framestats proof without its janky count', 'stats-full', (p: Json) => (({ janky: _j, ...rest }) => rest)(p), '"janky"'],
+    ['a rate proof without the display it was taken at (RA-52)', 'rate-low', (p: Json) => (({ display: _d, ...rest }) => rest)(p), '"display"'],
+    ['a rate proof whose display has no refresh rate', 'rate-low', (p: Json) => ({ ...p, display: { mode: 'standard', key: 'refresh_rate_mode' } }), '"display.refreshHz"'],
+    ['a rate proof whose display refresh rate is not a positive number', 'rate-low', (p: Json) => ({ ...p, display: { ...DISPLAY_60, refreshHz: 0 } }), '"display.refreshHz"'],
+    ['a rate proof whose display has no mode', 'rate-low', (p: Json) => ({ ...p, display: { refreshHz: 60, key: 'refresh_rate_mode' } }), '"display.mode"'],
+    ['a rate proof whose display has no key', 'rate-low', (p: Json) => ({ ...p, display: { refreshHz: 60, mode: 'standard' } }), '"display.key"'],
   ])('%s: exit 2, naming the field', (_, shot, edit, field) => {
     const r = run(withProof(shot, edit));
     expect(r.status).toBe(2);

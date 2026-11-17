@@ -3,7 +3,8 @@
 // top level as rows.ts's manifest() writes it (capture.mjs's own fields). The proofs are the entries capture.mjs runProof
 // pushes, field for field:
 //   · zero-frames, draws-frames: { shot, kind, seconds, frames, passed };
-//   · rate: { shot, kind: 'rate', seconds, frames, fps, band: { min, max }, passed } (fps = frames / seconds);
+//   · rate: { shot, kind: 'rate', seconds, frames, fps, band: { min, max }, display: { refreshHz, mode, key }, passed }
+//     (fps = frames / seconds; display is the display's refresh rate read during the proof, RA-52);
 //   · framestats: { shot, kind: 'framestats', seconds, frames, janky, jankPercent, reason, passed: null } (informational);
 //   · result: the proof { shot, kind: 'result', seconds, passed: true }, and the RESULT line itself in the manifest's
 //     top-level `results` as { shot, repeat, result };
@@ -78,6 +79,10 @@ export function costRun(edit: (id: string, result: Json) => Json | null = (_, r)
   return { plan: plan('v1-cost', shots), manifest: runManifest('v1-cost', proofs, [], 'passed', results) };
 }
 
+/** The display during a rate proof (RA-52), as the harness records it: the refresh rate, the mode and its key. Synthetic. */
+export const DISPLAY_120: Json = { refreshHz: 120, mode: 'adaptive', key: 'refresh_rate_mode' };
+export const DISPLAY_60: Json = { refreshHz: 60, mode: 'standard', key: 'refresh_rate_mode' };
+
 /** The motion run: the still proofs, their positive control, the rates of UI-171, framestats, and two determinism pairs. */
 export function motionRun(): { plan: Json; manifest: Json } {
   const shots = [
@@ -93,8 +98,8 @@ export function motionRun(): { plan: Json; manifest: Json } {
     { shot: 'dark-rest-still', kind: 'zero-frames', seconds: 10, frames: 0, passed: true },
     { shot: 'dark-rest-reduced', kind: 'zero-frames', seconds: 10, frames: 0, passed: true },
     { shot: 'dark-rest-full', kind: 'draws-frames', seconds: 10, frames: 1187, passed: true },
-    { shot: 'rate-low', kind: 'rate', seconds: 10, frames: 598, fps: 59.8, band: { min: 55, max: 62 }, passed: true },
-    { shot: 'rate-full', kind: 'rate', seconds: 10, frames: 1190, fps: 119, band: { min: 110, max: 125 }, passed: true },
+    { shot: 'rate-low', kind: 'rate', seconds: 10, frames: 598, fps: 59.8, band: { min: 55, max: 62 }, display: DISPLAY_120, passed: true },
+    { shot: 'rate-full', kind: 'rate', seconds: 10, frames: 1190, fps: 119, band: { min: 110, max: 125 }, display: DISPLAY_120, passed: true },
     { shot: 'stats-full', kind: 'framestats', seconds: 10, frames: 1190, janky: 18, jankPercent: 1.5, reason: null, passed: null },
   ];
   const determinism = [
