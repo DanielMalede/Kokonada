@@ -456,9 +456,9 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(exporter).toContain('subjectId:  String(userId),');
     expect(exporter).toContain('garminUserId:     u.garminUserId,');
     expect(src('controllers/integrationsController.js')).toContain('user.garminUserId = garminUserId;');
-    // C287-2, R287-2: the Play declaration's Data safety row declares the same User IDs.
+    // C287-2, R287-2, round 2 (compliance P3): the Play declaration's Data safety row declares the same User IDs, the Garmin ID included.
     const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
-    expect(store.split('\n').find((l) => l.startsWith('| Other data types collected |'))).toBe('| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |');
+    expect(store.split('\n').find((l) => l.startsWith('| Other data types collected |'))).toBe('| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier, and the Garmin user ID when Garmin is connected); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |');
   });
 
   it('C287-1: the holds on the store answers are visible, not only in comments', () => {
