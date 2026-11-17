@@ -12,7 +12,10 @@
 > screen (`docs/SCREENS.md` §11). Any drift between them is a rejection risk. <!-- verified rationale wiring: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:70-95 -->
 >
 > **Do not submit until:** the Groq DPA is executed + Zero-Data-Retention enabled (see the
-> "Shared: No" caveat), and the consent screen + server consent gate are live.
+> "Shared: No" caveat), and the consent screen + server consent gate are live; the owner's NF-A
+> decision (DAN015-Q3) and a re-check of every Health and fitness answer; `DAN-050`'s sweep record
+> (the 'within a day' answers and the `MedicalProfile` E-3 count); the sub-processor list complete
+> (Sentry, `DAN-018`; the Atlas region).
 
 ## 0. App summary (for the declaration intro)
 
@@ -106,6 +109,9 @@ declaration **and** the consent screen. <!-- verified: mobile/KokonadaHealth/and
 ## 6. Pre-submission gate
 
 - [ ] Groq DPA executed + ZDR enabled + Groq listed as sub-processor (blocks the "Shared: No" answer).
+- [ ] The owner's NF-A decision (DAN015-Q3) made, and every Health and fitness answer re-checked against it.
+- [ ] `DAN-050`'s sweep record on file (the 'within a day' answers and the `MedicalProfile` E-3 count).
+- [ ] The sub-processor list complete (Sentry, `DAN-018`; the Atlas region).
 - [ ] Consent screen live and writing versioned `ConsentRecord`; server `requireConsent` gate confirmed on all user-facing health-ingest routes.
 - [ ] Privacy policy URL + account-deletion URL live and consistent with this doc.
 - [ ] ~~Demo video~~ — not required (Health Connect background read is not requested; the app is foreground-only). Reassess if the BLE/watch live-HR lane (§2) needs its own disclosure.

@@ -449,6 +449,19 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(store.split('\n').find((l) => l.startsWith('| Other data types collected |'))).toBe('| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |');
   });
 
+  it('C287-1: the holds on the store answers are visible, not only in comments', () => {
+    const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
+    const start = store.indexOf('> **Do not submit until:**');
+    expect(start).toBeGreaterThan(-1);
+    const hold = store.slice(start, store.indexOf('\n\n', start)).replace(/\n> /g, ' ');
+    expect(hold).toContain('the owner\'s NF-A decision (DAN015-Q3) and a re-check of every Health and fitness answer; `DAN-050`\'s sweep record (the \'within a day\' answers and the `MedicalProfile` E-3 count); the sub-processor list complete (Sentry, `DAN-018`; the Atlas region).');
+    const gate = section(store, '6. Pre-submission gate').split('\n');
+    expect(gate).toContain('- [ ] The owner\'s NF-A decision (DAN015-Q3) made, and every Health and fitness answer re-checked against it.');
+    expect(gate).toContain('- [ ] `DAN-050`\'s sweep record on file (the \'within a day\' answers and the `MedicalProfile` E-3 count).');
+    expect(gate).toContain('- [ ] The sub-processor list complete (Sentry, `DAN-018`; the Atlas region).');
+    expect(section(doc(), 'Cross-store consistency checklist').split('\n')).toContain('- [ ] No Health and fitness Data safety answer filed before NF-A (DAN015-Q3) is decided; sub-processor list complete (Sentry/DAN-018, Atlas region/DAN-018).');
+  });
+
   it('hosting: Railway names its region and the cache it keeps on disk; Vercel, torn down, is no longer a row', () => {
     const lines = doc().split('\n');
     expect(lines.find((l) => l.startsWith('| **Railway**'))).toBe('| **Railway** | Application/API hosting, and the cache and job queue (Redis, kept on a disk volume as a snapshot written every 60 seconds when a key changed), in Railway\'s US West region (California, United States) | All application traffic (encrypted in transit), and what the cache and job-queue rows of **Retention** list | — | <!-- verified: Railway service config read by the coordinator on 2026-11-17 (region sfo; Redis 8.2.9, persistent volume, --save 60 1); not code, re-read before each store submission. Whether Railway backs up that volume, and for how long, is unrecorded. -->');

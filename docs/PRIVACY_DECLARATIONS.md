@@ -188,6 +188,7 @@ The site `https://kokonada.com/` and the policy page `https://kokonada.com/priva
 
 ## Cross-store consistency checklist (for Wave 3)
 - [ ] Privacy policy URL live and listing Groq as a sub-processor + the Groq DPA/ZDR executed.
+- [ ] No Health and fitness Data safety answer filed before NF-A (DAN015-Q3) is decided; sub-processor list complete (Sentry/DAN-018, Atlas region/DAN-018).
 - [ ] Account-deletion URL/flow documented for both stores (in-app `DELETE /api/auth/account` + web).
 - [ ] Self-service data-export flow (`GET /api/auth/account/export`) reflected in both stores' "can request data" answers.
 - [ ] **Sign in with Apple** — client UI shipped; complete the Apple Developer Portal capability/cert provisioning + on-device iOS QA before iOS submission.
