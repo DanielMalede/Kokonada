@@ -150,7 +150,9 @@ export const PINS: readonly Pin[] = [
   {
     id: 'healthlane-ble-request-only-in-definition',
     file: 'mobile/KokonadaHealth/src/__tests__/shadow.healthLane.test.ts',
-    fullTitle: 'Bluetooth: the lane only CHECKS the grant — nothing asks until P6 ships the disclosure requestMultiple( and requestBlePermissions( exist only inside their own definition',
+    // `\u0028` is "(": shadow.healthLane.test.ts scans every non-test file under src (this one too) for
+    // the call spelled `requestMultiple` + "(", and this title would otherwise spell it.
+    fullTitle: 'Bluetooth: the lane only CHECKS the grant — nothing asks until P6 ships the disclosure requestMultiple\u0028 and requestBlePermissions\u0028 exist only inside their own definition',
     statements: 2,
     sha256: '910d7a4f531a64b73cf3c19b134217589a7d83e331899adc5c46024ceab4c5c8',
     description: 'nothing asks for the Bluetooth grant until P6 ships the disclosure',
