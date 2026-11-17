@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { CHECK_BAND } from '../../../src/design/v2/tokens/neverRedSweeps.ts';
-import { androidDensity, EvidenceInputError, isCheckBandRed, loadCapture, loadManifest, readCaptureRow, writeNewFile, type CaptureRow, type Rgba } from './lib/evidence.mts';
+import { EvidenceInputError, isCheckBandRed, loadCapture, loadManifest, readCaptureRow, readPxPerDp, writeNewFile, type CaptureRow, type Rgba } from './lib/evidence.mts';
 import { registerTsResolve } from './lib/tsResolve.mjs';
 
 registerTsResolve();
@@ -91,9 +91,10 @@ function witnessExclusion(row: unknown, cap: CaptureRow, img: Rgba): Exclusion {
   const expectFace = isObject(r.expect) ? r.expect.face : undefined;
   if (expectFace === null || expectFace === undefined) refuse('expect.face', 'is missing: the witness layout needs the face');
   if (expectFace !== face) refuse('expect.face', `is ${JSON.stringify(expectFace)}, not the scene's ${face}`);
-  // readCaptureRow has held the row to the harness's schema: stage, device.density and fontScale.app are there and typed.
+  // readCaptureRow has held the row to the harness's schema: stage, pixelRatio and fontScale.app are there and typed.
   const stage = r.stage as Rect;
-  const k = androidDensity((r.device as { density: number }).density);
+  // UI-240: READY's pixel ratio, its density only the cross-check.
+  const k = readPxPerDp(r, REPORT);
   const fontScale = (r.fontScale as { app: number }).app;
   // The insets: READY's stage less its region probe, each rounded to whole px.
   const probes = r.probes as { inside: Record<string, Rect>; excluded: Array<{ id: string; px: Rect }> };

@@ -8,7 +8,7 @@
 //   · the law twin of a shot, rendered in CanvasKit through the v2 builder (the .ts sources, imported as
 //     scripts/field/bandEvidence.mts imports them): the scene from the row's `expect` {direction, face, hero, tier}
 //     (fork F4: scene facts never come from tap coordinates on a lab line), the frame time from the fixed clock READY
-//     reported (`clock.t`), the px per dp from the device's density (`device.density`, see androidDensity), and the
+//     reported (`clock.t`), the px per dp READY's pixel ratio (`pixelRatio`, see readPxPerDp; UI-240), and the
 //     stage rect, the font scale (`fontScale.app`), renderScale and sampling;
 //   · the never-red test of an 8-bit pixel: the v2 definition (redBand.ts isRed over neverRedSweeps.ts CHECK_BAND), used
 //     as it is, never restated.
@@ -18,8 +18,8 @@
 // (FieldFallback.tsx). scripts/lab/__tests__/reportsTwin.skia.test.ts holds the twin to those functions byte for byte,
 // and reportsEvidence.test.ts holds its inputs to the props the lab's FieldScene and FallbackScene really pass.
 //
-// The rows' shape is the harness's (B8-5a/5b): a row carries no launch args and no px per dp of its own. The frame time is
-// READY's `clock` {mode, t}; the density is `device.density` (wm density); the stage is READY's stage probe in screen px,
+// The rows' shape is the harness's (B8-5a/5b): a row carries no launch args; its px per dp is READY's `pixelRatio` (UI-240). The frame time is
+// READY's `clock` {mode, t}; the density, `device.density` (wm density), only cross-checks it; the stage is READY's stage probe in screen px,
 // the app window, which the harness holds to the whole screen (UI-216), so it reaches under the system bars that the PNG
 // (the app region) leaves out: the reports compare the stage only where it lies in the app region. The field names this
 // library reads are all here, in the readers below; scripts/lab/__tests__/reportsHarness.test.ts feeds them the
@@ -47,7 +47,7 @@ import { FIELD_UNIFORM_FLOATS, packFrame } from '../../../../src/design/v2/field
 import { CHECK_BAND } from '../../../../src/design/v2/tokens/neverRedSweeps.ts';
 import { EXTENSIONS } from '../../../../src/design/v2/tokens/tokens.extensions.generated.ts';
 import { DIRECTIONS, type DirectionId, type Face } from '../../../../src/design/v2/tokens/tokens.generated.ts';
-import { validateRow } from '../../lib/manifest.mjs';
+import { rowPixelRatio, validateManifest, validateRow } from '../../lib/manifest.mjs';
 import { cropRegion, decodePng } from '../../lib/png.mjs';
 
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -196,16 +196,14 @@ function readStage(row: Row, report: string, region: Rect): Rect {
 }
 
 /**
- * Android's px per dp for a density: DisplayMetrics.density = densityDpi × DENSITY_DEFAULT_SCALE (1f / 160), computed in
- * float, which React Native's PixelRatio.get() returns as it is. At 411 dpi that is 2.5687501430511475, not 2.56875.
+ * The row's px per dp: READY's pixel ratio (`pixelRatio`, PixelRatio.get()), never one derived from the density; the
+ * device's density is only its cross-check, Android's float density for the dpi within 1e-6 (lib/manifest.mjs
+ * rowPixelRatio, UI-240). A row without it, or one its density contradicts, is refused, naming the field.
  */
-export function androidDensity(dpi: number): number {
-  return Math.fround(Math.fround(dpi) * Math.fround(1 / 160));
-}
-
-/** The row's px per dp, from its device's density (wm density, as the harness reads it). */
-function readPxPerDp(row: Row, report: string): number {
-  return androidDensity(needPositive(row, report, 'device.density'));
+export function readPxPerDp(row: Row, report: string): number {
+  const k = rowPixelRatio(row) as { pixelRatio: number } | { field: string; why: string };
+  if ('field' in k) refuse(row, report, k.field, k.why);
+  return (k as { pixelRatio: number }).pixelRatio;
 }
 
 const HERO = (EXTENSIONS as unknown as { base: { $root: { hero: { scenes: Record<string, { placements?: ReadonlyArray<{ x: number; y: number }> }> } } } }).base.$root.hero.scenes;
@@ -339,7 +337,11 @@ export function loadManifest(file: string): Manifest {
     throw new EvidenceInputError(`the manifest ${file} is not JSON: ${(e as Error).message}`);
   }
   if (!isObject(m)) throw new EvidenceInputError(`the manifest ${file} is not an object`);
-  if (!Array.isArray(m.rows)) throw new EvidenceInputError(`the manifest ${file}: the field "rows" is missing or not a list`);
+  // UI-240: the harness's validateManifest holds the top level, as validateRow holds each row (readCaptureRow).
+  const top = validateManifest(m) as string[];
+  if (top.length > 0) {
+    throw new EvidenceInputError(`the manifest ${file} is not one the harness writes (scripts/lab/lib/manifest.mjs validateManifest): ${top.map(named).join('; ')}`);
+  }
   return {
     file: path.resolve(file), dir: path.dirname(path.resolve(file)), sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
     plan: m.plan ?? null, outcome: m.outcome ?? null, failure: m.failure ?? null, commit: m.commit ?? null, rows: m.rows,

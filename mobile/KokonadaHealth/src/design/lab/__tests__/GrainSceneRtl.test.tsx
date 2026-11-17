@@ -9,7 +9,8 @@ import { ShaderReportContext } from '../shaderReport';
 // The owner's phone runs in Hebrew (isRTL true). Yoga lays a `flexDirection: 'row'` out from start to end, and start is
 // the right edge under RTL, so the grain strips would run ×0.5, ×0.71, ×1 left to right, the reverse of the scene's order
 // and the owner's judging instructions. The scene pins its stage to `direction: 'ltr'` (as the witness scene does): here
-// the tree is laid out by Yoga's row rule with each node's direction (inherited unless a style sets it), the probes are
+// the tree is laid out by the lab's shared Yoga model (__fixtures__/yogaRtl.ts: a row from its start edge, each node's
+// direction inherited unless a style sets it), the probes are
 // measured where that puts them, as the harness reads them, and the order must be ×1, ×0.71, ×0.5 left to right. The
 // UI thread and the canvas are faked as in GrainScene.test.tsx.
 jest.mock('react-native-reanimated', () => {
@@ -37,44 +38,13 @@ import { ledgerConfigFor } from '../../v2/field/statics';
 import { FIELD_STATICS } from '../fieldScenes';
 import { GRAIN_FACTORS, GRAIN_SPECS, grainBase, grainParams, grainProbeId, grainSpec, grainStrips, stripWidth } from '../grain/grainFrames';
 import { GrainScene } from '../scenes/GrainScene';
-
-type Node = ReactTestRenderer.ReactTestInstance;
-type Box = { x: number; y: number; width: number; height: number };
+import { directionOf, flat, frameOf, hostByNativeId, layoutRules, type Box } from './__fixtures__/yogaRtl';
 
 const K = 2.625;
 const W = 1080 / K;
 const H = 2340 / K;
 const T = 11000;
-const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity).filter(Boolean)) as Record<string, unknown>;
-const hosts = (n: Node): Node[] => {
-  const out: Node[] = [];
-  for (let p: Node | null = n; p !== null; p = p.parent) if (typeof p.type === 'string') out.unshift(p);
-  return out;
-};
-
-/** A node's direction: the nearest `direction` style on it or above it, else the root's (I18nManager). */
-function directionOf(node: Node): 'ltr' | 'rtl' {
-  let dir: 'ltr' | 'rtl' = I18nManager.isRTL ? 'rtl' : 'ltr';
-  for (const h of hosts(node)) {
-    const d = flat(h.props.style).direction;
-    if (d === 'ltr' || d === 'rtl') dir = d;
-  }
-  return dir;
-}
-
-/** Where a strip probe lands, by Yoga's row rule: its row's children from start to end, start the right edge under rtl. */
-function stripFrame(probe: Node): Box {
-  const row = hosts(probe).reverse().find((h) => h !== probe && flat(h.props.style).flexDirection === 'row');
-  if (row === undefined) throw new Error('the strip is in no row');
-  const strips = row.findAll((n) => typeof n.type === 'string' && typeof n.props.nativeID === 'string' && n.props.nativeID.startsWith('probe-grain.'));
-  const widths = strips.map((s) => flat(s.props.style).width as number);
-  const i = strips.indexOf(probe);
-  const before = widths.slice(0, i).reduce((a, b) => a + b, 0);
-  const width = widths[i];
-  const x = directionOf(row) === 'ltr' ? before : W - before - width;
-  return { x, y: 0, width, height: flat(probe.props.style).height as number };
-}
-
+const STAGE: Box = { x: 0, y: 0, width: W, height: H };
 beforeEach(() => {
   jest.replaceProperty(I18nManager, 'isRTL', true);
   jest.spyOn(PixelRatio, 'get').mockReturnValue(K);
@@ -88,8 +58,7 @@ function mountMeasured(scene: string) {
   const reported: Record<string, ProbeRect> = {};
   let r!: ReactTestRenderer.ReactTestRenderer;
   jest.spyOn(View.prototype as never as { measureInWindow(cb: unknown): void }, 'measureInWindow').mockImplementation(function (this: { props: { nativeID?: string } }, cb: unknown) {
-    const host = r.root.find((n) => typeof n.type === 'string' && n.props.nativeID === this.props.nativeID);
-    const f = host.props.nativeID === 'probe-stage' ? { x: 0, y: 0, width: W, height: H } : stripFrame(host);
+    const f = frameOf(hostByNativeId(r.root, this.props.nativeID), STAGE, layoutRules(I18nManager));
     (cb as (...v: number[]) => void)(f.x, f.y, f.width, f.height);
   });
   act(() => {
@@ -137,8 +106,8 @@ describe.each(Object.keys(GRAIN_SPECS))('under RTL (isRTL true), %s', (id) => {
 it('the model bites: under RTL a row with no direction of its own runs from the right edge', () => {
   const { r } = mountMeasured('grain.abyss.dark.full');
   const row = r.root.find((n) => typeof n.type === 'string' && flat(n.props.style).flexDirection === 'row');
-  expect(directionOf(row)).toBe('ltr');
+  expect(directionOf(row, layoutRules(I18nManager))).toBe('ltr');
   const stage = r.root.find((n) => typeof n.type === 'string' && n.props.nativeID === 'probe-stage');
   // The stage probe sets no direction, so under RTL it is rtl: the pin is the scene's own.
-  expect(directionOf(stage)).toBe('rtl');
+  expect(directionOf(stage, layoutRules(I18nManager))).toBe('rtl');
 });

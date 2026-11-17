@@ -41,6 +41,8 @@ const ROW = {
   skiaVersion: '2.6.9',
   shaderReason: null,
   stage: { x: 0, y: 0, width: 1080, height: 2340 },
+  // UI-240: READY's pixel ratio (PixelRatio.get()), the px per dp every report reads.
+  pixelRatio: 2.8125,
 };
 
 // The smoke scene draws no field: no scene facts, no render facts.
@@ -55,7 +57,7 @@ describe('a manifest row is checked against its schema', () => {
     expect(validateRow(SMOKE_ROW)).toEqual([]);
   });
 
-  it.each(['expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage'])('refuses a row without %s', (key) => {
+  it.each(['expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage', 'pixelRatio'])('refuses a row without %s', (key) => {
     const row: Record<string, unknown> = { ...ROW };
     delete row[key];
     expect(validateRow(row)).toEqual([`${key} is required`]);
@@ -80,6 +82,9 @@ describe('a manifest row is checked against its schema', () => {
     ['a shader reason that is empty', { ...ROW, shaderReason: '' }, /shaderReason must be a string or null/],
     ['a stage without its height', { ...ROW, stage: { x: 0, y: 0, width: 1080 } }, /stage\.height is required/],
     ['a stage of null', { ...ROW, stage: null }, /stage must be an object/],
+    ['a pixel ratio of zero', { ...ROW, pixelRatio: 0 }, /^pixelRatio must be a finite number > 0$/],
+    ['a pixel ratio that is a string', { ...ROW, pixelRatio: '2.8125' }, /^pixelRatio must be a finite number > 0$/],
+    ['a pixel ratio of null', { ...ROW, pixelRatio: null }, /^pixelRatio must be a finite number > 0$/],
   ])('fails %s', (_label, row, why) => {
     expect(validateRow(row).join('\n')).toMatch(why);
   });

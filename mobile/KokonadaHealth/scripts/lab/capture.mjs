@@ -37,7 +37,7 @@ import { createAdb } from './lib/adb.mjs';
 import {
   applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
 } from './lib/device.mjs';
-import { readSkiaVersion, validateRow } from './lib/manifest.mjs';
+import { androidDensity, buildManifest, buildRow, PIXEL_RATIO_AGREEMENT, readSkiaVersion, validateManifest, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
 import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, PROBE_TOLERANCE_PX, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
@@ -384,6 +384,21 @@ export function witnessSampleProblems(layout, stage, region) {
 }
 
 /**
+ * Why READY's pixel ratio (PixelRatio.get()) is not the device's, or null: it must be Android's float density for the
+ * dpi the harness read (wm density: the override when one is set, else the physical density) within
+ * PIXEL_RATIO_AGREEMENT (UI-240). On the owner's phone, an override of 420 over 450 is 2.625.
+ */
+export function pixelRatioProblem(ready, dpi) {
+  const k = ready.pixelRatio;
+  if (!(typeof k === 'number' && Number.isFinite(k) && k > 0)) {
+    return `READY has no pixelRatio (PixelRatio.get()), so its px per dp cannot be checked against wm density ${dpi} dpi (got ${JSON.stringify(k ?? null)})`;
+  }
+  const android = androidDensity(dpi);
+  if (Math.abs(k - android) <= PIXEL_RATIO_AGREEMENT) return null;
+  return `READY's pixelRatio ${k} is not Android's density ${android} for wm density ${dpi} dpi: they must agree within ${PIXEL_RATIO_AGREEMENT.toExponential()}`;
+}
+
+/**
  * The insets the witness laid out in, from READY: the region probe's dp edges against the stage's, each rounded to whole
  * px over the pixel ratio (the scene's StatusBar.currentHeight is a float32: 74 px reads 73.99999…).
  */
@@ -554,6 +569,9 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const readyAt = now();
     const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0, fontScale: shot.device.fontScale });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+    // UI-240: a ratio the device's density contradicts fails here, before a screen is read, never later in a report.
+    const ratio = pixelRatioProblem(payload, facts.density);
+    if (ratio) throw new Error(`${shot.id}: ${ratio}`);
     const surface = surfaceProblem(shot.scene, payload);
     if (surface) throw new Error(`${shot.id}: ${surface}`);
     const tier = tierProblem(shot.scene, payload, shot.expect.tier);
@@ -609,35 +627,11 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const file = `${shot.id}.${repeat}.png`;
     fs.writeFileSync(path.join(outDir, file), png);
     if (observed.night !== 'yes' && observed.night !== 'no') throw new Error(`${shot.id}: night mode ${observed.night} is not explicit`);
-    const row = {
-      shot: shot.id, repeat, file, sha256: sha256(png), appRegionHash,
-      commit: { sha: build.head, porcelainEmpty: true },
-      stamp: { bundleSha256: build.stamp.bundleSha256, tokens: build.stamp.tokens ?? {} },
-      device: { model: facts.model, fingerprint: facts.fingerprint, width: first.width, height: first.height, density: facts.density, refreshRate: facts.refreshRate },
-      app: { package: plan.app.package, apkSha256: build.apkSha256, buildType: 'lab', hermes: build.hermes, dev: build.stamp.dev },
-      scene: shot.scene, direction: shot.expect.direction, face: shot.expect.face,
-      fontScale: { requested: shot.device.fontScale, observed: observed.fontScale, app: payload.fontScale },
-      motion: { reduceMotionObserved: observed.animatorScales.transition === 0, powerSaveObserved: payload.powerSave === true, tier: payload.tier ?? null },
-      locale: facts.locale,
-      isRTL: payload.isRTL, // checkReady refused anything but true
-      clock: { mode: payload.clock, t: payload.t ?? null, seq: payload.seq },
-      shaderStatus: payload.shaderStatus ?? null,
-      uimode: observed.night === 'yes' ? 'night' : 'day',
-      animatorScales: observed.animatorScales,
-      forceDark: facts.forceDark,
-      colorSpace: first.colorSpace,
-      region,
-      probes: classifyProbes(payload.probes, screen, region),
-      timestamps: { launched: launched.toISOString(), ready: readyAt.toISOString(), captured: captured.toISOString() },
-      // F4: the scene facts are the shot's expect (pinned to the catalogue by jest), never a lab line's.
-      expect: { direction: shot.expect.direction, face: shot.expect.face, hero: shot.expect.hero, tier: shot.expect.tier },
-      ...renderFacts(shot.expect.tier, tiers),
-      gl: render.gl,
-      display: render.display,
-      skiaVersion: build.skiaVersion,
-      shaderReason: typeof payload.shaderReason === 'string' && payload.shaderReason.length > 0 ? payload.shaderReason : null,
-      stage: { x: payload.probes.stage.px.x, y: payload.probes.stage.px.y, width: payload.probes.stage.px.width, height: payload.probes.stage.px.height },
-    };
+    const row = buildRow({
+      shot, repeat, file, sha256: sha256(png), appRegionHash, build, app: plan.app, facts, frame: first, observed, ready: payload, region,
+      probes: classifyProbes(payload.probes, screen, region), timestamps: { launched, ready: readyAt, captured },
+      renderFacts: renderFacts(shot.expect.tier, tiers), render,
+    });
     const errors = validateRow(row);
     if (errors.length) throw new Error(`${shot.id}.${repeat}: the manifest row is not valid: ${errors.join('; ')}`);
     // The proof runs on the shot's last launch, while its lab lines are still read; an ERROR during it refuses the shot too.
@@ -662,7 +656,8 @@ const isInside = (parent, child) => {
 
 /**
  * Runs a capture plan. Throws Refused before the phone is touched; otherwise the phone is restored
- * and manifest.json written on every exit path.
+ * and manifest.json written on every exit path, unless its top level is not valid (validateManifest): then nothing is
+ * written and the error says why.
  * @param {{ plan: any, appRoot: string, repoRoot: string, outDir: string, apkPath: string, adb: any,
  *           git: { head(): string, porcelain(): string }, sleep?: (ms: number) => Promise<unknown>,
  *           now?: () => Date, signal?: AbortSignal, log?: (message: string) => void,
@@ -734,16 +729,15 @@ export async function capture({
     restoreFailures = await restoreDevice(adb, snapshot);
   }
 
-  const manifest = {
-    plan: plan.id,
-    outcome: failure || restoreFailures.length ? 'failed' : 'passed',
-    failure: failure ? failure.message : null,
-    restoreFailures,
-    commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
-    device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt: now().toISOString(),
-    rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
-    moving: out.moving, settleFailures: out.settleFailures,
-  };
+  const manifest = buildManifest({
+    planId: plan.id, failure, restoreFailures, build, facts, render, startedAt, finishedAt: now().toISOString(), rows, determinism, out,
+  });
+  // UI-240: a top level no reader would accept is never written; the run's own failure and restore stay in the error.
+  const topLevel = validateManifest(manifest);
+  if (topLevel.length) {
+    const run = [failure?.message, restoreFailures.length ? `the phone was not fully restored: ${restoreFailures.join('; ')}` : null].filter(Boolean);
+    throw new Error([`the manifest is not valid, so it was not written: ${topLevel.join('; ')}`, ...run].join('\n'));
+  }
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   if (failure) {

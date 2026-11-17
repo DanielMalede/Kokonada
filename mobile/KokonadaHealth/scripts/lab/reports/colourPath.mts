@@ -6,7 +6,7 @@
 // For each witness.abyss.<face> row of a capture run it rebuilds the witness layout (src/design/lab/witness/
 // witnessLayout.ts, imported, never restated) from the row's own facts: the insets (READY's stage less its region probe,
 // each rounded to whole px), the stage in dp (READY's stage rect in px over
-// px per dp, the density over 160, as PixelRatio.get() reads it), and the font scale the app reported. It samples each
+// px per dp, READY's pixel ratio, held to the density within 1e-6), and the font scale the app reported. It samples each
 // patch's central 16 × 16 dp (the PNG pixels whose centres lie inside) and judges, on the medians per channel (D2):
 //   · W1a (the runtime effect, flat), W2 (a Skia paint) and W3 (a React Native View): the token hex within ±1, and
 //     within ±1 of each other;
@@ -27,7 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { EvidenceInputError, loadCapture, loadManifest, readCaptureRow, writeNewFile, type CaptureRow, type Rgba } from './lib/evidence.mts';
+import { EvidenceInputError, loadCapture, loadManifest, readCaptureRow, readPxPerDp, writeNewFile, type CaptureRow, type Rgba } from './lib/evidence.mts';
 import { registerTsResolve } from './lib/tsResolve.mjs';
 
 registerTsResolve();
@@ -112,8 +112,8 @@ function readWitnessRow(row: unknown): WitnessRow {
     stage[k] = v as number;
   }
   if (!(stage.width > 0 && stage.height > 0)) refuse('stage', 'has no area');
-  const density = need('device.density');
-  if (!Number.isInteger(density) || (density as number) < 1) refuse('device.density', `must be a whole number of 1 or more (dpi), got ${JSON.stringify(density)}`);
+  // UI-240: READY's pixel ratio, its density only the cross-check (never density / 160).
+  const pxPerDp = readPxPerDp(r, REPORT);
   const fontScale = need('fontScale.app');
   if (!finite(fontScale) || !(fontScale > 0)) refuse('fontScale.app', `must be a finite number above 0, got ${JSON.stringify(fontScale)}`);
   const colorMode = need('display.colorMode', true);
@@ -132,7 +132,7 @@ function readWitnessRow(row: unknown): WitnessRow {
     top: Math.round(p.y - s.y), right: Math.round(s.x + s.width - (p.x + p.width)), bottom: Math.round(s.y + s.height - (p.y + p.height)), left: Math.round(p.x - s.x),
   };
   if (Object.values(insetsPx).some((v) => v < 0)) refuse('probes.inside.region', `${JSON.stringify(p)} is not inside the stage ${JSON.stringify(s)}`);
-  return { cap, face, stage: s, pxPerDp: (density as number) / 160, fontScale: fontScale as number, colorMode: colorMode as string | null, renderScale: renderScale as number, insetsPx };
+  return { cap, face, stage: s, pxPerDp, fontScale: fontScale as number, colorMode: colorMode as string | null, renderScale: renderScale as number, insetsPx };
 }
 
 // ---------------------------------------------------------------------------------------- sampling

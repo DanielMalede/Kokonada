@@ -37,7 +37,7 @@ describe('the storm capture plan', () => {
   it.each(Object.keys(STORM_SCENE_SPECS))('%s: Abyss dark, real time, reduced motion exactly at the still tier', (scene) => {
     const shot = plan.shots.find((s) => s.scene === scene)!;
     const spec = STORM_SCENE_SPECS[scene];
-    expect(shot.expect).toEqual({ direction: 'abyss', face: 'dark', hero: null, tier: null });
+    expect(shot.expect).toEqual({ direction: 'abyss', face: 'dark', hero: null, tier: spec.tier });
     expect(shot.args).toEqual({ clock: 'realtime', frames: '10' });
     expect(shot.device).toEqual({ fontScale: 1, night: 'yes', animatorScale: spec.tier === 'still' ? 0 : 1, powerSave: false });
     expect(shot.probes).toEqual(['stage', 'marker']);

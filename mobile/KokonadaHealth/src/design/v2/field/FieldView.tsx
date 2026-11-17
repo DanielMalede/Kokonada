@@ -26,6 +26,12 @@
 //     or a layout change, or after a wake from sleep is always drawn; any other prop change is drawn on the next frame
 //     the cap allows (RA-39). The field clock runs on its own frame callback and the ledger takes each drawn frame's own
 //     timestamp, so a skipped frame's time is never lost and the motion's speed does not depend on the cap;
+//   · the lab's signals, heard through context, never props (FieldView takes no lab-only knob; the app mounts no
+//     listener, so nothing is told): the first-frame signal (FieldFirstFrameReport, firstFrameReport.ts, UI-233 and
+//     RA-44), told once per mount from the frame worklet, through runOnJS, on the first frame whose builder wrote
+//     uniforms (a builder error tells nothing); the surface-draw signal (FieldSurfaceDrawReport, surfaceDrawReport.ts,
+//     RA-50), which FieldView does not send: the FieldSurface it mounts tells it once its UI thread rendered an image;
+//     and the fallback reason (FieldFallbackReport, fallbackReport.ts, UI-223), which FieldFallback tells;
 //   · the ledger behind the clock (RA-40): At a capped tier, each stall over motion.dtClamp that directly follows a
 //     skipped frame may leave the placement ledger up to one display frame behind the field clock. The lag adds up
 //     over stalls but is never observable, because nothing reads ledger time against clock time: it only lengthens a

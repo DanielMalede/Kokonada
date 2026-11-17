@@ -4,11 +4,12 @@
 //
 // heroLayout is the V1 boards' construction (d3 to d6, the layout the designer measured the T13 rulings on), in dp, left
 // to right, until B6 measures the real hero: a 24 dp status bar and a 16 dp gesture bar; the top bar with the avatar's
-// 36 dp disc at the leading edge; the AI line at the content width, three ui.legal lines; the block [voice line, plate,
-// well] centred between the AI line's bottom and the nav's top, the voice line two voice.l lines; the CTA in the well,
-// 288 dp wide at most; the nav at the foot. Its quiet rects are the shown boxes in QUIET_ZONE's slot order (avatar, AI
-// line, nav, voice box, CTA). Above font scale 1 the text and the label band grow, and the plate grows with the band by
-// 2 × (band − 28) dp, capped at the view less 32 dp (the hero spec).
+// 36 dp disc at the physical left (LTR); the hero page (B6) measures it under RTL (UI-237); the AI line at the content
+// width, three ui.legal lines; the block [voice line, plate, well] centred between the AI line's bottom and the nav's
+// top, the voice line two voice.l lines; the CTA in the well, 288 dp wide at most; the nav at the foot. Its quiet rects
+// are the shown boxes in QUIET_ZONE's slot order (avatar, AI line, nav, voice box, CTA). Above font scale 1 the text and
+// the label band grow, and the plate grows with the band by 2 × (band − 28) dp, capped at the view less 32 dp (the hero
+// spec).
 
 import { BASE, DIRECTIONS, type DirectionId } from '../tokens/tokens.generated.ts';
 import type { FieldLayout, LayoutRect } from './fieldDriver.ts';

@@ -6,7 +6,10 @@
 // it as `tier` (null for a scene that names none). A policy scene takes that tier from the app's motion policy on the
 // device's settings, through the ports this root provides once (LabMotionPortsContext): reduced motion from the same
 // source the real-time clock asks, battery saver from the activity's launch prop and events (labPowerSaveSource.ts).
-// READY waits while the scene says its tier is not known yet, and a known tier that changes after READY is an ERROR.
+// READY waits while the scene says its tier is not known yet, and a known tier that changes after READY is an ERROR. A
+// scene that says a setting cannot be read (UI-241) is an ERROR at once, naming it: its tier would never be known.
+// Every setting read the lab makes has a deadline (settingRead.ts): one that never settles is refused by time, so it is
+// named in an ERROR too, never a READY held until the harness times out.
 //
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
@@ -26,6 +29,7 @@ import { ProbeRegistry } from './probe/Probe';
 import type { ProbeRect } from './probe/geometry';
 import { createCommandGate, createReadyGate, formatLine, parseCommand, type LineKind } from './protocol';
 import { SCENES, type Scene } from './scenes';
+import { createSettingReads } from './settingRead';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from './scenes/FieldScene';
 import { LAB_SENTINEL } from './sentinel';
 import { ShaderReportContext, type ShaderReport, type ShaderStatus } from './shaderReport';
@@ -85,6 +89,20 @@ type LabRootProps = {
 const MAX_REASON = 300;
 const clip = (reason: string | null) => (reason === null || reason.length <= MAX_REASON ? reason : `${reason.slice(0, MAX_REASON - 1)}…`);
 
+/**
+ * The launch's ERROR (UI-241): every error, or, when together they cannot make one protocol line (formatLine throws: many
+ * unknown keys, each already clipped by params.ts), one short error that says so, with how many there were and the first.
+ * The first is bounded by params.ts (every echo clipped; the longest single error, the unknown-scene message, budgeted near
+ * 3000 bytes), so this line fits. Never a throw: a launch the lab refuses always tells the harness why.
+ */
+function launchErrorLine(run: string | null, errors: readonly string[]): string {
+  try {
+    return formatLine('ERROR', { run, errors });
+  } catch (e) {
+    return formatLine('ERROR', { run, errors: [`the launch was refused with ${errors.length} errors, too many for one line (${(e as Error).message}); the first: ${errors[0] ?? ''}`] });
+  }
+}
+
 const timings = (scenes: Readonly<Record<string, Scene>>): Record<string, SceneTiming> =>
   Object.fromEntries(Object.entries(scenes).map(([id, s]) => [id, { periodMs: s.periodMs }]));
 
@@ -99,7 +117,7 @@ export function LabRoot({ labArgs, nonStringKeys, powerSave, deps: overrides }: 
   useEffect(() => {
     if (parsed.ok || reported.current) return;
     reported.current = true;
-    deps.emit(formatLine('ERROR', { run: parsed.run, errors: parsed.errors }));
+    deps.emit(launchErrorLine(parsed.run, parsed.errors));
   }, [parsed, deps]);
 
   if (!parsed.ok) return null;
@@ -139,21 +157,21 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     if (step.t !== null) controlled.value = step.t;
   }, [controlled, step.t]);
   // The real-time clock runs only once reduced motion is known to be off: a still shot then draws no
-  // frame, and the same scene with motion allowed draws some (the harness's positive control).
+  // frame, and the same scene with motion allowed draws some (the harness's positive control). The read is made below,
+  // once `fail` exists: a refused or unanswered read on a real-time launch is an ERROR (UI-241).
   const [reduceMotion, setReduceMotion] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    deps.reduceMotion.current().then((on) => { if (live) setReduceMotion(on); }, () => {});
-    const unsubscribe = deps.reduceMotion.subscribe((on) => setReduceMotion(on));
-    return () => { live = false; unsubscribe(); };
-  }, [deps]);
+  // Every setting read of this session, each with its deadline (settingRead.ts); cleared on unmount.
+  const [reads] = useState(() => createSettingReads());
+  useEffect(() => () => reads.clear(), [reads]);
   const realtime = useRealtimeFieldClock(scene.periodMs, params.clock === 'realtime' && reduceMotion === false);
   const clock: FieldClock = params.clock === 'realtime' ? realtime : { t: controlled };
 
   // The motion policy's ports, made once: the scene's policy hears the device as the realtime clock does (B8-6).
   const powerSaveSource = useLabPowerSaveSource({ [LAB_PROPS.powerSave]: initialPowerSave }, deps.events);
   const [motionPorts] = useState<MotionPorts>(() => ({
-    reduceMotion: { read: () => deps.reduceMotion.current(), subscribe: (onChange) => deps.reduceMotion.subscribe(onChange) },
+    reduceMotion: { read: () => reads.read(() => deps.reduceMotion.current()), subscribe: (onChange) => deps.reduceMotion.subscribe(onChange) },
+    // Battery saver is the activity's launch prop and events (labPowerSaveSource.ts): its read answers at once, so it needs
+    // no deadline.
     powerSave: powerSaveSource,
   }));
 
@@ -234,9 +252,29 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     say('ERROR', { run: params.run, errors: [message] });
   }, [say, params.run]);
 
+  // The reduced-motion read that starts the real-time clock (UI-241). On a real-time launch a read the platform refuses,
+  // or one that does not settle by the deadline, would leave the clock still for good while READY still came, and a
+  // moving shot would fail later as "0 frames", by no name: it is one ERROR naming the setting instead. A refusal after a
+  // change event answered the setting is ignored, as the motion policy ignores a late read. A fixed or stepped launch
+  // does not use the clock, so a refusal is nothing to it.
+  useEffect(() => {
+    let live = true;
+    let changed = false;
+    reads.read(() => deps.reduceMotion.current()).then((on) => { if (live) setReduceMotion(on); }, (e: unknown) => {
+      if (!live || changed || params.clock !== 'realtime') return;
+      fail(`the real-time clock cannot start: the device's reduced-motion setting could not be read (${e instanceof Error ? e.message : String(e)})`);
+    });
+    const unsubscribe = deps.reduceMotion.subscribe((on) => { changed = true; setReduceMotion(on); });
+    return () => { live = false; unsubscribe(); };
+  }, [deps, reads, fail, params.clock]);
+
   // The bench's side of the lab (B8-3, cost/costResult.ts): the lab adds the run and the seq (its own, whatever the body
   // says), formats through formatCostResult, and sends the line once READY was sent, or holds it until then. A body the
   // contract refuses, or the bench's own error, is one ERROR; after an ERROR nothing is sent.
+  // The seq rule (UI-241): a RESULT carries the seq on screen when the bench hands the body over (latest.current, what
+  // was committed last), not the seq its first measured frame was drawn under; a held RESULT keeps the seq it was made
+  // with. So a bench that spanned a command would be filed under the later step. No run can show that today: every cost
+  // shot runs on the real-time clock (v1-cost.json), where every command is IGNORED (wrong-clock), so its seq is always 0.
   const costReport = useMemo<CostReport>(() => ({
     result(body) {
       if (failed.current) return;
@@ -293,6 +331,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // passing "not known" (a setting heard before the policy caught up) is not a change.
   const reportFacts = useCallback((next: SceneFacts) => {
     facts.current = next;
+    if (next.unreadable !== undefined) {
+      fail(`the tier cannot be known: ${clip(next.unreadable)}`);
+      return;
+    }
     const said = tierShown.current;
     if (said !== undefined && next.tier !== null && next.tier !== said) {
       fail(`the tier changed after READY: READY said ${said ?? 'none'}, now ${next.tier}`);

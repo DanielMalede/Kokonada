@@ -4,13 +4,13 @@
 //   · the run passed (manifest.outcome): a shot refused after its proof still leaves its mp4 behind;
 //   · the shot has a row (its last launch, which the record proof runs on) and exactly one record;
 //   · the record's sha256 and size are the recording's: another shot's or run's mp4, or the same at another size, is not it;
-//   · the px per dp the frames are read at is the run's: Android's float density for the row's device.density
-//     (evidence.mts androidDensity, the reports' one helper), × the frame width ÷ the row's stage width (the app window,
+//   · the px per dp the frames are read at is the run's: the row's pixelRatio, READY's, held to Android's float density
+//     for its device.density (lib/manifest.mjs rowPixelRatio, UI-240), × the frame width ÷ the row's stage width (the app window,
 //     the whole screen, UI-216), within 1e-6. Recordings are smaller than the screen (540 × 1170 on a 1080 × 2340 phone),
 //     so the device's own density would make every cell twice as big and average its flashes away.
 // Pure: no file is read here. Each problem names the manifest field it read.
 
-import { androidDensity } from './evidence.mts';
+import { rowPixelRatio, validateManifest } from '../../lib/manifest.mjs';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const fmt = (v) => String(Number(v.toFixed(6)));
@@ -32,18 +32,16 @@ function derive(manifest, shot, size) {
   const found = lastRow(manifest, shot);
   if (found === null) return { problem: `manifest.rows has no row for shot ${JSON.stringify(shot)}` };
   const { row, index } = found;
-  const density = isObject(row.device) ? row.device.density : undefined;
-  if (!(typeof density === 'number' && Number.isFinite(density) && density > 0)) {
-    return { problem: `manifest.rows[${index}].device.density must be a dpi above 0, got ${JSON.stringify(density ?? null)}` };
-  }
+  const ratio = rowPixelRatio(row);
+  if ('field' in ratio) return { problem: `manifest.rows[${index}].${ratio.field} ${ratio.why}` };
   const stageWidth = isObject(row.stage) ? row.stage.width : undefined;
   if (!(typeof stageWidth === 'number' && Number.isFinite(stageWidth) && stageWidth > 0)) {
     return { problem: `manifest.rows[${index}].stage.width must be a number above 0, got ${JSON.stringify(stageWidth ?? null)}` };
   }
-  const k = androidDensity(density);
+  const k = ratio.pixelRatio;
   return {
     pxPerDp: (k * size.width) / stageWidth,
-    how: `manifest.rows[${index}].device.density ${density} dpi is Android's density ${fmt(k)}, × ${size.width} px frames ÷ manifest.rows[${index}].stage.width ${stageWidth}`,
+    how: `manifest.rows[${index}].pixelRatio ${fmt(k)} (READY's, Android's density for device.density ${row.device.density} dpi), × ${size.width} px frames ÷ manifest.rows[${index}].stage.width ${stageWidth}`,
   };
 }
 
@@ -61,6 +59,9 @@ export function recordingPxPerDp(manifest, shot, size) {
  */
 export function recordingProblems(manifest, { shot, mp4Sha256, size, pxPerDp }) {
   if (!isObject(manifest)) return ['the manifest is not an object'];
+  // UI-240: the harness's validateManifest holds the top level before any field of it is read.
+  const top = validateManifest(manifest);
+  if (top.length > 0) return top.map((e) => `manifest.${e}`);
   if (manifest.outcome !== 'passed') {
     const why = typeof manifest.failure === 'string' && manifest.failure.length > 0 ? `: ${manifest.failure}` : '';
     return [`manifest.outcome is ${JSON.stringify(manifest.outcome ?? null)}, not "passed"${why}`];
