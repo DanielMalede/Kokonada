@@ -1,6 +1,7 @@
 /// <reference types="node" />
 // QA-042 (Stage 0 Q2): the shape of scripts/baselines/test-counts.json, the jest baseline QA-041 reads.
-// The counts come from `jest --ci --json` (numTotalTestSuites, numTotalTests) on a clean main at `sha`.
+// The counts come from `jest --ci --json` (numTotalTestSuites, numTotalTests, numPendingTests,
+// numTodoTests) on a clean main at `sha`.
 // A package that could not be measured carries its reason instead of numbers, never a guess.
 
 import * as fs from 'fs';
@@ -8,7 +9,13 @@ import * as path from 'path';
 
 export const TEST_COUNTS_PATH = path.join(__dirname, 'test-counts.json');
 
-export type PackageCounts = { numTotalTestSuites: number; numTotalTests: number } | { notMeasured: string };
+/**
+ * numTotalTests counts skipped (pending) and todo tests too, so a `.skip` alone keeps the total: QA-041
+ * reads the pending and todo counts beside it.
+ */
+export type PackageCounts =
+  | { numTotalTestSuites: number; numTotalTests: number; numPendingTests: number; numTodoTests: number }
+  | { notMeasured: string };
 
 export interface TestCounts {
   sha: string;
@@ -24,6 +31,7 @@ export interface TestCounts {
 }
 
 const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+const countInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 const text = (v: unknown): v is string => typeof v === 'string' && v.trim().length > 0;
 
 export function validateTestCounts(value: unknown): TestCounts {
@@ -44,6 +52,9 @@ export function validateTestCounts(value: unknown): TestCounts {
     if (!positiveInt(p.numTotalTestSuites)) throw new Error(`test counts: ${pkg}.numTotalTestSuites must be a positive integer`);
     if (!positiveInt(p.numTotalTests)) throw new Error(`test counts: ${pkg}.numTotalTests must be a positive integer`);
     if (p.numTotalTests < p.numTotalTestSuites) throw new Error(`test counts: ${pkg} has fewer tests than suites`);
+    if (!countInt(p.numPendingTests)) throw new Error(`test counts: ${pkg}.numPendingTests must be an integer of 0 or more`);
+    if (!countInt(p.numTodoTests)) throw new Error(`test counts: ${pkg}.numTodoTests must be an integer of 0 or more`);
+    if (p.numPendingTests + p.numTodoTests >= p.numTotalTests) throw new Error(`test counts: ${pkg} has no test that runs (pending + todo >= total)`);
     if (!text(c.command[pkg])) throw new Error(`test counts: command.${pkg} is missing`);
   }
   return c;

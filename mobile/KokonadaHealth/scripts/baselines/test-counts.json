@@ -7,7 +7,7 @@
     "mobile": "./node_modules/.bin/jest --ci --json",
     "backend": "./node_modules/.bin/jest --ci --json --runInBand --forceExit"
   },
-  "mobile": { "numTotalTestSuites": 219, "numTotalTests": 3209 },
-  "backend": { "numTotalTestSuites": 357, "numTotalTests": 6370 },
+  "mobile": { "numTotalTestSuites": 219, "numTotalTests": 3209, "numPendingTests": 1, "numTodoTests": 0 },
+  "backend": { "numTotalTestSuites": 357, "numTotalTests": 6370, "numPendingTests": 65, "numTodoTests": 1 },
   "crossCheck": "CI run 44090925847 on the same SHA: Mobile — jest 219 suites, 3209 tests (all passed but 1 skipped); Backend — lint & test 357 suites, 6370 tests (9 suites and 65 tests skipped, 1 todo)"
 }
