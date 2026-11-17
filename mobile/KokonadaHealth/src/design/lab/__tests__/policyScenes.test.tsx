@@ -317,7 +317,14 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   };
   const PLAN_PATH = path.resolve(__dirname, '../../../../scripts/lab/capture-plans/v1-policy.json');
   let plan!: { id: string; shots: Shot[] };
-  beforeAll(() => { plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8')); });
+  // The plan's policy shots, and its one other shot: RA-52's twin of the low rate shot under battery saver, on the explicit
+  // low scene with battery saver off, so the display runs at its full rate and only the tier can cap the rate.
+  const TWIN = { scene: 'field.abyss.dark.three.low', powerSave: false };
+  let policyPlan!: { id: string; shots: Shot[] };
+  beforeAll(() => {
+    plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'));
+    policyPlan = { ...plan, shots: plan.shots.filter((s) => POLICY_IDS.includes(s.scene)) };
+  });
   const timings = Object.fromEntries(Object.entries(SCENES).map(([id, s]) => [id, { periodMs: s.periodMs }]));
   /** On Android RN's reduced motion is a transition animator scale of 0; the harness sets every scale to animatorScale. */
   const implied = (d: Shot['device']) => resolveMotionTier({ reduceMotion: d.animatorScale === 0, powerSave: d.powerSave });
@@ -326,8 +333,8 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   it('is a valid plan for the harness, named as its file, and every shot launches a policy scene the lab parses', () => {
     expect(validatePlan(plan)).toEqual([]);
     expect(plan.id).toBe('v1-policy');
-    expect(plan.shots.length).toBeGreaterThan(0);
-    for (const shot of plan.shots) {
+    expect(policyPlan.shots.length).toBeGreaterThan(0);
+    for (const shot of policyPlan.shots) {
       expect([shot.id, POLICY_IDS.includes(shot.scene)]).toEqual([shot.id, true]);
       expect([...shot.probes].sort()).toEqual([...SCENES[shot.scene].probes].sort());
       const parsed = parseLabArgs({ ...shot.args, run: 'plan-check', scene: shot.scene }, [], timings);
@@ -335,8 +342,14 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
     }
   });
 
+  it('holds one shot that is not a policy scene: RA-52\'s low rate twin, battery saver off, motion on, a running clock', () => {
+    const others = plan.shots.filter((s) => !POLICY_IDS.includes(s.scene));
+    expect(others.map((s) => [s.scene, s.device.powerSave, s.device.animatorScale > 0, s.args.clock, s.proof?.kind, s.expect.tier]))
+      .toEqual([[TWIN.scene, TWIN.powerSave, true, 'realtime', 'rate', 'low']]);
+  });
+
   it('every shot\'s expect is its scene\'s facts, with the tier its device state implies under the policy', () => {
-    for (const shot of plan.shots) {
+    for (const shot of policyPlan.shots) {
       const s = FIELD_SCENES[shot.scene];
       expect([shot.id, shot.expect]).toEqual([shot.id, { direction: s.direction, face: s.face, hero: s.hero, tier: implied(shot.device) }]);
       // The render facts the harness writes follow the implied tier: low reads the low tier, still and full the full.
@@ -345,7 +358,7 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   });
 
   it('sets each of the four device states on each face, on the fixed clock at t*, twice, in the face\'s night mode', () => {
-    const stills = plan.shots.filter((s) => s.proof === undefined);
+    const stills = policyPlan.shots.filter((s) => s.proof === undefined);
     for (const face of FIELD_FACES) {
       const states = stills.filter((s) => s.scene === `field.abyss.${face}.three.policy`).map((s) => [s.device.animatorScale === 0, s.device.powerSave]);
       expect(states.map((x) => JSON.stringify(x)).sort()).toEqual([[false, false], [false, true], [true, false], [true, true]].map((x) => JSON.stringify(x)).sort());
@@ -362,7 +375,7 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   // The catalogue rule (capturePlans.test.ts): every field scene is shot as a still by some plan. The other hero scenes
   // are shot once per face under battery saver, the state whose tier (low) the id-tier stills cannot stand in for here.
   it('shoots every policy scene as a still, the other hero scenes under battery saver', () => {
-    const stills = plan.shots.filter((s) => s.proof === undefined && s.args.clock === 'fixed');
+    const stills = policyPlan.shots.filter((s) => s.proof === undefined && s.args.clock === 'fixed');
     for (const id of POLICY_IDS) expect([id, stills.some((s) => s.scene === id)]).toEqual([id, true]);
     for (const s of stills.filter((x) => !x.scene.endsWith('.three.policy'))) {
       expect([s.id, s.device.animatorScale, s.device.powerSave, s.expect.tier]).toEqual([s.id, 1, true, 'low']);
@@ -370,7 +383,7 @@ describe('the policy capture plan (scripts/lab/capture-plans/v1-policy.json)', (
   });
 
   it('proves motion through the policy on a running clock: the still draws none, low and full draw some (QA-034, QA-035)', () => {
-    const proofs = plan.shots.filter((s) => s.proof !== undefined);
+    const proofs = policyPlan.shots.filter((s) => s.proof !== undefined);
     const byTier = (tier: string) => proofs.filter((s) => implied(s.device) === tier).map((s) => [s.args.clock, s.proof!.kind]);
     expect(byTier('still')).toEqual([['realtime', 'zero-frames'], ['realtime', 'zero-frames']]); // reduced motion, alone and with battery saver
     expect(byTier('low')).toEqual([['realtime', 'draws-frames'], ['realtime', 'rate']]);
