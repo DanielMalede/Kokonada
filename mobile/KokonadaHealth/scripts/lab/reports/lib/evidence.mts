@@ -195,9 +195,6 @@ function readStage(row: Row, report: string, region: Rect): Rect {
   return { x: rx, y: ry, width: s.width, height: s.height };
 }
 
-// Android's float density for a dpi: lib/manifest.mjs owns it now (UI-240), the cross-check of READY's pixel ratio.
-export { androidDensity } from '../../lib/manifest.mjs';
-
 /**
  * The row's px per dp: READY's pixel ratio (`pixelRatio`, PixelRatio.get()), never one derived from the density; the
  * device's density is only its cross-check, Android's float density for the dpi within 1e-6 (lib/manifest.mjs

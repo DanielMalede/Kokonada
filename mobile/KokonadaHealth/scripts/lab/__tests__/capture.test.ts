@@ -32,6 +32,9 @@ class LabDevice extends FakeDevice {
   recording: Buffer = Buffer.concat([Buffer.from([0, 0, 0, 0x18]), Buffer.from('ftypmp42'), Buffer.alloc(52, 7)]);
   recorded: string[][] = [];
   files = new Map<string, Buffer>();
+  // What `wm density` prints, physical and the override a user set (the harness reads the override when there is one);
+  // null: the fixture's physical 450.
+  wmDensity: string | null = null;
   // A phone of another size, with its own bars (the witness row check needs room for its layout); null: the fixture's.
   screen: { width: number; height: number; statusBar: number; navBar: number } | null = null;
   // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
@@ -46,6 +49,7 @@ class LabDevice extends FakeDevice {
       this.files.set(args[args.length - 1], this.recording);
       return '';
     }
+    if (this.wmDensity !== null && args.join(' ') === 'wm density') { this.commands.push('wm density'); return this.wmDensity; }
     if (this.screen && args.join(' ') === 'wm size') { this.commands.push('wm size'); return `Physical size: ${this.screen.width}x${this.screen.height}\n`; }
     if (this.screen && args.join(' ') === 'dumpsys window') {
       this.commands.push('dumpsys window');
@@ -78,6 +82,8 @@ const TOKENS = fs.readFileSync(path.resolve(__dirname, '../../../../../design-to
 const TIERS = JSON.parse(TOKENS).field.tiers;
 const SKIA_LOCK = JSON.stringify({ name: 'app', lockfileVersion: 3, packages: { '': {}, 'node_modules/@shopify/react-native-skia': { version: '2.6.9' } } });
 const NO_SCENE = { direction: null, face: null, hero: null, tier: null };
+// PixelRatio.get() on the fake phone: Android's density for its 450 dpi, 450 × (1f / 160) in float (UI-240).
+const K450 = 2.8125;
 
 // OPS-100. The capture harness end to end, on a stateful fake phone (__fixtures__/fakeDevice.ts):
 //   · it refuses BEFORE touching the phone when the stamp chain, the installed APK, the plan, the
@@ -119,7 +125,7 @@ const screen = (colorSpace = 1, app = appPixel) => () => {
 function readyLine(run: string, extras: Record<string, string>, device: FakeDevice, override: Record<string, unknown> = {}) {
   return `I ReactNativeJS: KOKONADA_LAB READY ${JSON.stringify({
     run, seq: 0, scene: extras.scene, clock: extras.clock, t: extras.clock === 'fixed' ? Number(extras.t) : null,
-    powerSave: device.settings.get('global/low_power') === '1', pixelRatio: 1,
+    powerSave: device.settings.get('global/low_power') === '1', pixelRatio: K450,
     probes: {
       stage: { dp: { x: 0, y: 0, width: 40, height: 80 }, px: { x: 0, y: 0, width: 40, height: 80 } },
       mark: { dp: { x: 10, y: 30, width: 20, height: 20 }, px: { x: 10, y: 30, width: 20, height: 20 } },
@@ -1153,6 +1159,7 @@ describe('the witness row check', () => {
   const witnessWorld = (probes: Record<string, unknown>, statusBar = 24) => {
     const w = world();
     w.device.screen = { ...W, statusBar, navBar: 48 };
+    w.device.wmDensity = 'Physical density: 160\n';
     w.device.frames = [() => rawFrame(() => [20, 30, 40, 255], 1, W.width, W.height)];
     w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { shaderStatus: 'ready', shaderReason: null, pixelRatio: 1, probes }));
     return w;
@@ -1346,7 +1353,7 @@ describe('RA-51: a failed rm after the recording', () => {
 // capture writes on the fake phone are pinned to the inline assembly's at e2c5f52 (the goldens below were taken there,
 // with the clock fixed): a passed smoke run, the shipped v1-field plan and a failed run. Since rows carry READY's pixel
 // ratio, the bytes are the inline assembly's once each row's pixelRatio, the one field added, is taken out (and it is
-// READY's, 1 on this phone).
+// READY's, 2.8125 on this 450 dpi phone).
 describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
   const FIXED = new Date('2026-11-15T10:00:00.000Z');
   const bytesOf = (w: ReturnType<typeof world>) => {
@@ -1356,7 +1363,7 @@ describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
     expect(`${JSON.stringify(m, null, 2)}\n`).toBe(text);
     for (const row of m.rows) {
       expect(Object.keys(row).pop()).toBe('pixelRatio');
-      expect(row.pixelRatio).toBe(1);
+      expect(row.pixelRatio).toBe(K450);
       delete row.pixelRatio;
     }
     return Buffer.from(`${JSON.stringify(m, null, 2)}\n`, 'utf8');
@@ -1403,17 +1410,41 @@ describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
 });
 
 describe('UI-240: each row carries READY\'s pixel ratio', () => {
-  it('as READY sent it, on every row: never derived from the density (450 dpi on this phone)', async () => {
+  it('as READY sent it, on every row: never derived from the density (450 dpi on this phone, float noise within 1e-6)', async () => {
     const w = world();
-    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: 1.0000004 }));
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: K450 + 4e-7 }));
     const { manifest } = await w.run();
-    expect(manifest.rows.map((r: { pixelRatio: number; device: { density: number } }) => [r.pixelRatio, r.device.density])).toEqual([[1.0000004, 450], [1.0000004, 450], [1.0000004, 450]]);
+    expect(manifest.rows.map((r: { pixelRatio: number; device: { density: number } }) => [r.pixelRatio, r.device.density])).toEqual([[K450 + 4e-7, 450], [K450 + 4e-7, 450], [K450 + 4e-7, 450]]);
+  });
+
+  // UI-240: a ratio the device's density contradicts fails at capture, before a screen is read, never later in a report.
+  it.each([
+    ['the density over 160 ratio of another phone', 1],
+    ['a ratio 2e-6 off', K450 + 2e-6],
+  ])('a READY with %s is refused at capture, naming both, and no row is kept', async (_label, k) => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: k }));
+    const manifest = await refusedRun(w, PLAN, new RegExp(`^smoke-fixed: READY's pixelRatio ${String(k).replace('.', '\\.')} is not Android's density 2\\.8125 for wm density 450 dpi: they must agree within 1e-6`));
+    expect(manifest.rows).toEqual([]);
+    expect(w.device.commands.some((c) => c.startsWith('screencap') || c.includes('screencap'))).toBe(false);
+  });
+
+  it('the density is the override a user set when there is one (the owner\'s phone: 420 over 450 is 2.625)', async () => {
+    const phone = (k: number) => {
+      const w = world();
+      w.device.wmDensity = 'Physical density: 450\nOverride density: 420\n';
+      w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: k }));
+      return w;
+    };
+    const { manifest } = await phone(2.625).run();
+    expect(manifest.rows.map((r: { pixelRatio: number; device: { density: number } }) => [r.pixelRatio, r.device.density])).toEqual([[2.625, 420], [2.625, 420], [2.625, 420]]);
+    await refusedRun(phone(K450), PLAN, /^smoke-fixed: READY's pixelRatio 2\.8125 is not Android's density 2\.625 for wm density 420 dpi/);
   });
 
   it('a READY without a pixel ratio is refused, and no row is kept', async () => {
     const w = world();
     w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: undefined }));
-    await expect(w.run()).rejects.toThrow(/smoke-fixed\.1: the manifest row is not valid: pixelRatio is required/);
+    await expect(w.run()).rejects.toThrow(/^smoke-fixed: READY has no pixelRatio \(PixelRatio\.get\(\)\), so its px per dp cannot be checked against wm density 450 dpi/);
     const written = JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8'));
     expect([written.outcome, written.rows]).toEqual(['failed', []]);
     expect(w.device.state()).toEqual(w.before);
