@@ -30,7 +30,7 @@ export function loadMutant<T = Record<string, any>>(file: string, mutations: Mut
   for (const m of mutations) {
     const n = occurrences(source, m.find);
     if (n !== 1) throw new Error(`loadMutant: the mutation ${JSON.stringify(m.find)} matches ${n} times in ${path.relative(APP_ROOT, file)} (it must match exactly once).`);
-    source = source.replace(m.find, m.replace);
+    source = source.replace(m.find, () => m.replace); // a function result is literal: no $& $' $` $$ patterns (RA-235-8)
   }
   // Required lazily: only a test that plants a mutant pays for loading babel.
   const babel = require('@babel/core') as typeof import('@babel/core');

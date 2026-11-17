@@ -15,7 +15,8 @@
 //     (useDerivedValue.ts: inputs = Object.values(updater.__closure)), on the next frame;
 //   · assigning an animation to .value starts it at the current frame time; it advances on frames;
 //     cancelAnimation stops it (callback finished=false); useSharedValue cancels its own animation on
-//     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting.
+//     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting (with the
+//     platform fakes installed, their AccessibilityInfo reduceMotion is that setting).
 // RN Animated with useNativeDriver: the preset's NativeAnimatedModule completes EVERY native animation
 // after a 16 ms setTimeout and its stopAnimation cancels nothing (jest-preset/jest/mocks/NativeModules.js
 // :96-99), so in jest a native-driven infinite Animated.loop "finishes" after 16 ms and a stopped one
@@ -28,6 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as RN from 'react-native';
 import { Patcher } from './patch';
+import { platformSource } from './platform';
 
 const SV = Symbol('fake shared value');
 const ANIM = Symbol('fake animation');
@@ -97,18 +99,18 @@ function makeStepper(anim: Anim, from: number, start: number): Stepper {
       let iterFrom = from;
       let cur = makeStepper(anim.inner!, iterFrom, start);
       let target = anim.inner!.toValue ?? 0;
+      // As Reanimated's repeat (animation/repeat.ts): at most one iteration completes per frame. On that
+      // frame the finished iteration's end value is shown and the next one starts at `now`, unstepped,
+      // so no shape of inner animation (a zero-length sequence or delay included) can spin (RA-235-2).
       return (now) => {
-        let r = cur(now);
-        while (r.done) {
-          iteration += 1;
-          if (iteration >= total) return { value: r.value, done: true };
-          const next: Anim = anim.reverse ? { ...anim.inner!, toValue: iterFrom } : anim.inner!;
-          const nextFrom = anim.reverse ? target : iterFrom;
-          if (anim.reverse) { const t = target; target = iterFrom; iterFrom = t; }
-          cur = makeStepper(next, nextFrom, now);
-          r = cur(now);
-          if (r.done && (next.duration ?? 1) === 0) return { value: r.value, done: false }; // a zero-length loop never spins
-        }
+        const r = cur(now);
+        if (!r.done) return r;
+        iteration += 1;
+        if (iteration >= total) return { value: r.value, done: true };
+        const next: Anim = anim.reverse ? { ...anim.inner!, toValue: iterFrom } : anim.inner!;
+        const nextFrom = anim.reverse ? target : iterFrom;
+        if (anim.reverse) { const t = target; target = iterFrom; iterFrom = t; }
+        cur = makeStepper(next, nextFrom, now);
         return { value: r.value, done: false };
       };
     }
@@ -296,7 +298,8 @@ export function installMotionFakes(): MotionFakes {
     withSequence: (...inners: Anim[]): Anim => ({ [ANIM]: true, kind: 'sequence', inners }),
     withDelay: (delay: number, inner: Anim): Anim => ({ [ANIM]: true, kind: 'delay', delay, inner }),
     cancelAnimation: (sv: FakeSharedValue) => { finish(sv, false); },
-    useReducedMotion: () => reducedMotion,
+    // One OS setting: with the platform fakes installed it lives in their AccessibilityInfo (RA-235-6).
+    useReducedMotion: () => platformSource.current?.accessibility.get('reduceMotion') ?? reducedMotion,
     runOnJS: (fn: (...a: unknown[]) => unknown) => fn,
     runOnUI: (fn: (...a: unknown[]) => unknown) => fn,
     Easing: RN.Easing, // Reanimated's Easing mirrors RN's API
@@ -389,7 +392,11 @@ export function installMotionFakes(): MotionFakes {
   const api: MotionFakes = {
     frame,
     now: () => now,
-    setReducedMotion(v) { reducedMotion = v; },
+    setReducedMotion(v) {
+      reducedMotion = v;
+      // Production reads AccessibilityInfo (design/theme.ts useMotion), so the change reaches it too.
+      platformSource.current?.accessibility.set('reduceMotion', v);
+    },
     activeFrameCallbacks: () => counts().frameCallbacks,
     registeredFrameCallbacks: () => callbacks.size,
     clockSubscriptions: () => counts().clockSubscriptions,

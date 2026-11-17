@@ -70,6 +70,10 @@ export interface PlatformFakes {
 
 let installed = false;
 
+/** The installed platform fakes, or null: another fake that models the same OS setting (motion.ts's
+ *  reduced motion) reads and writes it here, so the app sees one value through every API (RA-235-6). */
+export const platformSource: { current: PlatformFakes | null } = { current: null };
+
 export function installPlatformFakes(initial: PlatformInitial = {}): PlatformFakes {
   if (installed) throw new Error('QA-044: platform fakes are already installed; restore() the previous install first.');
   installed = true;
@@ -185,7 +189,7 @@ export function installPlatformFakes(initial: PlatformInitial = {}): PlatformFak
   const live = (module?: PlatformModule, event?: string) =>
     [...registry.values()].filter((e) => (module == null || e.module === module) && (event == null || e.event === event)).length;
 
-  return {
+  const fakes: PlatformFakes = {
     live,
     liveByModule: () => Object.fromEntries(PLATFORM_MODULES.map((m) => [m, live(m)])) as Record<PlatformModule, number>,
     assertNoLiveListeners() {
@@ -250,9 +254,12 @@ export function installPlatformFakes(initial: PlatformInitial = {}): PlatformFak
     restore() {
       patcher.restore();
       registry.clear();
+      if (platformSource.current === fakes) platformSource.current = null;
       installed = false;
     },
   };
+  platformSource.current = fakes;
+  return fakes;
 }
 
 /** Install the platform fakes around every test of the enclosing describe (or file). */
