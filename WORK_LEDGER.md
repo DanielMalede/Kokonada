@@ -71,7 +71,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - title: Close J2's T16b on the deployed commit: count tool v3, T1 at 675ebb0, T2-T4 and the 48 h recount (evidence lines only)
 - branch: `docs/dan070-t16b`
 - paths: `TASKS.md`
-- resources: `res:atlas-prod`
+- resources: `res:atlas-prod`, `res:prod-deploy`
 - state: claimed
 - started: 2026-11-17
 
