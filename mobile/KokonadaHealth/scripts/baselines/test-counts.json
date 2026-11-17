@@ -1,0 +1,13 @@
+{
+  "sha": "988bab3e44f214fd24ce11f6663431c6ffe2afa7",
+  "measuredAt": "2026-11-17T15:12:06Z",
+  "node": "v24.19.0",
+  "jest": "29.7.0",
+  "command": {
+    "mobile": "./node_modules/.bin/jest --ci --json",
+    "backend": "./node_modules/.bin/jest --ci --json --runInBand --forceExit"
+  },
+  "mobile": { "numTotalTestSuites": 219, "numTotalTests": 3209 },
+  "backend": { "numTotalTestSuites": 357, "numTotalTests": 6370 },
+  "crossCheck": "CI run 44090925847 on the same SHA: Mobile — jest 219 suites, 3209 tests (all passed but 1 skipped); Backend — lint & test 357 suites, 6370 tests (9 suites and 65 tests skipped, 1 todo)"
+}
