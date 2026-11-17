@@ -19,7 +19,8 @@ const file = (name: string) => path.join(APP_ROOT, 'src/testing/__tests__', name
 
 describe('QA-112 · the spyOn guard over the opt-in roots', () => {
   it('scans real test files under every opt-in root (an empty input set must fail, not pass)', () => {
-    expect(SPYON_GUARD_ROOTS.map((r) => path.relative(APP_ROOT, r).split(path.sep).join('/'))).toEqual(['src/testing']);
+    expect(SPYON_GUARD_ROOTS.map((r) => path.relative(APP_ROOT, r).split(path.sep).join('/'))).toEqual(['src/testing', 'src/design/v2']);
+    for (const r of SPYON_GUARD_ROOTS) expect(walkSources(r).filter(isTestFile).length).toBeGreaterThan(0); // no root is empty
     const files = SPYON_GUARD_ROOTS.flatMap((r) => walkSources(r)).filter(isTestFile);
     expect(files.length).toBeGreaterThan(1);
     expect(files.map((f) => path.basename(f))).toContain('presetSpyOn.test.ts');
