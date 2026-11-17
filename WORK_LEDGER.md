@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `own:garmin-rulings-records` (own)
-- title: Record the owner's 2026-10-28/29 rulings: DEC-047 and DEC-048 DECIDED, TASKS update lines, a DAN row for OAuth domains, #281 review findings
-- branch: `docs/garmin-rulings-records`
-- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-047.md`, `docs/design-v2/decisions/DEC-048.md`, `docs/design-v2/DECISIONS.md`
-- resources: none
+- task: `DAN-070` (TASKS)
+- title: Close J2's T16b on the deployed commit: count tool v3, T1 at 675ebb0, T2-T4 and the 48 h recount (evidence lines only)
+- branch: `docs/dan070-t16b`
+- paths: `TASKS.md`
+- resources: `res:atlas-prod`
 - state: claimed
-- started: 2026-11-01
+- started: 2026-11-17
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
