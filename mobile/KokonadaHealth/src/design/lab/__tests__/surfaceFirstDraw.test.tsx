@@ -78,6 +78,13 @@ jest.mock('../../v2/field/effect.ts', () => ({
 
 import { FieldSurface } from '../../v2/field/FieldSurface';
 import { LabRoot } from '../LabRoot';
+import { GRAIN_FACTORS, grainProbeId } from '../grain/grainFrames';
+import type { LabParams } from '../params';
+import { ProbeRegistry } from '../probe/Probe';
+import { GrainScene } from '../scenes/GrainScene';
+import { WitnessScene } from '../scenes/WitnessScene';
+import { SETTING_READ_DEADLINE_MS } from '../settingRead';
+import { ShaderReportContext, type ShaderReport } from '../shaderReport';
 
 function setup(scene: string) {
   const lines: string[] = [];
@@ -239,5 +246,84 @@ describe('the cost scene: no on-screen surface, so RA-50 does not reach it', () 
     const plan = JSON.parse(fs.readFileSync(path.join(APP, 'scripts/lab/capture-plans/v1-cost.json'), 'utf8')) as { shots: Array<{ scene: string; proof?: { kind: string } }> };
     expect(plan.shots.length).toBeGreaterThan(0);
     for (const shot of plan.shots) expect([shot.scene, shot.proof?.kind]).toEqual([shot.scene, 'result']);
+  });
+});
+
+// RA-55 (S3): a surface that never renders an image kept its scene `pending` for good, so LabRoot held READY in silence
+// until the harness's READY timeout (30 s in every plan). Now the scene allows its surfaces the lab's settings deadline
+// (SETTING_READ_DEADLINE_MS, at most half of every plan's readyTimeoutMs, labSettingsRead.test.tsx), and then LabRoot
+// sends an ERROR naming the surfaces that drew nothing, while the harness still waits.
+describe.each([
+  ['witness.abyss.dark', 'witness-scene.view', ['W1b']],
+  ['grain.abyss.dark.full', 'grain-scene.view', GRAIN_FACTORS.map(grainProbeId)],
+])('%s: a surface that never draws (RA-55)', (scene, view, never) => {
+  afterEach(() => jest.useRealTimers());
+
+  it('becomes a named ERROR before the READY timeout, and nothing follows it', () => {
+    jest.useFakeTimers();
+    const h = setup(scene);
+    h.sizeScene(view);
+    h.measure();
+    const widest = Math.max(...h.tree.root.findAllByType(FieldSurface).map((x) => x.props.renderSize.width as number));
+    mockOffscreen.blocked = (w) => w === widest;
+    h.uiFrames(3);
+    h.tick(20);
+    act(() => { jest.advanceTimersByTime(SETTING_READ_DEADLINE_MS - 1); });
+    expect(h.of('ERROR')).toEqual([]);
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(h.of('ERROR')).toEqual([{ run: 'r', errors: [`${scene}: no image within ${SETTING_READ_DEADLINE_MS} ms from ${never.join(', ')}`] }]);
+    mockOffscreen.blocked = () => false;
+    h.uiFrames(3);
+    h.tick(20);
+    expect(h.of('READY')).toEqual([]);
+    expect(h.of('ERROR')).toHaveLength(1);
+  });
+
+  it('every surface drew before the deadline: READY, and the deadline sends nothing later', () => {
+    jest.useFakeTimers();
+    const h = setup(scene);
+    h.sizeScene(view);
+    h.measure();
+    h.uiFrames(1);
+    h.tick(3);
+    expect(h.of('READY').map(statusOf)).toEqual([['ready', null]]);
+    act(() => { jest.advanceTimersByTime(SETTING_READ_DEADLINE_MS * 3); });
+    expect(h.of('ERROR')).toEqual([]);
+  });
+});
+
+// RA-56 (S3): a scene change on the same mount must draw afresh: each surface is keyed by the scene, so it mounts anew and
+// tells its listener again; a surface kept from the earlier scene told once and would never tell the new one.
+describe.each([
+  ['witness.abyss.dark', 'witness.abyss.light', 'witness-scene.view'],
+  ['grain.abyss.dark.full', 'grain.abyss.light.low', 'grain-scene.view'],
+])('%s, then %s on the same mount (RA-56)', (first, second, view) => {
+  it('pending, ready, then pending again for the new scene, and ready once its surfaces drew', () => {
+    const reports: ShaderReport[] = [];
+    const clock = { t: { value: 11000 } } as never;
+    const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 11000, stepMs: 0, frames: 3 });
+    const Scene = first.startsWith('witness.') ? WitnessScene : GrainScene;
+    const element = (scene: string) => (
+      <ProbeRegistry onMeasure={() => {}}>
+        <ShaderReportContext.Provider value={(r) => reports.push(r)}>
+          <Scene clock={clock} t={11000} params={paramsOf(scene)} />
+        </ShaderReportContext.Provider>
+      </ProbeRegistry>
+    );
+    const last = () => reports[reports.length - 1];
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { tree = ReactTestRenderer.create(element(first)); });
+    act(() => {
+      tree.root.find((n) => n.props.testID === view && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+    });
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame());
+    expect(last()).toEqual({ status: 'ready', reason: null });
+
+    act(() => tree.update(element(second)));
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame());
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    act(() => tree.unmount());
   });
 });

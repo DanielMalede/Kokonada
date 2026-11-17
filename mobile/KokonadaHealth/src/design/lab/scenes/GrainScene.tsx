@@ -16,8 +16,11 @@
 // while the field effect is ready and the builder takes the scene's layout; otherwise `fallback` with the reason, and it
 // draws FieldFallback over the stage instead, as FieldView would. `ready` means its three FieldSurfaces drew (RA-50): each
 // tells it through FieldSurfaceDrawReport once its UI thread rendered an image, and until all have it says `pending`.
+// Each strip's surface is keyed by the scene (RA-56): a scene change on the same mount mounts it anew, so it tells again.
+// A strip that has drawn nothing by SETTING_READ_DEADLINE_MS (at most half of every plan's readyTimeoutMs) makes the scene
+// report an error naming it (RA-55): LabRoot sends an ERROR while the harness still waits, never a silent timeout.
 
-import React, { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../../v2/clock/fieldClock';
@@ -34,6 +37,7 @@ import { FIELD_STATICS } from '../fieldScenes';
 import { GRAIN_FACTORS, grainBase, grainParams, grainProbeId, grainSpec, scaleGrain, stripWidth } from '../grain/grainFrames';
 import { Probe } from '../probe/Probe';
 import type { SceneProps } from '../scenes';
+import { SETTING_READ_DEADLINE_MS } from '../settingRead';
 import { ShaderReportContext } from '../shaderReport';
 import { useMeasuredView } from './useMeasuredView';
 
@@ -86,21 +90,32 @@ export function GrainScene({ clock, params }: SceneProps) {
     }
     return listener;
   }, []);
-  const drawn = GRAIN_FACTORS.every((k) => drawnStrips.has(`${params.scene}|${grainProbeId(k)}`));
+  const strips = useMemo(() => GRAIN_FACTORS.map((k) => `${params.scene}|${grainProbeId(k)}`), [params.scene]);
+  const drawn = strips.every((id) => drawnStrips.has(id));
   const status = reason !== null ? 'fallback' : drawn ? 'ready' : 'pending';
+  // The first-draw deadline (RA-55): set once the strips are mounted, cleared once all drew.
+  const drawing = setup !== null && reason === null;
+  const [late, setLate] = useState<readonly string[] | null>(null);
+  useEffect(() => {
+    if (!drawing || drawn) return undefined;
+    const timer = setTimeout(() => setLate(strips), SETTING_READ_DEADLINE_MS);
+    return () => clearTimeout(timer);
+  }, [drawing, strips, drawn]);
+  const never = late === strips && !drawn ? strips.filter((id) => !drawnStrips.has(id)).map((id) => id.slice(params.scene.length + 1)) : [];
+  const error = never.length === 0 ? null : `${params.scene}: no image within ${SETTING_READ_DEADLINE_MS} ms from ${never.join(', ')}`;
   useLayoutEffect(() => {
-    report?.({ status, reason });
-  }, [report, status, reason]);
+    report?.(error === null ? { status, reason } : { status, reason, error });
+  }, [report, status, reason, error]);
 
   // Every declared probe is rendered at all times (READY waits for each, scenes.test.tsx): the strips are 0 wide until the
   // view is measured, and empty while the scene falls back, so READY still comes and says `fallback`.
-  let strips: React.ReactNode = <StripProbes width={setup?.width ?? 0} height={setup?.layout.height ?? 0} />;
+  let stripsNode: React.ReactNode = <StripProbes width={setup?.width ?? 0} height={setup?.layout.height ?? 0} />;
   let fallback: React.ReactNode = null;
   if (setup !== null && effect.status === 'ready' && setup.error === null) {
-    strips = (
+    stripsNode = (
       <GrainStrips
         clock={clock} setup={setup} effect={effect} pxPerDp={pxPerDp} renderScale={spec.renderScale}
-        listenerFor={(strip) => listenerFor(`${params.scene}|${strip}`)}
+        scene={params.scene} listenerFor={(strip) => listenerFor(`${params.scene}|${strip}`)}
       />
     );
   } else if (setup !== null) {
@@ -122,7 +137,7 @@ export function GrainScene({ clock, params }: SceneProps) {
     <Probe id="stage" style={styles.stage}>
       <View testID="grain-scene.view" style={styles.container} onLayout={onLayout}>
         {fallback}
-        {strips}
+        {stripsNode}
       </View>
     </Probe>
   );
@@ -149,12 +164,14 @@ interface StripsProps {
   readonly effect: ReadyEffect;
   readonly pxPerDp: number;
   readonly renderScale: number;
+  /** The scene, which keys each strip's surface (RA-56). */
+  readonly scene: string;
   /** The listener for one strip's surface, by its probe id. */
   readonly listenerFor: (strip: string) => () => void;
 }
 
 /** One frame at the clock's time, on the UI thread, and a strip of it at each strength: all four from one t. */
-function GrainStrips({ clock, setup, effect, pxPerDp, renderScale, listenerFor }: StripsProps) {
+function GrainStrips({ clock, setup, effect, pxPerDp, renderScale, scene, listenerFor }: StripsProps) {
   const { ledger, params, geometry } = setup;
   const statics = FIELD_STATICS;
   const base = useDerivedValue(() => grainBase(ledger, params, geometry, statics, clock.t.value).uniforms, [ledger, params, geometry, statics, clock]);
@@ -162,7 +179,7 @@ function GrainStrips({ clock, setup, effect, pxPerDp, renderScale, listenerFor }
   return (
     <StripProbes width={setup.width} height={setup.layout.height}>
       {strips.map((uniforms, i) => (
-        <FieldSurfaceDrawReport.Provider key={grainProbeId(GRAIN_FACTORS[i])} value={listenerFor(grainProbeId(GRAIN_FACTORS[i]))}>
+        <FieldSurfaceDrawReport.Provider key={`${scene}|${grainProbeId(GRAIN_FACTORS[i])}`} value={listenerFor(grainProbeId(GRAIN_FACTORS[i]))}>
           <FieldSurface
             uniforms={uniforms}
             effect={effect.effect}

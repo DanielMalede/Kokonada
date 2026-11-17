@@ -318,6 +318,11 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // A surface that changes after READY was sent (a builder that throws on a later frame) makes that READY false: an
   // ERROR, so no capture of this run passes as the surface READY named.
   const reportShader = useCallback((report: ShaderReport) => {
+    // A scene that can never be described (RA-55): an ERROR now, while the harness still waits for READY.
+    if (report.error !== undefined) {
+      fail(clip(report.error) as string);
+      return;
+    }
     shader.current = report;
     const said = shown.current;
     if (said !== undefined && said !== report.status) {
