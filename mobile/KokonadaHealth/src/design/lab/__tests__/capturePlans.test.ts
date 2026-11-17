@@ -2,7 +2,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { FilterMode, MipmapMode } from '@shopify/react-native-skia';
-import { renderFacts, surfaceRule, validatePlan } from '../../../../scripts/lab/capture.mjs';
+import { isSessionPlan, renderFacts, surfaceRule, validatePlan } from '../../../../scripts/lab/capture.mjs';
 import { renderScaleFor } from '../../v2/field/fieldDriver';
 import { FIELD_SAMPLING } from '../../v2/field/fieldImage';
 import { resolveMotionTier } from '../../v2/motion/useMotionPolicy';
@@ -26,9 +26,12 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 //   cost.<direction>.<face>.<hero>.<tier>[.storm|.heavy|.empty]
 //   storm.<direction>.<face>.<case>                               no hero, no tier
 // A scene the catalogue cannot state facts for fails here, naming it: a plan cannot claim facts nobody pinned.
+// A session plan (v1.json, B8-10) lists plans and has no shots of its own: scripts/lab/__tests__/captureSession.test.ts
+// checks it, and that it names every plan here.
 
 const PLANS_DIR = path.resolve(__dirname, '../../../../scripts/lab/capture-plans');
-const PLAN_FILES = fs.readdirSync(PLANS_DIR).filter((f) => f.endsWith('.json')).sort();
+const PLAN_FILES = fs.readdirSync(PLANS_DIR).filter((f) => f.endsWith('.json'))
+  .filter((f) => !isSessionPlan(JSON.parse(fs.readFileSync(path.join(PLANS_DIR, f), 'utf8')))).sort();
 type Expect = { direction: string | null; face: string | null; hero: string | null; tier: string | null };
 type Shot = {
   id: string; scene: string; args: Record<string, string>; probes: string[]; expect: Expect;
