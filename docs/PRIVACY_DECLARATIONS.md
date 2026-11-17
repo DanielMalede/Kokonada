@@ -103,6 +103,7 @@ Kokonada uses the following processors. None is an advertiser; none receives raw
 > ZDR is not documented to disable prompt caching; no copy may say Groq retains nothing.
 
 ## Website and privacy mailbox (outside the app)
+<!-- OWNER DECISION (DAN-015, decision 1): these recipients sit in their own section, outside Sub-processors, so the Data safety answers stay about the app only. This is the brief's recommendation, not yet a ruling. If they move into Sub-processors, its lead sentence that no processor receives raw biometric values or free text no longer holds, because Cloudflare receives the whole message. -->
 
 The site `https://kokonada.com/` and the policy page `https://kokonada.com/privacy/` are static pages with no cookie, no analytics and no third-party request. The app sends them nothing. The recipients below see the site's visitors and the mail, not the app's data.
 

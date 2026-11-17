@@ -452,6 +452,9 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(w).toBeTruthy();
     expect(d.indexOf(`## ${TITLE}`)).toBeGreaterThan(d.indexOf('> ZDR is not documented to disable prompt caching; no copy may say Groq retains nothing.'));
     expect(d.indexOf(`## ${TITLE}`)).toBeLessThan(d.indexOf('\n## Retention'));
+    // R287-1 (b): the section's placement is the brief's recommendation, not yet the owner's ruling.
+    const MARKER = '<!-- OWNER DECISION (DAN-015, decision 1): these recipients sit in their own section, outside Sub-processors, so the Data safety answers stay about the app only. This is the brief\'s recommendation, not yet a ruling. If they move into Sub-processors, its lead sentence that no processor receives raw biometric values or free text no longer holds, because Cloudflare receives the whole message. -->';
+    expect(d).toContain(`## ${TITLE}\n${MARKER}\n`);
     for (const phrase of [
       '`privacy@kokonada.com`',
       'DNS only, not proxied',
