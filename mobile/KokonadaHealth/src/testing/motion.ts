@@ -15,7 +15,8 @@
 //     (useDerivedValue.ts: inputs = Object.values(updater.__closure)), on the next frame;
 //   · assigning an animation to .value starts it at the current frame time; it advances on frames;
 //     cancelAnimation stops it (callback finished=false); useSharedValue cancels its own animation on
-//     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting.
+//     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting (with the
+//     platform fakes installed, their AccessibilityInfo reduceMotion is that setting).
 // RN Animated with useNativeDriver: the preset's NativeAnimatedModule completes EVERY native animation
 // after a 16 ms setTimeout and its stopAnimation cancels nothing (jest-preset/jest/mocks/NativeModules.js
 // :96-99), so in jest a native-driven infinite Animated.loop "finishes" after 16 ms and a stopped one
@@ -28,6 +29,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as RN from 'react-native';
 import { Patcher } from './patch';
+import { platformSource } from './platform';
 
 const SV = Symbol('fake shared value');
 const ANIM = Symbol('fake animation');
@@ -296,7 +298,8 @@ export function installMotionFakes(): MotionFakes {
     withSequence: (...inners: Anim[]): Anim => ({ [ANIM]: true, kind: 'sequence', inners }),
     withDelay: (delay: number, inner: Anim): Anim => ({ [ANIM]: true, kind: 'delay', delay, inner }),
     cancelAnimation: (sv: FakeSharedValue) => { finish(sv, false); },
-    useReducedMotion: () => reducedMotion,
+    // One OS setting: with the platform fakes installed it lives in their AccessibilityInfo (RA-235-6).
+    useReducedMotion: () => platformSource.current?.accessibility.get('reduceMotion') ?? reducedMotion,
     runOnJS: (fn: (...a: unknown[]) => unknown) => fn,
     runOnUI: (fn: (...a: unknown[]) => unknown) => fn,
     Easing: RN.Easing, // Reanimated's Easing mirrors RN's API
@@ -389,7 +392,11 @@ export function installMotionFakes(): MotionFakes {
   const api: MotionFakes = {
     frame,
     now: () => now,
-    setReducedMotion(v) { reducedMotion = v; },
+    setReducedMotion(v) {
+      reducedMotion = v;
+      // Production reads AccessibilityInfo (design/theme.ts useMotion), so the change reaches it too.
+      platformSource.current?.accessibility.set('reduceMotion', v);
+    },
     activeFrameCallbacks: () => counts().frameCallbacks,
     registeredFrameCallbacks: () => callbacks.size,
     clockSubscriptions: () => counts().clockSubscriptions,

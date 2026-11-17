@@ -8,7 +8,10 @@ import { useClock } from '@shopify/react-native-skia';
 import { Animated } from 'react-native';
 import { useRealtimeFieldClock, MAX_FRAME_DT_MS, type FieldClock } from '../../design/v2/clock/fieldClock';
 import { useCalmPulse } from '../../design/system/useCalmPulse';
+import * as RN from 'react-native';
+import { useMotion } from '../../design/theme';
 import { installMotionFakes, type MotionFakes } from '../motion';
+import { installPlatformFakes, type PlatformFakes } from '../platform';
 
 // QA-046: Reanimated (useFrameCallback, withRepeat, cancelAnimation, useReducedMotion), the Skia clock
 // and RN Animated loops are replaced by fakes that record active callbacks and loops and advance a
@@ -126,6 +129,67 @@ describe('QA-046 · the Skia clock, derived values and reduced motion', () => {
     const Probe = () => { seen = useReducedMotion(); return null; };
     render(<Probe />);
     expect(seen).toBe(true);
+  });
+
+  // RA-235-6: production reads reduced motion through AccessibilityInfo (design/theme.ts useMotion), not
+  // through Reanimated's useReducedMotion. With the platform fakes installed too (as teardown.ts installs
+  // them), setReducedMotion must reach that read: the initial query and the live change event.
+  describe.each([
+    ['platform, then motion (teardown.ts order)', true],
+    ['motion, then platform', false],
+  ])('with the platform fakes installed (%s)', (_label, platformFirst) => {
+    let platform: PlatformFakes;
+    beforeEach(() => {
+      if (platformFirst) { motion.restore(); platform = installPlatformFakes(); motion = installMotionFakes(); } else platform = installPlatformFakes();
+    });
+    afterEach(() => { platform.restore(); });
+
+    function Probe({ out }: { out: { reduced?: boolean; reanimated?: boolean } }) {
+      out.reduced = useMotion().reduced;
+      out.reanimated = useReducedMotion();
+      return null;
+    }
+    const flush = () => act(async () => { await Promise.resolve(); });
+
+    it('useMotion().reduced follows setReducedMotion mid-session, and back', async () => {
+      const out: { reduced?: boolean } = {};
+      render(<Probe out={out} />);
+      await flush();
+      expect(out.reduced).toBe(false);
+      act(() => { motion.setReducedMotion(true); });
+      expect(out.reduced).toBe(true);
+      expect(platform.accessibility.get('reduceMotion')).toBe(true);
+      act(() => { motion.setReducedMotion(false); });
+      expect(out.reduced).toBe(false);
+    });
+
+    it('useMotion() and useReducedMotion() agree when it is scripted before render', async () => {
+      motion.setReducedMotion(true);
+      const out: { reduced?: boolean; reanimated?: boolean } = {};
+      render(<Probe out={out} />);
+      await flush();
+      expect(out).toEqual({ reduced: true, reanimated: true });
+    });
+  });
+
+  it('one OS setting: the initial reduceMotion of the platform fakes is also what useReducedMotion reads', async () => {
+    const platform = installPlatformFakes({ accessibility: { reduceMotion: true } });
+    try {
+      const out: { reduced?: boolean; reanimated?: boolean } = {};
+      const Probe = () => { out.reduced = useMotion().reduced; out.reanimated = useReducedMotion(); return null; };
+      render(<Probe />);
+      await act(async () => { await Promise.resolve(); });
+      expect(out).toEqual({ reduced: true, reanimated: true });
+    } finally {
+      for (const t of mounted.splice(0)) act(() => { t.unmount(); });
+      platform.restore();
+    }
+  });
+
+  it('without the platform fakes, setReducedMotion touches no AccessibilityInfo member', () => {
+    const before = { ...(RN.AccessibilityInfo as unknown as Record<string, unknown>) };
+    motion.setReducedMotion(true);
+    expect({ ...(RN.AccessibilityInfo as unknown as Record<string, unknown>) }).toEqual(before);
   });
 });
 
