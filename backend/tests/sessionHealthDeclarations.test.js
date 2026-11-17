@@ -419,4 +419,14 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(gate).toBeGreaterThan(section);
     expect(gate).toBeLessThan(button);
   });
+
+  it('OPS-172: the Health and fitness answer, here and in the Play declaration, waits on the NF-A decision', () => {
+    const NOTE = '<!-- NEEDS VERIFICATION: the state estimate (bio:affect:, Retention, the user-scoped cache row) is written for every user who generates a playlist and kept 2 hours, which is not ephemeral processing; if the owner\'s NF-A decision (DAN015-Q3) classes it as health data, Health info is collected from every such user and "Optional" no longer holds. File no Health and fitness answer before that decision. -->';
+    const line = doc().split('\n').find((l) => l.startsWith('  - **Health and fitness** → **Health info**'));
+    expect(line).toBeTruthy();
+    expect(line.endsWith(` ${NOTE}`)).toBe(true);
+    const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
+    const row = store.split('\n').find((l) => l.startsWith('| Is data collection optional?'));
+    expect(row).toBe(`| Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. ${NOTE} |`);
+  });
 });
