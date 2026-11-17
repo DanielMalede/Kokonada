@@ -9,15 +9,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import emotionReducer from '../../state/cold/emotionSlice';
 import { createWarmStore } from '../../state/warm/warmStore';
 import { SystemStateDock } from '../../navigation/SystemStateDock';
+import ts from 'typescript';
 import { APP_ROOT, productionFiles } from '../guards/productionImports';
+import { parseSource, readSource } from '../guards/sourceFiles';
 import { loadMutant } from '../mutant';
 import {
   APP_STORE_SINGLETONS, STORE_FACTORIES, storeCallSites, trackAppStores, trackStore, unregisteredStores,
 } from '../stores';
-
-// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
-// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
-jest.setTimeout(30000);
 
 // QA-045 (stores half): every zustand store and the redux store expose a live subscribe count.
 // GenerateScreen.test.tsx:660-692 hand-rolls this per screen with jest.spyOn on four stores; this is
@@ -137,7 +135,8 @@ describe('QA-045 · live subscribe counts (zustand)', () => {
     } finally {
       t.restore();
     }
-  });
+    // loadMutant cold-loads @babel/core in the test VM; under full-suite contention that overran 5 s (q3-final-jest).
+  }, 30000);
 
   it('the wrapped store still behaves as the real one (a set reaches the subscriber), and restore() is by identity', () => {
     const warm = createWarmStore();
@@ -164,6 +163,31 @@ describe('QA-045 · live subscribe counts (zustand)', () => {
     } finally {
       app.restore();
     }
+  });
+});
+
+// RA-235-9: only the mutant-loading tests get the long timeout; every other test keeps jest's 5 s.
+describe('the timeout is scoped to the tests that load a mutant', () => {
+  it('no file-wide jest.setTimeout, and exactly the tests that call loadMutant pass 30 000 ms', () => {
+    const sf = parseSource(readSource(__filename), __filename);
+    const fileWide: number[] = [];
+    const timed: Array<{ name: string; mutant: boolean; timeout: string | null }> = [];
+    const visit = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression)
+        && n.expression.expression.text === 'jest' && n.expression.name.text === 'setTimeout') fileWide.push(n.getStart(sf));
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'it' && n.arguments.length >= 2) {
+        let mutant = false;
+        const find = (m: ts.Node): void => { if (ts.isIdentifier(m) && m.text === 'loadMutant') mutant = true; ts.forEachChild(m, find); };
+        find(n.arguments[1]);
+        const t = n.arguments[2];
+        timed.push({ name: n.arguments[0].getText(sf), mutant, timeout: t ? t.getText(sf) : null });
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    expect(fileWide).toEqual([]);
+    expect(timed.filter((t) => t.mutant).length).toBeGreaterThan(0);
+    for (const t of timed) expect([t.name, t.timeout]).toEqual([t.name, t.mutant ? '30000' : null]);
   });
 });
 
