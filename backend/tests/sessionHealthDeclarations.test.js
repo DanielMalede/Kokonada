@@ -341,3 +341,22 @@ describe('J2: the state recompute jobs and the sweep of deleted accounts\' data'
     expect(row).toContain('Account deletion first tries to add a withdrawal row when the latest row is a grant; if the deletion stops before it erases this history, a row it added stays and the account reads as withdrawn until the user grants consent again.');
   });
 });
+
+// DAN-015 (the regulatory brief at ae394f2): the declarations re-anchored on what the code does now.
+// Each statement is pinned with the code fact it rests on, so neither can drift alone.
+describe('DAN-015: the declarations re-anchored at ae394f2', () => {
+  const src = (rel) => fs.readFileSync(path.join(APP, rel), 'utf8');
+  const cacheRow = () => retentionRows().find((l) => l.startsWith('| User-scoped cache (Redis)'));
+
+  it('D-1: the cache row says every playlist generation writes `bio:affect:`, with no consent check on that path', () => {
+    expect(cacheRow()).toContain('that key expires within 2 hours. Every playlist generation also writes `bio:affect:` for every user, including one with no current health-data grant');
+    expect(cacheRow()).toContain('Nothing is written while `WAVE4_AFFECT_DISABLED` is set (`affectService.js` `affectDisabled`) or while the cache cannot be reached.');
+    expect(cacheRow()).toContain('Whether an estimate made without health data is health-derived data is an owner decision (NF-A, DAN015-Q3); the policy discloses it either way.');
+    const targets = src('services/generation/targetsBuilder.js');
+    expect(targets).toContain('const affect = await resolveAffect({');
+    expect(targets).not.toMatch(/healthWriteFence|healthConsentGate|getConsentStatus|privacy\/consent/);
+    const affect = src('services/biosonic/affectService.js');
+    expect(affect).toContain('const affectDisabled = () => disabled(process.env.WAVE4_AFFECT_DISABLED);');
+    expect(affect).toContain("tzOffsetMinutes = 0, now, persist = 'background',"); // saved without waiting
+  });
+});
