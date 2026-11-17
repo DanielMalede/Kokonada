@@ -395,4 +395,28 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(consent.indexOf('await eraseWearableProvider(user, provider);')).toBeGreaterThan(-1);
     expect(consent.indexOf('await eraseWearableProvider(user, provider);')).toBeLessThan(consent.indexOf('if (hadGrantOnFile) {'));
   });
+
+  it('BE-122: the Art. 9 bullet says which failed steps the daily job completes and which are only reported', () => {
+    const bullet = withdrawalBullet();
+    expect(bullet).toContain('A failed step of the session, serve-event or user-scoped-cache erasure is recorded as owed (`User.healthErasurePendingAt`) and completed by the daily `sessionTrim` job (`healthErasures=`).');
+    expect(bullet).toContain('is reported in the `[consent-withdrawal]` line (`providerErasureFailures=`, `learning=failed`, `learningJobs=failed`, `stateJobs=failed`) and is not retried automatically');
+    expect(bullet).toContain('The withdrawal still answers success, and the user has no retry path in the app.');
+    expect(bullet).not.toContain('and a step that did not finish is completed by the daily');
+    const consent = src('services/privacy/consent.js');
+    for (const token of ['providerErasureFailures=${providerErasureFailures}', 'learning=${learning}', 'learningJobs=${learningJobs}', 'stateJobs=${stateJobs}']) {
+      expect(consent).toContain(token);
+    }
+    // The daily sweep finishes only the session-health erasure; it never retries the other steps.
+    expect(src('services/privacy/sessionHealthSweep.js')).not.toMatch(/eraseWearableProvider|purgeLearnedPersonalization|purgeUserJobs/);
+    // The withdrawal answers with the consent status, whatever the erasure reported.
+    expect(src('controllers/consentController.js')).toMatch(/await withdrawConsent\(req\.user\._id, purpose\);\n/);
+    // The app offers the withdrawal only while a grant is on file, so a second withdrawal is not offered.
+    const vault = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/src/experience/profile/VaultConsentPanel.tsx'), 'utf8');
+    const button = vault.indexOf('accessibilityLabel="withdraw-consent"');
+    const section = vault.lastIndexOf('{/* Withdrawal', button);
+    const gate = vault.indexOf('{consentGranted ? (', section);
+    expect(section).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(section);
+    expect(gate).toBeLessThan(button);
+  });
 });
