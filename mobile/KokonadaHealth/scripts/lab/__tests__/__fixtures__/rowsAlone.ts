@@ -22,19 +22,23 @@ export interface Run {
   readonly surfaces: number;
   /** The surfaces by the thread they were made on, and by size: 0 is the main thread. */
   readonly threads: ReadonlyArray<{ thread: number; size: string }>;
+  /** What a held worker recorded: "hold-timeout" when the others were not drawn while it held. */
+  readonly held: readonly string[];
 }
 
 /**
  * lawParity on a manifest, in a child node, with the CanvasKit surfaces it makes recorded; `failSurface` ("WxH") is one
  * CanvasKit will not make, a worker thread asked for `exitSurface` exits, and with `throwInWorker` each worker throws
- * uncaught as it starts (countSurfaces.cjs). A run still going after 5 minutes is killed (status null): a report that
+ * uncaught as it starts, and a worker asked for `hold.surface` holds until `hold.for` surfaces are made elsewhere
+ * (countSurfaces.cjs). A run still going after 5 minutes is killed (status null): a report that
  * waits forever fails.
  */
-export function runLawParity(manifestFile: string, out: string, failSurface = '', exitSurface = '', throwInWorker = false): Promise<Run> {
+export function runLawParity(manifestFile: string, out: string, failSurface = '', exitSurface = '', throwInWorker = false, hold = { surface: '', for: 0 }): Promise<Run> {
   const record = `${out}.surfaces`;
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--no-warnings', '--require', COUNTER, SCRIPT, '--manifest', manifestFile, '--out', out], {
-      cwd: APP, env: { ...process.env, UI239_SURFACES: record, UI239_FAIL_SURFACE: failSurface, UI239_EXIT_SURFACE: exitSurface, UI239_THROW_IN_WORKER: throwInWorker ? '1' : '' },
+      cwd: APP, env: { ...process.env, UI239_SURFACES: record, UI239_FAIL_SURFACE: failSurface, UI239_EXIT_SURFACE: exitSurface, UI239_THROW_IN_WORKER: throwInWorker ? '1' : '',
+        UI239_HOLD_SURFACE: hold.surface, UI239_HOLD_FOR: String(hold.for) },
       stdio: ['ignore', 'ignore', 'pipe'], timeout: 300000,
     });
     let stderr = '';
@@ -43,14 +47,15 @@ export function runLawParity(manifestFile: string, out: string, failSurface = ''
     child.on('error', reject);
     child.on('close', (status) => {
       const crops = `${out.replace(/\.txt$/, '')}.crops`;
-      const made = fs.existsSync(record) ? fs.readFileSync(record, 'utf8').split('\n').filter((l) => l !== '').map((l) => {
+      const lines = fs.existsSync(record) ? fs.readFileSync(record, 'utf8').split('\n').filter((l) => l !== '') : [];
+      const made = lines.filter((l) => /^\d+ /.test(l)).map((l) => {
         const [thread, size] = l.split(' ');
         return { thread: Number(thread), size };
-      }) : [];
+      });
       resolve({
         status, stderr, report: fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '',
         crops: fs.existsSync(crops) ? new Map(fs.readdirSync(crops).map((f) => [f, fs.readFileSync(path.join(crops, f))])) : new Map(),
-        surfaces: made.length, threads: made,
+        surfaces: made.length, threads: made, held: lines.filter((l) => !/^\d+ /.test(l)),
       });
     });
   });

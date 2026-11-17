@@ -94,6 +94,21 @@ describe('lawParity shares twins, and its report is the one each row gets alone'
     for (const x of result.rows) expect({ row: x.name, threads: [...new Set(x.threads.map((s) => s.thread))] }).toEqual({ row: x.name, threads: [0] });
   });
 
+  it('draws field twins side by side: while the first row\'s twin is still being drawn, the next rows\' twins are drawn', async () => {
+    const workers = Math.min(4, os.availableParallelism() - 1, 7);
+    if (workers < 2) return;
+    // v-stage first: its stage surface (103 × 240 px, its alone) is held, its twin unfinished, until the other workers have
+    // drawn a twin each (two surfaces a field twin); one twin at a time would hold it until the timeout.
+    const m = JSON.parse(fs.readFileSync(path.join(root, 'share', 'manifest.json'), 'utf8')) as { rows: Row[] };
+    const first = path.join(root, 'share', 'v-stage-first.json');
+    fs.writeFileSync(first, JSON.stringify({ ...m, rows: [m.rows[13], ...m.rows.slice(0, 13)] }));
+    expect(`${m.rows[13].shot}`).toBe('v-stage');
+    const out = fs.mkdtempSync(path.join(root, 'held-'));
+    const r = await runLawParity(first, path.join(out, 'whole.txt'), '', '', false, { surface: '103x240', for: 2 * (workers - 1) });
+    expect({ status: r.status, stderr: r.stderr, held: r.held }).toEqual({ status: 1, stderr: '', held: [] });
+    expect(new Set(r.threads.filter((s) => s.thread !== 0).map((s) => s.thread)).size).toBe(workers);
+  });
+
   it('a twin that fails on a worker fails the run as it fails the row alone: exit 2, the same words, no report', async () => {
     // v-stage's stage (103 × 240 px) is the one surface CanvasKit will not make here (its MakeSurface gives null).
     const out = fs.mkdtempSync(path.join(root, 'fail-'));
