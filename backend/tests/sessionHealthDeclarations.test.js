@@ -359,4 +359,24 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(affect).toContain('const affectDisabled = () => disabled(process.env.WAVE4_AFFECT_DISABLED);');
     expect(affect).toContain("tzOffsetMinutes = 0, now, persist = 'background',"); // saved without waiting
   });
+
+  it('OPS-173: the MorningState row names the withdrawal and the HealthKit lane among what re-applies the profile rule', () => {
+    const row = retentionRows().find((l) => l.includes('(`MorningState`)'));
+    expect(row).toContain('erased with the account and (all-or-nothing, alongside `MedicalProfile`) by per-wearable disconnect, by a withdrawal of health-data consent, and when the HealthKit lane\'s refusal or repair pass re-applies that rule');
+    // The withdrawal runs the per-wearable erasure for every provider (consent.js → wearableErasure.js).
+    const consent = src('services/privacy/consent.js');
+    expect(consent).toMatch(/for \(const provider of WEARABLE_PROVIDERS\) \{\s*try \{\s*await eraseWearableProvider\(user, provider\);/);
+  });
+
+  it('OPS-173 (update of 2026-10-18): the two HealthKit journal rows say what the repair pass clears and when it keeps the journal', () => {
+    const batches = retentionRows().find((l) => l.includes('(`healthingestbatches`)'));
+    expect(batches).toContain('terminal record: until the request or a five-minute repair pass removes it; a pass that cannot read the consent store, or whose re-application of the all-or-nothing profile rule fails, keeps it for the next pass');
+    expect(batches).not.toContain('next five-minute repair pass removes it |');
+    const cleanups = retentionRows().find((l) => l.includes('(`healthprojectioncleanups`)'));
+    expect(cleanups).toContain('and clears the Apple-provenance values (resting heart rate and sleep) of a medical profile whose account no longer passes the consent and connection check, keeping the profile\'s fields that carry no Apple provenance.');
+    expect(cleanups).not.toContain('clears stale Apple-owned medical-profile provenance without deleting unrelated legacy or manual fields');
+    // A fence that cannot be read decides nothing; a failing rule propagates (the journal stays).
+    expect(src('services/wearable/healthStoreV2.js')).toContain("if (fence.reason === 'consent_read_error') return false;");
+    expect(src('services/wearable/healthSampleReconciliation.js')).toContain("if (fence.reason === 'consent_read_error' || fence.admitted) continue;");
+  });
 });
