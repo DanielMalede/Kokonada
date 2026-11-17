@@ -99,6 +99,50 @@ describe('QA-111 · the face guard (driven through its own hooks)', () => {
     expect(endSuite()).toEqual([]);
   });
 
+  // MB-165 / DEC-034: a phone that reports no display mode gets the dark face. setUnreported() makes
+  // the OS answer null on purpose: it counts as "a face was set" for the per-test check, never toward
+  // both-faces coverage, and production's real useTheme() resolves it.
+  it('setUnreported(): the OS reports no scheme, the real useTheme() resolves dark, and the test passes', () => {
+    const { registrars, runTest } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    let seen: unknown[] = [];
+    let raw: unknown[] = [];
+    function Raw() { raw = [RN.useColorScheme(), RN.Appearance.getColorScheme()]; return null; }
+    const { bodyError, afterErrors } = runTest(() => {
+      faces.setUnreported();
+      const tree = render(<><Ink /><Raw /></>);
+      seen = [tree.root.findByProps({ testID: 'ink' }).props.children, inkOf(tree)];
+    });
+    expect(bodyError).toBeNull();
+    expect(afterErrors).toEqual([]);
+    expect(raw).toEqual([null, null]);
+    expect(seen).toEqual(['dark', colors.dark.content.primary]);
+  });
+
+  it('setUnreported() counts toward neither face: a suite that rendered only it fails the coverage check', () => {
+    const { registrars, runTest, endSuite } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    const { bodyError, afterErrors } = runTest(() => { faces.setUnreported(); render(<Ink />); });
+    expect([bodyError, afterErrors]).toEqual([null, []]);
+    expect(faces.readsByFace()).toEqual({ light: 0, dark: 0 });
+    expect(endSuite().map(String).join(' ')).toContain('rendered neither face');
+  });
+
+  it('a face set after setUnreported() is reported again', () => {
+    const { registrars, runTest } = lifecycle();
+    const faces = useFaceGuard({}, registrars);
+    let seen: unknown = null;
+    const { bodyError } = runTest(() => {
+      faces.setUnreported();
+      const tree = render(<Ink />);
+      act(() => { faces.set('light'); });
+      seen = inkOf(tree);
+      expect(faces.current()).toBe('light');
+    });
+    expect(bodyError).toBeNull();
+    expect(seen).toBe(colors.light.content.primary);
+  });
+
 });
 
 describe('QA-111 · the real wiring: useFaceGuard() and faces.each() in a live suite', () => {
