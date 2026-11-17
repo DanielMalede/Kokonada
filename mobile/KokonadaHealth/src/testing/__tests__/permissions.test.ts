@@ -9,9 +9,10 @@ import { installPermissionFakes, type PermissionFakes } from '../permissions';
 // denied, unavailable, install/update required, dismissed) are scripted per test. The global mocks fix
 // one answer each ("available, nothing granted", jest.setup.js:16-22; BLE a bare constructor, :6-14),
 // and the HC mock lacks SdkAvailabilityStatus and openHealthConnectSettings, which healthConnect.ts
-// uses. Semantics kept from Android: an HC request returns the GRANTED SUBSET, so a denial and a
-// dismissal both answer [] after a sheet was shown; after two denials the OS stops showing the sheet
-// and answers [] at once (the deny-twice throttle, connectController.ts:58-60); a runtime BLE request
+// uses. Semantics kept from Android: an HC request returns the GRANTED SUBSET of the request, so a
+// denial and a dismissal both answer what was already granted ([] the first time) after a sheet was
+// shown; after two denials the OS stops showing the sheet and answers at once (the deny-twice
+// throttle, connectController.ts:58-60); a runtime BLE request
 // answers granted / denied (a dismissal is denied) / never_ask_again, the last with no dialog.
 // Pass rule: QA-143 has one test per outcome on this fake (P6 at G9, owed).
 
@@ -56,6 +57,42 @@ describe('QA-049 · Health Connect outcomes through the real healthConnect.ts', 
     expect(fakes.healthConnect.sheetsShown()).toBe(2);
     openHealthConnectSettings();
     expect(fakes.healthConnect.settingsOpened()).toBe(1);
+  });
+
+  // RA-235-14: Health Connect answers the granted subset of the request, so earlier grants survive a
+  // later denial, a dismissal and the deny-twice throttle.
+  it.each(['deny', 'dismiss'] as const)('%s after an earlier grant: the answer is the subset already granted', async (outcome) => {
+    fakes.healthConnect.nextRequest({ grant: ['HeartRate'] });
+    await requestHealthPermissions();
+    fakes.healthConnect.nextRequest(outcome);
+    const answer = await requestHealthPermissions();
+    expect(answer.map((p: any) => p.recordType)).toEqual(['HeartRate']);
+    expect(fakes.healthConnect.sheetsShown()).toBe(2);
+  });
+
+  it('a second partial grant answers both grants, not only the newest', async () => {
+    fakes.healthConnect.nextRequest({ grant: ['HeartRate'] });
+    await requestHealthPermissions();
+    fakes.healthConnect.nextRequest({ grant: ['ReadHealthDataHistory'] });
+    const answer = await requestHealthPermissions();
+    expect(answer.map((p: any) => p.recordType).sort()).toEqual(['HeartRate', 'ReadHealthDataHistory']);
+  });
+
+  it('permanently denied after an earlier grant: the throttled answer is still the granted subset', async () => {
+    fakes.healthConnect.nextRequest({ grant: ['HeartRate'] });
+    await requestHealthPermissions();
+    fakes.healthConnect.setPermanentlyDenied();
+    const answer = await requestHealthPermissions();
+    expect(answer.map((p: any) => p.recordType)).toEqual(['HeartRate']);
+    expect(fakes.healthConnect.sheetsShown()).toBe(1);
+  });
+
+  it('permanently denied: a queued outcome is consumed by the throttled request, never left for a later one', async () => {
+    fakes.healthConnect.setPermanentlyDenied();
+    fakes.healthConnect.nextRequest('grant');
+    expect(await requestHealthPermissions()).toEqual([]);
+    expect(fakes.healthConnect.pendingOutcomes()).toBe(0);
+    expect(fakes.healthConnect.sheetsShown()).toBe(0);
   });
 
   it.each([

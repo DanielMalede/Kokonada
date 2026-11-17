@@ -3,9 +3,10 @@
 //
 // Health Connect replaces the members of the global react-native-health-connect mock (jest.setup.js
 // :16-22), adding the two healthConnect.ts reads that the mock lacks (SdkAvailabilityStatus,
-// openHealthConnectSettings). Android semantics: requestPermission answers the GRANTED SUBSET, so a
-// denial and a dismissal both answer [] after the sheet was shown; after two denials the OS stops
-// showing the sheet and answers [] at once (the deny-twice throttle); SDK status 1 is unavailable,
+// openHealthConnectSettings). Android semantics: requestPermission answers the GRANTED SUBSET of the
+// request, so a denial and a dismissal both answer what was already granted ([] on a first request)
+// after the sheet was shown; after two denials the OS stops showing the sheet and answers at once
+// (the deny-twice throttle; a queued outcome is consumed by it); SDK status 1 is unavailable,
 // 2 needs a provider update, 3 is available (react-native-health-connect/src/constants.ts).
 // Bluetooth replaces PermissionsAndroid's check, request and multi-request members: a dialog answers granted,
 // denied (a dismissal is denied too) or never_ask_again, after which every request answers
@@ -30,6 +31,8 @@ export interface PermissionFakes {
     failInitialize(): void;
     sheetsShown(): number;
     settingsOpened(): number;
+    /** Scripted outcomes no request has consumed yet. */
+    pendingOutcomes(): number;
   };
   ble: {
     nextRequest(outcome: BleOutcome): void;
@@ -54,21 +57,28 @@ export function installPermissionFakes(): PermissionFakes {
   patcher.set(hc, 'initialize', async () => hcState.initOk && hcState.status === 'available');
   patcher.set(hc, 'getGrantedPermissions', async () => [...granted]);
   patcher.set(hc, 'openHealthConnectSettings', () => { hcState.settings += 1; });
+  const isGranted = (p: Perm) => granted.some((g) => g.accessType === p.accessType && g.recordType === p.recordType);
+  // RA-235-14: every answer is the subset of the request granted after it, so earlier grants survive a
+  // later denial, a dismissal and the throttle.
+  const grantedSubset = (requested: Perm[]) => requested.filter(isGranted);
   patcher.set(hc, 'requestPermission', async (requested: Perm[]) => {
     if (hcState.status !== 'available') throw new Error('Health Connect is not available on this device');
-    if (hcState.permanentlyDenied) return [];
+    if (hcState.permanentlyDenied) {
+      hcQueue.shift(); // the throttled request consumes its scripted answer: no sheet, nothing left queued
+      return grantedSubset(requested);
+    }
     const outcome = hcQueue.shift();
     if (outcome === undefined) throw new Error('QA-049: an unscripted Health Connect permission request (call nextRequest first)');
     hcState.sheets += 1;
     if (outcome === 'deny') {
       hcState.denials += 1;
       if (hcState.denials >= 2) hcState.permanentlyDenied = true;
-      return [];
+      return grantedSubset(requested);
     }
-    if (outcome === 'dismiss') return [];
+    if (outcome === 'dismiss') return grantedSubset(requested);
     const chosen = outcome === 'grant' ? requested : requested.filter((p) => outcome.grant.includes(p.recordType));
-    for (const p of chosen) if (!granted.some((g) => g.accessType === p.accessType && g.recordType === p.recordType)) granted.push(p);
-    return [...chosen];
+    for (const p of chosen) if (!isGranted(p)) granted.push(p);
+    return grantedSubset(requested);
   });
 
   // ── Bluetooth runtime permissions ───────────────────────────────────────────────────────────────
@@ -118,6 +128,7 @@ export function installPermissionFakes(): PermissionFakes {
       failInitialize() { hcState.initOk = false; },
       sheetsShown: () => hcState.sheets,
       settingsOpened: () => hcState.settings,
+      pendingOutcomes: () => hcQueue.length,
     },
     ble: {
       nextRequest(outcome) { bleQueue.push(outcome); },
