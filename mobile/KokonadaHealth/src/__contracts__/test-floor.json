@@ -1,7 +1,0 @@
-{
-  "sha": "988bab3e44f214fd24ce11f6663431c6ffe2afa7",
-  "listTestsCount": 219,
-  "skipCount": 2,
-  "measuredAt": "2026-11-17T18:28:22Z",
-  "command": "cd mobile/KokonadaHealth && node node_modules/jest/bin/jest.js --listTests --json (every project), then measureFloor() of src/testing/guards/testFloor.ts at d1c6cef over those files, on a clean worktree of origin/main"
-}
