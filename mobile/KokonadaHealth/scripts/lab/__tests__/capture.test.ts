@@ -38,8 +38,7 @@ class LabDevice extends FakeDevice {
   // A phone of another size, with its own bars (the witness row check needs room for its layout); null: the fixture's.
   screen: { width: number; height: number; statusBar: number; navBar: number } | null = null;
   // `log -t ReactNativeJS <words>` writes a line into the buffer logcat reads; logcat delivers lines in the order they
-  // were logged, a little later.
-  logDelayMs = 2;
+  // were logged, a little later (FakeDevice.logLater).
   marksLost = false;
   async shell(args: string[]): Promise<string> {
     if (args.join(' ') === 'dumpsys SurfaceFlinger') { this.commands.push('dumpsys SurfaceFlinger'); return this.surfaceFlinger; }
@@ -62,13 +61,11 @@ class LabDevice extends FakeDevice {
     if (args[0] === 'rm' && args[1] === '-f') { this.commands.push(args.join(' ')); this.files.delete(args[2]); return ''; }
     if (args[0] === 'log' && args[1] === '-t' && args[2] === 'ReactNativeJS') {
       this.commands.push(args.join(' '));
-      if (!this.marksLost) setTimeout(() => this.emit(args.slice(3).join(' ')), this.logDelayMs);
+      if (!this.marksLost) this.logLater(args.slice(3).join(' '));
       return '';
     }
     return super.shell(args);
   }
-  /** A line the lab logs now, which logcat delivers after `ms`. */
-  logLater(line: string, ms = 1) { setTimeout(() => this.emit(line), ms); }
   async pull(remote: string, local: string): Promise<string> {
     const file = this.files.get(remote);
     if (file === undefined && remote.startsWith('/data/local/tmp/')) throw new Error(`adb pull ${remote} failed (exit 1): adb: error: remote object '${remote}' does not exist`);
@@ -698,7 +695,7 @@ describe('UI-225: an ERROR the lab sends after READY refuses the shot', () => {
       if (grabs === 2) {
         const launched = w.device.commands.filter((c) => c.startsWith('am start')).pop() ?? '';
         const id = /--es run (\S+)/.exec(launched)?.[1];
-        w.device.logLater(`I ReactNativeJS: KOKONADA_LAB ERROR ${JSON.stringify({ run: id, errors: ['the surface changed after READY: READY said ready, now fallback'] })}`, 1);
+        w.device.logLater(`I ReactNativeJS: KOKONADA_LAB ERROR ${JSON.stringify({ run: id, errors: ['the surface changed after READY: READY said ready, now fallback'] })}`);
       }
       return execOut(args);
     };
@@ -1552,5 +1549,28 @@ describe('RA-52: the display a rate proof ran under', () => {
     readyAs(low, { shaderStatus: 'ready', shaderReason: null });
     display(low, mode(60), mode(60));
     expect((await low.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })) })).manifest.outcome).toBe('passed');
+  });
+});
+
+// UI-263: the fake phone answers a launch (the lab's lines) and a logged line (logcat delivering it) a little later: on a
+// later turn of the event loop, after the command has returned, in the order the lines were logged, and never on a
+// timer. A timer shorter than the OS tick waits for the tick (15.5 ms measured on Windows), and the v1-field plan chains
+// 190 of them (94 launches, a marker after each one's grabs and one after each proof): 2.5 s of its 3 s alone was spent
+// waiting, and under a full run's load it crossed jest's 5 s.
+describe('UI-263: the fake phone answers on a later turn of the event loop, never on a timer', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  it('a launch\'s READY, the harness\'s marker and a line the lab logs arrive after their commands, in the order logged, with every timer frozen', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'clearImmediate'] });
+    const d = new LabDevice();
+    const seen: string[] = [];
+    d.logcat().on((line) => seen.push(line));
+    d.scenario = (extras, phone) => phone.emit(`READY ${extras.run}`);
+    await d.shell(['am', 'start', '-W', '-S', '-n', `${PLAN.app.package}/${PLAN.app.activity}`, '--es', 'run', 'r1']);
+    await d.shell(['log', '-t', 'ReactNativeJS', 'KOKONADA_HARNESS', 'MARK', 'r1-grabs']);
+    d.logLater('a line the lab logs now');
+    expect(seen).toEqual([]);
+    await new Promise((r) => setImmediate(r));
+    expect(seen).toEqual(['READY r1', 'KOKONADA_HARNESS MARK r1-grabs', 'a line the lab logs now']);
   });
 });
