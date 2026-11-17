@@ -41,28 +41,44 @@ export function twinKey(kind, shot) {
 
 /**
  * The twins of a run's rows, each rendered once and held until the last row that uses it. Rows are taken in order,
- * each once, as the report walks them.
+ * each once, as the report walks them. With `ahead` n, the next n distinct twins whose first row is not yet reached are
+ * rendering already (a pool of workers draws them meanwhile); with none, a twin is rendered when its first row is asked
+ * for. A twin rendered ahead that fails is no unhandled rejection: its row rejects, when it is reached.
  * @template J, T
  * @param {ReadonlyArray<J & { kind: 'field' | 'fallback'; shot: Record<string, unknown> }>} jobs
  * @param {(job: J) => Promise<T>} render
+ * @param {{ ahead?: number }} [options]
  * @returns {{ twinAt(i: number): Promise<T>; held(): number }}
  */
-export function shareTwins(jobs, render) {
+export function shareTwins(jobs, render, { ahead = 0 } = {}) {
   const keys = jobs.map((j) => twinKey(j.kind, j.shot));
   const lastUse = new Map();
   keys.forEach((k, i) => lastUse.set(k, i));
+  /** Each distinct twin's first row, in row order. */
+  const firsts = [...new Map(keys.map((k, i) => [k, i]).reverse()).values()].sort((a, b) => a - b);
   const held = new Map();
+  let started = 0;
   let next = 0;
+  /** Starts every distinct twin up to `reached + ahead`, `reached` being how many first rows the walk has reached. */
+  const startUpTo = (reached) => {
+    for (; started < Math.min(firsts.length, reached + ahead); started++) {
+      const i = firsts[started];
+      const twin = render(jobs[i]);
+      // Marked handled here; the row that needs it still sees the rejection.
+      Promise.resolve(twin).catch(() => {});
+      held.set(keys[i], twin);
+    }
+  };
+  let reached = 0;
+  startUpTo(0);
   return {
     twinAt: async (i) => {
       if (i !== next) throw new Error(`shareTwins: row ${i} asked for, but the rows are taken in order and row ${next} is next`);
       next += 1;
+      if (firsts[reached] === i) reached += 1;
+      startUpTo(reached);
       const key = keys[i];
-      let twin = held.get(key);
-      if (twin === undefined) {
-        twin = render(jobs[i]);
-        held.set(key, twin);
-      }
+      const twin = held.get(key);
       if (lastUse.get(key) === i) held.delete(key);
       return twin;
     },
