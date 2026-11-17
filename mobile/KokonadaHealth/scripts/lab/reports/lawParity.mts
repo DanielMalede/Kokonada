@@ -50,6 +50,7 @@ import {
   type Rect,
   type Rgba,
 } from './lib/evidence.mts';
+import { shareTwins } from './lib/twinShare.mjs';
 
 const REPORT = 'lawParity';
 /** ±1 per channel: the B8 tolerance (UI-183). Not this report's to widen. */
@@ -233,10 +234,12 @@ async function main(): Promise<number> {
   const failing: string[] = [];
   let fields = 0;
   let fallbacks = 0;
+  // One twin per distinct input, shared across the rows that need it and dropped after the last (UI-239).
+  const twins = shareTwins(jobs, (job: Job): Promise<FieldTwin | FallbackTwin> => (job.kind === 'field' ? renderFieldTwin(job.shot) : renderFallbackTwin(job.shot)));
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i];
     const capture = captures[i];
-    const twin = job.kind === 'field' ? await renderFieldTwin(job.shot) : await renderFallbackTwin(job.shot);
+    const twin = await twins.twinAt(i);
     const regionAt = job.kind === 'field' ? (x: number, y: number) => fieldRegion(twin as FieldTwin, x, y) : fallbackRegioner(twin as FallbackTwin);
     const c = compare(capture, job.shot.stage, twin, regionAt);
     if (job.kind === 'field') fields++;
