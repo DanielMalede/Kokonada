@@ -117,7 +117,7 @@ function PolicyFieldScene({ spec, ...props }: SceneProps & { spec: FieldSceneSpe
   const [unreadable, setUnreadable] = useState<string | null>(null);
   const [observed] = useState(() => observedPorts(ports, (why) => setUnreadable((first) => first ?? why)));
   const tier = useMotionPolicy(observed.ports);
-  return <FieldStage {...props} spec={spec} tier={tier} observed={unreadable === null ? observed.known(tier) : null} unreadable={unreadable} />;
+  return <FieldStage {...props} spec={spec} tier={tier} observed={observed.known(tier)} unreadable={unreadable} />;
 }
 
 function FieldStage({ clock, spec, tier, observed, unreadable = null }: SceneProps & {
