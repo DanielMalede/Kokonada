@@ -1,0 +1,46 @@
+{
+  "id": "v1-rate",
+  "app": {
+    "package": "com.kokonadahealth.lab",
+    "activity": "com.kokonadahealth.lab.DesignLabActivity"
+  },
+  "readyTimeoutMs": 30000,
+  "settleMs": 300,
+  "session": {
+    "stayOn": true
+  },
+  "shots": [
+    {
+      "id": "dark-three-low-rate-120hz",
+      "repeat": 1,
+      "scene": "field.abyss.dark.three.low",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "low"
+      },
+      "proof": {
+        "kind": "rate",
+        "seconds": 10,
+        "band": {
+          "min": 51,
+          "max": 66
+        }
+      }
+    }
+  ]
+}
