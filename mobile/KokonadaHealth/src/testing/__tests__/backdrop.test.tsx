@@ -104,11 +104,12 @@ describe('QA-119 · the backdrop is the rendered chain', () => {
 const h = React.createElement;
 
 describe('RA-235-1 · QA-119: a field drawn as an earlier sibling under an opaque ancestor is not an opaque backdrop', () => {
-  const SIB = { field: [C.surface.canvasTop, '#FF00FF'], scrims: [] as string[] };
+  const HOT = C.aurora.blobs.gold.color; // a bright field colour, far from the canvas
+  const SIB = { field: [C.surface.canvasTop, HOT], scrims: [] as string[] };
   // GenerateScreen.tsx:242-245: an opaque surface.base root, LivingAurora as an absolute-fill first child,
   // the copy in a later sibling. The field paints over the root's colour and under the copy.
   const page = (withField: boolean, bar: React.ReactElement | null = null) => h(View, { style: { flex: 1, backgroundColor: C.surface.base } },
-    withField ? h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: '#FF00FF' } })) : null,
+    withField ? h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: HOT } })) : null,
     bar ?? h(View, { style: { backgroundColor: C.aurora.glass.night.bg } },
       h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab')));
 
@@ -138,7 +139,7 @@ describe('RA-235-1 · QA-119: a field drawn as an earlier sibling under an opaqu
   });
 
   it('a field sibling inside a composite wrapper is found too', () => {
-    const Field = () => h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: '#FF00FF' } }));
+    const Field = () => h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: HOT } }));
     const el = h(View, { style: { flex: 1, backgroundColor: C.surface.base } }, h(Field),
       h(View, { style: { backgroundColor: C.aurora.glass.night.bg } }, h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab')));
     expect(() => renderedContrast(textIn(el), SIB)).toThrow(/drawn beneath the text/);
