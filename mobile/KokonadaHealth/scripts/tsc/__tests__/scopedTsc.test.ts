@@ -3,7 +3,7 @@ import * as path from 'path';
 import ts from 'typescript';
 import { APP_ROOT } from '../../../src/testing/guards/productionImports';
 import { loadTsConfig } from '../../../src/testing/guards/tsProgram';
-import { BOUNDARIES, candidateRoots, EXCLUDED_ROOTS, runScopedTsc, scopedFailures, STAGE0_ROOT_DIRS } from '../scopedTsc';
+import { BOUNDARIES, candidateRoots, EXCLUDED_ROOTS, runScopedTsc, scopedFailures, STAGE0_ROOT_DIRS, type ScopedResult } from '../scopedTsc';
 
 // QA-043, scoped half (Stage 0 Q2, D8 rules 1 and 4). Every file under the Stage 0 trees on main, tests
 // included, is type-checked in-process with the project's own options, and the diagnostics must be empty,
@@ -78,6 +78,16 @@ describe('QA-043 · scoped tsc over the Stage 0 trees', () => {
     const result = runScopedTsc({ parsed, overlay: { [at('src/testing/__tests__/permissions.test.ts')]: 'export {};\n' } });
     expect(scopedFailures(result).join('\n')).toMatch(/exclusion of src\/testing\/__tests__\/permissions\.test\.ts is stale: pinned \["src\/health\/"\], crosses \[\]/);
   }, TIMEOUT);
+
+  it('planted (synthetic result): a file the program loaded that no recorded edge reaches fails, so crossings are never judged on a partial graph', () => {
+    const clean: ScopedResult = {
+      candidates: ['src/testing/a.ts'], admitted: ['src/testing/a.ts'], excluded: {}, crossings: {},
+      closure: ['src/testing/a.ts'], diagnostics: [], boundaryFiles: [], unreached: [],
+    };
+    expect(scopedFailures(clean)).toEqual([]);
+    expect(scopedFailures({ ...clean, closure: [...clean.closure, 'src/design/x.ts'], unreached: ['src/design/x.ts'] }))
+      .toEqual(['the recorded import edges miss files the program loaded: src/design/x.ts']);
+  });
 
   it('planted: a pinned exclusion naming no root is a stale exclusion', () => {
     const result = runScopedTsc({ parsed, excluded: { ...EXCLUDED_ROOTS, 'src/testing/__tests__/gone.test.ts': ['src/health/'] } });
