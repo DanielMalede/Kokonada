@@ -151,7 +151,8 @@ class Phone extends FakeDevice {
 function readyLine(extras: Record<string, string>, d: FakeDevice) {
   return `I ReactNativeJS: KOKONADA_LAB READY ${JSON.stringify({
     run: extras.run, seq: 0, scene: extras.scene, clock: extras.clock, t: extras.clock === 'fixed' ? Number(extras.t) : null,
-    powerSave: d.settings.get('global/low_power') === '1', pixelRatio: 1,
+    // PixelRatio.get() on the fake phone: Android's density for its 450 dpi (UI-240).
+    powerSave: d.settings.get('global/low_power') === '1', pixelRatio: 2.8125,
     probes: { stage: { dp: { x: 0, y: 0, width: 40, height: 80 }, px: { x: 0, y: 0, width: 40, height: 80 } }, mark: { dp: { x: 10, y: 30, width: 20, height: 20 }, px: { x: 10, y: 30, width: 20, height: 20 } } },
     isRTL: true, fontScale: Number(d.settings.get('system/font_scale')), sentinel: SENTINEL,
   })}`;

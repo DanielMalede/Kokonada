@@ -37,7 +37,7 @@ import { createAdb } from './lib/adb.mjs';
 import {
   applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
 } from './lib/device.mjs';
-import { buildManifest, buildRow, readSkiaVersion, validateManifest, validateRow } from './lib/manifest.mjs';
+import { androidDensity, buildManifest, buildRow, PIXEL_RATIO_AGREEMENT, readSkiaVersion, validateManifest, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
 import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, PROBE_TOLERANCE_PX, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
@@ -384,6 +384,21 @@ export function witnessSampleProblems(layout, stage, region) {
 }
 
 /**
+ * Why READY's pixel ratio (PixelRatio.get()) is not the device's, or null: it must be Android's float density for the
+ * dpi the harness read (wm density: the override when one is set, else the physical density) within
+ * PIXEL_RATIO_AGREEMENT (UI-240). On the owner's phone, an override of 420 over 450 is 2.625.
+ */
+export function pixelRatioProblem(ready, dpi) {
+  const k = ready.pixelRatio;
+  if (!(typeof k === 'number' && Number.isFinite(k) && k > 0)) {
+    return `READY has no pixelRatio (PixelRatio.get()), so its px per dp cannot be checked against wm density ${dpi} dpi (got ${JSON.stringify(k ?? null)})`;
+  }
+  const android = androidDensity(dpi);
+  if (Math.abs(k - android) <= PIXEL_RATIO_AGREEMENT) return null;
+  return `READY's pixelRatio ${k} is not Android's density ${android} for wm density ${dpi} dpi: they must agree within ${PIXEL_RATIO_AGREEMENT.toExponential()}`;
+}
+
+/**
  * The insets the witness laid out in, from READY: the region probe's dp edges against the stage's, each rounded to whole
  * px over the pixel ratio (the scene's StatusBar.currentHeight is a float32: 74 px reads 73.99999…).
  */
@@ -554,6 +569,9 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const readyAt = now();
     const problems = checkReady(payload, { sentinel: build.sentinel, scene: shot.scene, probes: shot.probes, seq: 0, fontScale: shot.device.fontScale });
     if (problems.length) throw new Error(`${shot.id}: ${problems.join('; ')}`);
+    // UI-240: a ratio the device's density contradicts fails here, before a screen is read, never later in a report.
+    const ratio = pixelRatioProblem(payload, facts.density);
+    if (ratio) throw new Error(`${shot.id}: ${ratio}`);
     const surface = surfaceProblem(shot.scene, payload);
     if (surface) throw new Error(`${shot.id}: ${surface}`);
     const tier = tierProblem(shot.scene, payload, shot.expect.tier);
