@@ -10,6 +10,7 @@ import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES, FIELD_TIERS } from '../fiel
 import { parseLabArgs } from '../params';
 import { GRAIN_SPECS } from '../grain/grainFrames';
 import { SCENES } from '../scenes';
+import { STORM_SCENE_SPECS } from '../storm/stormScenes';
 import { WITNESS_SCENE_FACTS } from '../witness/witnessFrames';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
@@ -24,7 +25,7 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 //   witness.<direction>.<face>                                    W1b's hero and tier (WITNESS_SCENE_FACTS)
 //   grain.<direction>.<face>.<tier>                               the hero frame it draws, and its tier (GRAIN_SPECS)
 //   cost.<direction>.<face>.<hero>.<tier>[.storm|.heavy|.empty]
-//   storm.<direction>.<face>.<case>                               no hero, no tier
+//   storm.<direction>.<face>.<case>-<tier>                        no hero; the case's tier (STORM_SCENE_SPECS, UI-241)
 // A scene the catalogue cannot state facts for fails here, naming it: a plan cannot claim facts nobody pinned.
 // A session plan (v1.json, B8-10) lists plans and has no shots of its own: scripts/lab/__tests__/captureSession.test.ts
 // checks it, and that it names every plan here.
@@ -70,7 +71,9 @@ function catalogueFacts(id: string): Expect {
     const g = GRAIN_SPECS[id];
     return { direction: g.direction, face: g.face, hero: g.hero, tier: g.tier };
   }
-  if (ok && group === 'storm' && rest.length === 1) return { direction, face, hero: null, tier: null };
+  if (ok && group === 'storm' && rest.length === 1 && Object.prototype.hasOwnProperty.call(STORM_SCENE_SPECS, id)) {
+    return { direction, face, hero: null, tier: STORM_SCENE_SPECS[id].tier };
+  }
   if (ok && group === 'cost') {
     const body = COST_SUFFIXES.includes(rest[rest.length - 1]) ? rest.slice(0, -1) : rest;
     const tier = body[body.length - 1];
@@ -92,13 +95,15 @@ describe('the catalogue\'s facts, by the plan\'s grammar', () => {
     ['cost.abyss.dark.three.full', { direction: 'abyss', face: 'dark', hero: 'three', tier: 'full' }],
     ['cost.abyss.dark.one.intense.low.storm', { direction: 'abyss', face: 'dark', hero: 'one.intense', tier: 'low' }],
     ['cost.abyss.light.rest.full.heavy', { direction: 'abyss', face: 'light', hero: 'rest', tier: 'full' }],
-    ['storm.abyss.dark.burst', { direction: 'abyss', face: 'dark', hero: null, tier: null }],
+    // A storm scene draws FieldView at its case's tier (storm/stormScenes.ts), and READY says it (UI-241).
+    ['storm.abyss.dark.first-full', { direction: 'abyss', face: 'dark', hero: null, tier: 'full' }],
+    ['storm.abyss.dark.toggle-still', { direction: 'abyss', face: 'dark', hero: null, tier: 'still' }],
   ])('%s', (id, facts) => {
     expect(catalogueFacts(id)).toEqual(facts);
   });
 
   it.each(['witness.abyss.dark.extra', 'grain.abyss.dark.medium', 'grain.abyss.dark', 'grain.abyss.dark.still', 'cost.abyss.dark.full', 'cost.abyss.dusk.three.full',
-    'storm.abyss.dark', 'storm.calm.dark.burst', 'near.abyss.dark.ne', 'field.abyss.dark.nowhere.full'])('states no facts for %s', (id) => {
+    'storm.abyss.dark', 'storm.abyss.dark.burst', 'storm.calm.dark.burst', 'near.abyss.dark.ne', 'field.abyss.dark.nowhere.full'])('states no facts for %s', (id) => {
     expect(() => catalogueFacts(id)).toThrow(new RegExp(`"${id.replace(/\./g, '\\.')}"`));
   });
 });

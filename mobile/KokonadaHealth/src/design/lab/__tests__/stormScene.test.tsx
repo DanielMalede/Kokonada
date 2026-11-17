@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { BASE, DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import { EXTENSIONS } from '../../v2/tokens/tokens.extensions.generated';
@@ -72,6 +72,8 @@ import { FIELD_STATICS } from '../fieldScenes';
 import { STORM_SCENES } from '../sceneGroups/storm';
 import { SCENES } from '../scenes';
 import { STORM_SCENE_PROBES, StormScene } from '../scenes/StormScene';
+import { SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
+import { LabRoot } from '../LabRoot';
 import { STORM_MARKER_COLOURS, STORM_MARKER_DP, stormMarkerColour } from '../storm/stormMarker';
 import { STORM_SCENE_SPECS, stormSceneSpec } from '../storm/stormScenes';
 import { IDLE_MS, STORM_PERIOD_MS, stormScript } from '../storm/stormScript';
@@ -256,5 +258,50 @@ describe('the taps and the marker change together, on the script\'s ticks', () =
     act(() => r.unmount());
     mounted.splice(0);
     expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+// UI-241 (c): a storm scene draws FieldView at its case's tier, so it says that tier as its scene facts, as the policy
+// scenes do, and READY carries it: the storm plan's expect.tier is that tier, and the harness holds READY to it.
+describe('a storm scene says its case\'s tier, and READY carries it', () => {
+  it.each(IDS)('%s: the scene facts are the spec\'s tier, from the first render', (id) => {
+    const facts: SceneFacts[] = [];
+    act(() => {
+      mounted.push(ReactTestRenderer.create(
+        <SceneFactsContext.Provider value={(f) => facts.push(f)}>
+          <ProbeRegistry onMeasure={() => {}}>
+            <StormScene clock={clock} t={null} params={paramsOf(id)} />
+          </ProbeRegistry>
+        </SceneFactsContext.Provider>,
+      ));
+    });
+    expect(facts).toEqual([{ tier: STORM_SCENE_SPECS[id].tier }]);
+  });
+
+  it.each(IDS)('%s: end to end through LabRoot, READY says the tier', (id) => {
+    const lines: string[] = [];
+    const queue: Array<() => void> = [];
+    const frames = { next: (cb: () => void) => { queue.push(cb); return () => { const i = queue.indexOf(cb); if (i >= 0) queue.splice(i, 1); }; } };
+    const tick = (n: number) => { for (let i = 0; i < n; i += 1) act(() => { queue.splice(0).forEach((cb) => cb()); }); };
+    jest.spyOn(View.prototype as never as { measureInWindow(cb: unknown): void }, 'measureInWindow')
+      .mockImplementation((cb: unknown) => (cb as (...v: number[]) => void)(0, 0, W, H));
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      r = ReactTestRenderer.create(
+        <LabRoot
+          labArgs={{ run: 'r', scene: id, clock: 'realtime', frames: '3' }}
+          nonStringKeys={[]}
+          deps={{ emit: (l) => lines.push(l), frames, events: { addListener: () => ({ remove: () => {} }) }, reduceMotion: { current: () => Promise.resolve(STORM_SCENE_SPECS[id].tier === 'still'), subscribe: () => () => {} } }}
+        />,
+      );
+    });
+    mounted.push(r);
+    layoutAs(r);
+    act(() => reanimated.__frame(16)); // FieldView's first drawn frame
+    act(() => { for (const p of r.root.findAll((n) => typeof n.type === 'string' && String(n.props.nativeID ?? '').startsWith('probe-'))) p.props.onLayout({ nativeEvent: { layout: {} } }); });
+    tick(3);
+    const ready = lines.filter((l) => l.startsWith('KOKONADA_LAB READY ')).map((l) => JSON.parse(l.slice('KOKONADA_LAB READY '.length)));
+    expect(lines.filter((l) => l.startsWith('KOKONADA_LAB ERROR '))).toEqual([]);
+    expect(ready.map((x) => [x.scene, x.tier, x.shaderStatus])).toEqual([[id, STORM_SCENE_SPECS[id].tier, 'ready']]);
   });
 });
