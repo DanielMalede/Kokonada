@@ -110,18 +110,21 @@ function walk(schema, value, path, errors) {
   for (const key of Object.keys(value)) if (!(key in schema)) errors.push(`${at(key)} is not a manifest field`);
 }
 
+/** A REASONED fact object (SCHEMA[key]) at `path`: a null fact needs its reason, and a reason needs a null fact. */
+function reasonErrors(facts, key, path) {
+  if (!isObject(facts)) return [];
+  const unread = Object.keys(SCHEMA[key]).filter((k) => k !== 'reason' && facts[k] === null);
+  if (unread.length > 0 && !(typeof facts.reason === 'string' && facts.reason.length > 0)) return [`${path}.reason must say why a fact is null (${unread.join(', ')})`];
+  if (unread.length === 0 && facts.reason !== null && facts.reason !== undefined) return [`${path}.reason must be null when every fact is read`];
+  return [];
+}
+
 /** Every way a row departs from the schema, each naming its field path. [] for a valid row. */
 export function validateRow(row) {
   const errors = [];
   walk(SCHEMA, row, '', errors);
   if (!isObject(row)) return errors;
-  for (const key of REASONED) {
-    const facts = row[key];
-    if (!isObject(facts)) continue;
-    const unread = Object.keys(SCHEMA[key]).filter((k) => k !== 'reason' && facts[k] === null);
-    if (unread.length > 0 && !(typeof facts.reason === 'string' && facts.reason.length > 0)) errors.push(`${key}.reason must say why a fact is null (${unread.join(', ')})`);
-    if (unread.length === 0 && facts.reason !== null && facts.reason !== undefined) errors.push(`${key}.reason must be null when every fact is read`);
-  }
+  for (const key of REASONED) errors.push(...reasonErrors(row[key], key, key));
   if (row.renderScale !== undefined && row.sampling !== undefined && (row.renderScale === null) !== (row.sampling === null)) {
     errors.push('renderScale and sampling are both null or both set');
   }
@@ -142,4 +145,119 @@ export function readSkiaVersion(text) {
   if (!isObject(entry)) return { version: null, reason: `${SKIA} is not in the lockfile` };
   if (typeof entry.version !== 'string' || !SEMVER.test(entry.version)) return { version: null, reason: `${SKIA} has no semver version in the lockfile` };
   return { version: entry.version, reason: null };
+}
+
+// ---- UI-240: the builders, used by the harness (capture.mjs) and by the reports' fixtures (reports/__fixtures__/rows.ts)
+
+/**
+ * One manifest row from the sources the harness holds for a shot. Pure: it assembles, it does not judge (validateRow does).
+ * @param {{ shot: any, repeat: number, file: string, sha256: string, appRegionHash: string, build: any, app: { package: string },
+ *           facts: any, frame: { width: number, height: number, colorSpace: string }, observed: any, ready: any,
+ *           region: any, probes: any, timestamps: { launched: Date, ready: Date, captured: Date },
+ *           renderFacts: { renderScale: number|null, sampling: object|null }, render: { gl: any, display: any } }} s
+ *   shot: the plan's shot; build: what checkBuild verified, with skiaVersion; facts: readDeviceFacts; frame: the first grab;
+ *   observed: applyShot's settings; ready: READY's payload; probes: classifyProbes; renderFacts: capture.mjs renderFacts.
+ */
+export function buildRow({ shot, repeat, file, sha256, appRegionHash, build, app, facts, frame, observed, ready, region, probes, timestamps, renderFacts, render }) {
+  const stage = ready.probes.stage.px;
+  return {
+    shot: shot.id, repeat, file, sha256, appRegionHash,
+    commit: { sha: build.head, porcelainEmpty: true },
+    stamp: { bundleSha256: build.stamp.bundleSha256, tokens: build.stamp.tokens ?? {} },
+    device: { model: facts.model, fingerprint: facts.fingerprint, width: frame.width, height: frame.height, density: facts.density, refreshRate: facts.refreshRate },
+    app: { package: app.package, apkSha256: build.apkSha256, buildType: 'lab', hermes: build.hermes, dev: build.stamp.dev },
+    scene: shot.scene, direction: shot.expect.direction, face: shot.expect.face,
+    fontScale: { requested: shot.device.fontScale, observed: observed.fontScale, app: ready.fontScale },
+    motion: { reduceMotionObserved: observed.animatorScales.transition === 0, powerSaveObserved: ready.powerSave === true, tier: ready.tier ?? null },
+    locale: facts.locale,
+    isRTL: ready.isRTL, // checkReady refused anything but true
+    clock: { mode: ready.clock, t: ready.t ?? null, seq: ready.seq },
+    shaderStatus: ready.shaderStatus ?? null,
+    uimode: observed.night === 'yes' ? 'night' : 'day',
+    animatorScales: observed.animatorScales,
+    forceDark: facts.forceDark,
+    colorSpace: frame.colorSpace,
+    region,
+    probes,
+    timestamps: { launched: timestamps.launched.toISOString(), ready: timestamps.ready.toISOString(), captured: timestamps.captured.toISOString() },
+    // F4: the scene facts are the shot's expect (pinned to the catalogue by jest), never a lab line's.
+    expect: { direction: shot.expect.direction, face: shot.expect.face, hero: shot.expect.hero, tier: shot.expect.tier },
+    renderScale: renderFacts.renderScale,
+    sampling: renderFacts.sampling,
+    gl: render.gl,
+    display: render.display,
+    skiaVersion: build.skiaVersion,
+    shaderReason: typeof ready.shaderReason === 'string' && ready.shaderReason.length > 0 ? ready.shaderReason : null,
+    stage: { x: stage.x, y: stage.y, width: stage.width, height: stage.height },
+  };
+}
+
+/**
+ * The run's manifest around its rows. Pure. The run failed when a shot failed or a restore step did.
+ * @param {{ planId: string, failure: Error|null, restoreFailures: string[], build: any, facts: any, render: any,
+ *           startedAt: string, finishedAt: string, rows: object[], determinism: object[],
+ *           out: { proofs: any[], checks: any[], results: any[], records: any[], moving: any[], settleFailures: any[] } }} p
+ */
+export function buildManifest({ planId, failure, restoreFailures, build, facts, render, startedAt, finishedAt, rows, determinism, out }) {
+  return {
+    plan: planId,
+    outcome: failure || restoreFailures.length ? 'failed' : 'passed',
+    failure: failure ? failure.message : null,
+    restoreFailures,
+    commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
+    device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt,
+    rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
+    moving: out.moving, settleFailures: out.settleFailures,
+  };
+}
+
+const object = check(isObject, 'must be an object');
+const objects = [object];
+
+// The top level: the run's facts, strict like a row. A row is judged by validateRow where it is read (the harness before it
+// keeps the row, every report's reader before it reads one); here a row is only an object in the list.
+const MANIFEST = {
+  plan: string,
+  outcome: oneOf(['passed', 'failed']),
+  failure: nullableString,
+  restoreFailures: [string],
+  commit: sha1,
+  // The lab stamp (lib/stamp.mjs makeStamp), as checkBuild verified it.
+  stamp: { commit: sha1, porcelainEmpty: literal(true), bundleSha256: hex64, tokens: { '*': hex64 }, entry: string, dev: literal(false), createdAt: iso },
+  apkSha256: hex64,
+  // lib/device.mjs readDeviceFacts.
+  device: { model: string, fingerprint: string, width: int(1), height: int(1), density: int(1), refreshRate: nullableNumber(1), forceDark: boolean, locale: string },
+  // lib/device.mjs readRenderFacts: a fact adb did not give is null, and then its object says why.
+  render: { gl: SCHEMA.gl, display: SCHEMA.display },
+  skiaVersion: semver,
+  startedAt: iso,
+  finishedAt: iso,
+  rows: objects,
+  determinism: [{ shot: string, equal: boolean, hashes: [hex64] }],
+  proofs: objects,
+  checks: objects,
+  results: objects,
+  records: objects,
+  moving: objects,
+  settleFailures: objects,
+};
+
+/** Every way a manifest's top level departs from what the harness writes, each naming its field path. [] for a valid one. */
+export function validateManifest(manifest) {
+  const errors = [];
+  walk(MANIFEST, manifest, '', errors);
+  if (!isObject(manifest)) return errors;
+  const m = manifest;
+  if (isObject(m.render)) for (const key of REASONED) errors.push(...reasonErrors(m.render[key], key, `render.${key}`));
+  if (isObject(m.stamp) && typeof m.stamp.commit === 'string' && typeof m.commit === 'string' && m.stamp.commit !== m.commit) {
+    errors.push(`stamp.commit must be the manifest's commit ${m.commit}, got ${m.stamp.commit}`);
+  }
+  const failed = (m.failure !== null && m.failure !== undefined) || (Array.isArray(m.restoreFailures) && m.restoreFailures.length > 0);
+  if (m.outcome === 'passed' && failed) errors.push('outcome "passed" needs failure null and no restore failure');
+  if (m.outcome === 'failed' && !failed) errors.push('outcome "failed" needs a failure or a restore failure');
+  if (typeof m.startedAt === 'string' && typeof m.finishedAt === 'string' && ISO.test(m.startedAt) && ISO.test(m.finishedAt)
+    && Date.parse(m.finishedAt) < Date.parse(m.startedAt)) {
+    errors.push('finishedAt must not be before startedAt');
+  }
+  return errors;
 }

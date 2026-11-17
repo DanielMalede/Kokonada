@@ -37,7 +37,7 @@ import { createAdb } from './lib/adb.mjs';
 import {
   applySession, applyShot, parseGfxFrames, parseJank, parseSystemBars, readDeviceFacts, readPowerSave, readRenderFacts, restoreDevice, snapshotDevice,
 } from './lib/device.mjs';
-import { readSkiaVersion, validateRow } from './lib/manifest.mjs';
+import { buildManifest, buildRow, readSkiaVersion, validateRow } from './lib/manifest.mjs';
 import { appRegion, cropRegion, encodePng, parseRawScreencap, regionHash, requireSrgb } from './lib/png.mjs';
 import { checkReady, checkResult, classifyProbes, collectLab, launchArgs, markArgs, PROBE_TOLERANCE_PX, waitForLab } from './lib/protocol.mjs';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
@@ -609,35 +609,11 @@ async function captureShot({ plan, shot, repeat, adb, build, facts, render, tier
     const file = `${shot.id}.${repeat}.png`;
     fs.writeFileSync(path.join(outDir, file), png);
     if (observed.night !== 'yes' && observed.night !== 'no') throw new Error(`${shot.id}: night mode ${observed.night} is not explicit`);
-    const row = {
-      shot: shot.id, repeat, file, sha256: sha256(png), appRegionHash,
-      commit: { sha: build.head, porcelainEmpty: true },
-      stamp: { bundleSha256: build.stamp.bundleSha256, tokens: build.stamp.tokens ?? {} },
-      device: { model: facts.model, fingerprint: facts.fingerprint, width: first.width, height: first.height, density: facts.density, refreshRate: facts.refreshRate },
-      app: { package: plan.app.package, apkSha256: build.apkSha256, buildType: 'lab', hermes: build.hermes, dev: build.stamp.dev },
-      scene: shot.scene, direction: shot.expect.direction, face: shot.expect.face,
-      fontScale: { requested: shot.device.fontScale, observed: observed.fontScale, app: payload.fontScale },
-      motion: { reduceMotionObserved: observed.animatorScales.transition === 0, powerSaveObserved: payload.powerSave === true, tier: payload.tier ?? null },
-      locale: facts.locale,
-      isRTL: payload.isRTL, // checkReady refused anything but true
-      clock: { mode: payload.clock, t: payload.t ?? null, seq: payload.seq },
-      shaderStatus: payload.shaderStatus ?? null,
-      uimode: observed.night === 'yes' ? 'night' : 'day',
-      animatorScales: observed.animatorScales,
-      forceDark: facts.forceDark,
-      colorSpace: first.colorSpace,
-      region,
-      probes: classifyProbes(payload.probes, screen, region),
-      timestamps: { launched: launched.toISOString(), ready: readyAt.toISOString(), captured: captured.toISOString() },
-      // F4: the scene facts are the shot's expect (pinned to the catalogue by jest), never a lab line's.
-      expect: { direction: shot.expect.direction, face: shot.expect.face, hero: shot.expect.hero, tier: shot.expect.tier },
-      ...renderFacts(shot.expect.tier, tiers),
-      gl: render.gl,
-      display: render.display,
-      skiaVersion: build.skiaVersion,
-      shaderReason: typeof payload.shaderReason === 'string' && payload.shaderReason.length > 0 ? payload.shaderReason : null,
-      stage: { x: payload.probes.stage.px.x, y: payload.probes.stage.px.y, width: payload.probes.stage.px.width, height: payload.probes.stage.px.height },
-    };
+    const row = buildRow({
+      shot, repeat, file, sha256: sha256(png), appRegionHash, build, app: plan.app, facts, frame: first, observed, ready: payload, region,
+      probes: classifyProbes(payload.probes, screen, region), timestamps: { launched, ready: readyAt, captured },
+      renderFacts: renderFacts(shot.expect.tier, tiers), render,
+    });
     const errors = validateRow(row);
     if (errors.length) throw new Error(`${shot.id}.${repeat}: the manifest row is not valid: ${errors.join('; ')}`);
     // The proof runs on the shot's last launch, while its lab lines are still read; an ERROR during it refuses the shot too.
@@ -734,16 +710,9 @@ export async function capture({
     restoreFailures = await restoreDevice(adb, snapshot);
   }
 
-  const manifest = {
-    plan: plan.id,
-    outcome: failure || restoreFailures.length ? 'failed' : 'passed',
-    failure: failure ? failure.message : null,
-    restoreFailures,
-    commit: build.head, stamp: build.stamp, apkSha256: build.apkSha256,
-    device: facts, render, skiaVersion: build.skiaVersion, startedAt, finishedAt: now().toISOString(),
-    rows, determinism, proofs: out.proofs, checks: out.checks, results: out.results, records: out.records,
-    moving: out.moving, settleFailures: out.settleFailures,
-  };
+  const manifest = buildManifest({
+    planId: plan.id, failure, restoreFailures, build, facts, render, startedAt, finishedAt: now().toISOString(), rows, determinism, out,
+  });
   const manifestPath = path.join(outDir, 'manifest.json');
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   if (failure) {

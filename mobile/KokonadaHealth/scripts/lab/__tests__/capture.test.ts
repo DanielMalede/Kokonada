@@ -1341,3 +1341,50 @@ describe('RA-51: a failed rm after the recording', () => {
     await refusedRun(w, planOf(recorded()), /m: the recording could not be taken: .*does not exist/);
   });
 });
+
+// UI-240: the row and the manifest are built by lib/manifest.mjs (buildRow, buildManifest), no longer inline. The bytes
+// capture writes on the fake phone are pinned to the inline assembly's at e2c5f52 (the goldens below were taken there,
+// with the clock fixed): a passed smoke run, the shipped v1-field plan and a failed run.
+describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
+  const FIXED = new Date('2026-11-15T10:00:00.000Z');
+  const bytesOf = (w: ReturnType<typeof world>) => fs.readFileSync(path.join(w.outDir, 'manifest.json'));
+  const GOLDEN = {
+    smoke: '7781070617b8d5e9cc5dbec1d778374234e3bed27f1d87262b6d02eb29f2c694',
+    field: '0df867f8501d00ce4fb52c515cd096adcd00c2164a91c8760571c1df91b19df1',
+    failed: 'f110acf5dde9e87c8b62388b0ee35f8c2a2c21503c17ebb6212f331973560721',
+  };
+
+  it('a passed smoke run', async () => {
+    const w = world();
+    await w.run({ now: () => FIXED });
+    expect(sha(bytesOf(w))).toBe(GOLDEN.smoke);
+  });
+
+  it('the shipped v1-field plan', async () => {
+    const plan = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../capture-plans/v1-field.json'), 'utf8'));
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, {
+      shaderStatus: extras.scene.startsWith('fallback.') ? 'fallback-scene' : 'ready', shaderReason: null,
+    }));
+    const shell = w.device.shell.bind(w.device);
+    let moving = false;
+    w.device.shell = async (args: string[]) => {
+      const line = args.join(' ');
+      if (line.startsWith('am start')) moving = line.includes('--es run dark-three-full-moving-control-');
+      const out = await shell(args);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && moving) w.device.gfxFrames = 1200;
+      return out;
+    };
+    await w.run({ plan: { ...plan, readyTimeoutMs: 200, settleMs: 0 }, now: () => FIXED });
+    expect(sha(bytesOf(w))).toBe(GOLDEN.field);
+  });
+
+  it('a failed run (the second launch of a shot differs, QA-078)', async () => {
+    const w = world();
+    let launch = 0;
+    const base = w.device.scenario;
+    w.device.scenario = (extras, d) => { launch += 1; const n = launch; d.frames = [screen(1, (x, y) => [x, y, n, 255])]; base(extras, d); };
+    await expect(w.run({ now: () => FIXED })).rejects.toThrow(/QA-078/);
+    expect(sha(bytesOf(w))).toBe(GOLDEN.failed);
+  });
+});
