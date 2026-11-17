@@ -67,13 +67,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 ## Malede
 
 ### M01
-- task: `OPS-371` (TASKS)
-- title: chore: add backend/app/utils/redact.js to the security-auditor row J4 (OPS-371)
-- branch: `chore/ops371-redact-security-row`
-- paths: `CLAUDE.md`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `TASKS.md`
+- task: `own:garmin-rulings-records` (own)
+- title: Record the owner's 2026-10-28/29 rulings: DEC-047 and DEC-048 DECIDED, TASKS update lines, a DAN row for OAuth domains, #281 review findings
+- branch: `docs/garmin-rulings-records`
+- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-047.md`, `docs/design-v2/decisions/DEC-048.md`, `docs/design-v2/DECISIONS.md`
 - resources: none
 - state: claimed
-- started: 2026-10-28
+- started: 2026-11-01
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
@@ -94,7 +94,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M04
-_free_
+- task: `OPS-067` (TASKS)
+- title: Stage 0 Q3: opt-in stateful fakes, a both-faces harness, the spyOn guard
+- branch: `test/s0-q-infra`
+- paths: `mobile/KokonadaHealth/src/testing/**`, `mobile/KokonadaHealth/src/__contracts__/**`, `mobile/KokonadaHealth/scripts/tsc/**`, `docs/design-v2/baselines/test-counts.json`, `TASKS.md`, `docs/design-v2/registry/QA-018.md`, `docs/design-v2/registry/QA-044.md`, `docs/design-v2/registry/QA-045.md`, `docs/design-v2/registry/QA-046.md`, `docs/design-v2/registry/QA-047.md`, `docs/design-v2/registry/QA-048.md`, `docs/design-v2/registry/QA-049.md`, `docs/design-v2/registry/QA-050.md`, `docs/design-v2/registry/QA-051.md`, `docs/design-v2/registry/QA-103.md`, `docs/design-v2/registry/QA-108.md`, `docs/design-v2/registry/QA-109.md`, `docs/design-v2/registry/QA-110.md`, `docs/design-v2/registry/QA-111.md`, `docs/design-v2/registry/QA-112.md`, `docs/design-v2/registry/QA-119.md`, `docs/design-v2/registry/INDEX.md`
+- resources: none
+- state: claimed
+- started: 2026-10-07
 
 ### M05
 - task: `OPS-230` (TASKS)

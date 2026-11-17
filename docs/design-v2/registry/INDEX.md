@@ -8,6 +8,7 @@ Prepared 2026-09-29 for Stage 0 step L1 of `docs/plans/DESIGN_V2_PLAN.md`, at re
 - **Amendments of 2026-10-02.** The `compliance-auditor`'s J1 round-1 review and its answer to amendment A1 (session scratch files outside the repo) amended five entries (CMP-018, 043, 045, 089, 107) and added one, `CMP-140`, the Play rule on encryption at rest and in transit. Each amendment is appended to the field it changes, marked "· Amended 2026-10-02:"; the front matter lists each one under `amendments`, with its source. The scribe composed `CMP-140` from the review, in the field order of `cmp-compliance.md`; its front matter names the fields the review does not state. No status line changes: `CMP-043` and `CMP-045` stay HALT, `CMP-045` now under `DAN-046`'s contingency as well, because the production job queue holds YouTube data past 30 days (TASKS `OPS-094`). Later the same day, after the OPS-094 clean, the `compliance-auditor` re-issued `CMP-045`'s status line as NEEDS OWNER and `CMP-043`'s as HALT, unchanged; both entries record its texts as amendments of 2026-10-02.
 - **Amendments of 2026-10-04.** The `compliance-auditor`'s re-check of the Play organisation account (a session scratch file outside the repo) re-issued `CMP-093` from OPEN QUESTION and NEEDS OWNER to OBLIGATION and HALT, in the text the re-check gives, except its front-matter `repo HEAD`: the re-check's text says `b9639c5`, and the file says `e4743af`, the base commit of this branch and the tree the re-check read; it also amended `CMP-092`, appended to its rule and listed under `amendments`. `CMP-093`'s former "effective September 30, 2026" and "global removal from Google Play" belong to Play package-name registration and Android developer verification, not to the organisation rule, which has bound new accounts since 17 July 2024. `CMP-093` is item 18 of the HALT items below. The same day its follow-ups on `CMP-093`'s scope (a session scratch file outside the repo) gave item 18's row and the legend's exception for it, and re-issued `CMP-092`'s status line as SETTLED, listed under that entry's `amendments`.
 - **Amendments of 2026-10-04.** The V1 lab round-1 reviews (`resilience-auditor`, `compliance-auditor`, reconciled by the orchestrator) amended one entry and added one. `QA-077`'s pass rule is restated by its author for the Design Lab as built (MB-084), with the reconciliation's substitution and its two added sentences; the front matter lists each amendment, and the status line is the author's to re-issue. `CMP-141`, the Design Lab is absent from every uploaded build, was composed by the scribe from the compliance review, in the field order of `cmp-compliance.md`; its front matter names the fields it filled and the substitutions made. The round-2 reviews added clause B 6a to `QA-077`'s pass rule (the real release JS task output, proposed by `architect`; `resilience-auditor` confirms it on the PR).
+- **Amendments of 2026-11-17.** The `resilience-auditor`'s audit of #235 (OPS-067, Stage 0 Q3), round 2 at `ac45e99`, re-issued the status lines of the sixteen Q3 entries it authored: QA-018, QA-044 to QA-051, QA-103, QA-108 to QA-112 and QA-119. Eight now read PINNED with a qualifier: the harness the entry asks for is built and pinned by planted failures (QA-044 to QA-049, QA-110, QA-112); their status lines are replaced, marked "· Re-issued 2026-11-17 by `resilience-auditor`:", as `CMP-092`'s was, and the front matter records each replacement under `amendments`, with its source. Eight stay MISSING with a qualifier: their harness or guard is built, and the pages, routes, v2 roots or shaders they bind are not yet checked (QA-018, QA-050, QA-051, QA-103, QA-108, QA-109, QA-111, QA-119); their re-issue is appended to the status line, marked "· Amended 2026-11-17:", and listed under `amendments`, with its source. The owed halves are TASKS `MB-160`, `MB-161`, `MB-162`, `MB-163`, `MB-168`, `MB-169`, `MB-170`, `OPS-401` and `ARCH-030`.
 - **Counts:** CMP 141 (CMP-138 and CMP-139 added on 2026-09-30, CMP-140 on 2026-10-02, CMP-141 on 2026-10-04), REG 153 (REG-001 to REG-089 from the EU run; REG-200 to REG-263 from the worldwide run; the REG numbers 090 to 199 are reserved for the EU run and unused), QA 164. Total 458.
 - **Authors:** CMP, `compliance-auditor` (`cmp-compliance.md`); REG, `regulatory-researcher` (`reg-eu.md`, `reg-world-and-dossier.md`); QA, `resilience-auditor` (`qa-resilience.md`).
 - **DSN-** is reserved for design rules, which ADR-0017 mints at V1. None exist yet.
@@ -408,7 +409,7 @@ Every ID from the four page maps (`cmp-compliance.md` §2, `reg-eu.md` §5, `reg
 | [QA-015](QA-015.md) | Narrow 320 dp width renders without clipping | OBLIGATION | MISSING | P1 | P1–P14 |
 | [QA-016](QA-016.md) | Large screens bound content width in both orientations | OBLIGATION | MISSING | P1 | P1–P14; F5, F10 |
 | [QA-017](QA-017.md) | Process death restores a safe, defined state | OBLIGATION | MISSING | P1 | P1–P11 |
-| [QA-018](QA-018.md) | Blur pauses all visual work and subscriptions | OBLIGATION | MISSING | P1 | P1–P11; F9 |
+| [QA-018](QA-018.md) | Blur pauses all visual work and subscriptions | OBLIGATION | MISSING + | P1 | P1–P11; F9 |
 | [QA-019](QA-019.md) | Account switch leaves no trace of the previous account | PROHIBITION | MISSING | P0 | P1, P2, P3, P5, P6, P7, P9 |
 | [QA-020](QA-020.md) | Revoked permission or consent updates the page at foreground | OBLIGATION | MISSING | P0 | P2, P6, P7, P9 |
 | [QA-021](QA-021.md) | No focusable node is invisible or off-screen | PROHIBITION | MISSING | P1 | P1–P14 |
@@ -434,14 +435,14 @@ Every ID from the four page maps (`cmp-compliance.md` §2, `reg-eu.md` §5, `reg
 | [QA-041](QA-041.md) | Test count falls only with a signed RETIRE entry | OBLIGATION | MISSING | P0 | Q1; P1–P14 |
 | [QA-042](QA-042.md) | The jest baseline is measured and recorded | OBLIGATION | MISSING | P1 | Q2 |
 | [QA-043](QA-043.md) | Focused tsc passes with no output filtering | OBLIGATION | MISSING | P1 | Q2; F1–F10; P1–P14 |
-| [QA-044](QA-044.md) | Platform listener fakes keep a live registry | OBLIGATION | MISSING | P1 | Q3 |
-| [QA-045](QA-045.md) | Store and socket fakes count subscriptions | OBLIGATION | MISSING | P1 | Q3 |
-| [QA-046](QA-046.md) | Motion fakes observe frame callbacks and loops | OBLIGATION | MISSING | P1 | Q3; F3, F9 |
-| [QA-047](QA-047.md) | A scriptable fake API and clock drive timing states | OBLIGATION | MISSING | P1 | Q3; P1–P11 |
-| [QA-048](QA-048.md) | A stateful Spotify remote fake covers every player state | OBLIGATION | MISSING | P1 | Q3; P2, P3, P4, P8 |
-| [QA-049](QA-049.md) | A stateful OS-permission fake covers every grant outcome | OBLIGATION | MISSING | P1 | Q3; P6, P9, P10 |
-| [QA-050](QA-050.md) | A real-Skia jest project compiles every shader | OBLIGATION | MISSING | P1 | Q3, F9, F10 |
-| [QA-051](QA-051.md) | Hostile uniforms render finite pixels | OBLIGATION | MISSING | P1 | F9 |
+| [QA-044](QA-044.md) | Platform listener fakes keep a live registry | OBLIGATION | PINNED + | P1 | Q3 |
+| [QA-045](QA-045.md) | Store and socket fakes count subscriptions | OBLIGATION | PINNED + | P1 | Q3 |
+| [QA-046](QA-046.md) | Motion fakes observe frame callbacks and loops | OBLIGATION | PINNED + | P1 | Q3; F3, F9 |
+| [QA-047](QA-047.md) | A scriptable fake API and clock drive timing states | OBLIGATION | PINNED + | P1 | Q3; P1–P11 |
+| [QA-048](QA-048.md) | A stateful Spotify remote fake covers every player state | OBLIGATION | PINNED + | P1 | Q3; P2, P3, P4, P8 |
+| [QA-049](QA-049.md) | A stateful OS-permission fake covers every grant outcome | OBLIGATION | PINNED + | P1 | Q3; P6, P9, P10 |
+| [QA-050](QA-050.md) | A real-Skia jest project compiles every shader | OBLIGATION | MISSING + | P1 | Q3, F9, F10 |
+| [QA-051](QA-051.md) | Hostile uniforms render finite pixels | OBLIGATION | MISSING + | P1 | F9 |
 | [QA-052](QA-052.md) | Token outputs are regenerated and unchanged in CI | OBLIGATION | MISSING | P1 | F1; P1–P14 |
 | [QA-053](QA-053.md) | v2 files import no v1 visual module | PROHIBITION | NEEDS OWNER | P1 | F1, F10; P1–P14 |
 | [QA-054](QA-054.md) | The count of v1 importers only goes down | OBLIGATION | NEEDS OWNER | P1 | F1; P1–P14 |
@@ -493,23 +494,23 @@ Every ID from the four page maps (`cmp-compliance.md` §2, `reg-eu.md` §5, `reg
 | [QA-100](QA-100.md) | Bluetooth permission is checked, never requested, before P6's disclosure | PROHIBITION | PINNED | P0 | P6, P10 |
 | [QA-101](QA-101.md) | The Spotify player connects only from gated call sites | PROHIBITION | PINNED | P0 | P2, P3, P6, P9 |
 | [QA-102](QA-102.md) | Heart-rate visuals read only the consent-gated warm store | PROHIBITION | MISSING | P0 | F9; P2, P7, P10 |
-| [QA-103](QA-103.md) | Teardown parity holds for every route on unmount and blur (S10-1) | OBLIGATION | MISSING | P0 | Q3; P1–P11 |
+| [QA-103](QA-103.md) | Teardown parity holds for every route on unmount and blur (S10-1) | OBLIGATION | MISSING + | P0 | Q3; P1–P11 |
 | [QA-104](QA-104.md) | Playback reconciles by URI; a foreign track is not ours (S11-1) | PROHIBITION | PINNED | P0 | P3, P4, P8 |
 | [QA-105](QA-105.md) | Server-socket and biometric lanes stay independent (S12-1) | PROHIBITION | PINNED | P0 | P1, P2, P7 |
 | [QA-106](QA-106.md) | Logout never routes to onboarding or connect | PROHIBITION | PINNED | P0 | P1, P10, P11 |
 | [QA-107](QA-107.md) | Mobile and backend consent versions stay in lockstep | OBLIGATION | MISSING | P0 | server plumbing; P5, P6, P9 |
-| [QA-108](QA-108.md) | Skia behaviour is never claimed under the Skia stub | PROHIBITION | MISSING | P1 | Q3, F9, F10 |
-| [QA-109](QA-109.md) | Motion behaviour is never claimed under the Reanimated mock | PROHIBITION | MISSING | P1 | Q3, F3, F9 |
-| [QA-110](QA-110.md) | Gesture behaviour is never claimed under the gesture proxy | PROHIBITION | MISSING | P1 | Q3; P2, P10 |
-| [QA-111](QA-111.md) | Every render test forces both faces and restores the preset | OBLIGATION | MISSING | P0 | Q3, F2; P1–P14 |
-| [QA-112](QA-112.md) | No spyOn on a preset-mocked module member | PROHIBITION | MISSING | P1 | Q3; P1–P14 |
+| [QA-108](QA-108.md) | Skia behaviour is never claimed under the Skia stub | PROHIBITION | MISSING + | P1 | Q3, F9, F10 |
+| [QA-109](QA-109.md) | Motion behaviour is never claimed under the Reanimated mock | PROHIBITION | MISSING + | P1 | Q3, F3, F9 |
+| [QA-110](QA-110.md) | Gesture behaviour is never claimed under the gesture proxy | PROHIBITION | PINNED + | P1 | Q3; P2, P10 |
+| [QA-111](QA-111.md) | Every render test forces both faces and restores the preset | OBLIGATION | MISSING + | P0 | Q3, F2; P1–P14 |
+| [QA-112](QA-112.md) | No spyOn on a preset-mocked module member | PROHIBITION | PINNED + | P1 | Q3; P1–P14 |
 | [QA-113](QA-113.md) | Contract pins use toStrictEqual | PROHIBITION | MISSING | P1 | F1; P1–P14; server plumbing |
 | [QA-114](QA-114.md) | Deep links, redirects and locked strings use exact equality | PROHIBITION | MISSING | P0 | F1, F7; P1, P5, P6, P9, P11 |
 | [QA-115](QA-115.md) | v2 action callbacks are required and exercised through the navigator | OBLIGATION | MISSING | P1 | Q2, Q3, F10; P1–P14 |
 | [QA-116](QA-116.md) | Every pinned production function has a production caller | OBLIGATION | MISSING | P1 | Q1; P1–P14 |
 | [QA-117](QA-117.md) | Snapshot assertions are banned | PROHIBITION | MISSING | P1 | F1; P1–P14 |
 | [QA-118](QA-118.md) | v1 pixel pins are retired, never re-pointed to v2 values | PROHIBITION | MISSING | P1 | Q1; P1–P14 |
-| [QA-119](QA-119.md) | Contrast assertions name the rendered backdrop | OBLIGATION | MISSING | P0 | Q3, F10; P1–P14 |
+| [QA-119](QA-119.md) | Contrast assertions name the rendered backdrop | OBLIGATION | MISSING + | P0 | Q3, F10; P1–P14 |
 | [QA-120](QA-120.md) | P1 · kokonada://integrations lands and re-pulls status | OBLIGATION | MISSING | P1 | P1, P6, P9 |
 | [QA-121](QA-121.md) | P1 · connection_error maps to a calm, non-blaming state | OBLIGATION | MISSING | P1 | P1 |
 | [QA-122](QA-122.md) | P2 · Spotify not installed is its own state | OBLIGATION | MISSING | P1 | P2, P3 |
