@@ -9,6 +9,7 @@
 // and UI239_HOLD_FOR=<n>, a worker thread asked for that size holds there (the twin unfinished) until n surfaces have
 // been made on other worker threads, or 30 s pass, when it records "hold-timeout": a pool that draws twins side by side lets
 // the others through. Test-only (UI-239): it changes nothing CanvasKit draws.
+/* global SharedArrayBuffer, Atomics */
 'use strict';
 const fs = require('node:fs');
 const Module = require('node:module');
