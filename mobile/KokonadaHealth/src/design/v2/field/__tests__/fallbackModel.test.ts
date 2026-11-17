@@ -407,6 +407,17 @@ describe('the hero layout the rulings were measured on (fallbackScenes.ts, test-
     }
   });
 
+  it('direction (UI-237): the AI line, nav, voice box and CTA are mirror-symmetric about W/2; the avatar sits at the physical left', () => {
+    const gutter = DIRECTIONS[ABYSS].layout.gutter;
+    for (const width of [384, PHONE.width]) {
+      for (const fontScale of [1, 2]) {
+        const [avatar, ...mirrored] = heroLayout(ABYSS, width, PHONE.height, fontScale).quietRects!;
+        for (const r of mirrored) expect(r.x + r.width / 2).toBeCloseTo(width / 2, 9);
+        expect(avatar.x).toBe(gutter);
+      }
+    }
+  });
+
   it('the scenes: the hero’s, the hardest reach beads, and the board’s edge scenes', () => {
     expect(SCENES.map((s) => s.id)).toEqual(['rest', 'one.J', 'one.C', 'one.R', 'one.I', 'one.neutral', 'three', 'reach.top', 'reach.bottom', 'one.J.top', 'one.C.right']);
     expect(sceneTaps('rest')).toEqual([]);
