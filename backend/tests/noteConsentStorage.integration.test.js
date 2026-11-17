@@ -97,10 +97,10 @@ const ConsentRecord = require('../app/models/ConsentRecord');
 const PlaylistSession = require('../app/models/PlaylistSession');
 const { signToken } = require('../app/utils/jwt');
 const { recordConsent, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consent');
-const { buildEmotionPlaylist } = require('../app/services/geminiEngine');
+const { buildEmotionPlaylist, adjustBiometricPlaylist } = require('../app/services/geminiEngine');
 const shadowBufferRepo = require('../app/repositories/shadowBufferRepo');
 const { captureException } = require('../app/config/sentry');
-const { registerBiometricHandler, _resetDebounceState, _debounceMap } = require('../app/sockets/biometricHandler');
+const { registerBiometricHandler, generateAndEmitPlaylist, _resetDebounceState, _debounceMap } = require('../app/sockets/biometricHandler');
 const consentRouter = require('../app/routes/consent');
 
 jest.setTimeout(120000);
@@ -282,5 +282,44 @@ describe('DAN-131 — a note without a current health grant shapes the music and
     await recordConsent(user._id, { purpose: HEALTH_CONSENT_PURPOSE, dataCategories: ['heart_rate'] });
     const second = await generateWith(socket, user, 'rainy walk', 8);
     expect(second.contextPrompt).toBe('rainy walk');
+  });
+});
+
+// RA-1 on #289: only a MOOD run reads consent for the note, so only a mood run may drop it. The app's
+// building retry re-sends request_playlist WITHOUT a fresh emotion_update (socketClient.ts), so a
+// biometric, heart or skip_loop run landing first must leave the held note for that retried mood run:
+// otherwise a note-only intent falls to the heart branch and a consented note goes unstored.
+describe.each([
+  ['a current grant', 'current', NOTE],
+  ['no grant', 'none', ''],
+])('DAN-131 — %s: a non-mood run leaves the held note to the retried mood run (real Mongo)', (_label, grant, stored) => {
+  it.each(['biometric', 'heart', 'skip_loop'])('a %s run first, then the retried request', async (trigger) => {
+    const user = await listener(grant);
+    const socket = openSocket(user);
+    // A note-only intent: no taps, no chip — the note alone routes the retry to the mood pipeline.
+    socket._trigger('emotion_update', { taps: [], textPrompt: NOTE, activity: null, mode: 'manual' });
+    const state = _debounceMap.get(socket.id);
+
+    await generateAndEmitPlaylist(socket, trigger, state);
+    expect(held(socket)).toBe(NOTE);
+
+    await until(() => state.generating === false, 'the first lock to free');
+    // The first run writes its own row (contextPrompt ''): wait for it, so the retry's row is the next one.
+    const first = await until(() => PlaylistSession.findOne({ userId: user._id }), 'the first run\'s session row');
+    expect(first.contextPrompt).toBe('');
+    buildEmotionPlaylist.mockClear();
+    adjustBiometricPlaylist.mockClear();
+
+    await generateAndEmitPlaylist(socket, 'emotion', state);
+
+    expect(buildEmotionPlaylist).toHaveBeenCalledTimes(1);
+    expect(buildEmotionPlaylist.mock.calls[0][0].textPrompt).toBe(NOTE);
+    expect(adjustBiometricPlaylist).not.toHaveBeenCalled();
+    const session = await until(
+      () => PlaylistSession.findOne({ userId: user._id, _id: { $ne: first._id } }),
+      'the retry\'s session row',
+    );
+    expect(session.contextPrompt).toBe(stored);
+    expect(held(socket)).toBe(stored);
   });
 });

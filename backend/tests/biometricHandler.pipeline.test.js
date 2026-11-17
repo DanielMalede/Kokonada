@@ -1743,6 +1743,22 @@ describe('DAN-131 — a note is stored only under a current health grant', () =>
     expect(state.lastTextPrompt).toBe('a newer note'); // its own generation decides for it
   });
 
+  it('under a current grant, a newer note during the consent read: the run stores ITS note, the newer one stays held', async () => {
+    let answer;
+    consent.getConsentStatus.mockImplementation(() => new Promise((r) => { answer = r; }));
+    const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
+
+    const run = generateAndEmitPlaylist(makeSocket(), 'emotion', state);
+    for (let i = 0; i < 20 && !answer; i += 1) await new Promise((r) => setImmediate(r));
+    expect(answer).toBeDefined();
+    state.lastTextPrompt = 'a newer note';
+    answer(GRANTED);
+    await run;
+
+    expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe(NOTE); // the note this run took, not the held one
+    expect(state.lastTextPrompt).toBe('a newer note');
+  });
+
   it('a heart or biometric run never stores a held note, and is unchanged otherwise', async () => {
     consent.getConsentStatus.mockResolvedValue(NOT_GRANTED);
     const state = makeState({ lastEmotionTaps: taps, lastTextPrompt: NOTE });
@@ -1751,6 +1767,9 @@ describe('DAN-131 — a note is stored only under a current health grant', () =>
 
     expect(PlaylistSession.create.mock.calls[0][0].contextPrompt).toBe('');
     expect(geminiEngine.buildEmotionPlaylist).not.toHaveBeenCalled();
+    // A non-mood run reads no consent for the note, so the note is not its to drop: the client's retry
+    // re-sends request_playlist without a fresh emotion_update, and that mood run must still find it.
+    expect(state.lastTextPrompt).toBe(NOTE);
   });
 });
 
