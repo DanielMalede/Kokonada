@@ -480,4 +480,31 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(handler).toContain('const reason = denialReason(await getConsentStatus(req.user._id, HEALTH_CONSENT_PURPOSE));');
     expect(handler.indexOf('getConsentStatus')).toBeLessThan(handler.indexOf('suunto.handleWebhook('));
   });
+
+  // A line citation is evidence only while the cited lines still hold what it names.
+  it('the line citations re-anchored at ae394f2 point at the code they name', () => {
+    const lines = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8').split('\n');
+    const span = (rel, from, to = from) => lines(rel).slice(from - 1, to).join('\n');
+    const EXPORT = 'backend/app/services/privacy/userDataExport.js';
+    const ERASURE = 'backend/app/services/privacy/erasure.js';
+    const ROUTES = 'backend/app/routes/integrations.js';
+    const d = doc();
+    const cites = [
+      [`${EXPORT}:43 `, () => expect(span(EXPORT, 43)).toContain("redact: ['passwordHash']")],
+      [`${EXPORT}:49-51;`, () => expect(span(EXPORT, 49, 51)).toContain('Deliberately excludes OAuth token blobs\n// (spotifyToken/youtubeMusicToken/wearableToken)')],
+      [`exported ${EXPORT}:25,46 `, () => { expect(span(EXPORT, 25)).toContain("require('../../models/ConsentRecord')"); expect(span(EXPORT, 46)).toContain('{ model: ConsentRecord },'); }],
+      [`erased ${ERASURE}:22,99;`, () => { expect(span(ERASURE, 22)).toContain("require('../../models/ConsentRecord')"); expect(span(ERASURE, 99)).toContain('await ConsentRecord.deleteMany({ userId });'); }],
+      [`${EXPORT}:31-47,66-87`, () => { expect(span(EXPORT, 31, 47)).toMatch(/^const COLLECTIONS = \[[\s\S]*\{ model: ConsentRecord \}[\s\S]*\];$/); expect(span(EXPORT, 66, 87)).toMatch(/^async function exportUserData\(userId\) \{/); }],
+      [`${ROUTES}:84,88 (requireConsent`, () => { expect(span(ROUTES, 84)).toContain('requireConsent(HEALTH_CONSENT), appleHealthPush'); expect(span(ROUTES, 88)).toContain('requireConsent(HEALTH_CONSENT), healthBatchIngest'); }],
+      [`${ROUTES}:22,84,88;`, () => expect(span(ROUTES, 22)).toContain("const requireConsent = require('../middleware/requireConsent');")],
+    ];
+    for (const [cite, holds] of cites) {
+      expect(d).toContain(cite);
+      holds();
+    }
+    expect(d.split(`${EXPORT}:31-47,66-87`)).toHaveLength(3); // the Export bullet and the Play access answer
+    for (const stale of [`${EXPORT}:32 `, `${EXPORT}:38-40`, `${EXPORT}:23,41`, `${ERASURE}:21,96`, `${EXPORT}:26-79`, `${ROUTES}:79,83`, `${ROUTES}:21-24,79,83`]) {
+      expect(d).not.toContain(stale);
+    }
+  });
 });
