@@ -5,7 +5,7 @@ import { ApiClient } from '../../net/apiClient';
 import { HistoryRow } from '../../experience/history/HistoryRow';
 import { relativeTime } from '../../experience/history/historyFormat';
 import { FakeApi, sameRequest } from '../api';
-import { installFakeClock, negativeAges, type FakeClock } from '../clock';
+import { installFakeClock, negativeAges, renderedTexts, type FakeClock } from '../clock';
 import { createFaceGuard } from '../faces';
 
 // QA-047: a fake API client scripts latency, status, body and failure per request, and a fake clock
@@ -139,7 +139,7 @@ describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic 
       faces.set('dark');
       const created = new Date(Date.now() - 5 * 60_000).toISOString(); // five minutes ago
       const item = { id: 's1', createdAt: created, moodKey: 'calm', title: 'Evening', source: 'manual' } as any;
-      const texts = () => { let t!: ReactTestRenderer.ReactTestRenderer; act(() => { t = ReactTestRenderer.create(<HistoryRow item={item} now={new Date()} onPress={() => {}} />); }); const out = t.root.findAllByType(Text).map((n) => String(n.props.children)); act(() => { t.unmount(); }); return out; };
+      const texts = () => { let t!: ReactTestRenderer.ReactTestRenderer; act(() => { t = ReactTestRenderer.create(<HistoryRow item={item} now={new Date()} onPress={() => {}} />); }); const out = renderedTexts(t); act(() => { t.unmount(); }); return out; };
       expect(texts()).toContain('5m ago');
       clock.jumpWall(-60 * 60_000);
       const after = texts();
@@ -156,6 +156,24 @@ describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic 
     expect(negativeAges([naive(created)])).toEqual([]);
     clock.jumpWall(-60 * 60_000);
     expect(negativeAges([naive(created), 'Just now', 'in 55 minutes'])).toEqual(['-55m ago', 'in 55 minutes']);
+  });
+
+  it.each([['NaNm ago'], ['Infinityh ago'], ['−55m ago'], ['− 1 h ago'], ['-Infinity min ago'], ['in NaN minutes'], ['Updated −3 hours ago']])('flags %s', (t) => {
+    expect(negativeAges([t])).toEqual([t]);
+  });
+
+  it('leaves honest ages and hyphenated copy alone (negative control for the minus rule)', () => {
+    expect(negativeAges(['5m ago', 'Just now', '2h ago', '5-10 min ago', 'Check-in 5m ago', 'Re-synced 2 hours ago', 'Mid-session · 3m ago', 'Top-5 mins ago', 'Yesterday'])).toEqual([]);
+  });
+
+  it('a JSX-interpolated negative age ({age}m ago) is read as rendered and flagged', () => {
+    const Row = ({ age }: { age: number }) => <Text>{age}m ago</Text>;
+    let t!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { t = ReactTestRenderer.create(<><Row age={-55} /><Row age={NaN} /><Row age={5} /></>); });
+    const texts = renderedTexts(t);
+    act(() => { t.unmount(); });
+    expect(texts).toEqual(['-55m ago', 'NaNm ago', '5m ago']);
+    expect(negativeAges(texts)).toEqual(['-55m ago', 'NaNm ago']);
   });
 
   it('restore() returns to real timers and the preset performance.now', () => {
