@@ -37,6 +37,15 @@ describe('loadMutant', () => {
     expect(() => loadMutant(LANE, [{ find: 'const', replace: 'let' }], require)).toThrow(/matches \d+ times/);
   });
 
+  // RA-235-8: a replacement is planted literally. String.prototype.replace reads $& $' $` $$ $1 in a
+  // string replacement as patterns, so `$'` would plant the rest of the file in its place.
+  it.each(["$'", '$&', '$`', '$$', '$1'])('plants a replacement containing %s literally', (token) => {
+    const mutant = loadMutant<typeof import('../../state/hot/laneCommit')>(LANE, [
+      { find: 'if (r <= 1) return { x, y };', replace: `return { x: ${JSON.stringify(token)} as unknown as number, y };` },
+    ], require);
+    expect(mutant.clampToDisc({ x: 3, y: 4 }).x).toBe(token);
+  });
+
   it('resolves relative imports to the original modules (one registry, one instance)', () => {
     const mutant = loadMutant<typeof import('../../design/theme')>(THEME, [], require);
     expect(mutant.resolveScheme('light')).toBe(colors.light); // the same tokens object, not a copy
