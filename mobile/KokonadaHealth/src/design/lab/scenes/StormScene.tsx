@@ -14,6 +14,8 @@
 //     of this scene, then the effect's status; `fallback` with FieldFallback's reason once FieldView has switched to it.
 //   · The stage is laid out left to right whatever the locale, as the witness scene is: the marker stays at the
 //     window's top left on a right-to-left phone (stormSceneRtl.test.tsx).
+//   · It says its case's tier as its scene facts (SceneFactsContext, as FieldScene does; UI-241), so READY carries the
+//     tier FieldView draws at and the harness holds it to the storm plan's expect.tier.
 //   · Nothing here sends a lab line: no tap coordinate and no emotion value leaves the scene.
 
 import React, { useCallback, useContext, useLayoutEffect, useMemo, useState } from 'react';
@@ -30,6 +32,7 @@ import { STORM_MARKER_DP, stormMarkerColour } from '../storm/stormMarker';
 import { stormSceneLayout, stormSceneSpec } from '../storm/stormScenes';
 import { stormTapsAt } from '../storm/stormScript';
 import { useStormCount } from '../storm/useStormCount';
+import { SceneFactsContext } from './FieldScene';
 import { useMeasuredView } from './useMeasuredView';
 
 export const STORM_SCENE_PROBES = ['stage', 'marker'] as const;
@@ -49,6 +52,10 @@ export function StormScene({ clock, params }: SceneProps) {
   const taps = stormTapsAt(spec.script, count);
 
   const report = useContext(ShaderReportContext);
+  const facts = useContext(SceneFactsContext);
+  useLayoutEffect(() => {
+    facts?.({ tier: spec.tier });
+  }, [facts, spec.tier]);
   const [effect] = useState(fieldEffect);
   const [fallen, setFallen] = useState<{ readonly scene: string; readonly reason: string } | null>(null);
   const setFellBack = useCallback((r: string) => setFallen({ scene: spec.id, reason: r }), [spec.id]);
