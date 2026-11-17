@@ -84,6 +84,37 @@ describe('QA-047 · the scriptable fake API under the real ApiClient', () => {
     expect(sameRequest(api.log[0], api.log[1])).toBe(true);
     expect(sameRequest(api.log[0], api.log[2])).toBe(false);
   });
+
+  it('the last scripted answer repeats for every later request', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x').reply(500, { n: 1 }).reply(200, { n: 2 });
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i += 1) statuses.push((await api.fetch('https://api.test/api/x', { method: 'GET' })).status);
+    expect(statuses).toEqual([500, 200, 200, 200]);
+  });
+
+  it('scripted headers are readable case-insensitively, as the Headers of fetch are (Retry-After, Content-Type)', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x')
+      .reply(429, { error: 'slow down' }, { headers: { 'Retry-After': '30', 'content-type': 'application/json' } })
+      .replies([{ status: 200, body: {}, headers: { 'X-Next': 'b' } }]);
+    const first = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(first.headers.get('retry-after')).toBe('30');
+    expect(first.headers.get('RETRY-AFTER')).toBe('30');
+    expect(first.headers.get('Content-Type')).toBe('application/json');
+    expect(first.headers.has('retry-after')).toBe(true);
+    expect(first.headers.get('X-Absent')).toBeNull();
+    const second = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(second.headers.get('x-next')).toBe('b');
+    expect(second.headers.get('retry-after')).toBeNull();
+  });
+
+  it('a malformed-JSON answer carries its scripted headers too', async () => {
+    const api = new FakeApi();
+    api.on('GET', '/api/x').malformedJson(502, { headers: { 'Content-Type': 'text/html' } });
+    const res = await api.fetch('https://api.test/api/x', { method: 'GET' });
+    expect(res.headers.get('content-type')).toBe('text/html');
+  });
 });
 
 describe('QA-047 · the fake clock: a non-monotonic wall clock over a monotonic one', () => {
