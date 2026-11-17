@@ -161,6 +161,34 @@ describe('RA-235-1 · QA-119: a field drawn as an earlier sibling under an opaqu
   });
 });
 
+// RA-235-17 (#235 round 2): renderedContrast cuts at the DEEPEST chain ancestor with an earlier painting
+// sibling. This tree has two: a header drawn first at the root, and the field drawn first inside the opaque
+// card that holds the copy. A shallowest cut keeps the card's colour and reports an opaque backdrop (a false
+// green); the deepest cut reaches the field and, with no declared scrim, throws.
+describe('RA-235-17 · QA-119: the deepest ancestor with an earlier painting sibling is the cut', () => {
+  const HOT = C.aurora.blobs.gold.color;
+  const OPTS = { field: [C.surface.canvasTop, HOT], scrims: [] as string[] };
+  const page = (fieldInCard: boolean) => h(View, { style: { flex: 1, backgroundColor: C.surface.base } },
+    h(View, { style: { height: 40, backgroundColor: C.surface.overlay } }),
+    h(View, { style: { backgroundColor: C.surface.overlay } },
+      fieldInCard ? h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: HOT } })) : null,
+      h(View, { style: { backgroundColor: C.aurora.glass.night.bg } },
+        h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab'))));
+
+  it('a field drawn first inside the opaque card, with a header drawn first at the root, fails closed at the card', () => {
+    expect(() => renderedContrast(textIn(page(true)), OPTS)).toThrow(/QA-119: .*drawn beneath the text inside View #1,/);
+  });
+
+  it('control: with the header alone, the opaque card covers whatever the root shows', () => {
+    const r = renderedContrast(textIn(page(false)), OPTS);
+    expect(r.throughField).toBe(false);
+    const g = parseColor(C.aurora.glass.night.bg);
+    const backdrop = toHex(composite(g, g.a, parseColor(C.surface.overlay)));
+    expect(r.backdrop).toBe(backdrop);
+    expect(r.ratio).toBeCloseTo(contrastRatio(C.content.primary, backdrop), 6);
+  });
+});
+
 // MB-166: the field cases run in BOTH faces, each with its own canvas, veil, glass and scrim.
 describe.each(FACES)('QA-119 · the field, %s face', (face) => {
   const S = colors[face];
