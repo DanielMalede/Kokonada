@@ -176,6 +176,23 @@ describe('the plans together measure the frame cap of every moving tier (UI-171,
     const limit = (capOf('low') + capOf('full')) / 2;
     for (const s of shots) expect([s.id, s.proof!.band!.max < limit]).toEqual([s.id, true]);
   });
+
+  // RA-52: Android holds the display at 60 Hz in battery saver, so a low rate shot under battery saver passes whether or
+  // not the tier caps its own rate. Each one needs a twin at the low tier with battery saver off and motion on (the
+  // display at its full rate), on the same face and hero scene, so only the tier can hold the rate at its cap.
+  it('every low rate shot under battery saver has a twin at low with battery saver off and motion on (RA-52)', () => {
+    const saver = RATES.filter((s) => shotFacts(s).tier === 'low' && s.device.powerSave);
+    expect(saver.length).toBeGreaterThan(0); // has cases
+    for (const s of saver) {
+      const facts = shotFacts(s);
+      const twins = RATES.filter((t) => {
+        const f = shotFacts(t);
+        return f.tier === 'low' && f.face === facts.face && f.hero === facts.hero && !t.device.powerSave
+          && t.device.animatorScale > 0 && t.args.clock === 'realtime';
+      });
+      expect([s.id, twins.map((t) => t.id).length > 0]).toEqual([s.id, true]);
+    }
+  });
 });
 
 describe('the plans and the harness, against the lab', () => {
