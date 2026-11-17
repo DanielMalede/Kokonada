@@ -172,3 +172,48 @@ describe('RA-8 · decision ids and statuses without live records', () => {
     }
   });
 });
+
+// #291 audit RA-9: the interim QA-041 baseline is measured data. Shrinking it alongside a deleted test
+// must fail here; a deletion is recorded as a RETIRE `file` entry, never by editing the baseline. The
+// list's SHA-256 (paths joined by LF) was computed from the measurement run (q1a-floor-baseline-paths),
+// not from this data, so a mid-list swap is caught too.
+const MEASURED_PATHS_SHA256 = '5288cabcde32024961c28cc67b81927aa7f3c3377d5f5f075983532158337238';
+const shape = (f: typeof TEST_FLOOR) => ({
+  sha: f.sha,
+  listTestsCount: f.listTestsCount,
+  paths: f.paths.length,
+  skipCount: f.skipCount,
+  first: f.paths[0],
+  last: f.paths[f.paths.length - 1],
+  pathsSha256: sha256(f.paths.join(String.fromCharCode(10))),
+});
+const MEASURED = {
+  sha: '988bab3e44f214fd24ce11f6663431c6ffe2afa7',
+  listTestsCount: 219,
+  paths: 219,
+  skipCount: 2,
+  first: '__tests__/App.test.tsx',
+  last: 'tools/eslint-plugin-kokonada/__tests__/tokenIndex.test.js',
+  pathsSha256: MEASURED_PATHS_SHA256,
+};
+
+describe('RA-9 · the QA-041 baseline is pinned as measured at 988bab3', () => {
+  it('sha, counts, the ends of the path list and its hash are the measured ones', () => {
+    expect(shape(TEST_FLOOR)).toEqual(MEASURED);
+    expect(TEST_FLOOR.paths[218]).toBe('tools/eslint-plugin-kokonada/__tests__/tokenIndex.test.js');
+  });
+
+  it('planted: a copy shrunk with its deleted test (218 files) is caught', () => {
+    const shrunk = { ...TEST_FLOOR, listTestsCount: 218, paths: TEST_FLOOR.paths.filter((p) => p !== NOW_PLAYING) };
+    expect(shrunk.paths).toHaveLength(218);
+    expect(shape(shrunk)).not.toEqual(MEASURED);
+  });
+
+  it('planted: a mid-list swap at the same length is caught by the hash', () => {
+    const swapped = [...TEST_FLOOR.paths];
+    [swapped[100], swapped[101]] = [swapped[101], swapped[100]];
+    const s = shape({ ...TEST_FLOOR, paths: swapped });
+    expect([s.paths, s.first, s.last]).toEqual([219, MEASURED.first, MEASURED.last]);
+    expect(s.pathsSha256).not.toBe(MEASURED.pathsSha256);
+  });
+});
