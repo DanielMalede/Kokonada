@@ -5,14 +5,14 @@
 // (.skip, xit, xtest, xdescribe, .todo) never rises above its baseline, and nothing is focused
 // (.only, fit, fdescribe). Markers are read as calls and references through the TypeScript parser, so
 // a planted source spelled inside a string is never counted. The baseline is never raised by this
-// check (no ratchet); src/__contracts__/test-floor.json records where it was measured.
+// check (no ratchet); src/__contracts__/testFloor.baseline.ts records where it was measured.
 
 import ts from 'typescript';
 import { normalizeEol } from './contracts';
 import { checkRetireEntries, type DecStatus, type RetireEntry } from './retire';
 import { parseSource } from './sourceFiles';
 
-/** Structurally src/__contracts__/test-floor.json. */
+/** Structurally TEST_FLOOR in src/__contracts__/testFloor.baseline.ts. */
 export interface FloorBaseline { sha: string; listTestsCount: number; skipCount: number; measuredAt: string; command: string }
 
 const TEST_ROOTS = new Set(['it', 'test', 'describe']);

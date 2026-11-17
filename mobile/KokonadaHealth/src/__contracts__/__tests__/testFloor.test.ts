@@ -2,16 +2,17 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { RETIRE } from '../retire';
+import { TEST_FLOOR } from '../testFloor.baseline';
 import { APP_ROOT } from '../../testing/guards/productionImports';
 import { indexTests, listJestTests, normalizeEol } from '../../testing/guards/contracts';
 import { readDecStatus } from '../../testing/guards/retire';
 import { type FloorBaseline, checkFloor, measureFloor } from '../../testing/guards/testFloor';
 
 // The interim QA-041 floor (D8 rule 6) on the real tree: jest's own list of the files it runs (every
-// project), against the baseline measured on a clean origin/main (../test-floor.json). QA-041 proper,
+// project), against the baseline measured on a clean origin/main (../testFloor.baseline.ts). QA-041 proper,
 // numTotalTests in CI, waits for its CI step (OPS-412). Planted controls are in memory (D8 rule 2).
 
-const BASELINE: FloorBaseline = JSON.parse(fs.readFileSync(path.join(__dirname, '../test-floor.json'), 'utf8'));
+const BASELINE: FloorBaseline = TEST_FLOOR;
 const read = (file: string): string | null => {
   const abs = path.join(APP_ROOT, file);
   return fs.existsSync(abs) ? fs.readFileSync(abs, 'utf8') : null;
