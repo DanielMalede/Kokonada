@@ -429,4 +429,10 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     const row = store.split('\n').find((l) => l.startsWith('| Is data collection optional?'));
     expect(row).toBe(`| Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. ${NOTE} |`);
   });
+
+  it('BE-097: the Play Personal info answer declares the User IDs the account is keyed by, as required', () => {
+    const line = doc().split('\n').find((l) => l.includes('Personal info →'));
+    expect(line).toBe('  - Personal info → **Email address**, **Name** (optional), **User IDs** (the sign-in provider\'s subject). Purpose: Account management. Linked to user. Optional/required: required (email, User IDs).');
+    expect(fs.readFileSync(path.join(APP, 'models/User.js'), 'utf8')).toContain('ssoId:       { type: String, required: true },');
+  });
 });
