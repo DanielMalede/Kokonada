@@ -170,7 +170,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   const powerSaveSource = useLabPowerSaveSource({ [LAB_PROPS.powerSave]: initialPowerSave }, deps.events);
   const [motionPorts] = useState<MotionPorts>(() => ({
     reduceMotion: { read: () => reads.read(() => deps.reduceMotion.current()), subscribe: (onChange) => deps.reduceMotion.subscribe(onChange) },
-    powerSave: { read: () => reads.read(() => powerSaveSource.read()), subscribe: (onChange) => powerSaveSource.subscribe(onChange) },
+    // Battery saver is the activity's launch prop and events (labPowerSaveSource.ts): its read answers at once, so it needs
+    // no deadline.
+    powerSave: powerSaveSource,
   }));
 
   // What READY reports is what was committed last.

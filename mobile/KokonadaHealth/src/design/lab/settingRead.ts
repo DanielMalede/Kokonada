@@ -1,5 +1,6 @@
 // How long the lab waits for a device setting it reads (UI-241): the reduced-motion read that starts the real-time
-// clock, and the motion policy's reads (reduced motion, battery saver) through the ports LabRoot gives a policy scene. A
+// clock, and the motion policy's reduced-motion read through the ports LabRoot gives a policy scene (battery saver is the
+// activity's launch prop, answered at once, labPowerSaveSource.ts). A
 // read that has not settled by then is refused with "no answer within … ms", so the lab sends an ERROR naming the setting
 // instead of holding READY in silence until the harness's READY timeout.
 //
