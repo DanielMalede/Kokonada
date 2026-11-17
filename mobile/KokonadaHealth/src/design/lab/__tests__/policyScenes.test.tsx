@@ -405,11 +405,15 @@ describe('a policy scene whose battery-saver setting cannot be read says so (UI-
     expect(facts[facts.length - 1]).toEqual({ tier: null, unreadable: 'the device\'s battery-saver setting could not be read (PowerManager unavailable)' });
   });
 
-  it('both refused: the first refusal is the one named, and it stays named', async () => {
-    const facts = await mountWith({ reduceMotion: refuses('a'), powerSave: refuses('b') });
+  it('both refused, one after the other: the first refusal is the one named, and it stays named', async () => {
+    let refuseSaver!: (e: Error) => void;
+    const saverRead = new Promise<boolean>((_, j) => { refuseSaver = j; });
+    saverRead.catch(() => {});
+    const facts = await mountWith({ reduceMotion: refuses('a'), powerSave: { read: () => saverRead, subscribe: () => () => {} } });
+    await act(async () => { refuseSaver(new Error('b')); await saverRead.catch(() => {}); });
     const named = facts.filter((f) => f.unreadable !== undefined).map((f) => f.unreadable);
-    expect(new Set(named).size).toBe(1);
-    expect(named[0]).toMatch(/^the device's (reduced-motion|battery-saver) setting could not be read \((a|b)\)$/);
+    expect(new Set(named)).toEqual(new Set(["the device's reduced-motion setting could not be read (a)"]));
+    expect(facts[facts.length - 1]).toEqual({ tier: null, unreadable: "the device's reduced-motion setting could not be read (a)" });
   });
 
   it('both answered: no setting is named', async () => {
