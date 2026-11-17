@@ -285,7 +285,7 @@ describe('QA-046 · Reanimated animations and cancelAnimation', () => {
   });
 
   it('withRepeat(withDelay(0, withTiming(1, 0 ms)), -1) yields every frame', () => {
-    repeatOn(() => spinGuard(withDelay(0, withTiming(1, { duration: 0 })) as object, 'inner'), -1);
+    repeatOn(() => spinGuard(withDelay(0, withTiming(1, { duration: 0 })) as unknown as object, 'inner'), -1);
     expect(() => frames(16, 16)).not.toThrow();
     expect(motion.activeAnimations()).toBe(1);
   });
