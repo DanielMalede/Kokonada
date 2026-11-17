@@ -1508,8 +1508,13 @@ describe('RA-52: the display a rate proof ran under', () => {
   it('records the display mode read during the proof, not before it', async () => {
     const w = world();
     readyAs(w, { shaderStatus: 'ready', shaderReason: null });
-    display(w, mode(120), mode(60));
-    const { manifest } = await w.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })) });
+    display(w, mode(120), mode(120));
+    // The display drops to 60 Hz while the proof runs (its 10 s sleep): only a reading during the proof sees it.
+    let proofRunning = false;
+    const shell = w.device.shell.bind(w.device);
+    w.device.shell = async (args: string[]) => (args.join(' ') === 'dumpsys display' && proofRunning ? mode(60) : shell(args));
+    const sleep = async (ms: number) => { if (ms === 10000) proofRunning = true; };
+    const { manifest } = await w.run({ plan: planOf(rateShot('low', { min: 55, max: 62 })), sleep });
     expect(manifest.proofs[0].display).toEqual({ refreshHz: 60, mode: 'renderFrameRate 60 Hz, vsyncRate 60 Hz', key: 'renderFrameRate', reason: null });
   });
 
