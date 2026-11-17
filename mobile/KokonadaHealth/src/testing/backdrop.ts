@@ -8,8 +8,13 @@
 // scrim on the chain, and the text is then judged against every field sample the caller supplies, the
 // worst case reported. Reaching the field with no declared scrim throws. A layer the walk cannot model
 // (an image) and a text with no colour throw too: the helper fails closed, never guesses.
-// Siblings drawn behind the text (an absolutely positioned card) are not on the ancestor chain: the
-// walk then reports the field, which fails closed and asks for the scrim to be declared.
+// Siblings drawn before the text (GenerateScreen's absolute-fill LivingAurora under an opaque root) are
+// not on the ancestor chain, so the walk also looks at them: at each chain ancestor it inspects the
+// children painted before the chain's own child, and if any of them renders host output, whatever that
+// ancestor and everything above it paint counts as the field (layout is unknown here, so an earlier
+// sibling is assumed to lie under the glyphs). Only the chain below that ancestor is composited over
+// the field samples, and a declared scrim must sit on that segment, else the helper throws. Earlier
+// inline text inside the same Text is not drawn beneath the glyphs and is ignored.
 
 import { StyleSheet } from 'react-native';
 import type { ReactTestInstance } from 'react-test-renderer';
@@ -69,12 +74,33 @@ export function renderedContrast(node: ReactTestInstance, options: BackdropOptio
   if (!textColour) throw new Error('QA-119: the text has no colour of its own or from a parent Text.');
   const fg = parseColor(String(style(textColour).color));
 
-  const layers: Layer[] = chain.map((n) => {
+  // The deepest chain ancestor with something painted before the chain's child inside it (RA-235-1).
+  const paints = (n: ReactTestInstance | string): boolean =>
+    typeof n === 'string' || typeof n.type === 'string' || n.children.some(paints);
+  let cut = -1;
+  let cutBy = '';
+  for (let child: ReactTestInstance = node; child.parent && cut < 0; child = child.parent) {
+    const parent: ReactTestInstance = child.parent;
+    let host: ReactTestInstance | null = parent;
+    while (host && typeof host.type !== 'string') host = host.parent;
+    if (!host || hostType(host) === 'Text') continue;
+    const at = parent.children.indexOf(child);
+    if (at < 0) throw new Error('QA-119: the rendered tree could not be walked (a chain node is missing from its parent).');
+    const beneath = parent.children.slice(0, at).find(paints);
+    if (beneath) {
+      cut = chain.indexOf(host);
+      if (cut < 0) throw new Error('QA-119: the rendered tree could not be walked (a host ancestor is missing from the chain).');
+      cutBy = typeof beneath === 'string' ? 'text' : typeof beneath.type === 'string' ? hostType(beneath) : 'a component';
+    }
+  }
+
+  const layers: Layer[] = chain.map((n, i) => {
     if (hostType(n) === 'Image') throw new Error('QA-119: an image on the backdrop chain cannot be composited; declare a scrim above it.');
     const s = style(n);
     return {
       type: hostType(n),
-      bg: s.backgroundColor != null ? parseColor(String(s.backgroundColor)) : { r: 0, g: 0, b: 0, a: 0 },
+      // At and above the cut the earlier sibling paints over this colour: the field sample stands in for both.
+      bg: s.backgroundColor != null && i > cut ? parseColor(String(s.backgroundColor)) : { r: 0, g: 0, b: 0, a: 0 },
       opacity: typeof s.opacity === 'number' ? s.opacity : 1,
     };
   });
@@ -104,6 +130,9 @@ export function renderedContrast(node: ReactTestInstance, options: BackdropOptio
   const hasScrim = layers.some((l) => l.bg.a > 0 && declared.has(toHex(l.bg) + l.bg.a.toFixed(4)));
   if (!hasScrim) {
     const seen = layers.filter((l) => l.bg.a > 0).map((l) => `${l.type} ${toHex(l.bg)}@${l.bg.a}`).join(' > ') || 'no layer';
+    if (cut >= 0) {
+      throw new Error(`QA-119: ${cutBy} is drawn beneath the text inside ${layers[cut].type} #${cut}, and the chain below it has no declared scrim (chain: ${seen}).`);
+    }
     throw new Error(`QA-119: the text reaches the field without a declared scrim (chain: ${seen}).`);
   }
   if (options.field.length === 0) throw new Error('QA-119: the text reaches the field, and no field samples were given.');

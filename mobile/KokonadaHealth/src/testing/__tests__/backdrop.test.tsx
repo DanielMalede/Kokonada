@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { colors } from '../../design/tokens';
 import { contrastRatio, flatten, parseHex, AA_NORMAL } from '../../design/contrast';
@@ -90,6 +90,65 @@ describe('QA-119 · the backdrop is the rendered chain', () => {
   it('text with no colour of its own or from a parent Text fails loudly', () => {
     const node = textIn(<View style={{ backgroundColor: C.surface.base }}><Text testID="copy">x</Text></View>);
     expect(() => renderedContrast(node, OPTIONS())).toThrow(/no colour/);
+  });
+});
+
+const h = React.createElement;
+
+describe('RA-235-1 · QA-119: a field drawn as an earlier sibling under an opaque ancestor is not an opaque backdrop', () => {
+  const SIB = { field: [C.surface.canvasTop, '#FF00FF'], scrims: [] as string[] };
+  // GenerateScreen.tsx:242-245: an opaque surface.base root, LivingAurora as an absolute-fill first child,
+  // the copy in a later sibling. The field paints over the root's colour and under the copy.
+  const page = (withField: boolean, bar: React.ReactElement | null = null) => h(View, { style: { flex: 1, backgroundColor: C.surface.base } },
+    withField ? h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: '#FF00FF' } })) : null,
+    bar ?? h(View, { style: { backgroundColor: C.aurora.glass.night.bg } },
+      h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab')));
+
+  it('control: with nothing drawn under the text, the opaque root is the backdrop', () => {
+    const r = renderedContrast(textIn(page(false)), SIB);
+    expect(r.throughField).toBe(false);
+    const g = parseColor(C.aurora.glass.night.bg);
+    expect(r.backdrop).toBe(toHex(composite(g, g.a, parseColor(C.surface.base))));
+  });
+
+  it('GenerateScreen.tsx:242-245 shape: an absolute-fill sibling drawn before the text fails closed without a declared scrim', () => {
+    expect(() => renderedContrast(textIn(page(true)), SIB)).toThrow(/QA-119: .*drawn beneath the text/);
+  });
+
+  it('the same layout with a declared scrim between the field and the text passes, judged against every field sample', () => {
+    const scrimFill = textScrimFill(C, 'dark');
+    const glass = C.aurora.glass.night.bg;
+    const bar = h(View, { style: { backgroundColor: scrimFill } },
+      h(View, { style: { backgroundColor: glass } }, h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab')));
+    const r = renderedContrast(textIn(page(true, bar)), { ...SIB, scrims: [scrimFill] });
+    expect(r.throughField).toBe(true);
+    const s = parseColor(scrimFill);
+    const g = parseColor(glass);
+    const each = SIB.field.map((f) => contrastRatio(C.content.primary, toHex(composite(g, g.a, composite(s, s.a, parseColor(f))))));
+    expect(each[0]).not.toBeCloseTo(each[1], 2); // the two samples differ, so the worst is a real choice
+    expect(r.ratio).toBeCloseTo(Math.min(...each), 2);
+  });
+
+  it('a field sibling inside a composite wrapper is found too', () => {
+    const Field = () => h(View, { style: StyleSheet.absoluteFill }, h(View, { style: { flex: 1, backgroundColor: '#FF00FF' } }));
+    const el = h(View, { style: { flex: 1, backgroundColor: C.surface.base } }, h(Field),
+      h(View, { style: { backgroundColor: C.aurora.glass.night.bg } }, h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Tab')));
+    expect(() => renderedContrast(textIn(el), SIB)).toThrow(/drawn beneath the text/);
+  });
+
+  it('an opaque card between the field and the text still covers it exactly', () => {
+    const bar = h(View, { style: { backgroundColor: C.surface.overlay } }, h(Text, { testID: 'copy', style: { color: C.content.primary } }, 'Card'));
+    const r = renderedContrast(textIn(page(true, bar)), SIB);
+    expect(r.throughField).toBe(false);
+    expect(r.ratio).toBeCloseTo(contrastRatio(C.content.primary, C.surface.overlay), 6);
+  });
+
+  it('inline text before the copy inside the same Text is not drawn beneath it', () => {
+    const el = h(View, { style: { backgroundColor: C.surface.base } },
+      h(Text, { style: { color: C.content.primary } }, 'Lead ', h(Text, { testID: 'copy' }, 'span')));
+    const r = renderedContrast(textIn(el), SIB);
+    expect(r.throughField).toBe(false);
+    expect(r.ratio).toBeCloseTo(contrastRatio(C.content.primary, C.surface.base), 6);
   });
 });
 
