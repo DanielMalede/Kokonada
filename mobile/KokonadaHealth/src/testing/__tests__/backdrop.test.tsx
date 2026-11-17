@@ -87,6 +87,28 @@ describe('QA-119 · the backdrop is the rendered chain', () => {
     expect(() => renderedContrast(node, OPTIONS())).toThrow(/reaches the field without a declared scrim/);
   });
 
+  it.each([['a string', '0.5'], ['NaN', NaN], ['above 1', 1.5], ['below 0', -0.2], ['Infinity', Infinity]])(
+    'RA-235-11: an opacity that is %s fails loudly instead of counting as 1', (_label, opacity) => {
+      const node = textIn(
+        <View style={{ backgroundColor: C.surface.base }}>
+          <View style={{ opacity } as never}><Text testID="copy" style={{ color: C.content.primary }}>Hi</Text></View>
+        </View>,
+      );
+      expect(() => renderedContrast(node, OPTIONS())).toThrow(/QA-119: .*opacity/);
+    });
+
+  it('RA-235-11: opacity at the bounds 0 and 1 is read as given', () => {
+    for (const opacity of [0, 1]) {
+      const node = textIn(
+        <View style={{ backgroundColor: C.surface.base }}>
+          <View style={{ opacity }}><Text testID="copy" style={{ color: C.content.primary }}>Hi</Text></View>
+        </View>,
+      );
+      const text = opacity === 0 ? C.surface.base : C.content.primary;
+      expect(renderedContrast(node, OPTIONS()).ratio).toBeCloseTo(contrastRatio(text, C.surface.base), 6);
+    }
+  });
+
   it('text with no colour of its own or from a parent Text fails loudly', () => {
     const node = textIn(<View style={{ backgroundColor: C.surface.base }}><Text testID="copy">x</Text></View>);
     expect(() => renderedContrast(node, OPTIONS())).toThrow(/no colour/);

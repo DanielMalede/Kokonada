@@ -97,11 +97,14 @@ export function renderedContrast(node: ReactTestInstance, options: BackdropOptio
   const layers: Layer[] = chain.map((n, i) => {
     if (hostType(n) === 'Image') throw new Error('QA-119: an image on the backdrop chain cannot be composited; declare a scrim above it.');
     const s = style(n);
+    if (s.opacity != null && !(typeof s.opacity === 'number' && Number.isFinite(s.opacity) && s.opacity >= 0 && s.opacity <= 1)) {
+      throw new Error(`QA-119: the opacity ${String(s.opacity)} on ${hostType(n)} #${i} is not a number in [0, 1]; it cannot be composited.`);
+    }
     return {
       type: hostType(n),
       // At and above the cut the earlier sibling paints over this colour: the field sample stands in for both.
       bg: s.backgroundColor != null && i > cut ? parseColor(String(s.backgroundColor)) : { r: 0, g: 0, b: 0, a: 0 },
-      opacity: typeof s.opacity === 'number' ? s.opacity : 1,
+      opacity: s.opacity == null ? 1 : (s.opacity as number),
     };
   });
 
