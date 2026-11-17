@@ -434,6 +434,9 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     const line = doc().split('\n').find((l) => l.includes('Personal info →'));
     expect(line).toBe('  - Personal info → **Email address**, **Name** (optional), **User IDs** (the sign-in provider\'s subject). Purpose: Account management. Linked to user. Optional/required: required (email, User IDs).');
     expect(fs.readFileSync(path.join(APP, 'models/User.js'), 'utf8')).toContain('ssoId:       { type: String, required: true },');
+    // C287-2, R287-2: the Play declaration's Data safety row declares the same User IDs.
+    const store = fs.readFileSync(path.join(REPO_ROOT, 'docs/store/play-health-connect-declaration.md'), 'utf8');
+    expect(store.split('\n').find((l) => l.startsWith('| Other data types collected |'))).toBe('| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |');
   });
 
   it('hosting: Railway names its region and the cache it keeps on disk; Vercel, torn down, is no longer a row', () => {
