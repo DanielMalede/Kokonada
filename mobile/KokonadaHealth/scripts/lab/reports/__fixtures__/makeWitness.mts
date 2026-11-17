@@ -9,8 +9,9 @@
 // restated) is painted flat in its bytes: the token's for W1a, W2 and W3, the planted model's for the others. A white
 // strip of 6 px above the stage is in the app region and is not the stage. A plant changes one patch before it is drawn:
 //   { kind, colour, paint?: 'token' | <model>, delta?: [r, g, b] }   (kind 'W1b' moves W1b's sample by delta)
-// Each row is built from the harness's own pieces: renderFacts (capture.mjs) for its render facts, and it is checked by
-// validateRow (lib/manifest.mjs) before it is written.
+// Each row is built by the harness's own buildRow (lib/manifest.mjs, UI-240) over planted sources, with renderFacts
+// (capture.mjs) for its render facts, and checked by validateRow before it is written; the manifest is rows.ts's, the
+// harness's buildManifest.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -18,10 +19,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { renderFacts } from '../../capture.mjs';
-import { validateRow } from '../../lib/manifest.mjs';
+import { buildRow, validateRow } from '../../lib/manifest.mjs';
 import { classifyProbes } from '../../lib/protocol.mjs';
 import { encodePng } from '../../lib/png.mjs';
 import { registerTsResolve } from '../lib/tsResolve.mjs';
+import { manifest } from './rows.ts';
 
 registerTsResolve();
 const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -117,34 +119,31 @@ for (const [n, r] of options.rows.entries()) {
   const file = `${shot}.1.png`;
   const png = await encodePng({ width: region.width, height: region.height, rgba });
   fs.writeFileSync(path.join(out, file), png);
-  const row = {
-    shot, repeat: 1, file, sha256: sha256(png), appRegionHash: H('2'),
-    commit: { sha: 'a'.repeat(40), porcelainEmpty: true },
-    stamp: { bundleSha256: H('3'), tokens: {} },
-    device: { model: 'fixture', fingerprint: 'fixture/planted', width: screen.width, height: screen.height, density, refreshRate: 120 },
-    app: { package: 'com.kokonadahealth.lab', apkSha256: H('4'), buildType: 'lab', hermes: true, dev: false },
-    scene: witnessSceneId(r.face), direction: WITNESS_DIRECTION, face: r.face,
-    fontScale: { requested: 1, observed: 1, app: 1 },
-    motion: { reduceMotionObserved: false, powerSaveObserved: false, tier: WITNESS_TIER },
-    locale: 'he-IL', isRTL: true,
-    clock: { mode: 'fixed', t: 11000, seq: 0 },
-    shaderStatus: 'ready',
-    uimode: r.face === 'dark' ? 'night' : 'day', animatorScales: { window: 1, transition: 1, animator: 1 }, forceDark: false, colorSpace: 'sRGB',
+  const row = buildRow({
+    shot: { id: shot, scene: witnessSceneId(r.face), device: { fontScale: 1 }, expect: { direction: WITNESS_DIRECTION, face: r.face, hero: WITNESS_HERO, tier: WITNESS_TIER } },
+    repeat: 1, file, sha256: sha256(png), appRegionHash: H('2'),
+    build: { head: 'a'.repeat(40), stamp: { bundleSha256: H('3'), tokens: {}, dev: false }, apkSha256: H('4'), hermes: true, skiaVersion: '2.6.9' },
+    app: { package: 'com.kokonadahealth.lab' },
+    facts: { model: 'fixture', fingerprint: 'fixture/planted', density, refreshRate: 120, forceDark: false, locale: 'he-IL' },
+    frame: { ...screen, colorSpace: 'sRGB' },
+    observed: { fontScale: 1, night: r.face === 'dark' ? 'yes' : 'no', animatorScales: { window: 1, transition: 1, animator: 1 } },
+    ready: {
+      clock: 'fixed', t: 11000, seq: 0, powerSave: false, tier: WITNESS_TIER, isRTL: true, fontScale: 1, shaderStatus: 'ready', shaderReason: null,
+      pixelRatio: k, probes: { stage: { px: stage } },
+    },
     region,
     // READY's stage and region probes (the stage minus the insets the scene laid out with), classified by the harness.
     probes: classifyProbes({
       stage: { px: stage },
       region: { px: { x: stage.x + insets.left * k, y: stage.y + insets.top * k, width: stage.width - (insets.left + insets.right) * k, height: stage.height - (insets.top + insets.bottom) * k } },
     }, screen, region),
-    timestamps: { launched: '2026-11-15T00:00:00.000Z', ready: '2026-11-15T00:00:01.000Z', captured: '2026-11-15T00:00:02.000Z' },
-    expect: { direction: WITNESS_DIRECTION, face: r.face, hero: WITNESS_HERO, tier: WITNESS_TIER },
-    ...renderFacts(WITNESS_TIER, tiers),
-    gl: { renderer: 'fixture', gles: 'OpenGL ES 3.2', reason: null },
-    display: { colorMode: r.colorMode, wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: r.colorMode === null ? 'planted: no colour mode' : null },
-    skiaVersion: '2.6.9',
-    shaderReason: null,
-    stage,
-  };
+    timestamps: { launched: new Date('2026-11-15T00:00:00.000Z'), ready: new Date('2026-11-15T00:00:01.000Z'), captured: new Date('2026-11-15T00:00:02.000Z') },
+    renderFacts: renderFacts(WITNESS_TIER, tiers),
+    render: {
+      gl: { renderer: 'fixture', gles: 'OpenGL ES 3.2', reason: null },
+      display: { colorMode: r.colorMode, wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: r.colorMode === null ? 'planted: no colour mode' : null },
+    },
+  }) as Record<string, unknown>;
   const errors = validateRow(row);
   if (errors.length) throw new Error(`the planted row is not a valid manifest row: ${errors.join('; ')}`);
   rows.push(row);
@@ -153,9 +152,4 @@ if (options.smoke) {
   const base = rows[0];
   rows.push({ ...base, shot: 'smoke', scene: 'smoke', expect: { direction: null, face: null, hero: null, tier: null }, renderScale: null, sampling: null });
 }
-const manifest = {
-  plan: 'v1-witness', outcome: options.outcome ?? 'passed', failure: options.outcome === 'failed' ? 'planted failure' : null, restoreFailures: [],
-  commit: 'a'.repeat(40), stamp: {}, apkSha256: H('4'), device: { model: 'fixture' },
-  startedAt: '2026-11-15T00:00:00Z', finishedAt: '2026-11-15T00:01:00Z', rows, determinism: [], proofs: [],
-};
-fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+fs.writeFileSync(path.join(out, 'manifest.json'), `${JSON.stringify(manifest(rows, options.outcome ?? 'passed', 'v1-witness'), null, 2)}\n`);

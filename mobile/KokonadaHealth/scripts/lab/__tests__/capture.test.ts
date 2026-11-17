@@ -9,7 +9,7 @@ import { STORM_SCENE_SPECS } from '../../../src/design/lab/storm/stormScenes';
 import { witnessLayout } from '../../../src/design/lab/witness/witnessLayout';
 import { witnessProbeProblems } from '../../../src/design/lab/witness/witnessProbes';
 import { decodePng } from '../lib/png.mjs';
-import { validateRow } from '../lib/manifest.mjs';
+import { validateManifest, validateRow } from '../lib/manifest.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { FakeDevice, rawFrame, SCREEN, STATUS_BAR } from '../__fixtures__/fakeDevice';
 import { zip } from '../__fixtures__/zipWriter';
@@ -1339,5 +1339,109 @@ describe('RA-51: a failed rm after the recording', () => {
       return shell(args);
     };
     await refusedRun(w, planOf(recorded()), /m: the recording could not be taken: .*does not exist/);
+  });
+});
+
+// UI-240: the row and the manifest are built by lib/manifest.mjs (buildRow, buildManifest), no longer inline. The bytes
+// capture writes on the fake phone are pinned to the inline assembly's at e2c5f52 (the goldens below were taken there,
+// with the clock fixed): a passed smoke run, the shipped v1-field plan and a failed run. Since rows carry READY's pixel
+// ratio, the bytes are the inline assembly's once each row's pixelRatio, the one field added, is taken out (and it is
+// READY's, 1 on this phone).
+describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
+  const FIXED = new Date('2026-11-15T10:00:00.000Z');
+  const bytesOf = (w: ReturnType<typeof world>) => {
+    const text = fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8');
+    const m = JSON.parse(text);
+    // The writer's own format, so re-serialising changes nothing but what is taken out.
+    expect(`${JSON.stringify(m, null, 2)}\n`).toBe(text);
+    for (const row of m.rows) {
+      expect(Object.keys(row).pop()).toBe('pixelRatio');
+      expect(row.pixelRatio).toBe(1);
+      delete row.pixelRatio;
+    }
+    return Buffer.from(`${JSON.stringify(m, null, 2)}\n`, 'utf8');
+  };
+  const GOLDEN = {
+    smoke: '7781070617b8d5e9cc5dbec1d778374234e3bed27f1d87262b6d02eb29f2c694',
+    field: '0df867f8501d00ce4fb52c515cd096adcd00c2164a91c8760571c1df91b19df1',
+    failed: 'f110acf5dde9e87c8b62388b0ee35f8c2a2c21503c17ebb6212f331973560721',
+  };
+
+  it('a passed smoke run', async () => {
+    const w = world();
+    await w.run({ now: () => FIXED });
+    expect(sha(bytesOf(w))).toBe(GOLDEN.smoke);
+  });
+
+  it('the shipped v1-field plan', async () => {
+    const plan = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../capture-plans/v1-field.json'), 'utf8'));
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, {
+      shaderStatus: extras.scene.startsWith('fallback.') ? 'fallback-scene' : 'ready', shaderReason: null,
+    }));
+    const shell = w.device.shell.bind(w.device);
+    let moving = false;
+    w.device.shell = async (args: string[]) => {
+      const line = args.join(' ');
+      if (line.startsWith('am start')) moving = line.includes('--es run dark-three-full-moving-control-');
+      const out = await shell(args);
+      if (line.endsWith('gfxinfo com.kokonadahealth.lab reset') && moving) w.device.gfxFrames = 1200;
+      return out;
+    };
+    await w.run({ plan: { ...plan, readyTimeoutMs: 200, settleMs: 0 }, now: () => FIXED });
+    expect(sha(bytesOf(w))).toBe(GOLDEN.field);
+  });
+
+  it('a failed run (the second launch of a shot differs, QA-078)', async () => {
+    const w = world();
+    let launch = 0;
+    const base = w.device.scenario;
+    w.device.scenario = (extras, d) => { launch += 1; const n = launch; d.frames = [screen(1, (x, y) => [x, y, n, 255])]; base(extras, d); };
+    await expect(w.run({ now: () => FIXED })).rejects.toThrow(/QA-078/);
+    expect(sha(bytesOf(w))).toBe(GOLDEN.failed);
+  });
+});
+
+describe('UI-240: each row carries READY\'s pixel ratio', () => {
+  it('as READY sent it, on every row: never derived from the density (450 dpi on this phone)', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: 1.0000004 }));
+    const { manifest } = await w.run();
+    expect(manifest.rows.map((r: { pixelRatio: number; device: { density: number } }) => [r.pixelRatio, r.device.density])).toEqual([[1.0000004, 450], [1.0000004, 450], [1.0000004, 450]]);
+  });
+
+  it('a READY without a pixel ratio is refused, and no row is kept', async () => {
+    const w = world();
+    w.device.scenario = (extras, d) => d.emit(readyLine(extras.run, extras, d, { pixelRatio: undefined }));
+    await expect(w.run()).rejects.toThrow(/smoke-fixed\.1: the manifest row is not valid: pixelRatio is required/);
+    const written = JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8'));
+    expect([written.outcome, written.rows]).toEqual(['failed', []]);
+    expect(w.device.state()).toEqual(w.before);
+  });
+});
+
+describe('UI-240: the harness validates the manifest\'s top level before it writes it', () => {
+  it('a top level that is not valid is never written: the run throws naming the field and keeps its own failure, the phone restored', async () => {
+    const w = world();
+    const shell = w.device.shell.bind(w.device);
+    // A phone whose model getprop reads empty: the first row is refused, and the run's device facts are no manifest's.
+    w.device.shell = async (args: string[]) => (args.join(' ') === 'getprop ro.product.model' ? '\n' : shell(args));
+    const error = await w.run().then(() => null, (e: Error) => e);
+    expect(error?.message).toMatch(/^the manifest is not valid, so it was not written: device\.model must be a non-empty string/);
+    expect(error?.message).toMatch(/smoke-fixed\.1: the manifest row is not valid: device\.model must be a non-empty string/);
+    expect(fs.existsSync(path.join(w.outDir, 'manifest.json'))).toBe(false);
+    expect(w.device.state()).toEqual(w.before);
+  });
+
+  it('every manifest it writes is one validateManifest accepts, passed or failed', async () => {
+    const passed = world();
+    const { manifest } = await passed.run();
+    expect(validateManifest(manifest)).toEqual([]);
+    const failed = world();
+    failed.device.scenario = () => {};
+    await expect(failed.run()).rejects.toThrow(/READY/);
+    const written = JSON.parse(fs.readFileSync(path.join(failed.outDir, 'manifest.json'), 'utf8'));
+    expect(written.outcome).toBe('failed');
+    expect(validateManifest(written)).toEqual([]);
   });
 });

@@ -1,23 +1,24 @@
-// Planted manifest rows for the report tests (B8-8c, B8-8a, B8-8b), in the harness's own row schema
-// (scripts/lab/lib/manifest.mjs, the authority) and built, where the harness has a builder, with the harness's own
-// functions: the app region from the screen and its system bars (lib/png.mjs appRegion), the probes kept or excluded
-// (lib/protocol.mjs classifyProbes), the render facts an expect tier implies (capture.mjs renderFacts, from the token file)
-// and the Skia version (lib/manifest.mjs readSkiaVersion, from the lockfile). The rest is the literal shape
-// capture.mjs captureShot assembles. Every row is checked by the harness's validateRow before it is returned: this
-// builder cannot make a row the harness would refuse to write. Synthetic values only: no device, no person. Imported by
-// the jest tests and by makeFixtures.mts.
+// Planted manifest rows for the report tests (B8-8c, B8-8a, B8-8b), built by the harness's own builders (UI-240): each
+// row is lib/manifest.mjs buildRow over planted sources, and each manifest is its buildManifest, so a fixture has the
+// harness's fields in the harness's order by construction. The sources are made with the harness's own functions: the
+// app region from the screen and its system bars (lib/png.mjs appRegion), the probes kept or excluded
+// (lib/protocol.mjs classifyProbes), the render facts an expect tier implies (capture.mjs renderFacts, from the token
+// file), the Skia version (lib/manifest.mjs readSkiaVersion, from the lockfile) and the lab stamp (lib/stamp.mjs
+// makeStamp). Every row is checked by the harness's validateRow before it is returned: this builder cannot make a row
+// the harness would refuse to write. Synthetic values only: no device, no person. Imported by the jest tests and by
+// makeFixtures.mts.
 //
-// The harness has no exported row builder (capture.mjs assembles the row inline), so the end-to-end test
-// (reportsHarness.test.ts) is the other half of the proof: the rows the harness itself writes on its fake phone, fed
-// unmodified to every report.
+// The end-to-end test (reportsHarness.test.ts) is the other half of the proof: the rows the harness itself writes on its
+// fake phone, fed unmodified to every report, and the fixtures' fields held to them.
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { renderFacts } from '../../capture.mjs';
-import { readSkiaVersion, validateRow } from '../../lib/manifest.mjs';
+import { androidDensity, buildManifest, buildRow, readSkiaVersion, validateRow } from '../../lib/manifest.mjs';
 import { appRegion } from '../../lib/png.mjs';
 import { classifyProbes } from '../../lib/protocol.mjs';
+import { makeStamp } from '../../lib/stamp.mjs';
 
 export interface Rect {
   readonly x: number;
@@ -41,8 +42,10 @@ export interface RowInput {
   readonly stage?: Rect;
   /** READY's other probes in screen px (the witness's region probe, say), classified by the harness as it classifies the stage. */
   readonly probes?: Readonly<Record<string, Rect>>;
-  /** `wm density`, dpi: the device's px per dp is Android's density from it. */
+  /** `wm density`, dpi: the cross-check of READY's pixel ratio (Android's float density from it). */
   readonly density: number;
+  /** READY's pixel ratio (PixelRatio.get()), the px per dp: Android's float density for `density` by default, as on a phone. */
+  readonly pixelRatio?: number;
   readonly fontScale?: number;
   /** The clock READY reports: fixed at t 11000 by default; realtime has no t. */
   readonly clock?: { readonly mode: 'fixed' | 'stepped' | 'realtime'; readonly t: number | null };
@@ -53,6 +56,22 @@ export interface RowInput {
 }
 
 const ZERO64 = '0'.repeat(64);
+const COMMIT = 'a'.repeat(40);
+/** What checkBuild verified, as the harness hands it to buildRow and buildManifest. */
+const build = (skiaVersion: string) => ({
+  head: COMMIT,
+  stamp: makeStamp({ commit: COMMIT, porcelain: '', bundleSha256: ZERO64, tokens: {}, entry: 'index.lab.js', createdAt: '2026-11-15T00:00:00.000Z' }),
+  apkSha256: ZERO64,
+  hermes: true,
+  skiaVersion,
+});
+/** lib/device.mjs readDeviceFacts of the planted phone (its size and density are each row's). */
+const FACTS = { model: 'fixture', fingerprint: 'fixture/planted', width: 1, height: 1, density: 160, refreshRate: 120, forceDark: false, locale: 'he-IL' };
+/** lib/device.mjs readRenderFacts of the planted phone. */
+const RENDER = {
+  gl: { renderer: 'fixture GPU', gles: 'OpenGL ES 3.2 fixture', reason: null },
+  display: { colorMode: 'ColorMode::SRGB (7)', wideColor: false, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
+};
 
 /** The nearest folder at or above `from` that holds `rel`. */
 function findUp(from: string, rel: string): string {
@@ -72,7 +91,7 @@ function harnessFacts(): { tiers: unknown; skia: string } {
   return facts;
 }
 
-/** A complete row, as capture.mjs writes it, checked by the harness's validateRow. */
+/** A complete row, built by the harness's buildRow and checked by its validateRow. */
 export function row(input: RowInput): Record<string, unknown> {
   const { tiers, skia } = harnessFacts();
   const fontScale = input.fontScale ?? 1;
@@ -82,69 +101,50 @@ export function row(input: RowInput): Record<string, unknown> {
   const screen = { width: input.screen.width, height: input.screen.height };
   const region = appRegion(screen, input.bars ?? []) as Rect;
   const stage = input.stage ?? { x: 0, y: 0, ...screen };
-  const r: Record<string, unknown> = {
-    shot: input.shot,
+  const r = buildRow({
+    shot: { id: input.shot, scene: input.scene, device: { fontScale }, expect: input.expect },
     repeat: input.repeat ?? 1,
     file: input.file,
     sha256: input.sha256,
     appRegionHash: ZERO64,
-    commit: { sha: 'a'.repeat(40), porcelainEmpty: true },
-    stamp: { bundleSha256: ZERO64, tokens: {} },
-    device: { model: 'fixture', fingerprint: 'fixture/planted', width: screen.width, height: screen.height, density: input.density, refreshRate: 120 },
-    app: { package: 'com.kokonadahealth.lab', apkSha256: ZERO64, buildType: 'lab', hermes: true, dev: false },
-    scene: input.scene,
-    direction: input.expect.direction,
-    face: input.expect.face,
-    fontScale: { requested: fontScale, observed: fontScale, app: fontScale },
-    motion: { reduceMotionObserved: still, powerSaveObserved: false, tier: input.observedTier === undefined ? input.expect.tier : input.observedTier },
-    locale: 'he-IL',
-    isRTL: true,
-    clock: { mode: clock.mode, t: clock.t, seq: 0 },
-    shaderStatus: input.shaderStatus,
-    uimode: night ? 'night' : 'day',
-    animatorScales: { window: 1, transition: still ? 0 : 1, animator: still ? 0 : 1 },
-    forceDark: false,
-    colorSpace: 'sRGB',
+    build: build(skia),
+    app: { package: 'com.kokonadahealth.lab' },
+    facts: { ...FACTS, width: screen.width, height: screen.height, density: input.density },
+    frame: { ...screen, colorSpace: 'sRGB' },
+    observed: { fontScale, night: night ? 'yes' : 'no', animatorScales: { window: 1, transition: still ? 0 : 1, animator: still ? 0 : 1 } },
+    ready: {
+      clock: clock.mode, t: clock.t, seq: 0, powerSave: false, isRTL: true, fontScale,
+      tier: input.observedTier === undefined ? input.expect.tier : input.observedTier,
+      shaderStatus: input.shaderStatus, shaderReason: input.shaderReason ?? null,
+      probes: { stage: { px: { ...stage } } },
+      pixelRatio: input.pixelRatio ?? androidDensity(input.density),
+    },
     region: { ...region },
     probes: classifyProbes({ stage: { px: { ...stage } }, ...Object.fromEntries(Object.entries(input.probes ?? {}).map(([id, px]) => [id, { px: { ...px } }])) }, screen, region),
-    timestamps: { launched: '2026-11-15T00:00:00Z', ready: '2026-11-15T00:00:01Z', captured: '2026-11-15T00:00:02Z' },
-    expect: { ...input.expect },
-    ...renderFacts(input.expect.tier, tiers),
-    gl: { renderer: 'fixture GPU', gles: 'OpenGL ES 3.2 fixture', reason: null },
-    display: { colorMode: 'ColorMode::SRGB (7)', wideColor: false, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
-    skiaVersion: skia,
-    shaderReason: input.shaderReason ?? null,
-    stage: { ...stage },
-  };
+    timestamps: { launched: new Date('2026-11-15T00:00:00Z'), ready: new Date('2026-11-15T00:00:01Z'), captured: new Date('2026-11-15T00:00:02Z') },
+    renderFacts: renderFacts(input.expect.tier, tiers),
+    render: RENDER,
+  }) as Record<string, unknown>;
   const errors = validateRow(r) as string[];
   if (errors.length > 0) throw new Error(`the fixture row ${input.shot} is not one the harness writes: ${errors.join('; ')}`);
   return r;
 }
 
-/** A manifest around rows, with exactly the top-level fields capture.mjs writes (pinned by reportsHarness.test.ts). */
+/** A manifest around rows, built by the harness's buildManifest (its top level pinned by reportsHarness.test.ts). */
 export function manifest(rows: readonly Record<string, unknown>[], outcome: 'passed' | 'failed' = 'passed', plan = 'fixture'): Record<string, unknown> {
-  return {
-    plan,
-    outcome,
-    failure: outcome === 'passed' ? null : 'planted failure',
+  return buildManifest({
+    planId: plan,
+    failure: outcome === 'passed' ? null : new Error('planted failure'),
     restoreFailures: [],
-    commit: 'a'.repeat(40),
-    stamp: { bundleSha256: ZERO64, tokens: {} },
-    apkSha256: ZERO64,
-    device: { model: 'fixture', fingerprint: 'fixture/planted', width: 1, height: 1, density: 160, refreshRate: 120, locale: 'he-IL', forceDark: false },
-    render: { gl: { renderer: 'fixture GPU', gles: 'OpenGL ES 3.2 fixture', reason: null }, display: { colorMode: 'ColorMode::SRGB (7)', wideColor: false, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null } },
-    skiaVersion: harnessFacts().skia,
+    build: build(harnessFacts().skia),
+    facts: { ...FACTS, width: 1, height: 1, density: 160 },
+    render: RENDER,
     startedAt: '2026-11-15T00:00:00Z',
     finishedAt: '2026-11-15T00:01:00Z',
-    rows,
+    rows: [...rows],
     determinism: [],
-    proofs: [],
-    checks: [],
-    results: [],
-    records: [],
-    moving: [],
-    settleFailures: [],
-  };
+    out: { proofs: [], checks: [], results: [], records: [], moving: [], settleFailures: [] },
+  }) as Record<string, unknown>;
 }
 
 /** The value at a dotted path, and a copy of the row without it. */

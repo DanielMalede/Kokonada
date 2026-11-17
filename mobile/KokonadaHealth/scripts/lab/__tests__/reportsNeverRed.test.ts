@@ -169,6 +169,8 @@ describe('neverRed on witness rows: everything but the planted patches, rebuilt 
     ['the face (the scene names none)', (x: Record<string, unknown>) => withValue(x, 'scene', 'witness.abyss'), '"scene"'],
     ['the face (the scene and expect disagree)', (x: Record<string, unknown>) => withValue(x, 'expect.face', 'light'), '"expect.face"'],
     ['the insets (READY’s region probe)', (x: Record<string, unknown>) => withValue(x, 'probes', { inside: {}, excluded: (x.probes as { excluded: unknown[] }).excluded }), '"probes.inside.region"'],
+    // UI-240: the px per dp is READY's pixel ratio, held to Android's density for the row's dpi within 1e-6.
+    ['a px per dp (a pixel ratio that is not Android\'s density for the row\'s 160 dpi)', (x: Record<string, unknown>) => withValue(x, 'pixelRatio', 1.25), '"pixelRatio" is 1.25, not Android\'s density 1 for device.density 160 dpi'],
   ])('a witness row without %s, needed to rebuild its patches: exit 2, naming the field, no report', (_, edit, field) => {
     const { dir } = witness();
     editManifest(dir, (rows) => rows.map(edit));

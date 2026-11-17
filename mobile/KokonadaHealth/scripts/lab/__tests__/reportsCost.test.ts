@@ -153,6 +153,14 @@ describe('fieldCost refuses what it cannot use', () => {
     expect(r.report).toBeNull();
   });
 
+  it('UI-240: a manifest whose top level is not the harness\'s (no commit): exit 2, naming "commit", no report', () => {
+    const c = costRun();
+    const r = run({ plan: c.plan, manifest: set(c.manifest, 'commit', undefined) });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/validateManifest\): the field "commit" is required/);
+    expect(r.report).toBeNull();
+  });
+
   it('a manifest with no proofs list: exit 2, naming "proofs"', () => {
     const c = costRun();
     const r = run({ plan: c.plan, manifest: set(c.manifest, 'proofs', undefined) });
