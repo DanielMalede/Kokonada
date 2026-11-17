@@ -76,7 +76,7 @@
 
 ## Sub-processors (who touches the data, and what they receive)
 
-Kokonada uses the following processors. None is an advertiser; none receives raw biometric values or free-text. All processing is on Kokonada's behalf to deliver the feature the user requested.
+Kokonada uses the following processors. None is an advertiser. Apart from the hosting and database providers, which run and store the service on Kokonada's behalf, none receives raw biometric values or free text. All processing is on Kokonada's behalf to deliver the feature the user requested.
 
 | Sub-processor | Role | What it receives | What it NEVER receives |
 | :--- | :--- | :--- | :--- |

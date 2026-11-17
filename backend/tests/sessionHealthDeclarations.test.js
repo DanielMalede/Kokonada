@@ -462,6 +462,11 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
     expect(section(doc(), 'Cross-store consistency checklist').split('\n')).toContain('- [ ] No Health and fitness Data safety answer filed before NF-A (DAN015-Q3) is decided; sub-processor list complete (Sentry/DAN-018, Atlas region/DAN-018).');
   });
 
+  it('C287-8: the Sub-processors lead sentence excepts the hosting and database providers, which hold the raw values', () => {
+    const lead = section(doc(), 'Sub-processors (who touches the data, and what they receive)').split('\n').find((l) => l.startsWith('Kokonada uses the following processors.'));
+    expect(lead).toBe('Kokonada uses the following processors. None is an advertiser. Apart from the hosting and database providers, which run and store the service on Kokonada\'s behalf, none receives raw biometric values or free text. All processing is on Kokonada\'s behalf to deliver the feature the user requested.');
+  });
+
   it('hosting: Railway names its region and the cache it keeps on disk; Vercel, torn down, is no longer a row', () => {
     const lines = doc().split('\n');
     expect(lines.find((l) => l.startsWith('| **Railway**'))).toBe('| **Railway** | Application/API hosting, and the cache and job queue (Redis, kept on a disk volume as a snapshot written every 60 seconds when a key changed), in Railway\'s US West region (California, United States) | All application traffic (encrypted in transit), and what the cache and job-queue rows of **Retention** list | — <!-- verified: Railway service config read by the coordinator on 2026-11-17 (region `sfo` in the service config, Railway\'s US West (California) region; Redis 8.2.9, persistent volume, --save 60 1); not code, re-read before each store submission. Whether Railway backs up that volume, and for how long, is unrecorded. --> |');
