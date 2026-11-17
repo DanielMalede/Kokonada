@@ -12,8 +12,8 @@ import { ShaderReportContext } from '../shaderReport';
 // (YogaLayoutableShadowNode::swapLeftAndRightInYogaStyleProps) and Yoga resolves start by each node's direction, inherited
 // unless a style sets it. A storm marker at `left: 0` would land on the right edge while flashTrace looks for it on the
 // left. The stage sets `direction: 'ltr'`, as the witness scene does, so the marker lands where the field's layout and the
-// recording put it. The tree is laid out by those rules here, as WitnessSceneRtl.test.tsx lays it out (its frameOf is a
-// test file's own function, so it is repeated below), on the S22+'s geometry: 1080 × 2340 px at 2.625 px per dp, the
+// recording put it. The tree is laid out by those rules here, by the lab's shared model (__fixtures__/yogaRtl.ts), on
+// the S22+'s geometry: 1080 × 2340 px at 2.625 px per dp, the
 // status bar 74 px over the edge-to-edge stage.
 jest.mock('react-native-reanimated', () => {
   const { useEffect, useRef } = require('react');
@@ -41,53 +41,12 @@ jest.mock('../../v2/field/effect.ts', () => ({ fieldEffect: () => ({ status: 're
 import { StormScene } from '../scenes/StormScene';
 import { STORM_MARKER_DP } from '../storm/stormMarker';
 import { STORM_SCENE_SPECS } from '../storm/stormScenes';
-
-type Box = { x: number; y: number; width: number; height: number };
-type Node = ReactTestRenderer.ReactTestInstance;
+import { frameOf, hostByNativeId, layoutRules, type Box } from './__fixtures__/yogaRtl';
 
 const K = 2.625;
 const W = 1080 / K;
 const H = 2340 / K;
 const STATUS_BAR = 74 / K;
-
-const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity).filter(Boolean)) as Record<string, unknown>;
-const num = (v: unknown) => (v === undefined ? undefined : (v as number));
-
-/** Where a host node lands, by Yoga's rules under RN's left/right swap (WitnessSceneRtl.test.tsx's model). */
-function frameOf(node: Node, stage: Box, swap: boolean, rootDir: 'ltr' | 'rtl'): Box {
-  const chain: Node[] = [];
-  for (let n: Node | null = node; n !== null; n = n.parent) if (typeof n.type === 'string') chain.unshift(n);
-  let box = stage;
-  let dir = rootDir;
-  for (const n of chain) {
-    const s = flat(n.props.style);
-    if (s.direction === 'ltr' || s.direction === 'rtl') dir = s.direction;
-    if (s.position !== 'absolute') {
-      if (Object.keys(s).some((k) => !['flex', 'direction'].includes(k))) throw new Error(`unmodelled in-flow style ${JSON.stringify(s)}`);
-      continue;
-    }
-    let start = num(s.start);
-    let end = num(s.end);
-    let left = num(s.left);
-    let right = num(s.right);
-    if (swap) {
-      if (left !== undefined) start = left;
-      if (right !== undefined) end = right;
-      left = undefined;
-      right = undefined;
-    }
-    const L = left ?? (dir === 'rtl' ? end : start);
-    const R = right ?? (dir === 'rtl' ? start : end);
-    const T = num(s.top);
-    const B = num(s.bottom);
-    const width = num(s.width) ?? box.width - (L ?? 0) - (R ?? 0);
-    const height = num(s.height) ?? box.height - (T ?? 0) - (B ?? 0);
-    const x = L !== undefined ? box.x + L : R !== undefined ? box.x + box.width - R - width : box.x;
-    const y = T !== undefined ? box.y + T : B !== undefined ? box.y + box.height - B - height : box.y;
-    box = { x, y, width, height };
-  }
-  return box;
-}
 
 const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'realtime', t: 0, stepMs: 0, frames: 10 });
 const ID = 'storm.abyss.dark.idle-still';
@@ -104,14 +63,12 @@ afterEach(() => {
 
 function mountMeasured(rtl: boolean) {
   jest.replaceProperty(I18nManager, 'isRTL', rtl);
-  const swap = I18nManager.isRTL && I18nManager.doLeftAndRightSwapInRTL !== false;
-  const rootDir = I18nManager.isRTL ? 'rtl' : 'ltr';
+  const rules = layoutRules(I18nManager);
   const stage: Box = { x: 0, y: 0, width: W, height: H };
   const reported: Record<string, ProbeRect> = {};
   let r!: ReactTestRenderer.ReactTestRenderer;
   jest.spyOn(View.prototype as never as { measureInWindow(cb: unknown): void }, 'measureInWindow').mockImplementation(function (this: { props: { nativeID?: string } }, cb: unknown) {
-    const host = r.root.find((n) => typeof n.type === 'string' && n.props.nativeID === this.props.nativeID);
-    const f = frameOf(host, stage, swap, rootDir);
+    const f = frameOf(hostByNativeId(r.root, this.props.nativeID), stage, rules);
     (cb as (...v: number[]) => void)(f.x, f.y, f.width, f.height);
   });
   act(() => {
@@ -126,7 +83,7 @@ function mountMeasured(rtl: boolean) {
   act(() => r.root.find((n) => n.props.testID === 'storm-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: W, height: H } } }));
   const hosts = r.root.findAll((n) => typeof n.type === 'string' && typeof n.props.nativeID === 'string' && n.props.nativeID.startsWith('probe-'));
   act(() => { for (const n of hosts) n.props.onLayout({ nativeEvent: { layout: {} } }); });
-  const marker = frameOf(r.root.find((n) => typeof n.type === 'string' && n.props.nativeID === 'probe-marker'), stage, swap, rootDir);
+  const marker = frameOf(hostByNativeId(r.root, 'probe-marker'), stage, rules);
   act(() => r.unmount());
   return { marker, reported };
 }

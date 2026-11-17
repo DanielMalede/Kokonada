@@ -6,7 +6,8 @@
 // it as `tier` (null for a scene that names none). A policy scene takes that tier from the app's motion policy on the
 // device's settings, through the ports this root provides once (LabMotionPortsContext): reduced motion from the same
 // source the real-time clock asks, battery saver from the activity's launch prop and events (labPowerSaveSource.ts).
-// READY waits while the scene says its tier is not known yet, and a known tier that changes after READY is an ERROR.
+// READY waits while the scene says its tier is not known yet, and a known tier that changes after READY is an ERROR. A
+// scene that says a setting cannot be read (UI-241) is an ERROR at once, naming it: its tier would never be known.
 //
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
@@ -85,6 +86,20 @@ type LabRootProps = {
 const MAX_REASON = 300;
 const clip = (reason: string | null) => (reason === null || reason.length <= MAX_REASON ? reason : `${reason.slice(0, MAX_REASON - 1)}…`);
 
+/**
+ * The launch's ERROR (UI-241): every error, or, when together they cannot make one protocol line (formatLine throws: many
+ * unknown keys, each already clipped by params.ts), one short error that says so, with how many there were and the first.
+ * The first is bounded by params.ts (every echo clipped; the longest single error, the unknown-scene message, budgeted near
+ * 3000 bytes), so this line fits. Never a throw: a launch the lab refuses always tells the harness why.
+ */
+function launchErrorLine(run: string | null, errors: readonly string[]): string {
+  try {
+    return formatLine('ERROR', { run, errors });
+  } catch (e) {
+    return formatLine('ERROR', { run, errors: [`the launch was refused with ${errors.length} errors, too many for one line (${(e as Error).message}); the first: ${errors[0] ?? ''}`] });
+  }
+}
+
 const timings = (scenes: Readonly<Record<string, Scene>>): Record<string, SceneTiming> =>
   Object.fromEntries(Object.entries(scenes).map(([id, s]) => [id, { periodMs: s.periodMs }]));
 
@@ -99,7 +114,7 @@ export function LabRoot({ labArgs, nonStringKeys, powerSave, deps: overrides }: 
   useEffect(() => {
     if (parsed.ok || reported.current) return;
     reported.current = true;
-    deps.emit(formatLine('ERROR', { run: parsed.run, errors: parsed.errors }));
+    deps.emit(launchErrorLine(parsed.run, parsed.errors));
   }, [parsed, deps]);
 
   if (!parsed.ok) return null;
@@ -237,6 +252,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // The bench's side of the lab (B8-3, cost/costResult.ts): the lab adds the run and the seq (its own, whatever the body
   // says), formats through formatCostResult, and sends the line once READY was sent, or holds it until then. A body the
   // contract refuses, or the bench's own error, is one ERROR; after an ERROR nothing is sent.
+  // The seq rule (UI-241): a RESULT carries the seq on screen when the bench hands the body over (latest.current, what
+  // was committed last), not the seq its first measured frame was drawn under; a held RESULT keeps the seq it was made
+  // with. So a bench that spanned a command would be filed under the later step. No run can show that today: every cost
+  // shot runs on the real-time clock (v1-cost.json), where every command is IGNORED (wrong-clock), so its seq is always 0.
   const costReport = useMemo<CostReport>(() => ({
     result(body) {
       if (failed.current) return;
@@ -293,6 +312,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // passing "not known" (a setting heard before the policy caught up) is not a change.
   const reportFacts = useCallback((next: SceneFacts) => {
     facts.current = next;
+    if (next.unreadable !== undefined) {
+      fail(`the tier cannot be known: ${clip(next.unreadable)}`);
+      return;
+    }
     const said = tierShown.current;
     if (said !== undefined && next.tier !== null && next.tier !== said) {
       fail(`the tier changed after READY: READY said ${said ?? 'none'}, now ${next.tier}`);
