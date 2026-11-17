@@ -9,6 +9,10 @@ import { installGestureFakes, realBuilderMethods, FAKE_BUILDER_METHODS, type Fak
 import { loadMutant } from '../mutant';
 import { APP_ROOT } from '../guards/productionImports';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // QA-110: gesture tests fire real handler callbacks. The global mock (jest.setup.js:61-68) is a Proxy
 // that accepts ANY method name and swallows every callback, so the wheel's gesture-to-commit path
 // (RadialWheel.tsx:65-71) never runs in jest. The fake builders record each callback and fire them in

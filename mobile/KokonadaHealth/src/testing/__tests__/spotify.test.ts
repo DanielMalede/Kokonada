@@ -7,6 +7,10 @@ import { installSpotifyFake, type SpotifyFake } from '../spotify';
 import { loadMutant } from '../mutant';
 import { APP_ROOT } from '../guards/productionImports';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // QA-048: page tests drive the player through a stateful fake covering not installed, not logged in or
 // not authorised, connecting, connected, foreign track, remote disconnected and command failure. The
 // global mock (jest.setup.js:83-103) fixes one state (not installed, disconnected), so an un-overridden

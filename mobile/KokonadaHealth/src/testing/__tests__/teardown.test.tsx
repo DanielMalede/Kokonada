@@ -16,6 +16,10 @@ import { APP_ROOT, productionFiles } from '../guards/productionImports';
 import { loadMutant } from '../mutant';
 import { installTeardownProbes, missingRouteFixtures, navigatorRoutes, ROUTE_FIXTURES, type TeardownProbes } from '../teardown';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // QA-103 (S10-1): every subscription, listener, loop, timer and clock a page opens is closed on
 // unmount. The harness composes the shared fakes (QA-044 platform, QA-045 stores and socket, QA-046
 // motion) with a timer registry, snapshots every live count before mount, and compares after unmount,

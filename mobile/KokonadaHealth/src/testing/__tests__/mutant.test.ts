@@ -6,6 +6,10 @@ import { APP_ROOT } from '../guards/productionImports';
 import { clampToDisc } from '../../state/hot/laneCommit';
 import { colors } from '../../design/tokens';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // D8 rule 2: a planted mutant of production code is built in memory, never written under src/. The
 // loader reads the real file, applies exact find/replace mutations (each must match exactly once, so
 // a control can never silently plant nothing), compiles it with the app's own babel config, and runs

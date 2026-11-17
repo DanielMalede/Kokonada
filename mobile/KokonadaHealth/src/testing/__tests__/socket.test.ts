@@ -5,6 +5,10 @@ import { FakeSocketServer, permutation } from '../socket';
 import { loadMutant } from '../mutant';
 import { APP_ROOT } from '../guards/productionImports';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // QA-045 (socket half): one shared socket fake with live listener counts that scripts stale-token
 // refusal, drop, reconnect and out-of-order delivery. It models socket.io-client 4.8.3 and the
 // backend's socket auth where these behaviours come from:

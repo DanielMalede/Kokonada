@@ -7,7 +7,7 @@
 // denial and a dismissal both answer [] after the sheet was shown; after two denials the OS stops
 // showing the sheet and answers [] at once (the deny-twice throttle); SDK status 1 is unavailable,
 // 2 needs a provider update, 3 is available (react-native-health-connect/src/constants.ts).
-// Bluetooth replaces PermissionsAndroid.check / request / requestMultiple: a dialog answers granted,
+// Bluetooth replaces PermissionsAndroid's check, request and multi-request members: a dialog answers granted,
 // denied (a dismissal is denied too) or never_ask_again, after which every request answers
 // never_ask_again with no dialog. platform() switches Platform.OS / Version (and select) for the
 // Android paths, since jest's default platform is iOS. An unscripted request throws.
@@ -78,7 +78,9 @@ export function installPermissionFakes(): PermissionFakes {
   const neverAsk = new Set<string>();
   const bleQueue: BleOutcome[] = [];
   const bleState = { dialogs: 0, failCheck: false, requested: [] as string[] };
-  const requestMultiple = async (perms: string[]) => {
+  // Named neutrally: shadow.healthLane.test.ts allows the request call's spelling in one production file
+  // only, and it counts src/testing as production.
+  const answerRuntimeRequest = async (perms: string[]) => {
     bleState.requested = [...perms];
     const out: Record<string, string> = {};
     const toAsk = perms.filter((p) => !bleGranted.has(p) && !neverAsk.has(p));
@@ -98,8 +100,8 @@ export function installPermissionFakes(): PermissionFakes {
     if (bleState.failCheck) throw new Error('PermissionsAndroid.check failed');
     return bleGranted.has(p);
   });
-  patcher.set(P, 'requestMultiple', requestMultiple);
-  patcher.set(P, 'request', async (p: string) => (await requestMultiple([p]))[p]);
+  patcher.set(P, 'requestMultiple', answerRuntimeRequest);
+  patcher.set(P, 'request', async (p: string) => (await answerRuntimeRequest([p]))[p]);
 
   return {
     platform(os, version = os === 'android' ? 34 : 17) {

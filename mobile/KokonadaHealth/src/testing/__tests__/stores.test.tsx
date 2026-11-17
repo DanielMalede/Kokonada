@@ -15,6 +15,10 @@ import {
   APP_STORE_SINGLETONS, STORE_FACTORIES, storeCallSites, trackAppStores, trackStore, unregisteredStores,
 } from '../stores';
 
+// Planting a mutant loads @babel/core inside the test VM on first use (src/testing/mutant.ts); under
+// full-suite worker contention that cold load overran the 5 s default (q3-final-jest run file).
+jest.setTimeout(30000);
+
 // QA-045 (stores half): every zustand store and the redux store expose a live subscribe count.
 // GenerateScreen.test.tsx:660-692 hand-rolls this per screen with jest.spyOn on four stores; this is
 // the shared form. The count wraps the store's REAL subscribe (capture-and-restore, no spyOn), so the
