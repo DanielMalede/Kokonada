@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import {
   applySession, applyShot, parseDisplayColour, parseGfxFrames, parseGles, parseJank, parseNight, parseRefreshMode, parseRefreshRate,
-  parseSystemBars, parseWmDensity, parseWmSize, readDeviceFacts, readRenderFacts, restoreDevice, snapshotDevice,
+  parseSystemBars, parseWmDensity, parseWmSize, readDeviceFacts, readDisplayMode, readRenderFacts, restoreDevice, snapshotDevice,
 } from '../lib/device.mjs';
 import { DUMPSYS_WINDOW, FakeDevice, NAV_BAR, SCREEN, STATUS_BAR } from '../__fixtures__/fakeDevice';
 
@@ -333,5 +333,24 @@ describe('the S22+ spellings (the dry run, 2026-11-15)', () => {
       display: { colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'peakRefreshRate 120.00001 Hz, vsyncRate 120.00001 Hz', reason: null },
     });
     expect((await readDeviceFacts(d)).refreshRate).toBe(120.00001);
+  });
+});
+
+// RA-52: Android holds the display at 60 Hz in battery saver, so a rate proof records the display mode it ran under:
+// { refreshHz, mode, key, reason }, the same reading as parseRefreshMode, with the rate as a number and the key it came from.
+describe('readDisplayMode: the display a rate proof ran under (RA-52)', () => {
+  it('reads the active mode as a rate, its mode string and its key', () => {
+    expect(readDisplayMode(S22_DISPLAY_120)).toEqual({ refreshHz: 120.00001, mode: 'peakRefreshRate 120.00001 Hz, vsyncRate 120.00001 Hz', key: 'peakRefreshRate', reason: null });
+    expect(readDisplayMode('mActiveSfDisplayMode=DisplayMode{id=1, renderFrameRate=60.0, vsyncRate=120.0}'))
+      .toEqual({ refreshHz: 60, mode: 'renderFrameRate 60 Hz, vsyncRate 120 Hz', key: 'renderFrameRate', reason: null });
+  });
+
+  it('is null with a reason when the mode cannot be read, never a guess', () => {
+    const r = readDisplayMode('garbage');
+    expect([r.refreshHz, r.mode, r.key]).toEqual([null, null, null]);
+    expect(r.reason).toMatch(/no mActiveSfDisplayMode/);
+    const two = readDisplayMode('mActiveSfDisplayMode=DisplayMode{renderFrameRate=60.0, vsyncRate=60.0}\nmActiveSfDisplayMode=DisplayMode{renderFrameRate=120.0, vsyncRate=120.0}');
+    expect(two.refreshHz).toBeNull();
+    expect(two.reason).toMatch(/2 different/);
   });
 });
