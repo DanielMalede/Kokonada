@@ -491,6 +491,15 @@ describe('DAN-015: the declarations re-anchored at ae394f2', () => {
       '⟨OWNER DECISION: period⟩',
       '⟨OWNER DECISION: and to keep a record of a privacy request⟩',
     ]) expect(w).toContain(phrase);
+    // R287-3, C287-7: Cloudflare's own words, and the routing record it keeps, with its query window.
+    const routing = w.split('\n').find((l) => l.startsWith('| **Cloudflare** (Email Routing for `privacy@kokonada.com`)'));
+    expect(routing).toContain('health information included; Cloudflare states that it "will not store or access the emails", and keeps a record of each routed message (sender, recipient, subject, message ID and what it did with the message), which can be queried for 31 days <!-- NEEDS VERIFICATION: Cloudflare developer docs, Email Routing analytics, fetched 2026-11-17; whether Cloudflare keeps the record longer than the query window is not in that page (Cloudflare DPA and privacy policy: UNRETRIEVED). --> | Forwarded to the owner\'s personal mailbox |');
+    expect(w).not.toContain('Cloudflare keeps a record of the routing activity');
+    // C287-7: the app opens the policy page in the device's browser and sends the site nothing.
+    expect(w).toContain('The app\'s privacy link opens this page in the device\'s browser (`PrivacyPolicyLink.tsx`); the app itself sends the site nothing.');
+    const link = fs.readFileSync(path.join(REPO_ROOT, 'mobile/KokonadaHealth/src/legal/PrivacyPolicyLink.tsx'), 'utf8');
+    expect(link).toContain('.then(() => Linking.openURL(PRIVACY_POLICY_URL))');
+    expect(link).not.toMatch(/\bfetch\(|WebView/);
     // The app's sub-processors stay app-only: none of the site's recipients is listed there.
     expect(section(d, 'Sub-processors (who touches the data, and what they receive)')).not.toMatch(/kokonada\.com|Cloudflare|GitHub Pages/);
   });
