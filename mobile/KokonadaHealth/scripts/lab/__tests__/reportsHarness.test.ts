@@ -377,7 +377,7 @@ describe('the harness\'s v1-policy run, fed unmodified to lawParity and motion',
     // RA-48: the policy run's rate shots are judged against their bands.
     const rates = plan.shots.filter((s) => (s as unknown as { proof?: { kind: string } }).proof?.kind === 'rate');
     expect(rates.length).toBeGreaterThanOrEqual(2);
-    for (const s of rates) expect(r.report).toMatch(new RegExp(`^ {2}${s.id}: \\d+ frames in 10 s = [\\d.]+ fps, band [\\d.]+ to [\\d.]+ \\(PASS\\)$`, 'm'));
+    for (const s of rates) expect(r.report).toMatch(new RegExp(`^ {2}${s.id}: \\d+ frames in 10 s = [\\d.]+ fps, band [\\d.]+ to [\\d.]+, display [\\d.]+ Hz \\(PASS\\)$`, 'm'));
     expect(last(r.report)).toMatch(new RegExp(`, ${rates.length} rate proofs; framestats informational$`));
   });
 });
