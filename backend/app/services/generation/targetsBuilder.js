@@ -8,6 +8,7 @@ const { resolveAffect, resolveHourContext } = require('../biosonic/affectService
 const wellbeingRegulator = require('../../agents/runtime/translation/wellbeingRegulator');
 const { explainFor } = require('../../agents/runtime/knowledge/explain');
 const { disabled } = require('../../utils/envFlag');
+const { isPhysiologicalHR } = require('../wearable/hrRange');
 
 // Assemble the biosonic targets from everything the system knows: cached personal
 // baselines (never the heavy compute — request path), the profile's encrypted
@@ -57,9 +58,12 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
 
   let sleep = {};
   let state = {};
+  let profileFound = false;
+  let nights = 0;
   try {
     const profile = await MedicalProfile.findOne({ userId });
     if (profile) {
+      profileFound = true;
       if (profile.lastNightSleep && (profile.lastNightSleep.deep != null || profile.lastNightSleep.light != null)) {
         sleep = {
           lastNight: {
@@ -97,7 +101,7 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
   // different change from this one.
   try {
     const history = await readNightHistory(userId);
-    if (history.length > 0) sleep = { ...sleep, history };
+    if (history.length > 0) { sleep = { ...sleep, history }; nights = history.length; }
   } catch { /* degrade — no history is a supported state, not a failure */ }
 
   const { hourOfDay, tzOffsetMinutes } = resolveHourContext(now, baselines);
@@ -124,6 +128,15 @@ async function buildTargets({ userId, live = {}, moodKey = null, taps = null, no
   const affect = await resolveAffect({
     userId, live, baselines, state, sleep, taps, tzOffsetMinutes, now,
   });
+
+  // BE-227 (RA-1 on #279): did any health input reach these targets? True when a cached baseline,
+  // a stored profile, a stored night, a resolved affect state or a physiological live heart rate
+  // was read — whether or not it moved a number. Published so a consumer that must not let health
+  // data shape what it sends out (the discovery captions to Groq, BE-221) can fail closed on the
+  // targets themselves rather than on what its caller happened to know. Set before the regulator,
+  // whose decoration spreads the object, so every return path carries it.
+  targets.healthInputs = baselines != null || profileFound || nights > 0 || affect != null
+    || isPhysiologicalHR(live?.heartRate);
 
   // No `if (!affect) return targets` guard here on purpose. It was written, and the stub-out
   // battery proved it unfalsifiable: `apply` already returns the SAME object for a null affect,

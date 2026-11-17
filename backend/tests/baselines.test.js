@@ -150,6 +150,24 @@ describe('computeBaselines (worker-only heavy path)', () => {
       'u1', expect.any(String), expect.objectContaining({ count: expect.any(Number) }),
     );
   });
+
+  it('carries the persisted HRV method into the method-aware engine lane', async () => {
+    const now = Date.now();
+    VitalSample.find.mockImplementationOnce(() => ({
+      sort: () => ({
+        limit: () => Promise.resolve([
+          { _id: 'v1', metric: 'hrv', hrvMethod: 'sdnn', value: 91, recordedAt: new Date(now - 2 * 86400000) },
+          { _id: 'v2', metric: 'hrv', hrvMethod: 'sdnn', value: 99, recordedAt: new Date(now - 86400000) },
+        ]),
+      }),
+    }));
+
+    const stats = await baselines.computeBaselines('u1');
+
+    expect(stats.hrvMedian).toBeNull();
+    expect(stats.hrvByMethod.sdnn.n).toBe(2);
+    expect(stats.hrvByMethod.rmssd.n).toBe(0);
+  });
 });
 
 describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () => {
@@ -195,6 +213,25 @@ describe('getBaselines — encrypted Redis cache (zero-knowledge boundary)', () 
 
     expect(stats.rhrMedian).toBe(61);
     expect(BiometricLog.find).not.toHaveBeenCalled();
+  });
+
+  it('preserves method-aware HRV baselines through encrypted cache serialization and readback', async () => {
+    const redis = fakeRedis();
+    getRedis.mockReturnValue(redis);
+    const stats = {
+      rhrMedian: 61,
+      hrvMedian: 44,
+      hrvByMethod: {
+        rmssd: { median: 44, mad: 4, n: 12 },
+        sdnn: { median: 91, mad: 11, n: 9 },
+      },
+    };
+
+    await baselines.cacheBaselines('u1', stats);
+    const encrypted = redis.set.mock.calls[0][1];
+    getRedis.mockReturnValue(fakeRedis(encrypted));
+
+    await expect(baselines.getBaselines('u1')).resolves.toEqual(stats);
   });
 
   it('routes the cached-blob decrypt through the audited accessor (ADR-0005, M2)', async () => {

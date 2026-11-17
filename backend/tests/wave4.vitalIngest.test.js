@@ -122,6 +122,26 @@ describe('persistMetrics → VitalSample (the fuel for D1)', () => {
     expect(rows.map((r) => r.metric)).toEqual(['restingHeartRate']);
   });
 
+  // T1: RMSSD and SDNN are different statistics (VitalSample.hrvMethod), and a normaliser that knows
+  // which one its device reports says so (Garmin: RMSSD). The label rides on HRV rows only — the model
+  // refuses it on any other metric, and a stray label must not cost a resting-HR row its write.
+  it('carries an HRV method onto the HRV row, and onto no other row', async () => {
+    await persistMetrics('u1', [
+      { metric: 'hrv', value: 84, recordedAt: at('2026-08-01T07:00:00Z'), source: 'garmin', hrvMethod: 'rmssd' },
+      { metric: 'restingHeartRate', value: 49, recordedAt: at('2026-08-01T07:00:00Z'), source: 'garmin', hrvMethod: 'rmssd' },
+    ]);
+    const rows = insertedVitals();
+    expect(rows.find((r) => r.metric === 'hrv').hrvMethod).toBe('rmssd');
+    expect(rows.find((r) => r.metric === 'restingHeartRate')).not.toHaveProperty('hrvMethod');
+  });
+
+  it('an HRV row with no method stays unlabelled: the lanes that never send one are unchanged', async () => {
+    await persistMetrics('u1', [
+      { metric: 'hrv', value: 84, recordedAt: at('2026-08-01T07:00:00Z'), source: 'health_connect' },
+    ]);
+    expect(insertedVitals()[0]).not.toHaveProperty('hrvMethod');
+  });
+
   it('collapses duplicate timestamps WITHIN one batch', async () => {
     await persistMetrics('u1', [
       { metric: 'hrv', value: 84, recordedAt: at('2026-08-01T07:00:00Z'), source: 'garmin' },

@@ -40,8 +40,11 @@ const SENTINEL_PROFILE = {
 function mockLLM(obj = VALID) {
   axios.post.mockResolvedValue({ data: { choices: [{ message: { content: JSON.stringify(obj) } }] } });
 }
+// Every message of every outbound call, joined: a prompt split into a system and a user message, or a
+// second call, still meets every assertion below (RA-5 on #268).
 function outboundBody() {
-  return axios.post.mock.calls[0][1].messages[0].content;
+  expect(axios.post).toHaveBeenCalled();
+  return axios.post.mock.calls.flatMap(([, request]) => (request.messages || []).map((m) => m.content)).join('\n');
 }
 
 beforeEach(() => jest.clearAllMocks());
@@ -71,32 +74,20 @@ describe('outbound body — no special-category vitals (T0.1)', () => {
     expect(body).not.toMatch(/HRV|SpO2|body battery|readiness|resting HR|physiological state/i);
   });
 
-  it('the BIOMETRIC request carries no numeric heart rate / resting HR', async () => {
+  // BE-221: the owner's ruling (class c, 2026-10-27) — no health information, and nothing derived
+  // from it, reaches Groq. The heart-rate branch used to send a coarse intensity band; it now sends
+  // nothing at all, so the strongest form of this guard is the absence of any request.
+  it('the BIOMETRIC branch sends no request at all — not a value, not a band, not a label', async () => {
     mockLLM();
     await adjustBiometricPlaylist({
       musicProfile: SENTINEL_PROFILE, biometric: { heartRate: 913, activity: 'running' },
       fetchTracks: jest.fn().mockResolvedValue([]),
     });
-    const body = outboundBody();
-    expect(body).not.toContain('913'); // current HR
-    expect(body).not.toContain('471'); // resting HR (from the profile)
-    expect(body).not.toMatch(/heart rate|resting/i);
-  });
-
-  // W4-016: the biometric branch now reads stateLabel/hrRatio (routed through biometricBand)
-  // instead of raw HR alone — the same egress boundary must hold for the new inputs too.
-  it('the BIOMETRIC request carries no state label / hrRatio digit either (W4-016)', async () => {
-    mockLLM();
     await adjustBiometricPlaylist({
       musicProfile: SENTINEL_PROFILE, biometric: SENTINEL_BIO,
       fetchTracks: jest.fn().mockResolvedValue([]),
     });
-    const body = outboundBody();
-    expect(body).not.toContain('SENTINEL_STATE_LABEL');
-    expect(body).not.toContain('1.53'); // hrRatio
-    for (const n of [913, 471, 917, 771, 733, 883, 425, 611, 522]) {
-      expect(body).not.toContain(String(n));
-    }
+    expect(axios.post).not.toHaveBeenCalled();
   });
 
   it('still applies the vitals as deterministic target bands AFTER the LLM returns', async () => {
@@ -116,7 +107,7 @@ describe('outbound body — no special-category vitals (T0.1)', () => {
 // ── T0.2: raw free-text never leaves the process ──────────────────────────────
 
 describe('outbound body — no raw free-text (T0.2)', () => {
-  const NOTE = 'my name is Daniel Malede and my SSN is 123-45-6789, I want to go for a run';
+  const NOTE = 'my name is Ysolde Quillfeather and my SSN is 123-45-6789, I want to go for a run';
 
   it('the EMOTION request contains no substring of the raw note', async () => {
     mockLLM();
@@ -125,10 +116,12 @@ describe('outbound body — no raw free-text (T0.2)', () => {
       textPrompt: NOTE, fetchTracks: jest.fn().mockResolvedValue([]),
     });
     const body = outboundBody();
-    expect(body).not.toContain('Daniel');
-    expect(body).not.toContain('Malede');
+    // Case-folded, so a redacted-and-lower-cased forward of the note still fails; the digits stay exact.
+    const lower = body.toLowerCase();
+    expect(lower).not.toContain('ysolde');
+    expect(lower).not.toContain('quillfeather');
     expect(body).not.toContain('123-45-6789');
-    expect(body).not.toContain('SSN');
+    expect(lower).not.toMatch(/\bssn\b/);
     expect(body).not.toMatch(/user note/i);
   });
 

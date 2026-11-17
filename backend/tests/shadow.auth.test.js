@@ -161,7 +161,7 @@ jest.mock('../app/models/PersonalWeights', () => {
 });
 
 // Child collections for the GDPR sweep — arrays with real userId filtering.
-for (const model of ['BiometricLog', 'VitalSample', 'MedicalProfile', 'MorningState', 'MusicProfile', 'PlaylistSession', 'ServeEvent', 'UnclassifiedTrack', 'ConsentRecord']) {
+for (const model of ['BiometricLog', 'HealthSample', 'VitalSample', 'MedicalProfile', 'MorningState', 'MusicProfile', 'PlaylistSession', 'ServeEvent', 'UnclassifiedTrack', 'ConsentRecord']) {
   jest.mock(`../app/models/${model}`, () => {
     const store = [];
     return {
@@ -181,6 +181,7 @@ const User = require('../app/models/User');
 const Identity = require('../app/models/Identity');
 const RefreshToken = require('../app/models/RefreshToken');
 const BiometricLog = require('../app/models/BiometricLog');
+const HealthSample = require('../app/models/HealthSample');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const MorningState = require('../app/models/MorningState');
@@ -241,7 +242,7 @@ afterAll((done) => {
 });
 
 beforeEach(async () => {
-  [User, Identity, RefreshToken, BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent]
+  [User, Identity, RefreshToken, BiometricLog, HealthSample, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent]
     .forEach((m) => { m.__store.length = 0; });
   redis.__map.clear();
   mockEmotionSpy.mockClear();
@@ -413,7 +414,7 @@ describe('ATTACK: GDPR erasure completeness', () => {
     await issueSession(uid);
     await issueSession(uid);
 
-    for (const m of [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
+    for (const m of [BiometricLog, HealthSample, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
       m.__store.push({ userId: uid }, { userId: 'user-1' });
     }
     redis.__map.set(`ledger:${uid}:served`, 'z');
@@ -428,7 +429,7 @@ describe('ATTACK: GDPR erasure completeness', () => {
     expect(User.__store.some((u) => String(u._id) === uid)).toBe(false);
     expect(Identity.__store.some((i) => String(i.userId) === uid)).toBe(false);
     expect(RefreshToken.__store.some((r) => String(r.userId) === uid)).toBe(false);
-    for (const m of [BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
+    for (const m of [BiometricLog, HealthSample, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile, PlaylistSession, ServeEvent, UnclassifiedTrack]) {
       expect(m.__store.some((d) => String(d.userId) === uid)).toBe(false);
       expect(m.__store.some((d) => d.userId === 'user-1')).toBe(true); // bystander intact
     }

@@ -172,6 +172,7 @@ async function computeBaselines(userId) {
     if (!Number.isFinite(value)) return null;
     return {
       metric: doc.metric,
+      hrvMethod: doc.hrvMethod ?? null,
       value,
       recordedAt: doc.recordedAt,
       tzOffsetMinutes: doc.tzOffsetMinutes ?? null,

@@ -16,10 +16,10 @@ Two people change this repository in parallel: Daniel Malede, the owner, and Dan
 
 ## People
 
-| login | name | section | git author | TASKS ids |
-|---|---|---|---|---|
-| `DanielMalede` | Malede | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
-| `DanielBedrack` | Bedrack | `B` | `DanielBedrack` | `900` to `999` in every prefix |
+| login | name | role | section | git author | TASKS ids |
+|---|---|---|---|---|---|
+| `DanielMalede` | Malede | owner | `M` | `Full Stack Developer`, `Daniel <danielmalede@gmail.com>` | the "Next free IDs" header |
+| `DanielBedrack` | Bedrack | partner | `B` | `DanielBedrack` | `900` to `999` in every prefix |
 
 ## Exclusive files
 
@@ -54,22 +54,26 @@ Only Malede changes these.
 
 `.claude/**` · `docs/design-v2/pages/**` · `docs/plans/WAVE4_STATE.md`
 
+On 2026-10-08 the owner opened `.claude/agents/merge-guard.md`, `.claude/commands/merge.md` and `.claude/commands/review-pr.md` to Bedrack for the rows `OPS-178` and `OPS-182`–`OPS-186`, in his own words ("ולגביי OPS-178, OPS-182 עד 186 תן לבדרק לעשות אותם"). Bedrack stopped working on the repository on 2026-10-17: `OPS-187` closed as no longer needed, those rows are the owner's again, and the two-partner machinery stays dormant (`DEC-185`). The list above still says `.claude/**`.
+
 ## Resources
 
 Things that are not files. Claim one in a slot's `resources:` line, and it collides like a file.
 
-`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets`
+`res:atlas-prod` · `res:railway-vars` · `res:store-android` · `res:store-ios` · `res:secrets` · `res:prod-deploy`
+
+Hold `res:prod-deploy` while production must not change (a recount, a migration, an incident): claim it on the branch doing that work; while anyone holds it, `check --merge` refuses every merge to `main`, since a merge deploys.
 
 ## Malede
 
 ### M01
-- task: `OPS-152` (TASKS)
-- title: The work ledger and the coordinator for two partners working in parallel
-- branch: `chore/work-ledger`
-- paths: `WORK_LEDGER.md`, `scripts/coord/**`, `backend/tests/coord.*.test.js`, `.githooks/pre-push`, `.agents/skills/coordinate/**`, `.claude/agents/coordinator.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/ship.md`, `.claude/commands/merge.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `.gitignore`, `TASKS.md`
+- task: `own:garmin-rulings-records` (own)
+- title: Record the owner's 2026-10-28/29 rulings: DEC-047 and DEC-048 DECIDED, TASKS update lines, a DAN row for OAuth domains, #281 review findings
+- branch: `docs/garmin-rulings-records`
+- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-047.md`, `docs/design-v2/decisions/DEC-048.md`, `docs/design-v2/DECISIONS.md`
 - resources: none
-- state: in-review · PR #228
-- started: 2026-10-06
+- state: claimed
+- started: 2026-11-01
 
 ### M02
 - task: `own:scribe-2026-10-06` (own)
@@ -81,7 +85,13 @@ Things that are not files. Claim one in a slot's `resources:` line, and it colli
 - started: 2026-10-06
 
 ### M03
-_free_
+- task: `BE-229` (TASKS)
+- title: No sleep-derived token from the user's note reaches the Groq prompt; the music effect applies deterministically after the model returns
+- branch: `fix/be229-no-sleep-tag-to-groq`
+- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/youtubeDeclarations.test.js`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-28
 
 ### M04
 - task: `OPS-067` (TASKS)
@@ -93,19 +103,49 @@ _free_
 - started: 2026-10-07
 
 ### M05
-_free_
+- task: `OPS-230` (TASKS)
+- title: remove DAN-053 from Next up (the owner's words); record #277's post-merge findings on OPS-230, OPS-345 and OPS-288
+- branch: `docs/ops230-nextup-dan053`
+- paths: `TASKS.md`
+- resources: none
+- state: in-review · PR #282
+- started: 2026-10-28
 
 ### M06
-_free_
+- task: `own:ops201-merge-guard-sweeps-skip` (own)
+- title: OPS-201: merge-guard step 3e also accepts mobile-sweeps skipped when sweeps-changes succeeded and no sweeps: path matches (before #234)
+- branch: `fix/ops201-merge-guard-sweeps-skip`
+- paths: `.claude/agents/merge-guard.md`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-10-27
 
 ### M07
-_free_
+- task: `own:dan101-delete-classify-purge` (own)
+- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
+- branch: `chore/dan101-delete-classify-purge`
+- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #269
+- started: 2026-10-20
 
 ### M08
-_free_
+- task: `OPS-171` (TASKS)
+- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
+- branch: `fix/ops171-settings-policy`
+- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #270
+- started: 2026-10-21
 
 ### M09
-_free_
+- task: `own:ops303-release-custody` (own)
+- title: the release build no longer reads keystore.properties and yields an unsigned APK with no debug fallback; a reviewed signing script the owner runs as kokonada-signer (OPS-303)
+- branch: `fix/ops303-release-custody`
+- paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
+- resources: none
+- state: in-review · PR #271
+- started: 2026-10-21
 
 ### M10
 _free_
@@ -119,7 +159,13 @@ _free_
 ## Bedrack
 
 ### B01
-_free_
+- task: `own:coord-ci-pr-metadata` (own)
+- title: Use GitHub PR state in coordination CI
+- branch: `codex/coord-ci-pr-metadata`
+- paths: `scripts/coord/coord.js`, `scripts/coord/lib/gh.js`, `scripts/coord/lib/render.js`, `scripts/coord/lib/collide.js`, `backend/tests/coord.e2e.test.js`, `backend/tests/coord.collide.test.js`, `.github/workflows/coordination.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #239
+- started: 2026-10-08
 
 ### B02
 _free_

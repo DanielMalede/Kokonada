@@ -39,6 +39,7 @@
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const BiometricLog = require('../../models/BiometricLog');
+const HealthSample = require('../../models/HealthSample');
 const VitalSample = require('../../models/VitalSample');
 const MedicalProfile = require('../../models/MedicalProfile');
 const MorningState = require('../../models/MorningState');
@@ -59,7 +60,7 @@ const { disabled } = require('../../utils/envFlag');
 
 /** Every collection erasure.eraseUserChildData deletes by userId (lockstep: orphanSweep.integration.test.js). */
 const CASCADE_MODELS = Object.freeze([
-  BiometricLog, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile,
+  BiometricLog, HealthSample, VitalSample, MedicalProfile, MorningState, RewardEvent, PersonalWeights, MusicProfile,
   PlaylistSession, ServeEvent, Identity, RefreshToken, UnclassifiedTrack, ConsentRecord,
 ]);
 

@@ -8,7 +8,7 @@
 
 1. **HALT: there is no live music playback provider.**
    - Spotify's Development Mode now limits new apps to 5 users, requires the app owner to have Premium, and Extended Quota needs a registered business plus 250k monthly active users ([SP-FEB26]).
-   - The repo already agrees: `M\src\experience\connect\providers.ts:30` marks Spotify as halted, and the 2026-07-16 audit's Fork C chose "C1 — public path = vector Live Discovery + non-Spotify sink" (`D\audits\2026-07-16-fullstack-compliance\synthesis.md:51-59`). The only sink shipped in mobile is `spotifyRemoteAdapter.ts`.
+   - The repo already agrees: `M\src\experience\connect\providers.ts:30` marks Spotify as halted, and the 2026-07-16 audit's Fork C chose "C1 — public path = vector Live Discovery + non-Spotify sink" (`D\audits\2026-07-16-fullstack-compliance\synthesis.md:51-59 (deleted; see docs/ARCHIVE.md)`). The only sink shipped in mobile is `spotifyRemoteAdapter.ts`.
    - YouTube cannot be an audio sink at all. The YouTube API Developer Policies forbid separating the audio from the video and forbid playing from a background player (a player not shown on the screen the user is viewing) ([YT-DP]).
    - **Consequence:** Now Playing, Genesis, the Generate call-to-action and the Mix Receipt cannot be directed until the owner and `architect` decide which service plays the music. Design two variants now (Spotify dev-beta, and no-provider or the future sink).
 2. **NEW HALT: health-data collection starts at sign-in with no disclosure.**
@@ -23,9 +23,9 @@
    - YouTube Developer Policies III.E.4 allow at most 30 days before stored data must be refreshed or deleted.
    - **Consequence:** a History redesign built around "revisit the soundtrack" cannot rely on this data.
 4. **Plan documents that are out of date:**
-   - `DEV_SIGNIN_BRAND_ASSETS.md` #2 (Apple button style in dark mode) is fixed at `M\src\auth\SignInScreen.tsx:60`.
-   - In `HALT_SPOTIFY_TRACK_IDS_TO_THIRD_PARTY.md`, the ReccoBeats path now drops Spotify tracks before the adapter runs (`B\services\features\featureService.js:26-33,72,152`). It looks mitigated, but it needs a formal re-audit to close. The outbound leak-monitor guard was not checked.
-   - The note in `HALT_HEALTH_CONNECT_PLAY_BLOCKERS.md` that no Health Connect brand page exists (404) is superseded. [HC-UI] now publishes official logo assets and background rules.
+   - `docs/plans/dev-items.md#signin-brand-assets` #2 (Apple button style in dark mode) is fixed at `M\src\auth\SignInScreen.tsx:60`.
+   - In `docs/plans/halts.md#spotify-track-ids-to-third-party`, the ReccoBeats path now drops Spotify tracks before the adapter runs (`B\services\features\featureService.js:26-33,72,152`). It looks mitigated, but it needs a formal re-audit to close. The outbound leak-monitor guard was not checked.
+   - The note in `docs/plans/halts.md#health-connect-play-blockers` that no Health Connect brand page exists (404) is superseded. [HC-UI] now publishes official logo assets and background rules.
 
 ## Sources (all fetched 2026-09-23 unless marked)
 
@@ -66,14 +66,14 @@
 |---|---|---|---|---|
 | G1 | MUST NOT design any public surface assuming Spotify is the playback provider | SP-FEB26 | HALT | OPEN (§0.1) |
 | G2 | MUST NOT play YouTube in the background, audio-only, or hidden. Any YouTube playback needs a visible embedded player at least 200×200 px, nothing drawn in front of the player or its controls, autoplay only when more than half of it is visible, and at most one autoplaying player | YT-DP; YT-RMF | HALT | N/A (no YouTube player in `M\src`) |
-| G3 | MUST NOT build a product integrated with streams or content from another service (III.5). MUST NOT segue, mix or overlap Spotify audio with other audio (III.7), so no earcons, UI sounds or crossfades while Spotify plays. MUST NOT synchronize sound recordings with visuals, so no beat- or audio-reactive animation | SP-POL III.5-7, II | HALT | OPEN in spec: `D\UI_UX_OVERHAUL_SPEC.md:67,78` allows an optional earcon on track change. III.5 as applied to YouTube-derived taste is UNV and has been an open item since July (`D\superpowers\specs\2026-07-13-discovery-ui-compliance.md:23`) |
-| G4 | Third-party marks: official asset files only. Never redrawn, recoloured, animated, rotated or stretched. Boards use labelled slots. Plain-text service names are fine | SP-DG; YT-BR; G-SIWG; A-HIG; GA-BG | HALT if redrawn | PASS. Canvas fixed per `DEV_SPOTIFY_CANVAS_ASSETS.md`; keep the invariant at `providers.ts:19` |
+| G3 | MUST NOT build a product integrated with streams or content from another service (III.5). MUST NOT segue, mix or overlap Spotify audio with other audio (III.7), so no earcons, UI sounds or crossfades while Spotify plays. MUST NOT synchronize sound recordings with visuals, so no beat- or audio-reactive animation | SP-POL III.5-7, II | HALT | OPEN in spec: `D\UI_UX_OVERHAUL_SPEC.md:67,78` allows an optional earcon on track change. III.5 as applied to YouTube-derived taste is UNV and has been an open item since July (`D\superpowers\specs\2026-07-13-discovery-ui-compliance.md:23 (deleted; see docs/ARCHIVE.md)`) |
+| G4 | Third-party marks: official asset files only. Never redrawn, recoloured, animated, rotated or stretched. Boards use labelled slots. Plain-text service names are fine | SP-DG; YT-BR; G-SIWG; A-HIG; GA-BG | HALT if redrawn | PASS. Canvas fixed per `docs/plans/dev-items.md#spotify-canvas-assets`; keep the invariant at `providers.ts:19` |
 | G5 | Spotify logo colours: green only on black, white or non-duotone photography; black logo on light backgrounds, white on dark, monochrome elsewhere. Never on busy or low-contrast areas, so never directly on the aura or field | SP-DG | NC | PASS for colour selection at `SpotifyAttribution.tsx:18-21`; placement must be checked per screen |
 | G6 | Touch targets at least 48×48 dp. Text contrast 4.5:1 below 18 sp, 3:1 otherwise. Every control has a content label. Colour is never the only signal | A11Y | NC (Play pre-launch report flags these; not a rejection) | partial |
 | G7 | Every screen must handle system-bar insets. On Android 16 devices, apps targeting API 36 cannot opt out of edge-to-edge, and Play requires API 36 | A16; P-TAPI | NC (elevated for legal controls) | OPEN: `M\android\gradle.properties:44` sets `edgeToEdgeEnabled=false` while `build.gradle:6` targets SDK 36. No insets handling in `SignInScreen.tsx:120` (hard-coded 96/56), `ConsentSheet.tsx:256,268`, Generate, or Now Playing |
 | G8 | Predictive back: on Android 16 with target API 36, `onBackPressed` is not called and the system back animations are on by default. Every overlay (Genesis, Consent, Up Next, Receipt) needs a designed back outcome. Back on a tab root must be allowed to go home | A16 | NC | OPEN: no `enableOnBackInvokedCallback` decision; `UpNextSheet.tsx:85` relies on `BackHandler`, which must be verified on Android 16 |
 | G9 | On large screens (smallest width 600 dp and up), orientation and aspect-ratio locks are ignored, so layouts must adapt | A16 | NC | not designed |
-| G10 | Health data is never used for ads, upsells or promotions. Any Spotify element on a health-data surface stays purely functional | P-HCPOL; SP-POL IV.2 | HALT if crossed | PASS today; standing rule (`HALT_HEALTH_CONNECT_PLAY_BLOCKERS.md:89`) |
+| G10 | Health data is never used for ads, upsells or promotions. Any Spotify element on a health-data surface stays purely functional | P-HCPOL; SP-POL IV.2 | HALT if crossed | PASS today; standing rule (`docs/plans/halts.md#health-connect-play-blockers (was HALT_HEALTH_CONNECT_PLAY_BLOCKERS.md:89)`) |
 | G11 | Nothing targeted at children; the store target audience must exclude them | SP-POL III.8 | HALT | store configuration not done |
 | G12 | Privacy policy reachable inside the app, and shown before signup | P-HEALTH; SP-TOS V.12 | HALT | OPEN: no policy URL anywhere; landing page (`ARCH-003`) not built |
 | G13 | AI Act Art. 50 first-exposure notice (law; placement comes from the repo ruling UI-005) | AIA50; `TASKS.md:228-265` | HALT (legal) | OPEN: the string "AI system infers" appears nowhere in `M\src` |
@@ -160,7 +160,7 @@
 
 | # | MUST / MUST NOT | Source | Sev | State |
 |---|---|---|---|---|
-| R1 | The mark and link-back cover only the playing item, or each Up Next row gets its own Spotify URI | SP-POL II.4.2 | NC | OPEN (`DEV_SPOTIFY_CANVAS_ASSETS.md`) |
+| R1 | The mark and link-back cover only the playing item, or each Up Next row gets its own Spotify URI | SP-POL II.4.2 | NC | OPEN (`docs/plans/dev-items.md#spotify-canvas-assets`) |
 | R2 | Never display analysis derived from Spotify content (per-track BPM or energy of Spotify tracks) | SP-POL III.13; SP-TOS IV.2.a.i | HALT | Backend gate PASS (`featureService.js:26-33`); the design must not surface it |
 | R3 | When Garmin data contributed: Garmin attributed as a contributing source, e.g. "Insights derived in part from Garmin device-sourced data" (Garmin's own acceptable wording). Must not imply Garmin endorses Health Connect or Bluetooth inputs. Never in tooltips or accordions | GA-BG "Combined or Derived" | HALT once live | OPEN (G3) |
 | R4 | Health Connect "attribution with education": source app name plus a link to Health Connect's App permissions screen | HC-DATA | NC | OPEN |

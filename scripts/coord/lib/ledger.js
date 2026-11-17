@@ -82,24 +82,33 @@ function dottedList(block) {
   return line ? spans(line) : [];
 }
 
+const ROLES = ['owner', 'partner'];
+
 // Header rows that do not parse are collected, never dropped: a silently missing exclusive row or
 // person is a rule nobody enforces. Callers stop with "cannot verify" when `errors` is not empty.
+// The owner is the one row whose role is `owner` — never the first row, so sorting the table
+// cannot hand the owner-only rules to the partner.
 function parsePeople(rows, errors) {
-  return rows.map((row, index) => {
+  const people = rows.map((row, index) => {
     const numbers = spans(row['tasks ids'] || '').filter((s) => /^\d+$/.test(s)).map(Number);
     const plain = (cell) => (spans(cell)[0] || String(cell || '').trim());
     if (!plain(row.login) || !plain(row.section) || !String(row.name || '').trim()) {
       errors.push(`People row ${index + 1} needs a login, a name and a section`);
     }
+    const role = plain(row.role).toLowerCase();
+    if (!ROLES.includes(role)) errors.push(`People row ${index + 1} needs a role, ${ROLES.join(' or ')} (found "${plain(row.role)}")`);
     return {
       login: plain(row.login),
       name: String(row.name || '').replace(/`/g, '').trim(),
       section: plain(row.section),
       gitAuthors: spans(row['git author'] || ''),
       idBlock: numbers.length >= 2 ? { min: Math.min(numbers[0], numbers[1]), max: Math.max(numbers[0], numbers[1]) } : null,
-      isOwner: index === 0,
+      isOwner: role === 'owner',
     };
   });
+  const owners = people.filter((p) => p.isOwner).length;
+  if (people.length && owners !== 1) errors.push(`People needs exactly one owner (role "owner"); found ${owners}`);
+  return people;
 }
 
 function parseExclusive(rows, errors) {
@@ -197,11 +206,14 @@ function claimRoundTrips(claim) {
   return !back.malformed && back.claim !== null && canonicalClaim(back.claim) === canonicalClaim(claim);
 }
 
-function parseLedger(text) {
+// `opts.people` reads the slots with another ledger's People table (main's): a branch that renames
+// its own People row or section heading must not decide how its claims are read.
+function parseLedger(text, opts = {}) {
   const lines = toLines(text);
   const sections = level2Sections(lines);
   const errors = [];
-  const people = parsePeople(firstTable(sectionLines(lines, sections, 'People')), errors);
+  const own = parsePeople(firstTable(sectionLines(lines, sections, 'People')), errors);
+  const people = opts.people || own;
   const byName = new Map(people.map((p) => [p.name.toLowerCase(), p]));
 
   const personSections = sections.filter((s) => byName.has(s.title.toLowerCase()));
@@ -243,6 +255,10 @@ function parseLedger(text) {
     resources: dottedList(sectionLines(lines, sections, 'Resources')),
     sectionStart,
     slots,
+    // Every `## ` title, and every `### Xnn` slot heading wherever it sits: what the file holds,
+    // whether or not the People table it is read with recognises its sections.
+    sectionTitles: sections.map((s) => s.title),
+    rawSlotIds: lines.map((l) => HEADING_RE.exec(l)).filter((m) => m && m[1].length === 3 && SLOT_ID_RE.test(m[2])).map((m) => m[2]),
   };
 }
 

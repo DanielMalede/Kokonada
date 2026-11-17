@@ -17,6 +17,15 @@ jest.mock('../app/models/BiometricLog', () => ({
     })),
   find: jest.fn(),
 }));
+jest.mock('../app/models/VitalSample', () => ({
+  insertMany: jest.fn(async (docs) => ({
+    acknowledged: true,
+    insertedCount: docs.length,
+    insertedIds: {},
+    mongoose: { validationErrors: [], results: docs },
+  })),
+  find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]) }) })),
+}));
 jest.mock('../app/models/MedicalProfile', () => ({ findOneAndUpdate: jest.fn().mockResolvedValue({}) }));
 // ingestBatch now reads the consent version (Art.9 special-category gate). Mock the consent DB
 // so the unit test stays DB-free; these HC-lane-only batches carry no special category, so the
@@ -26,6 +35,7 @@ jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
 jest.mock('../app/services/privacy/wearableErasure', () => ({ WEARABLE_PROVIDERS: [], eraseWearableProvider: jest.fn() }));
 
 const BiometricLog   = require('../app/models/BiometricLog');
+const VitalSample    = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const ConsentRecord  = require('../app/models/ConsentRecord');
 const { ingestBatch } = require('../app/services/wearable/healthStore');
@@ -80,6 +90,25 @@ describe('healthStore.ingestBatch', () => {
     // Pre-encrypting here double-encrypted, so the getter read back NaN and Pulse showed "—".
     expect(update.$set.restingHeartRate).toBe(55); // median(50,60)
     expect(update.$set.hrv).toBe(46);
+  });
+
+  it('persists accepted resting-HR and HRV samples without swallowing a fixture error', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await ingestBatch('user-1', 'healthkit', [
+        { type: 'resting_heart_rate', value: 55, startDate: ts },
+        { type: 'hrv', value: 46, startDate: ts },
+      ]);
+
+      expect(error).not.toHaveBeenCalled();
+      expect(VitalSample.insertMany).toHaveBeenCalledTimes(1);
+      expect(VitalSample.insertMany.mock.calls[0][0]).toEqual([
+        expect.objectContaining({ userId: 'user-1', metric: 'restingHeartRate', value: 55 }),
+        expect.objectContaining({ userId: 'user-1', metric: 'hrv', value: 46 }),
+      ]);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('writes sleep stage medians to the nested MedicalProfile.sleepStages.* fields, RAW', async () => {

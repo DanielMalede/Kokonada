@@ -22,23 +22,36 @@ const RELEASE_DAYS = 10;
 // Overlap on these two is ignored entirely: every task edits them, each in its own rows.
 const IGNORED_SHARED = Object.freeze([TASKS_PATH, LEDGER_PATH]);
 
-const CLASS_ORDER = ['owner-only', 'malformed', 'exact', 'glob', 'exclusive group', 'resource', 'task', 'shared', 'coupling', 'stale', 'owner unknown', 'merge', 'deploy', 'merge-order', 'needs-main'];
+const CLASS_ORDER = ['freeze', 'owner-only', 'malformed', 'exact', 'glob', 'exclusive group', 'resource', 'task', 'shared', 'coupling', 'stale', 'owner unknown', 'merge', 'deploy', 'merge-order', 'needs-main'];
 
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*-\d+$/;
 
-// The documented residual of the recency rule (printed once when it applies): without an open PR
-// and without reflog evidence, a branch is judged by its commit dates alone.
-const RECENCY_NOTE = 'note: recency from commit dates only; a revived branch with old-dated commits and no open PR cannot be seen on a fresh clone';
+// The production freeze. A merge to main deploys, so while any live claim holds this resource no
+// merge to main may happen: not his, and not mine from another branch (another session of mine
+// holding it for a recount, a migration or an incident).
+const FREEZE_RESOURCE = 'res:prod-deploy';
 
-// Claim paths read from a ledger slot. A folder written with a trailing slash is a folder claim;
-// a path that cannot be normalised is reported, never silently dropped.
+// The documented residual of the recency rule (printed once when it applies): a branch with no open
+// PR, which this clone has never seen move or appear after its first fetch, is judged by its commit
+// dates alone.
+const RECENCY_NOTE = 'note: a branch this clone first saw in its initial fetch, with commits older than 14 days and no open PR, is not checked';
+
+// The residual of the open list's fallback (printed once when it applies): with the open list at
+// gh's limit, only the open PRs of the people in People are listed whole, so a branch whose open PR
+// someone else opened may look as if it had none.
+const PR_FALLBACK_NOTE = 'note: the open PR list reached gh\'s limit, so each person in People had his open PRs listed on their own; an open PR by anyone else may be missing, and its branch is then judged as if it had none';
+
+// Claim paths read from a ledger slot. A folder written with a trailing slash — or a Windows
+// backslash, converted first — is a folder claim; a path that cannot be normalised is reported
+// (`bad`), never silently dropped.
 function claimPaths(list) {
   const paths = [];
   const bad = [];
   for (const raw of list || []) {
     const text = String(raw);
     try {
-      const p = text.trim().endsWith('/') ? `${normalizePath(text.trim().replace(/\/+$/, ''))}/**` : normalizePath(text);
+      const t = text.trim().replace(/\\/g, '/');
+      const p = t.endsWith('/') ? `${normalizePath(t.replace(/\/+$/, ''))}/**` : normalizePath(t);
       if (!paths.some((q) => lower(q) === lower(p))) paths.push(p);
     } catch {
       bad.push(text);
@@ -130,6 +143,23 @@ function ownerOfAuthor(people, author) {
   })) || null;
 }
 
+// GitHub's own committer identity on commits made in its web UI (squash merges, "Update branch").
+const WEB_FLOW_EMAIL = 'noreply@github.com';
+
+// The person a tip commit maps to: whoever COMMITTED it first — a cherry-picked or amended commit of
+// the other partner carries his author but my committer — then its author. GitHub's web-flow
+// committer says nothing about who did the work, so it is skipped.
+function ownerOfCommit(people, { committer, author } = {}) {
+  const byCommitter = committer && lower(committer.email) !== WEB_FLOW_EMAIL ? ownerOfAuthor(people, committer) : null;
+  return byCommitter || ownerOfAuthor(people, author);
+}
+
+// The PR author is a GitHub-authenticated login; a commit identity is any string a machine was
+// configured with. So the PR decides first.
+function ownerOfBranch(rules, b) {
+  return personByLogin(rules, val(b.prAuthor)) || ownerOfCommit(rules.people, b);
+}
+
 // Every file a branch changed (against its merge-base) already has the same blob on main — a
 // squash merge leaves the branch un-merged by ancestry, but it carries nothing main does not have.
 // `branchBlobs` / `mainBlobs`: { path: blob sha }; a path missing from one is deleted there.
@@ -139,14 +169,20 @@ function mergedByContent(files, branchBlobs, mainBlobs) {
   return files.every((f) => ((branchBlobs || {})[f] || null) === ((mainBlobs || {})[f] || null));
 }
 
+// The PRs whose head is this branch of THIS repository, newest first. A PR from another repository (a
+// fork) can carry the same branch name and even the same commit, and anyone can open and close one:
+// it says nothing about the branch here. A PR that does not say which it is counts as a fork's.
+const forHead = (prs, branch) => (prs || [])
+  .filter((p) => p.headRefName === branch && p.isCrossRepository === false)
+  .sort((x, y) => y.number - x.number);
+
 function newestPr(prs, branch) {
-  return (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number)[0] || null;
+  return forHead(prs, branch)[0] || null;
 }
 
 // A merged or closed PR says the branch is done only for the commit the PR was about: a branch that
 // moved on after its PR closed (new commits on a reused name) is live work again.
 const isOpen = (pr) => /^OPEN$/i.test(String(pr.state));
-const forHead = (prs, branch) => (prs || []).filter((p) => p.headRefName === branch).sort((x, y) => y.number - x.number);
 
 function prDoneFor(prs, branch, tipSha) {
   if (prOpenFor(prs, branch)) return false;
@@ -168,12 +204,42 @@ function prAuthorFor(prs, branch, tipSha) {
   return pr && pr.author && pr.author.login ? pr.author.login : null;
 }
 
-// Both PR lists came back, and the open one is not cut off at its limit. Otherwise a check cannot
-// tell open work from finished work and must not decide.
-function prListsUsable({ open, all, openLimit }) {
+// Whether the PR lists gh gave can decide, judged on their RAW lengths (a fork's PR counts toward a
+// limit) before any helper drops a PR. `byAuthor`: { login: that person's open PRs }, asked for only
+// when the open list reached its limit.
+// - The all-states list may be cut: gh lists newest first, so a cut loses only the oldest PRs, and a
+//   lost PR can only make its branch look unfinished, never finished. Its length never matters.
+// - The open list must be whole: an open PR keeps a branch in view whatever its age. At its limit
+//   it may be cut, and then each partner's own open list must be whole instead.
+// - A PR without a boolean isCrossRepository could be a fork's: no list holding one decides.
+function prListsUsable({ open, all, byAuthor = null, openLimit }) {
   if (!open || !all) return { ok: false, reason: 'gh pr list failed' };
-  if (open.length >= openLimit) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
+  const lists = [open, all, ...Object.values(byAuthor || {}).filter(Boolean)];
+  if (lists.some((list) => list.some((p) => typeof (p && p.isCrossRepository) !== 'boolean'))) {
+    return { ok: false, reason: 'gh listed a PR without isCrossRepository, so a fork\'s PR cannot be told from this repository\'s' };
+  }
+  if (open.length < openLimit) return { ok: true, reason: null };
+  if (!byAuthor) return { ok: false, reason: `gh listed ${open.length} open PRs, its limit: the list may be truncated` };
+  for (const [login, list] of Object.entries(byAuthor)) {
+    if (!list) {
+      return { ok: false, reason: `gh listed ${open.length} open PRs, its limit, and the list of @${login}'s open PRs (gh pr list --author ${login}) failed: the open PRs may be truncated` };
+    }
+    if (list.length >= openLimit) return { ok: false, reason: `gh listed ${list.length} open PRs by @${login}, its limit: the list may be truncated` };
+  }
   return { ok: true, reason: null };
+}
+
+// One entry per PR number across the lists gh gave. An OPEN entry is never replaced, so a PR open
+// in any list keeps its branch in view. Null when no list came back: no answer, never "no PRs".
+function mergePrLists(...lists) {
+  const given = lists.filter(Boolean);
+  if (!given.length) return null;
+  const byNumber = new Map();
+  for (const p of given.flat()) {
+    const held = byNumber.get(p.number);
+    if (!held || !isOpen(held)) byNumber.set(p.number, p);
+  }
+  return [...byNumber.values()];
 }
 
 const bodyText = (slot) => slot.body.join('\n');
@@ -188,34 +254,114 @@ function liveClaimsOn({ branch, headLedger, baseLedger, mainLedger }) {
   return headLedger.slots.filter((s) => s.claim && s.claim.branch === branch && bodyText(s) !== base.get(s.id) && !onMain.has(bodyText(s)));
 }
 
+const META_LINE = /^- (task|title|branch|resources|state|started):/;
+const backticked = (line) => [...String(line).matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+
+// What a claim that does not parse still says: `- task:` names the task, `- resources:` the
+// resources, and the backticked tokens of every other line are its paths.
+function claimTokens(lines) {
+  const on = (re) => lines.filter((l) => re.test(l)).flatMap(backticked);
+  return {
+    task: on(/^- task:/)[0] || null,
+    resources: on(/^- resources:/).filter((t) => t.startsWith('res:')),
+    paths: lines.filter((l) => !META_LINE.test(l)).flatMap(backticked),
+  };
+}
+
 // A slot this branch changed into something that does not parse. Never read as "no claim": its
 // backticked tokens become the claim, so a hand-broken slot still collides.
 function malformedClaimsOn({ headLedger, baseLedger }) {
   if (!headLedger) return [];
   const base = new Map(baseLedger ? baseLedger.slots.map((s) => [s.id, bodyText(s)]) : []);
-  return headLedger.slots.filter((s) => s.malformed && bodyText(s) !== (baseLedger ? base.get(s.id) : FREE)).map((s) => {
-    const tokens = (re) => s.body.filter((l) => re.test(l)).flatMap((l) => [...l.matchAll(/`([^`]+)`/g)].map((m) => m[1]));
-    const meta = /^- (task|title|branch|resources|state|started):/;
-    return {
-      slot: s,
-      task: tokens(/^- task:/)[0] || null,
-      resources: tokens(/^- resources:/).filter((t) => t.startsWith('res:')),
-      paths: s.body.filter((l) => !meta.test(l)).flatMap((l) => [...l.matchAll(/`([^`]+)`/g)].map((m) => m[1])),
-    };
-  });
+  return headLedger.slots
+    .filter((s) => s.malformed && bodyText(s) !== (baseLedger ? base.get(s.id) : FREE))
+    .map((s) => ({ slot: s, ...claimTokens(s.body) }));
+}
+
+// N8 · A branch's ledger is read with MAIN's People table and section headings, so a branch that
+// renames its own People row or a section heading cannot hide its slots. If, read that way, it lost
+// a section heading its merge-base had, or a slot that both main and its merge-base have, it is
+// malformed. A slot main added after the branch forked is not missing, and a branch that never
+// changed its ledger is never judged here.
+function structureProblems({ head, base, main }) {
+  if (!head || !main) return [];
+  if (base && head.lines.join('\n') === base.lines.join('\n')) return [];
+  const problems = [];
+  const titles = (l) => new Set(l.sectionTitles.map(lower));
+  const had = titles(base || main);
+  const has = titles(head);
+  for (const p of main.people) {
+    if (had.has(lower(p.name)) && !has.has(lower(p.name))) problems.push(`the section heading "## ${p.name}" is missing or renamed`);
+  }
+  const started = base ? new Set(base.rawSlotIds) : null;
+  const read = new Set(head.slots.map((s) => s.id));
+  const missing = main.slots.map((s) => s.id).filter((id) => (!started || started.has(id)) && !read.has(id));
+  if (missing.length) {
+    problems.push(missing.length === 1 ? `slot ${missing[0]} is not where main reads it` : `slots ${missing.join(', ')} are not where main reads them`);
+  }
+  return problems;
+}
+
+// The text between one heading and the next, keyed by its heading line.
+function headingBlocks(lines) {
+  const out = [{ heading: null, body: [] }];
+  for (const l of lines) {
+    if (/^#{1,6}\s/.test(l)) out.push({ heading: l.trim(), body: [] });
+    else out[out.length - 1].body.push(l);
+  }
+  return out;
+}
+
+// The claim a structurally broken ledger still carries: the bullet lines under headings whose text
+// differs from the merge-base's, read as a broken slot is read. When some of those blocks name this
+// branch on a `- branch:` line, only they are its claim: a branch stacked on another unlanded branch
+// also carries that branch's claim (M3). Its slot is the first such `### Xnn` block with a bullet.
+function salvageLedger({ head, base, branch }) {
+  const before = new Map(base ? headingBlocks(base.lines).map((b) => [b.heading, b.body.join('\n')]) : []);
+  const changed = headingBlocks(head.lines).filter((b) => before.get(b.heading) !== b.body.join('\n'));
+  const bullets = (b) => b.body.filter((l) => /^\s*- /.test(l)).map((l) => l.trim());
+  const naming = changed.filter((b) => bullets(b).some((l) => l === `- branch: \`${branch}\``));
+  const blocks = naming.length ? naming : changed;
+  const slotBlock = blocks.find((b) => /^###\s+[A-Z]\d{2}$/.test(b.heading || '') && bullets(b).length);
+  return { slot: slotBlock ? slotBlock.heading.replace(/^###\s+/, '') : null, ...claimTokens(blocks.flatMap(bullets)) };
 }
 
 // → footprints of every other branch on origin: live claims, and unclaimed branches that are recent
 // and not merged. `branches[i].changed`, `.merged` and `.firstLedgerTime` may be thunks.
 function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
   const { parseLedger } = require('./ledger');
+  // Every branch's ledger is read with main's People table (N8), never its own.
+  const read = (text) => (text === null || text === undefined ? null : parseLedger(text, { people: rules.people }));
   const out = [];
   for (const b of branches || []) {
     if (b.name === 'main' || b.name === 'HEAD') continue;
-    const head = b.headLedgerText === null || b.headLedgerText === undefined ? null : parseLedger(b.headLedgerText);
-    const base = b.baseLedgerText === null || b.baseLedgerText === undefined ? null : parseLedger(b.baseLedgerText);
-    const claims = liveClaimsOn({ branch: b.name, headLedger: head, baseLedger: base, mainLedger });
+    const head = read(b.headLedgerText);
+    const base = read(b.baseLedgerText);
     const common = { branch: b.name, tipTime: b.tipTime, author: b.author || null, firstLedgerTime: b.firstLedgerTime };
+    const problems = structureProblems({ head, base, main: mainLedger || rules });
+    if (problems.length) {
+      const s = salvageLedger({ head, base, branch: b.name });
+      const cp = claimPaths(s.paths);
+      out.push({
+        ...common,
+        kind: 'claim',
+        malformed: true,
+        malformedWhy: `its ledger does not parse as main's: ${problems.join('; ')}`,
+        slot: s.slot,
+        // the branch's owner (its PR, then its commit) decides; the slot letter only when neither tells
+        person: ownerOfBranch(rules, b) || (s.slot && personBySection(rules, s.slot[0])) || null,
+        task: s.task,
+        title: null,
+        state: null,
+        pr: null,
+        declared: cp.paths,
+        dropped: cp.bad,
+        actual: actualPaths(val(b.changed) || []),
+        resources: s.resources,
+      });
+      continue;
+    }
+    const claims = liveClaimsOn({ branch: b.name, headLedger: head, baseLedger: base, mainLedger });
     const broken = malformedClaimsOn({ headLedger: head, baseLedger: base });
     for (const m of broken) {
       const cp = claimPaths(m.paths);
@@ -230,10 +376,16 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
         state: null,
         pr: null,
         declared: cp.paths,
+        dropped: cp.bad,
         actual: actualPaths(val(b.changed) || []),
         resources: m.resources,
       });
     }
+    // A finished exact tip is no longer live even when its branch still carries the claim it used
+    // while the PR was open — unless something on the branch is broken: a malformed claim, and every
+    // valid claim beside it, remains visible so PR metadata cannot hide damage to the coordination
+    // ledger, and a broken slot never hides a valid one (its resources included).
+    if (!broken.length && val(b.prDone) && claims.every((slot) => claimPaths(slot.claim.paths).bad.length === 0)) continue;
     if (claims.length) {
       const actual = actualPaths(val(b.changed) || []);
       for (const slot of claims) {
@@ -248,13 +400,16 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
           state: slot.claim.state,
           pr: slot.claim.pr,
           malformed: cp.bad.length > 0,
+          ...(cp.bad.length ? { malformedWhy: 'a path in its ledger slot does not parse' } : {}),
           declared: cp.paths,
+          dropped: cp.bad,
           actual,
           resources: slot.claim.resources.slice(),
         });
       }
       continue;
     }
+    // Its broken slots are its claim: never read as unclaimed work besides.
     if (broken.length) continue;
     // Recent: an OPEN PR keeps a branch whatever its commit dates; otherwise the newer of the tip's
     // commit date and the last time this clone saw the ref move (a revived branch with old dates).
@@ -273,9 +428,7 @@ function deriveFootprints({ mainLedger, rules, branches, now, stats }) {
       ...common,
       kind: 'unclaimed',
       slot: null,
-      // The PR author is a GitHub-authenticated login; the commit author is any string a machine
-      // was configured with. So the PR decides first.
-      person: personByLogin(rules, val(b.prAuthor)) || ownerOfAuthor(rules.people, b.author),
+      person: ownerOfBranch(rules, b),
       task: null,
       title: null,
       state: null,
@@ -366,7 +519,9 @@ function who(fp) {
 }
 
 function where(fp, now) {
-  if (fp.kind === 'claim') return `live claim ${fp.slot} on branch ${fp.branch}${fp.malformed ? ' (its ledger slot does not parse)' : ''}`;
+  if (fp.kind === 'claim') {
+    return `live claim${fp.slot ? ` ${fp.slot}` : ''} on branch ${fp.branch}${fp.malformed ? ` (${fp.malformedWhy || 'its ledger slot does not parse'})` : ''}`;
+  }
   return `unclaimed recent branch ${fp.branch} (${ageText(fp.tipTime, now)})`;
 }
 
@@ -415,9 +570,14 @@ const reason = (level, cls, fp, files, message) => ({
 });
 
 // check: my declared work against every footprint on origin.
-function assess({ rules, me, mine, footprints, mainTasks, remoteBranches, testMentions, now }) {
+function assess({ rules, me, mine, footprints, mainTasks, testMentions, now }) {
   const reasons = [];
   const declared = mine.declared || [];
+  // N10 · A branch a TASKS status line names holds the row only while it carries live work: a branch
+  // whose work landed but which was never deleted has no footprint. (These footprints come after
+  // dropSelf, which removes only my own on the branch I stand on — a branch the rule below skips
+  // anyway — so this is the same set as before self-exclusion.)
+  const live = new Set((footprints || []).map((f) => f.branch));
 
   if (!me.isOwner) {
     const hits = declared.filter((p) => (rules.ownerOnly || []).some((o) => overlapClass(p, o)));
@@ -433,7 +593,7 @@ function assess({ rules, me, mine, footprints, mainTasks, remoteBranches, testMe
       reasons.push(reason('HALT', 'task', null, [], `${mine.task} is not an open "- [ ]" row in TASKS.md on origin/main`));
     } else {
       for (const br of branchesInStatus(row)) {
-        if (br === 'main' || !(remoteBranches && remoteBranches.has(br))) continue;
+        if (br === 'main' || !live.has(br)) continue;
         // The branch I stand on is mine — unless his work lives under that name.
         const his = (footprints || []).some((f) => f.branch === br && f.person && f.person.section !== me.section);
         if (br === mine.branch && !his) continue;
@@ -446,6 +606,21 @@ function assess({ rules, me, mine, footprints, mainTasks, remoteBranches, testMe
   const unknownHits = [];
   for (const fp of footprints || []) {
     if (fp.person && fp.person.section === me.section) continue;
+    if (fp.malformed) {
+      const ask = fp.person ? 'ask him' : 'ask its owner';
+      if (!(fp.declared || []).length) {
+        // On the branch I stand on an unmapped one is most likely mine: a WARN there.
+        const level = !fp.person && fp.branch === mine.branch ? 'WARN' : 'HALT';
+        reasons.push(reason(level, 'malformed', fp, [], `${who(fp)}: ${where(fp, now)} names no path, so nothing can be checked against it — ${ask} to fix or release it`));
+      } else {
+        // A6 · partly broken: what it names still collides below, and what it dropped is said here.
+        const dropped = fp.dropped || [];
+        const lost = dropped.length
+          ? `${ticks(dropped)} cannot be read as ${dropped.length === 1 ? 'a path and is' : 'paths and are'} not checked`
+          : 'only its backticked paths are read as the claim';
+        reasons.push({ ...reason('WARN', 'malformed', fp, [], `${who(fp)}: ${where(fp, now)} — ${lost}; ${ask} to fix it`), dropped });
+      }
+    }
     if (!fp.person) {
       // A branch whose author maps to nobody might be the partner's: fail closed (HALT on a
       // HALT-class overlap), folded into ONE line so it cannot drown the named collisions.
@@ -456,9 +631,6 @@ function assess({ rules, me, mine, footprints, mainTasks, remoteBranches, testMe
         unknownHits.push({ fp, level, files: uniq(meets.flatMap((o) => o.files)) });
       }
       continue;
-    }
-    if (fp.malformed && !(fp.declared || []).length) {
-      reasons.push(reason('HALT', 'malformed', fp, [], `${who(fp)}: ${where(fp, now)} names no path, so nothing can be checked against it — ask him to fix or release it`));
     }
     const meets = overlaps(mineFp, fp, rules);
     for (const o of meets) {
@@ -502,9 +674,21 @@ function assess({ rules, me, mine, footprints, mainTasks, remoteBranches, testMe
   return { verdict: verdictOf(sorted), reasons: sorted };
 }
 
+// The live claims holding the production freeze, except those on `exceptBranch` (a PR's own head:
+// the work that holds the freeze ends it by landing). Whoever owns them, mapped or not.
+function freezeHolders(footprints, exceptBranch = null) {
+  return (footprints || []).filter((f) => f.kind === 'claim' && f.branch !== exceptBranch
+    && (f.resources || []).some((r) => lower(r) === FREEZE_RESOURCE));
+}
+
 // check --merge N
 function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   const reasons = [];
+  // Unlike every other collision, my own section is no exception here: a freeze is about
+  // production, not about whose files meet.
+  for (const fp of freezeHolders(footprints, pr.headRefName)) {
+    reasons.push(reason('HALT', 'freeze', fp, [], `${who(fp)}: ${where(fp, now)}${fp.task ? ` for ${fp.task}` : ''} holds \`${FREEZE_RESOURCE}\` — production is frozen, and a merge to main deploys: PR #${pr.number} waits until that claim lands or its branch is deleted`));
+  }
   if (lower(pr.author && pr.author.login) !== lower(me.login)) {
     reasons.push(reason('HALT', 'merge', null, [], `PR #${pr.number} is @${pr.author && pr.author.login}'s: merge only your own PRs`));
   }
@@ -516,7 +700,13 @@ function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   const mine = (footprints || []).find((f) => f.branch === pr.headRefName && f.kind === 'claim' && f.person && f.person.section === me.section);
   const myFirst = mine ? val(mine.firstLedgerTime) : null;
   for (const fp of footprints || []) {
-    if (fp.branch === pr.headRefName) continue;
+    if (fp.branch === pr.headRefName) {
+      // A PR I opened whose head is HIS branch would merge his work: the author check alone passes it.
+      if (fp.person && fp.person.section !== me.section) {
+        reasons.push(reason('HALT', 'merge', fp, [], `${who(fp)}: PR #${pr.number}'s head ${pr.headRefName} carries ${fp.person.name}'s work (${where(fp, now)}) — merge only your own branches`));
+      }
+      continue;
+    }
     if (fp.person && fp.person.section === me.section) continue;
     const meets = overlaps(prFp, fp, rules).filter((o) => o.level === 'HALT');
     if (!meets.length) continue;
@@ -528,7 +718,7 @@ function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
       const outcome = declaredMeets.length ? firstClaimWins(myFirst, val(fp.firstLedgerTime)) : 'mine';
       if (outcome !== 'mine') {
         const claimed = uniq(declaredMeets.flatMap((o) => o.files));
-        reasons.push(reason('HALT', 'merge-order', fp, claimed, `${who(fp)}: ${where(fp, now)} ${outcome === 'tie' ? 'claimed at the same time as yours' : 'was claimed first'} and holds ${ticks(claimed)}, which PR #${pr.number} changes — agree with him before merging (claimed first)`));
+        reasons.push(reason('HALT', 'merge-order', fp, claimed, `${who(fp)}: ${where(fp, now)} ${outcome === 'tie' ? 'was claimed within ten minutes of yours (too close for two local clocks to order)' : 'was claimed first'} and holds ${ticks(claimed)}, which PR #${pr.number} changes — agree with him before merging (claimed first)`));
         continue;
       }
     }
@@ -538,15 +728,18 @@ function mergeAdvice({ rules, me, pr, runs, footprints, now }) {
   return { verdict: verdictOf(sorted), reasons: sorted };
 }
 
+// Committer dates come from each partner's own clock. Two claims first committed this close
+// together (seconds) cannot be ordered by them, so neither is "first".
+const TIE_WINDOW = 10 * 60;
+
 // The earlier first ledger commit wins. A tie is nobody's win: both sides stop and decide.
 function firstClaimWins(mine, theirs) {
   const m = typeof mine === 'number' && Number.isFinite(mine) ? mine : null;
   const t = typeof theirs === 'number' && Number.isFinite(theirs) ? theirs : null;
   // An unknown time on either side decides nothing: both stop.
   if (m === null || t === null) return 'tie';
-  if (m < t) return 'mine';
-  if (m > t) return 'theirs';
-  return 'tie';
+  if (Math.abs(m - t) <= TIE_WINDOW) return 'tie';
+  return m < t ? 'mine' : 'theirs';
 }
 
 // ci --branch b --author login: the server-side gate on a pushed task branch.
@@ -608,7 +801,7 @@ function ciEvaluate({ rules, author, branch, headLedgerText, baseLedgerText, bas
     }
     const outcome = firstClaimWins(myFirst, val(fp.firstLedgerTime));
     if (outcome === 'mine') continue;
-    const why = outcome === 'tie' ? 'both claims carry the same first-commit time' : 'his claim was committed first';
+    const why = outcome === 'tie' ? 'both claims were first committed within ten minutes of each other, closer than two local clocks can order' : 'his claim was committed first';
     fail('overlap', files, `${who(fp)}: ${where(fp, now)} overlaps (${kinds}) on ${ticks(files)}, and ${why}`);
   }
 
@@ -624,11 +817,15 @@ module.exports = {
   IGNORED_SHARED,
   expandCoupled,
   ownerOfAuthor,
+  ownerOfCommit,
   liveClaimsOn,
+  structureProblems,
   deriveFootprints,
   overlaps,
   assess,
   mergeAdvice,
+  freezeHolders,
+  FREEZE_RESOURCE,
   ciEvaluate,
   firstClaimWins,
   mergedByContent,
@@ -640,9 +837,12 @@ module.exports = {
   prOpenFor,
   prAuthorFor,
   prListsUsable,
+  mergePrLists,
   claimPaths,
   dropSelf,
   RECENCY_NOTE,
+  PR_FALLBACK_NOTE,
+  TIE_WINDOW,
   TASK_ID_RE,
   verdictOf,
   exitCodeOf,

@@ -20,7 +20,7 @@
 >
 > **PREREQ-iOS below is factually wrong and is struck** — see the amended row.
 
-> Companion to `GROUND_TRUTH_2026-07-07.md`. Approved by Daniel 2026-07-07 with the gate
+> Companion to `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)`. Approved by Daniel 2026-07-07 with the gate
 > decisions recorded below. **Phase 3+ (squad dispatch) starts only on an explicit
 > `EXECUTE BLUEPRINT`, on an Opus 4.8 session** per `docs/ORCHESTRATOR_FABLE.md`
 > `<model_economy>`. Every task: branch-per-task, strict TDD (RED→GREEN→REFACTOR),
@@ -82,7 +82,7 @@
 | 2.2 | **A12: free-tier Entitlements scaffold** — RevenueCat fully-free tier, **NO paywall/subscription UI** (locked). **✅ NOT blocked by PREREQ-iOS** — RevenueCat is cross-platform; proceed on Android. | mobile | Sonnet | scaffold present, zero UI, tests pinned | mobile only |
 | 2.3 | **A12: privacy declarations + a11y/i18n/RTL completion**. **✅ NOT blocked by PREREQ-iOS** — a11y/i18n/RTL folds into 2.8 and store-privacy drafts are docs; proceed on Android. | mobile + docs | Sonnet | App Store nutrition / Play Data Safety drafted; a11y labels audited | mobile only |
 | 2.4 | **A13: release pipeline** (fastlane or EAS) + **crash/telemetry** (Sentry + structured logs + SLOs per `<engineering_excellence>`). **✅ Android half proceeds normally; 🔒 the iOS build + signing half is BLOCKED on PREREQ-iOS.** Crash/telemetry is platform-agnostic and not blocked. | mobile + backend | Opus | Android pipeline produces signed artifact + Sentry events visible; iOS artifact deferred to PREREQ-iOS | CI + runtime |
-| 2.5 | **Web Sunset** — delete `frontend/src` (native equivalents exist); keep a minimal static `frontend/` + `FRONTEND_URL` set for the Vercel domain (OG/AASA). **D5 gap-scan DONE 2026-07-08** (`docs/WEB_SUNSET_D5_GAP_SCAN_2026-07-08.md`). **HARD PREREQ: migrate `WatchTokenCard` mint/copy/revoke UI into mobile first** (only copyable `whr_` watch-token UI; fold into 2.8 Integrations "Privacy Vault"). Then refresh `watch/` docs + `HrStreamer.mc` status strings. NB: OAuth→`kokonada://` bridge is backend-only (already survives); no AASA files exist today. | frontend + mobile | Sonnet | web build green; grep proves zero refs to removed surfaces; watch token provisionable on mobile; `FRONTEND_URL` still set | frontend + watch-provisioning |
+| 2.5 | **Web Sunset** — delete `frontend/src` (native equivalents exist); keep a minimal static `frontend/` + `FRONTEND_URL` set for the Vercel domain (OG/AASA). **D5 gap-scan DONE 2026-07-08** (`WEB_SUNSET_D5_GAP_SCAN_2026-07-08.md (deleted; see docs/ARCHIVE.md)`). **HARD PREREQ: migrate `WatchTokenCard` mint/copy/revoke UI into mobile first** (only copyable `whr_` watch-token UI; fold into 2.8 Integrations "Privacy Vault"). Then refresh `watch/` docs + `HrStreamer.mc` status strings. NB: OAuth→`kokonada://` bridge is backend-only (already survives); no AASA files exist today. | frontend + mobile | Sonnet | web build green; grep proves zero refs to removed surfaces; watch token provisionable on mobile; `FRONTEND_URL` still set | frontend + watch-provisioning |
 | 2.6 | **D1: resume frontend-tooling foundation** — rebase `worktree-frontend-tooling-foundation` (8 commits: Tamagui/Moti/Lottie/haptics/vector-icons/bootsplash) onto post-#77 main; on-device smoke; PR. Check file overlap vs 2.2/2.3 before parallel dispatch | mobile | Sonnet | mobile suite green; bootsplash + tamagui verified on device | mobile build config |
 | 2.7 | **D2-followup: `classifyAndHydrate` prod run** (destructive non-music purge shipped in #78) — **Pause & Guide, not yet authorized.** Do NOT run without Daniel's explicit go-ahead; verify UnclassifiedTrack GDPR cascade + backup posture first | ops (destructive) | Opus | Daniel authorizes; purge count reported; reversible-by-rehydrate confirmed | **prod library data** |
 
@@ -130,7 +130,7 @@ The D2 "SHELVE" ruling was overtaken by events: **PR #78 (full music-classificat
 
 ## Standing rules for the executing (Opus) session
 
-- Read this file + `GROUND_TRUTH_2026-07-07.md` first; do NOT re-read the 647-line master except §0 (post-refresh).
+- Read this file + `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)` first; do NOT re-read the 647-line master except §0 (post-refresh).
 - Dispatch = Developer Agent + Resilience Auditor per task; independent tasks in one turn; never with unmet dependencies.
 - Invoke the `compliance-auditor` agent before any external-API / OAuth-scope / OS-permission / branding change, and it is a **mandatory gate (3.0) before store submission (3.1)**.
 - Rule of 2 (`<error_budget>`): two failed verifications → revert + escalate, never a third attempt.

@@ -24,7 +24,7 @@ The full rules, the People table and the list of exclusive files are in `WORK_LE
    - An own task: name it `own:<short-slug>`.
    - `DAN-` rows are the owner's alone. Never claim one.
 2. **Derive the exact path set.** Start from the `where:` paths. For each file, add what moves with it: its importers and importees, and every test that names it (search `backend/tests/` and `mobile/KokonadaHealth/**/__tests__/`). Add the tests you will create, and any new folder as a narrow glob with at least two literal segments (`project-explorer/src/**` is fine; `project-explorer/**`, `backend/**`, `docs/**` and `**` are refused as too broad). Declare files, not whole areas.
-3. **Add resources** if the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`. These are normally the owner's.
+3. **Add resources** if the task touches something that is not a file: `res:atlas-prod`, `res:railway-vars`, `res:store-android`, `res:store-ios`, `res:secrets`, and `res:prod-deploy` while production must not change (a recount, a migration, an incident): while anyone holds it, `check --merge` refuses every merge to `main`, your own included. These are normally the owner's.
 4. **Check:**
    ```
    node scripts/coord/coord.js check --task <ID|own:slug> --paths <p1,p2,...> [--resources <r1,...>]
@@ -56,6 +56,7 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 | Ready for review | `node scripts/coord/coord.js ship` in the task worktree, then `gh pr edit --body-file <file>` and `gh pr ready` |
 | Before merging | `node scripts/coord/coord.js check --merge <PR number>` |
 | Dropping the task | `node scripts/coord/coord.js release` prints the close and delete commands for your branch |
+| Trying `ship` or `rescope` safely | add `--dry-run`: it prints what it would do and changes nothing |
 | Who is working on what | `node scripts/coord/coord.js status` |
 
 ## Working rules
@@ -63,6 +64,10 @@ A HALT *after* the push means you lost a race: your claim is already pushed, no 
 - **Never push to `main`.** Work on your own branch, in your own worktree. `git config core.hooksPath .githooks` turns on a pre-push guard that refuses pushes to `main`; it is once per clone, so in a fresh Codex clone run it at the start of every session.
 - **Merge only your own PRs**, one at a time, after CI is green on the PR's current head commit, and only when `check --merge` is clear. Never merge, push to, close or rebase the other partner's branch or PR.
 - **Stage by explicit path** (`git add -- <path>`). Never `git add -A` or `git add .`.
+- **Pull-request titles** that `start` opens read `<type>: <title> (<ID>)`, with the type taken from the branch prefix (`fix/`, `feat/`, `docs/`, `chore/`; `design/` counts as `feat`). Squash merges use the title as the commit message, so keep it that way.
+- **A branch you push to `origin` with commits older than 14 days and no open PR** can stay invisible to a fresh clone of the other partner; open the draft PR first.
+- **Keep `TASKS.md` and `WORK_LEDGER.md` committed in the task worktree** before `ship`, `rescope` or a resumed `start`: the engine refuses while either has uncommitted changes, so a claim commit never carries other edits.
+- **Claims made within ten minutes of each other count as a tie,** and a tie stops both: the two partners decide who goes first.
 - **Your section only.** Edit `WORK_LEDGER.md` only through the engine, and only your own section. Owner-only paths (`.claude/**`, `docs/design-v2/pages/**`, `docs/plans/WAVE4_STATE.md`) are Malede's.
 - **New TASKS IDs** come from your own block, `900` to `999` in every prefix (for example `BE-900`), never from the header's "Next free IDs".
 - **Production is the owner's.** Atlas, Railway variables, store consoles and secrets are changed only by Malede.

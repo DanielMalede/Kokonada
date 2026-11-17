@@ -6,6 +6,8 @@ const youtube     = require('../services/youtube');
 const garmin      = require('../services/wearable/garmin');
 const appleHealth = require('../services/wearable/appleHealth');
 const healthStore = require('../services/wearable/healthStore');
+const { ingestV2Batch } = require('../services/wearable/healthStoreV2');
+const { parseHealthBatchRequest } = require('../services/wearable/healthBatchContract');
 const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
@@ -615,12 +617,39 @@ exports.appleHealthPush = async (req, res, next) => {
 
     // Mark as connected on first successful push
     if (req.user.wearableProvider !== 'apple_health') {
-      await User.findByIdAndUpdate(req.user._id, { wearableProvider: 'apple_health' });
+      await activatePushWearable(req.user, 'apple_health');
     }
 
     res.json(result);
   } catch (err) { next(err); }
 };
+
+async function activatePushWearable(user, provider) {
+  const previousProvider = user.wearableProvider ?? null;
+  const previousVersion = Number(user.wearableConnectionVersion ?? 0);
+  if (previousProvider === provider) return previousVersion;
+
+  const connected = await User.findOneAndUpdate(
+    { _id: user._id, wearableProvider: previousProvider },
+    {
+      $set: { wearableProvider: provider },
+      $inc: { wearableConnectionVersion: 1 },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!connected) {
+    throw Object.assign(new Error('wearable_connection_changed'), {
+      code: 'wearable_connection_changed',
+      statusCode: 409,
+    });
+  }
+
+  user.wearableProvider = provider;
+  user.wearableConnectionVersion = Number(
+    connected.wearableConnectionVersion ?? previousVersion + 1,
+  );
+  return user.wearableConnectionVersion;
+}
 
 // ── Health store batch (HealthKit / Health Connect medical-profile backfill) ─────
 
@@ -639,12 +668,18 @@ exports.healthBatchIngest = async (req, res, next) => {
   const n = Array.isArray(req.body?.samples) ? req.body.samples.length : 'none';
   console.warn(`[healthBatch] recv platform=${req.body?.platform} samples=${n} user=${req.user?._id}`);
   try {
-    const { platform, samples } = req.body || {};
-    if (platform !== 'healthkit' && platform !== 'health_connect') {
-      return res.status(400).json({ error: 'platform must be "healthkit" or "health_connect"' });
-    }
+    const batch = parseHealthBatchRequest(req.body);
+    const provider = batch.platform === 'healthkit' ? 'apple_health' : 'health_connect';
 
-    const result = await healthStore.ingestBatch(req.user._id, platform, samples);
+    // HealthKit profile reconciliation is provider-scoped. Activate the validated provider before
+    // the synchronous v2 projection so the first successful batch can rebuild its profile too.
+    const connectionVersion = batch.version === 2 && batch.platform === 'healthkit'
+      ? await activatePushWearable(req.user, provider)
+      : null;
+
+    const result = batch.version === 2
+      ? await ingestV2Batch(req.user._id, batch.platform, batch.samples, { connectionVersion })
+      : await healthStore.ingestBatch(req.user._id, batch.platform, batch.samples);
     // W4-D08: `rejected` is a count plus (path, validator-kind) pairs — never a submitted value.
     // W4-D10: this line used to serialise the whole `profileMetrics` object, i.e. write the median
     // resting HR / HRV / SpO2 / respiration and the night's sleep minutes to stdout on EVERY
@@ -652,22 +687,37 @@ exports.healthBatchIngest = async (req, res, next) => {
     // receipt's job (#90: "did it reach the server, did it persist?") needs how many baselines
     // moved and which metrics they were, not what they said. Values stay in `res.json` below,
     // where they go to the authenticated owner over TLS rather than to the log stream.
-    const pm = summarizeMetricKeys(result.profileMetrics, PROFILE_SCALAR_METRICS);
-    console.warn(
-      `[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} `
-      + `rejected=${result.rejected?.count || 0} profileMetrics=${pm.count} profileMetricKeys=${pm.keys}`
-      + (pm.unknown ? ` unknownProfileKeys=${pm.unknown}` : ''),
-    );
+    if (batch.version === 2) {
+      console.warn(
+        `[healthBatch] ok accepted=${result.accepted} created=${result.created} replayed=${result.replayed} `
+        + `deleted=${result.deleted} projected=${result.projected}`,
+      );
+    } else {
+      const pm = summarizeMetricKeys(result.profileMetrics, PROFILE_SCALAR_METRICS);
+      console.warn(
+        `[healthBatch] ok accepted=${result.accepted} inserted=${result.inserted} `
+        + `rejected=${result.rejected?.count || 0} profileMetrics=${pm.count} profileMetricKeys=${pm.keys}`
+        + (pm.unknown ? ` unknownProfileKeys=${pm.unknown}` : ''),
+      );
+    }
 
     // Mark the wearable provider on first push so the web UI reflects the connection.
-    const provider = platform === 'healthkit' ? 'apple_health' : 'health_connect';
     if (req.user.wearableProvider !== provider) {
       await User.findByIdAndUpdate(req.user._id, { wearableProvider: provider });
     }
 
-    res.json(result);
+    res.json(batch.version === 2
+      ? { ...result, schemaVersion: 2, batchId: batch.batchId }
+      : result);
   } catch (err) {
-    console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
+    if (err?.code && Number.isInteger(err.statusCode)) {
+      const error = err.code === 'invalid_health_platform' && req.body?.schemaVersion == null
+        ? 'platform must be "healthkit" or "health_connect"'
+        : err.code;
+      return res.status(err.statusCode).json({ error });
+    }
+    if (req.body?.schemaVersion === 2) console.warn('[healthBatch] FAILED v2');
+    else console.warn(`[healthBatch] FAILED user=${req.user?._id}: ${err.message}`);
     next(err);
   }
 };

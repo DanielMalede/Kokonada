@@ -6,11 +6,12 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync, existsSync, mkdtempSync, rmSync, writeFileSync, utimesSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { classify, makeLookupOpenPr, makeCurrentBranch, makeClaim, run, handle } from './merge-guard-trigger.mjs';
+import { classify, coordCommand, COORD_VALUE_FLAGS, makeLookupOpenPr, makeCurrentBranch, makeClaim, run, handle } from './merge-guard-trigger.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, 'merge-guard-trigger.mjs');
@@ -106,6 +107,138 @@ describe('classify - the kinds, in Bash and in PowerShell', () => {
       });
     });
   }
+});
+
+// OPS-156: the coordinator opens the draft PR (start) and pushes to it (ship, rescope) inside its
+// own child processes, and /ship then marks the PR ready. None of that is a literal `gh pr create`
+// or `git push`, so the trigger names these commands itself.
+describe('classify - the coordinator and gh pr ready (OPS-156)', () => {
+  const START = '--task OPS-155 --title "Coordinator hardening" --paths scripts/coord/** --branch fix/ops155';
+  const RAN_START = "the coordinator's start ran (it opens or resumes a draft PR)";
+
+  for (const [label, wrap] of [['Bash', bash], ['PowerShell', ps]]) {
+    test(`${label}: coord.js start is a create of its --branch`, () => {
+      assert.deepEqual(one(wrap(`node scripts/coord/coord.js start ${START}`)), {
+        kind: 'create', pr: null, branch: 'fix/ops155', dir: '', repo: null, ran: RAN_START,
+      });
+    });
+
+    test(`${label}: coord.js ship and rescope are pushes of the current branch; ship --pr names its PR`, () => {
+      assert.deepEqual(one(wrap('node scripts/coord/coord.js ship')), {
+        kind: 'push', pr: null, branch: null, dir: '', repo: null, ran: "the coordinator's ship ran (it pushes the claim to the PR branch)",
+      });
+      assert.equal(one(wrap('node scripts/coord/coord.js ship --pr 229')).pr, 229);
+      assert.equal(one(wrap('node scripts/coord/coord.js ship --pr=#229')).pr, 229);
+      assert.deepEqual(one(wrap('node scripts/coord/coord.js rescope --paths a/b/c.js,d/e/f.js')), {
+        kind: 'push', pr: null, branch: null, dir: '', repo: null, ran: "the coordinator's rescope ran (it pushes the claim to the PR branch)",
+      });
+    });
+
+    test(`${label}: gh pr ready is a push to that PR`, () => {
+      assert.deepEqual(one(wrap('gh pr ready 229')), {
+        kind: 'push', pr: 229, branch: null, dir: '', repo: null, ran: 'a PR was marked ready for review',
+      });
+      assert.deepEqual(one(wrap('gh pr ready fix/x')), {
+        kind: 'push', pr: null, branch: 'fix/x', dir: '', repo: null, ran: 'a PR was marked ready for review',
+      });
+      assert.equal(one(wrap('gh pr ready')).branch, null);
+      assert.equal(one(wrap('gh pr ready https://github.com/DanielMalede/Kokonada/pull/229 -R o/r')).repo, 'o/r');
+    });
+  }
+
+  test('any spelling of the script path: ./, backslashes, absolute, node.exe, a full node path', () => {
+    const cases = [
+      [bash, 'node ./scripts/coord/coord.js ship'],
+      [bash, 'node "scripts\\coord\\coord.js" ship'],
+      [bash, "node 'C:\\Users\\danie\\Videos\\Kokonada\\scripts\\coord\\coord.js' ship"],
+      [bash, 'node /c/Users/danie/Videos/Kokonada/scripts/coord/coord.js ship'],
+      [bash, 'node ../coord2/scripts/coord/coord.js ship'],
+      [bash, 'node scripts/coord/coord ship'],
+      [bash, 'node.exe scripts/coord/coord.js ship'],
+      [bash, '"C:\\Program Files\\nodejs\\node.exe" scripts/coord/coord.js ship'],
+      [bash, 'COORD_LOGIN=DanielMalede node --trace-warnings scripts/coord/coord.js ship'],
+      [ps, 'node .\\scripts\\coord\\coord.js ship'],
+      [ps, 'node scripts\\coord\\coord.js ship'],
+      [ps, 'node C:\\Users\\danie\\Videos\\Kokonada\\scripts\\coord\\coord.js ship'],
+      [ps, '& node .\\scripts\\coord\\coord.js ship'],
+      [ps, 'NODE scripts/coord/COORD.JS ship'],
+    ];
+    for (const [wrap, cmd] of cases) assert.equal(classify(wrap(cmd)).length, 1, cmd);
+  });
+
+  test('the command is found the way coord.js finds it: after its flags, with = or a separate value', () => {
+    assert.equal(one(bash(`node scripts/coord/coord.js --task OPS-155 start --branch=fix/y --title t --paths a/b/c.js`)).branch, 'fix/y');
+    assert.equal(one(bash('node scripts/coord/coord.js --title ship start --branch fix/z --task own:z --paths a/b/c.js')).branch, 'fix/z');
+    assert.equal(one(bash('node scripts/coord/coord.js --paths start rescope')).kind, 'push');
+  });
+
+  test('a cd before it sets the directory, as for git push', () => {
+    assert.equal(one(bash('cd .worktree-fix-x && node ../scripts/coord/coord.js ship')).dir, '.worktree-fix-x');
+  });
+
+  test('a branch the shell computes is not guessed', () => {
+    assert.equal(one(bash('node scripts/coord/coord.js start --branch "$B" --task own:x --title t --paths a/b/c.js')).branch, null);
+  });
+
+  const ignored = [
+    'node scripts/coord/coord.js check --paths a/b/c.js',
+    'node scripts/coord/coord.js check --merge 229',
+    'node scripts/coord/coord.js status',
+    'node scripts/coord/coord.js release',
+    'node scripts/coord/coord.js ci --branch fix/x --author DanielMalede',
+    'node scripts/coord/coord.js',
+    'node scripts/coord/coord.js --help',
+    'node scripts/coord/coord.js help',
+    'node scripts/coord/coord.js start -h',
+    `node scripts/coord/coord.js start ${START} --dry-run`,
+    'node scripts/coord/coord.js ship --dry-run',
+    'node scripts/coord/coord.js rescope --paths a/b/c.js --dry-run',
+    'node scripts/coord/coord.js ship --help',
+    'node other.js start',
+    'node scripts/other/coordinator.js ship',
+    'node other.js scripts/coord/coord.js ship',
+    'node -e "require(\'./scripts/coord/coord.js\')"',
+    'nodemon scripts/coord/coord.js ship',
+    'echo node scripts/coord/coord.js ship',
+    'git commit -m "node scripts/coord/coord.js ship"',
+    'gh pr ready 229 --undo',
+    'gh pr ready --help',
+    'gh pr readyx 229',
+  ];
+  for (const cmd of ignored) {
+    test(`ignores: ${JSON.stringify(cmd)}`, () => {
+      assert.deepEqual(classify(bash(cmd)), []);
+    });
+  }
+
+  test('L7: the value flags are exactly coord.js\'s, and each of its boolean flags reads as a boolean', () => {
+    const require = createRequire(import.meta.url);
+    const { VALUE_FLAGS, BOOL_FLAGS } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'coord.js'));
+    assert.deepEqual([...COORD_VALUE_FLAGS].sort(), [...VALUE_FLAGS].sort());
+    assert.ok(BOOL_FLAGS.size > 0);
+    for (const f of BOOL_FLAGS) {
+      assert.ok(!COORD_VALUE_FLAGS.has(f), f);
+      assert.deepEqual(coordCommand(['ship', `--${f}`, 'extra']), { cmd: 'ship', flags: { [f]: true } }, f);
+    }
+  });
+
+  test('coordCommand reads every argument list exactly as coord.js parseArgs does', () => {
+    const require = createRequire(import.meta.url);
+    const { parseArgs } = require(path.join(REPO_ROOT, 'scripts', 'coord', 'coord.js'));
+    for (const argv of [
+      ['start', '--task', 'OPS-155', '--title', 'ship it', '--paths', 'a/b/c.js', '--branch', 'fix/x'],
+      ['--task', 'OPS-155', 'start', '--branch=fix/x', '--paths', 'a/b/c.js', '--title', 'x'],
+      ['--title', 'rescope', 'ship', '--pr', '7'],
+      ['--paths', 'start', 'rescope'],
+      ['ship', '--json', '--pr=7'],
+      ['start', '--dry-run', '--branch', 'b', '--merge', '9', '--dir', 'd', '--author', 'a', '--mode', 'warn', '--resources', 'res:secrets'],
+      ['-h', 'start'],
+    ]) {
+      const theirs = parseArgs(argv);
+      const mine = coordCommand(argv);
+      assert.deepEqual({ argv, cmd: mine.cmd, flags: mine.flags }, { argv, cmd: theirs.cmd, flags: theirs.flags });
+    }
+  });
 });
 
 describe('classify - gh pr merge and update-branch arguments', () => {
@@ -230,6 +363,22 @@ describe('classify - chained commands', () => {
     assert.equal(one(ps('Set-Location backend; npm test; git push -u origin b2')).branch, 'b2');
     assert.equal(one(bash('npm test\ngit push origin b3\n')).branch, 'b3');
     assert.equal(one(bash('FOO=1 git push origin b5 || echo failed')).branch, 'b5');
+  });
+
+  test('L7: env and timeout in front of the command are passed over, with their own options', () => {
+    assert.equal(one(bash('env COORD_LOGIN=DanielMalede node scripts/coord/coord.js ship')).ran, "the coordinator's ship ran (it pushes the claim to the PR branch)");
+    assert.equal(one(bash('env -u GH_TOKEN gh pr ready 7')).pr, 7);
+    assert.equal(one(bash('env -i PATH=/usr/bin git push origin b13')).branch, 'b13');
+    assert.equal(one(bash('timeout 120 git push origin b14')).branch, 'b14');
+    assert.equal(one(bash('timeout -k 5 60s gh pr merge 5 --squash')).pr, 5);
+    assert.equal(one(bash('timeout --signal=KILL 1m node scripts/coord/coord.js rescope --paths a/b/c.js')).kind, 'push');
+    assert.equal(one(bash('nohup env FOO=1 timeout 30 git push origin b15')).branch, 'b15');
+    assert.deepEqual(classify(bash('env')), []);
+    assert.deepEqual(classify(bash('timeout 5 git status')), []);
+    // env -C runs the command in a directory this hook does not resolve: unknown, so it fires with the note
+    assert.equal(one(bash('env -C ../other git push')).dir, null);
+    assert.equal(one(bash('env --chdir=../other git push')).dir, null);
+    assert.match(context(run(bash('env -C ../other git push'), deps())).additionalContext, /could not be resolved/);
   });
 
   test('every relevant segment is a hit, in order', () => {
@@ -578,6 +727,66 @@ describe('run - after a successful call (PostToolUse)', () => {
   });
 });
 
+describe('run - the coordinator and gh pr ready (OPS-156)', () => {
+  const START = 'node scripts/coord/coord.js start --task OPS-155 --title t --paths a/b/c.js --branch fix/ops155';
+  const STARTED = 'CLEAR — claimed M01 for OPS-155\n  branch:   fix/ops155\n  worktree: C:/repo/.worktree-fix-ops155\n  draft PR: https://github.com/DanielMalede/Kokonada/pull/229\n';
+
+  test('start: pre-merge on the draft PR it printed, saying the coordinator ran', () => {
+    const h = context(run(bash(START, { tool_response: { stdout: STARTED } }), deps()));
+    assert.match(h.additionalContext, /^merge-guard trigger: the coordinator's start ran \(it opens or resumes a draft PR\)\./);
+    assert.match(h.additionalContext, /Dispatch the merge-guard agent now on PR #229, phase pre-merge\./);
+    assert.ok(h.additionalContext.includes('`merge-guard required: PR #229, pre-merge`'));
+  });
+
+  test('start that exits 3 (WARN) has still opened its PR: the failure event fires on it', () => {
+    const h = context(run(failed(START, `Exit code 3\n  WARN [shared] his branch also edits docs/SCREENS.md\n${STARTED}`), deps()));
+    assert.equal(h.hookEventName, 'PostToolUseFailure');
+    assert.match(h.additionalContext, /on PR #229, phase pre-merge/);
+  });
+
+  test('start that stopped before any PR prints nothing', () => {
+    assert.equal(run(failed(START, 'Exit code 1\nHALT — nothing was changed: no branch, no worktree, no claim'), deps()), '');
+    assert.equal(run(failed(START, 'Exit code 2\ncannot verify: gh pr list failed'), deps()), '');
+  });
+
+  test('ship and rescope: the PR of the branch checked out where they ran', () => {
+    for (const cmd of ['cd .worktree-fix-x && node ../scripts/coord/coord.js ship', 'cd .worktree-fix-x && node ../scripts/coord/coord.js rescope --paths a/b/c.js']) {
+      const lookup = fakeLookup({ 'fix/x': 229 });
+      const cur = fakeBranch('fix/x');
+      const h = context(run(bash(cmd), deps({ lookupOpenPr: lookup, currentBranch: cur })));
+      assert.match(h.additionalContext, /on PR #229, phase pre-merge/, cmd);
+      assert.match(h.additionalContext, /the coordinator's (ship|rescope) ran/, cmd);
+      assert.deepEqual(cur.calls, [path.resolve(CWD, '.worktree-fix-x')], cmd);
+    }
+  });
+
+  test('ship --pr N needs no lookup; a ship that failed still fires, since its push may have landed', () => {
+    const lookup = fakeLookup({});
+    assert.match(context(run(bash('node scripts/coord/coord.js ship --pr 229'), deps({ lookupOpenPr: lookup }))).additionalContext, /on PR #229/);
+    assert.equal(lookup.calls.length, 0);
+    const h = context(run(failed('node scripts/coord/coord.js ship', 'Exit code 2\ncannot verify: git push of fix/x failed'), deps({ lookupOpenPr: fakeLookup({ x: 230 }) })));
+    assert.match(h.additionalContext, /on PR #230, phase pre-merge/);
+  });
+
+  test('ship on a branch with no open PR prints nothing', () => {
+    assert.equal(run(bash('node scripts/coord/coord.js ship'), deps({ lookupOpenPr: fakeLookup({}) })), '');
+  });
+
+  test('gh pr ready N: pre-merge on that PR, without a lookup; with no number, the current branch PR', () => {
+    const lookup = fakeLookup({ 'feat/cur': 88 });
+    const h = context(run(bash('gh pr ready 229'), deps({ lookupOpenPr: lookup })));
+    assert.match(h.additionalContext, /^merge-guard trigger: a PR was marked ready for review\./);
+    assert.match(h.additionalContext, /on PR #229, phase pre-merge/);
+    assert.equal(lookup.calls.length, 0);
+    assert.match(context(run(ps('gh pr ready'), deps({ lookupOpenPr: lookup, currentBranch: fakeBranch('feat/cur') }))).additionalContext, /on PR #88/);
+  });
+
+  test('the /ship sequence (edit, then ready) fires once, on the PR', () => {
+    const h = context(run(bash('gh pr edit 229 --body-file pr.md && gh pr ready 229'), deps()));
+    assert.match(h.additionalContext, /on PR #229, phase pre-merge/);
+  });
+});
+
 describe('run - after a failed call (PostToolUseFailure, H-1)', () => {
   test('a failed merge fires post-merge: the merge can land on GitHub and the local cleanup fail', () => {
     const input = failed(
@@ -642,6 +851,16 @@ describe('end to end - the script as the hook runner starts it, stdin piped', ()
     assert.match(h.additionalContext, /PR #222/);
   });
 
+  test('OPS-156: a coordinator start piped in as the runner sends it prints the instruction for its PR', () => {
+    const input = bash('node scripts/coord/coord.js start --task OPS-155 --title t --paths a/b/c.js --branch fix/ops155', {
+      cwd: REPO_ROOT,
+      tool_response: { stdout: '  draft PR: https://github.com/DanielMalede/Kokonada/pull/229\n' },
+    });
+    const r = exec(JSON.stringify(input));
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(context(r.stdout).additionalContext, /the coordinator's start ran.*on PR #229, phase pre-merge/);
+  });
+
   test('a PostToolUseFailure payload is echoed with its own event name', () => {
     const r = exec(JSON.stringify(failed('gh pr merge 5', 'Exit code 1\nx', { cwd: REPO_ROOT })));
     assert.equal(r.status, 0, r.stderr);
@@ -681,13 +900,13 @@ describe('end to end - the script as the hook runner starts it, stdin piped', ()
 
 describe('wiring - the committed settings', () => {
   const settings = JSON.parse(readFileSync(path.join(REPO_ROOT, '.claude', 'settings.json'), 'utf8'));
-  const IF_FILTERS = ['Bash(git *)', 'Bash(gh pr *)', 'PowerShell(git *)', 'PowerShell(gh pr *)'];
+  const IF_FILTERS = ['Bash(git *)', 'Bash(gh pr *)', 'Bash(node *)', 'PowerShell(git *)', 'PowerShell(gh pr *)', 'PowerShell(node *)'];
   const MCP_MATCHER = 'mcp__.*__(merge_pull_request|create_pull_request|update_pull_request_branch)';
   const handlers = (event) => (settings.hooks?.[event] ?? []).flatMap((group) => (group.hooks ?? []).map((h) => ({ ...h, matcher: group.matcher })));
   const command = handlers('PostToolUse')[0]?.command;
 
   for (const event of ['PostToolUse', 'PostToolUseFailure']) {
-    test(`${event}: the shell tools reach the script only through the four if filters, the MCP tools by matcher`, () => {
+    test(`${event}: the shell tools reach the script only through the six if filters, the MCP tools by matcher`, () => {
       const hs = handlers(event);
       assert.deepEqual(hs.filter((h) => h.if).map((h) => [h.matcher, h.if]), IF_FILTERS.map((f) => ['Bash|PowerShell', f]));
       assert.deepEqual(hs.filter((h) => !h.if).map((h) => h.matcher), [MCP_MATCHER]);

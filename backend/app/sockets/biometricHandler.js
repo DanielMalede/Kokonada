@@ -578,7 +578,16 @@ async function resolveHeartContext(socket, state, clientHeartRate) {
 
   // Resting-HR fallback: the baseline lives on the ENCRYPTED MedicalProfile (T3.3), not on
   // MusicProfile (which no longer stores plaintext vitals). The getter decrypts on access.
-  const profile = await MedicalProfile.findOne({ userId });
+  // BE-070 round 2: this read sat outside any try, so a failed query rejected the async listener
+  // awaiting it (an unhandled rejection); it now degrades to "no heart data", as the BiometricLog
+  // read above does.
+  let profile;
+  try {
+    profile = await MedicalProfile.findOne({ userId });
+  } catch (e) {
+    log(`[heart] MedicalProfile query failed: ${e.message}`);
+    return null;
+  }
   if (profile && isPhysiologicalHR(profile.restingHeartRate)) {
     logBiometricAccess(userId, 'live-heart-context'); // ADR-0005: reading the encrypted resting-HR baseline
     return { heartRate: profile.restingHeartRate, activity: 'resting', source: 'resting' };
@@ -1050,7 +1059,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
       // Serve ledger (write path): record every served track under this generation's mood context.
       writes.push(serveLedger.recordServes({
         userId,
-        sessionId: String(reqId ?? ''),
+        sessionId: String(reqId ?? '').slice(0, 64), // a second layer under the door's integer-only reqId (BE-070 round 2)
         entries: builtPlaylist.merged.map(t => ({
           canonicalKey: t.canonicalKey ?? canonicalKey(t),
           moodKey,
@@ -1202,8 +1211,9 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     let aiResult;
     try {
       if (useEmotion) {
-        // 24h health snapshot (sleep/HRV/body battery/readiness + current HR) so the
-        // LLM weighs physical state against the chosen mood + activity. Best-effort.
+        // 24h health snapshot (sleep/HRV/body battery/readiness + current HR). It never reaches
+        // the LLM (BE-221): buildEmotionPlaylist applies it to the audio targets deterministically,
+        // after the model has answered from the mood, the chip and the note's tags. Best-effort.
         const biometricContext = await resolveBiometricContext(userId, state.stableHR);
         // BE-016 (R-A): stored vitals now pull this run's targets toward a physiological band.
         profileShaped = !!biometricContext;
@@ -1216,16 +1226,17 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
           fetchTracks,
         }), AI_BUDGET_MS, 'buildEmotionPlaylist');
       } else {
-        // Wave-0 HR branch maps the CURRENT heart rate to a coarse band server-side
-        // (adjustBiometricPlaylist → applyBiometricBands). W4-016: that band now routes
-        // through biometricBand's real preference chain — stateLabel (the taxonomy state this
-        // wave maintains, from bandTargets.stateId when band-aware discovery has resolved a
-        // confident one) then hrRatio (this user's HR relative to THEIR OWN resting baseline,
-        // W4-004's peekBaselines) then raw HR — instead of the fixed population ladder that
-        // scored an athlete and a sedentary user identically at the same raw HR. Both reads
+        // The HR branch maps the CURRENT heart rate to a coarse band server-side and builds its
+        // params from that band with NO LLM call (adjustBiometricPlaylist → buildBioParams;
+        // BE-221: nothing derived from health data reaches Groq). W4-016:
+        // the band routes through biometricBand's real preference chain — stateLabel (the
+        // taxonomy state this wave maintains, from bandTargets.stateId when band-aware discovery
+        // has resolved a confident one) then hrRatio (this user's HR relative to THEIR OWN resting
+        // baseline, W4-004's peekBaselines) then raw HR — instead of the fixed population ladder
+        // that scored an athlete and a sedentary user identically at the same raw HR. Both reads
         // are best-effort and gated by the same kill switch geminiEngine.js honours, so a
         // cold-start user (no baseline, no resolved state) or a disabled flag degrades this
-        // object to exactly {heartRate, activity} — today's behaviour byte-for-byte.
+        // object to exactly {heartRate, activity}.
         let stateLabel = null;
         let hrRatio = null;
         if (!disabled(process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED)) {
@@ -1327,14 +1338,28 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
 
     // Discovery captions (Step 2, dark-launched behind DISCOVERY_CAPTION_LLM): ONE batched Groq
     // call writes a short witty "why this discovery" line per discovery track from its audio
-    // FEATURES + this session's mood/activity/HR context ONLY — never a title/artist/genre (§II).
+    // FEATURES + the session context the USER chose — a preset mood, the emotion taps and the
+    // activity chip — never a title/artist/genre (§II), and never anything health data shaped
+    // (BE-221, the owner's ruling of 2026-10-27): no heart-rate band, no tempo target, no activity
+    // a watch detected. A run that health data shaped is not captioned at all: its targets, and so
+    // the features of the very tracks it chose, carry the reading. The guard fails CLOSED on the
+    // targets the selection actually used: they say whether any health input reached them
+    // (`targets.healthInputs`, set by targetsBuilder.buildTargets — a cached baseline, a stored
+    // profile, a stored night, an affect state or a live heart rate), and targets that do not say
+    // `false` count as shaped (BE-227). The terms before it are what this run itself knows: a heart
+    // rate when it began, the stored-profile context of the mood branch, band-aware targets, and
+    // an activity from the watch rather than a chip. The bio:* key term is defence in depth: a bio
+    // key needs a heart rate, which hrAtStart already covers.
     // Hard-budgeted inside the service and fail-open here: a timeout/error yields no captions and
     // NEVER blocks or fails generation. Attached before toClientTracks so buildReceipt emits them.
+    const healthShapedCaption = hrAtStart || profileShaped || bandTargets != null || _isBioKey(moodKey)
+      || (effectiveActivity != null && effectiveActivity !== state.lastActivity)
+      || playlist?.targets?.healthInputs !== false;
     if (DISCOVERY_CAPTION_LLM() && Array.isArray(playlist?.merged)) {
       const allDiscovery = playlist.merged.filter((t) => t?.isDiscovery);
       // A track can only be captioned once selection ATTACHED its features (pipeline.js:95);
       // a featureless catalog entry (no AudioFeature doc) is skipped, not sent to the model.
-      const captionable = allDiscovery.filter((t) => t.recordingKey && t.features);
+      const captionable = healthShapedCaption ? [] : allDiscovery.filter((t) => t.recordingKey && t.features);
       let captioned = 0;
       if (captionable.length) {
         try {
@@ -1344,9 +1369,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
           const captions = await captionService.captionDiscovery(captionable, {
             moodKey,
             emotionTaps: state.lastEmotionTaps,
-            activity:    effectiveActivity,
-            hrBand:      bandFromHeartRate(state.stableHR),
-            targets:     playlist.targets,
+            activity:    useEmotion ? state.lastActivity : null,
           });
           for (const t of captionable) {
             const cap = captions?.get?.(t.recordingKey);
@@ -1397,6 +1420,16 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // set the no-playback short-circuit records, via one shared helper so the two ready-paths cannot
     // diverge. Fire-and-forget inside the helper; never blocks or fails generation.
     recordServeSideEffects(playlist, clientTracks, aiResult.params);
+  } catch (err) {
+    // BE-070 round 2 (RA-266-1): a fault OUTSIDE the pipeline's own recovery above — the User read,
+    // the provider or token step, a profile read — left this try with no answer and reached the
+    // caller as a rejection that no fire-and-forget caller handled. Reported here with the run's
+    // trigger and reqId, and answered through the epoch-guarded `emit`, so a run the wall-clock
+    // already abandoned (and answered) cannot answer a newer request's reqId with an error. The
+    // function therefore never rejects; its callers' `.catch` are a second layer, not the first.
+    // Scoped by trigger, as the heart door's own catch labelled it (BE-026).
+    captureException(err, { scope: `generate.${trigger}`, reqId });
+    if (userInitiated) emit('playlist_error', { message: 'Generation failed — please try again', reqId });
   } finally {
     await readyEmitSettled; // the context-attach ready emit must land before the lock frees
     clearTimeout(timer);
@@ -1513,7 +1546,7 @@ async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
   const watchActivity = state.latestActivity ?? null;
   serveLedger.recordServes({
     userId,
-    sessionId: String(reqId ?? ''),
+    sessionId: String(reqId ?? '').slice(0, 64), // a second layer under the door's integer-only reqId (BE-070 round 2)
     entries: tracks.map((t) => ({
       canonicalKey: t.canonicalKey ?? canonicalKey(t),
       moodKey: bioMoodKey,
@@ -1830,9 +1863,11 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
         // both the same, but only one of them is byte-identical to the pre-W4-D72 call.
         sleep: nights.value.length ? { history: nights.value } : {},
       },
-    )).then((result) => {
-      if (result.regimeChanged) recalibrateForBand(socket, state);
-    }).catch(() => {});
+    )).then((result) => (
+      // Returned, so the catch below covers the recalibration too (BE-070 round 2): a serve that
+      // threw here was an unhandled rejection, the one path this chain's catch did not reach.
+      result.regimeChanged ? recalibrateForBand(socket, state) : undefined
+    )).catch((err) => captureException(err, { scope: 'live.regimeChange', reqId: state.lastReqId }));
   }
 
   // Immediate (trusted) mode for the 5-minute watch ingest path: no 60s debounce.
@@ -1855,7 +1890,8 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
     if (prev === null || bandChanged || activityChanged) {
       log(`[handleBiometric] immediate band=${_hrBand(effectiveHR)} activity=${normalized.activity} bandChanged=${bandChanged} activityChanged=${activityChanged} → recalibrate`);
       state.servedHR = effectiveHR;
-      recalibrateForBand(socket, state); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+      recalibrateForBand(socket, state) // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+        .catch((err) => captureException(err, { scope: 'recalibrate.immediate', reqId: state.lastReqId }));
     }
     return;
   }
@@ -1912,7 +1948,8 @@ function handleBiometricReading(socket, source, raw, opts = {}) {
       s.stableHR       = s.pendingHR;
       s.stableActivity = s.pendingActivity;
       if (serveChanged) {
-        recalibrateForBand(socket, s); // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+        recalibrateForBand(socket, s) // Live-mode: serve the buffer; Manual: no-op (mode-gate)
+          .catch((err) => captureException(err, { scope: 'recalibrate.debounced', reqId: s.lastReqId }));
       } else {
         socket.emit('recalibration_cancelled', { reason: 'band_unchanged' });
       }
@@ -1960,6 +1997,71 @@ function _admitChipActivity(activity) {
   return OFFERED_CHIPS.has(key) ? key : null;
 }
 
+// BE-070: a listener's payload is whatever the client sent, and socket.io calls each listener inside
+// process.nextTick with no try/catch while backend/app registers no handler of its own: without
+// SENTRY_DSN, Node ends the process on a throw and on an unhandled rejection; with it, Sentry's
+// defaults still exit on a synchronous throw and only log a rejection, so the listener gets no answer.
+// Either way one throw at a door took the process, or the reply, from every user. A `= {}` parameter
+// default covers only an ABSENT payload, never `null`, so every door reads its fields through this view.
+function _payloadOf(payload) {
+  return payload !== null && typeof payload === 'object' ? payload : {};
+}
+
+// BE-070: a client value that a log line or a reply interpolates must not be an object: `{"toString":1}`
+// is valid JSON, and interpolating it throws "Cannot convert object to primitive value", the same exit
+// as a null payload. Round 2 (SEC-266-1): nor may it be any string, because a string reqId up to
+// socket.io's 1 MB packet limit was printed by every always-on `[gen]` line (a "\n" inside it forges a
+// log line), echoed on playlist_ready and written into ServeEvent.sessionId on every served track. So
+// each field keeps only the shape the app sends (socketClient.ts): reqId a non-negative safe integer,
+// mode one of the two playback modes; anything else counts as not sent, and the state keeps its default.
+const REQUEST_MODES = new Set(['live', 'export']);
+const _admitMode = (mode) => (REQUEST_MODES.has(mode) ? mode : undefined);
+const _admitReqId = (reqId) => (Number.isSafeInteger(reqId) && reqId >= 0 ? reqId : undefined);
+
+// BE-070: the taps the PlaylistSession schema stores (1 to 3, x and y each in [-1, 1]), kept the way the
+// app's cold lane keeps them (emotionSlice.ts sanitizeTaps): finite numbers only, the LAST three, rebuilt
+// as {x, y} so nothing else rides along. Four taps, or one malformed tap, failed the session write, and
+// the moment never reached History. A tap outside [-1, 1] is DROPPED, not clamped: the app clamps its
+// WHEEL taps to the unit disc before sending them (laneCommit.ts clampToDisc), its list presets are fixed
+// at ±0.55 and a rehydrated tap is checked for finiteness only (emotionSlice.ts), so a tap outside the
+// range is malformed or stale, not imprecise, and clamping it would store, and generate from, the
+// strongest feeling on that axis, one the listener never chose.
+const MAX_EMOTION_TAPS = 3;
+const _isTapAxis = (v) => Number.isFinite(v) && v >= -1 && v <= 1;
+function _admitTaps(taps) {
+  if (!Array.isArray(taps)) return [];
+  return taps
+    .filter((t) => t !== null && typeof t === 'object' && _isTapAxis(t.x) && _isTapAxis(t.y))
+    .slice(-MAX_EMOTION_TAPS)
+    .map(({ x, y }) => ({ x, y }));
+}
+
+// BE-070: the app caps the prompt at 500 characters (promptSanitizer.ts MAX_PROMPT_LENGTH), and nothing
+// here did, so any client's prompt reached the stored row as sent (the raw text never reaches an LLM:
+// geminiEngine's extractIntent reduces it to closed-vocabulary tags first). A string is cut to the same
+// cap; anything else is no prompt. The bound is type and length only; the app alone strips control
+// characters.
+const MAX_PROMPT_LENGTH = 500;
+function _admitPrompt(prompt) {
+  return typeof prompt === 'string' ? prompt.slice(0, MAX_PROMPT_LENGTH) : '';
+}
+
+function _admitEmotionUpdate(payload) {
+  const { taps, textPrompt, activity, mode } = _payloadOf(payload);
+  return {
+    taps:       _admitTaps(taps),
+    textPrompt: _admitPrompt(textPrompt),
+    activity:   _admitChipActivity(activity),
+    mode:       _admitMode(mode),
+  };
+}
+
+// The heart request's heartRate is not read here: H3a reads it only behind the consent gate.
+function _admitRequest(payload) {
+  const { mode, reqId } = _payloadOf(payload);
+  return { mode: _admitMode(mode), reqId: _admitReqId(reqId) };
+}
+
 // ── Socket event registration ──────────────────────────────────────────────────
 
 function registerBiometricHandler(socket) {
@@ -1969,7 +2071,8 @@ function registerBiometricHandler(socket) {
   // authenticated, a reading must not be processed without a CURRENT consent grant on the socket's
   // user — the SAME definition every ingest route enforces (healthConsentGate). A missing/stale
   // grant, or a consent-store error, DROPS the reading (fail closed) without ever crashing the socket.
-  socket.on('biometric_push', async ({ source, raw } = {}) => {
+  socket.on('biometric_push', async (payload) => {
+    const { source, raw } = _payloadOf(payload);
     const uid = socket?.data?.user?._id;
     if (!uid) return;
     if (!(await admitHealthProcessing(uid))) {
@@ -1985,17 +2088,19 @@ function registerBiometricHandler(socket) {
   // Dual-path mode toggle (Part 2b). The client echoes its persisted Live/Manual choice
   // here on connect + on every toggle. Live mode is the ONLY state in which a band
   // transition auto-recalibrates (serves the buffer); Manual users are never auto-driven.
-  socket.on('live_mode', ({ enabled } = {}) => {
+  socket.on('live_mode', (payload) => {
+    const { enabled } = _payloadOf(payload);
     const state = getState(socketId);
     state.liveMode = !!enabled;
     log(`[live_mode] enabled=${state.liveMode}`);
   });
 
-  socket.on('emotion_update', ({ taps = [], textPrompt = '', activity = null, mode } = {}) => {
+  socket.on('emotion_update', (payload) => {
+    const { taps, textPrompt, activity, mode } = _admitEmotionUpdate(payload);
     const state = getState(socketId);
     state.lastEmotionTaps = taps;
     state.lastTextPrompt  = textPrompt;
-    state.lastActivity    = _admitChipActivity(activity);
+    state.lastActivity    = activity;
     if (mode) state.lastMode = mode;
     log(`[emotion_update] taps=${taps.length} activity=${state.lastActivity ?? 'none'} mode=${state.lastMode}`);
   });
@@ -2003,14 +2108,18 @@ function registerBiometricHandler(socket) {
   // Generation trigger for the mood/emotion flow. The client emits emotion_update
   // (to cache taps + mode) immediately followed by request_playlist on the same
   // socket; Socket.IO preserves per-socket order so the cache is set first.
-  socket.on('request_playlist', ({ mode, reqId } = {}) => {
+  socket.on('request_playlist', (payload) => {
+    const { mode, reqId } = _admitRequest(payload);
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
     // Always-on: confirms the app's Generate request actually reached the server (vs an
     // automatic biometric trigger) so request delivery is visible in prod.
     console.warn(`[gen] recv request_playlist reqId=${reqId} sid=${socketId} user=${socket?.data?.user?._id ?? ''}`);
-    generateAndEmitPlaylist(socket, 'emotion', state);
+    // The generation answers and reports its own faults (its catch); this second layer keeps a
+    // fault in that report from becoming the unhandled rejection it exists to prevent.
+    generateAndEmitPlaylist(socket, 'emotion', state)
+      .catch((err) => captureException(err, { scope: 'generate.emotion', reqId: state.lastReqId }));
   });
 
   // "Listen to your heart" — an explicit, user-initiated biometric playlist.
@@ -2023,7 +2132,8 @@ function registerBiometricHandler(socket) {
   // heartRate is dropped unread, no stored source is read, whatever this socket already holds is
   // withheld, and a biometric-free generation still answers — same event, same keys, no consent
   // toast, and its receipt claims no heart-rate tuning (hrDriven is false with no HR).
-  socket.on('request_heart_playlist', async ({ mode, reqId, heartRate } = {}) => {
+  socket.on('request_heart_playlist', async (payload) => {
+    const { mode, reqId } = _admitRequest(payload);
     const state = getState(socketId);
     if (mode) state.lastMode = mode;
     if (reqId !== undefined) state.lastReqId = reqId;
@@ -2031,13 +2141,13 @@ function registerBiometricHandler(socket) {
     if (!(await admitHealthProcessing(socket?.data?.user?._id))) {
       _withholdBiometrics(state);
       console.warn(`[consent] heart request without a current Art.9 grant — biometrics withheld, biometric-free mix reqId=${reqId}`);
-      // Captured, never an unhandled rejection (BE-026): generateAndEmitPlaylist has no catch of its own.
+      // A second layer (BE-026): the generation answers and reports its own faults in its catch.
       generateAndEmitPlaylist(socket, 'heart', state)
         .catch((err) => captureException(err, { scope: 'generate.heart', reqId }));
       return;
     }
 
-    const ctx = await resolveHeartContext(socket, state, heartRate);
+    const ctx = await resolveHeartContext(socket, state, _payloadOf(payload).heartRate);
     if (!ctx) {
       emitToUser(socket, 'playlist_error', { message: 'No heart-rate data yet — connect your watch or wait for a reading', reqId });
       return;
@@ -2088,7 +2198,8 @@ function registerBiometricHandler(socket) {
 
     if (state.consecutiveSkips >= 2) {
       clearTimer(state);
-      generateAndEmitPlaylist(socket, 'skip_loop', state);
+      generateAndEmitPlaylist(socket, 'skip_loop', state)
+        .catch((err) => captureException(err, { scope: 'generate.skip_loop', reqId: state.lastReqId }));
       state.consecutiveSkips = 0;
     }
   });

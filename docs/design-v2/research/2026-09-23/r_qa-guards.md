@@ -25,7 +25,7 @@ Nothing counts contracts, so the mutation "delete the screen and its test" passe
 
 *Fix:* add a contract registry, `src/__contracts__/manifest.ts`, listing IDs (S9-1, S10-1, S11-1, S12-1, D-1…D-9, T7–T10, NP-ATTR, H1, M1, L1, L2, Fork-4A, and so on). A CI test fails if any ID has no matching test title, or if the test count drops without a RETIRE entry signed off by `resilience-auditor`.
 
-**B2 — The low-power/thermal branch of the Definition of Done cannot be implemented.** There is no power or thermal signal anywhere in the client (`C:\Users\danie\Videos\Kokonada\docs\plans\DEV_AMBIENT_FIELD_SCOPE_AND_DEGRADATION.md:36-53`). The tokens ship only `duration` and `durationReduced` (`C:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\design\tokens.ts:269-271`).
+**B2 — The low-power/thermal branch of the Definition of Done cannot be implemented.** There is no power or thermal signal anywhere in the client (`C:\Users\danie\Videos\Kokonada\docs\plans\DEV_AMBIENT_FIELD_SCOPE_AND_DEGRADATION.md:36-53 (deleted; see docs/ARCHIVE.md)`). The tokens ship only `duration` and `durationReduced` (`C:\Users\danie\Videos\Kokonada\mobile\KokonadaHealth\src\design\tokens.ts:269-271`).
 
 *Fix, as a foundation step:*
 - A native source: `PowerManager.isPowerSaveMode` plus the `ACTION_POWER_SAVE_MODE_CHANGED` broadcast, and `getCurrentThermalStatus` plus a thermal listener (API 29+).
@@ -33,7 +33,7 @@ Nothing counts contracts, so the mutation "delete the screen and its test" passe
 - A `durationLowPower` token map, with the parity test extended the way `tokens.test.ts:203-205` already does it for reduced motion.
 - A stateful fake of the power source for tests.
 
-**B3 — The "60fps floor" (`C:\Users\danie\Videos\Kokonada\docs\SCREENS.md:196`) has never been measured.** No repo doc mentions Perfetto, `gfxinfo`, Flashlight, Reassure, Maestro frame work or frame time. The only on-device checklist (`docs\qa\2026-07-07-squad6-on-device-checklist.md`) is logcat-based. A measurement method is defined in §4 below.
+**B3 — The "60fps floor" (`C:\Users\danie\Videos\Kokonada\docs\SCREENS.md:196`) has never been measured.** No repo doc mentions Perfetto, `gfxinfo`, Flashlight, Reassure, Maestro frame work or frame time. The only on-device checklist (`docs\qa\2026-07-07-squad6-on-device-checklist.md (deleted; see docs/ARCHIVE.md)`) is logcat-based. A measurement method is defined in §4 below.
 
 ### High
 

@@ -11,8 +11,11 @@ const {
   buildMoodParams,
   biometricBand,
   applyBiometricBands,
+  buildBioParams,
   extractIntent,
   normalizeActivity,
+  promptSafeActivity,
+  applyIntentBand,
 } = require('../app/services/moodDescriptors');
 
 // ── resolveMoodKey ─────────────────────────────────────────────────────────────
@@ -296,6 +299,89 @@ describe('applyBiometricBands (post-LLM, deterministic)', () => {
   });
 });
 
+// ── buildBioParams — the heart-rate branch's params, with no LLM (BE-221) ──────
+// The owner's ruling (class c, 2026-10-27): nothing derived from health data reaches Groq, so the
+// heart-rate branch builds its params here, from the band alone. Same targets the band implies in
+// applyBiometricBands (bpm 70 + 90e, energy e, acousticness 1 - e) and a neutral valence.
+
+describe('buildBioParams (heart-rate branch params, deterministic)', () => {
+  const PROFILE = { topGenres: ['electronic', 'indie', 'ambient'] };
+  const E = { resting: 0.2, active: 0.6, peak: 0.9 };
+
+  it.each([
+    ['resting', { heartRate: 60 }],
+    ['active',  { heartRate: 100 }],
+    ['peak',    { heartRate: 155 }],
+  ])('the %s band yields the targets that band implies', (band, ctx) => {
+    const p = buildBioParams(ctx, PROFILE);
+    expect(biometricBand(ctx)).toBe(band);
+    expect(p.target_bpm).toBe(Math.round(70 + E[band] * 90));
+    expect(p.target_energy).toBeCloseTo(E[band], 6);
+    expect(p.target_acousticness).toBeCloseTo(1 - E[band], 6);
+    expect(p.target_valence).toBe(0.5);
+  });
+
+  it('is a fixed point of applyBiometricBands for the same context (the blend changes nothing)', () => {
+    for (const ctx of [{ heartRate: 60 }, { heartRate: 100 }, { heartRate: 155 }, { stateLabel: 'deep-rest', heartRate: 170 }]) {
+      const p = buildBioParams(ctx, PROFILE);
+      const banded = applyBiometricBands(p, ctx);
+      expect(banded.target_bpm).toBe(p.target_bpm);
+      for (const f of ['target_energy', 'target_acousticness', 'target_valence']) expect(banded[f]).toBeCloseTo(p[f], 6);
+    }
+  });
+
+  it('follows the biometricBand chain: stateLabel, then hrRatio, then raw HR', () => {
+    expect(buildBioParams({ heartRate: 170, hrRatio: 1.8, stateLabel: 'deep-rest' }, PROFILE).target_energy).toBeCloseTo(0.2, 6);
+    expect(buildBioParams({ heartRate: 170, hrRatio: 1.05 }, PROFILE).target_energy).toBeCloseTo(0.2, 6);
+    expect(buildBioParams({ heartRate: 170 }, PROFILE).target_energy).toBeCloseTo(0.9, 6);
+  });
+
+  it('no usable signal falls to the active band', () => {
+    expect(buildBioParams({}, PROFILE).target_energy).toBeCloseTo(0.6, 6);
+    expect(buildBioParams(null, PROFILE).target_energy).toBeCloseTo(0.6, 6);
+  });
+
+  it('seeds the first two top genres, no artists, and never throws on an empty profile', () => {
+    expect(buildBioParams({ heartRate: 100 }, PROFILE).seed_genres).toEqual(['electronic', 'indie']);
+    expect(buildBioParams({ heartRate: 100 }, PROFILE).seed_artists).toEqual([]);
+    expect(buildBioParams({ heartRate: 100 }, {}).seed_genres).toEqual([]);
+    expect(buildBioParams({ heartRate: 100 }).seed_genres).toEqual([]);
+  });
+
+  it('draws mood_keywords from a closed per-band table, and differs between bands', () => {
+    const kw = (hr) => buildBioParams({ heartRate: hr }, PROFILE).mood_keywords;
+    for (const hr of [60, 100, 155]) {
+      expect(kw(hr).length).toBeGreaterThan(0);
+      for (const k of kw(hr)) expect(k).toMatch(/^[a-z -]+$/);
+    }
+    expect(kw(60)).not.toEqual(kw(155));
+    expect(kw(155)).toEqual(kw(170)); // same band → same words: a closed table, not a function of the value
+  });
+
+  it('carries no input value: the same band at different readings returns equal params', () => {
+    expect(buildBioParams({ heartRate: 121 }, PROFILE)).toEqual(buildBioParams({ heartRate: 199 }, PROFILE));
+    expect(buildBioParams({ heartRate: 61, hrRatio: 1.0 }, PROFILE)).toEqual(buildBioParams({ heartRate: 88, hrRatio: 0.9 }, PROFILE));
+  });
+
+  // RA-7 on #279: a state label that names an Object.prototype key must not resolve to a "band".
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'a prototype-key state label (%p) falls to the active band, never NaN targets', (stateLabel) => {
+      const p = buildBioParams({ stateLabel }, PROFILE);
+      expect(p.target_bpm).toBe(124);
+      expect(p.target_energy).toBeCloseTo(0.6, 6);
+      expect(p.mood_keywords.length).toBeGreaterThan(0);
+    },
+  );
+
+  it('returns fresh arrays, so a caller mutating them cannot corrupt the table', () => {
+    const a = buildBioParams({ heartRate: 155 }, PROFILE);
+    a.mood_keywords.push('mutated');
+    a.seed_genres.push('mutated');
+    expect(buildBioParams({ heartRate: 155 }, PROFILE).mood_keywords).not.toContain('mutated');
+    expect(PROFILE.topGenres).toEqual(['electronic', 'indie', 'ambient']);
+  });
+});
+
 // ── extractIntent — closed-vocabulary free-text → structured tokens (T0.2) ─────
 // The RAW note never leaves the process; only canonical tags from a CLOSED lexicon
 // are emitted, so arbitrary user text / PII can never leak through these tokens.
@@ -325,10 +411,10 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
   });
 
   it('emits ONLY closed-vocabulary tokens — never the raw user words / PII', () => {
-    const out = extractIntent('my name is Daniel Malede, play some energetic music');
+    const out = extractIntent('my name is Ysolde Quillfeather, play some energetic music');
     const joined = JSON.stringify(out).toLowerCase();
-    expect(joined).not.toContain('daniel');
-    expect(joined).not.toContain('malede');
+    expect(joined).not.toContain('ysolde');
+    expect(joined).not.toContain('quillfeather');
     expect(out.keywords).toContain('energetic');
   });
 
@@ -368,6 +454,48 @@ describe('extractIntent (deterministic, zero-LLM)', () => {
       expect(extractIntent(note)).toMatchObject({ activity: 'workout', tempoCategory: 'peak' });
     }
     expect(extractIntent('working on code').activity).toBeNull();
+  });
+});
+
+// ── BE-229 — a note's sleep intent is withheld from the prompt; its band applies after ──────
+// The owner's ruling of 2026-10-28: a sleep intent the user writes is medical information.
+
+describe('promptSafeActivity (the note intent the prompt may carry)', () => {
+  it('withholds the sleep intent every word and phrase of the sleep row produces', () => {
+    for (const note of ['sleep', 'sleeping', 'bedtime', 'bed', 'wind down', 'winding down', 'before bed', "can't sleep"]) {
+      const { activity } = extractIntent(note);
+      expect({ note, activity }).toEqual({ note, activity: 'sleep' });
+      expect({ note, safe: promptSafeActivity(activity) }).toEqual({ note, safe: null });
+    }
+  });
+
+  it('passes every other intent activity through unchanged (the ruling names sleep only)', () => {
+    for (const a of ['running', 'workout', 'party', 'walking', 'commute', 'relaxing']) {
+      expect(promptSafeActivity(a)).toBe(a);
+    }
+    expect(promptSafeActivity(null)).toBeNull();
+  });
+});
+
+describe('applyIntentBand (deterministic post-return blend toward a tempo band)', () => {
+  const P = { target_bpm: 110, target_energy: 0.6, target_valence: 0.5, target_acousticness: 0.3, seed_genres: ['x'] };
+
+  it('blends half-way toward the resting band, exactly as applyBiometricBands does for a resting body', () => {
+    expect(applyIntentBand(P, 'resting')).toEqual(applyBiometricBands(P, { hrRatio: 1.0 }));
+    const out = applyIntentBand(P, 'resting');
+    expect(out.target_bpm).toBe(99);
+    expect(out.target_energy).toBeCloseTo(0.4, 10);
+    expect(out.target_acousticness).toBeCloseTo(0.55, 10);
+    expect(out.seed_genres).toEqual(['x']);
+  });
+
+  it('returns the params unchanged for no band, an unknown band or a prototype key, and never mutates', () => {
+    const before = JSON.stringify(P);
+    expect(applyIntentBand(P, null)).toBe(P);
+    expect(applyIntentBand(P, 'drowsy')).toBe(P);
+    expect(applyIntentBand(P, 'constructor')).toBe(P);
+    applyIntentBand(P, 'resting');
+    expect(JSON.stringify(P)).toBe(before);
   });
 });
 

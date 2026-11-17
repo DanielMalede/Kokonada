@@ -75,7 +75,9 @@ describe('GET /api/sessions — DTO whitelist', () => {
 
     const blob = JSON.stringify(res.body);
     expect(blob).not.toMatch(/heartRate/);
-    expect(blob).not.toContain('72');          // the raw HR value never leaks
+    // Match the sensitive field/value pair, not the digits anywhere in the JSON:
+    // a legitimate timestamp can contain "72" (for example, milliseconds .272).
+    expect(blob).not.toMatch(/"heartRate"\s*:\s*72/);
     expect(blob).not.toMatch(/trackKeys|isrc:/);
     expect(blob).not.toMatch(/llmCacheKey|cache:secret/);
     expect(item).not.toHaveProperty('biometricSnapshot');

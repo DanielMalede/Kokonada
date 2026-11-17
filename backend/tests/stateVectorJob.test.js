@@ -91,8 +91,8 @@ describe('stateVectorJobOptions', () => {
   });
 });
 
-// Plan B T2: the producers call the helper. Comments are stripped; only code counts.
-describe('both producers queue the job through the helper', () => {
+// Plan B T2: every producer calls the helper. Comments are stripped; only code counts.
+describe('all producers queue the job through the helper', () => {
   const APP = path.join(__dirname, '../app');
   const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
   const files = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -106,8 +106,14 @@ describe('both producers queue the job through the helper', () => {
   it('every enqueue of the state-recompute queue passes stateVectorJobOptions(userId, <delay>)', () => {
     const calls = code.flatMap(({ file, src }) => [...src.matchAll(/enqueue\(\s*QUEUES\.STATE_VECTOR_RECOMPUTE\b([^;]*)/g)]
       .map((m) => ({ file, rest: m[1].replace(/\s+/g, ' ') })));
-    expect(calls.map((c) => c.file).sort()).toEqual(['services/biosonic/baselines.js', 'services/wearable/metricStore.js']);
-    for (const call of calls) expect(call.rest).toMatch(/^, \{ userId \}, stateVectorJobOptions\(userId, (?:5000|60_000)\)\)/);
+    expect(calls.map((c) => c.file).sort()).toEqual([
+      'services/biosonic/baselines.js',
+      'services/wearable/healthSampleReconciliation.js',
+      'services/wearable/metricStore.js',
+    ]);
+    for (const call of calls) {
+      expect(call.rest).toMatch(/^, \{ userId \}, stateVectorJobOptions\(userId, (?:5000|60_000)\)\s*,?\s*\)/);
+    }
   });
 
   it('no module builds a state-recompute job id of its own', () => {

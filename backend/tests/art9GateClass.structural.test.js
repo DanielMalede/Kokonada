@@ -7,6 +7,8 @@
 //
 //   • socket: every handler in app/sockets that reads a client biometric or reaches an Art.9 sink
 //     must call admitHealthProcessing BEFORE the first read or sink;
+//   • socket helpers (BE-070 round 2): every module-level function a handler hands its raw payload to
+//     names no biometric field at all, so the gated handler body stays the only reader;
 //   • REST: every controller that reaches a biometric ingest sink must be gated before it —
 //     requireConsent on its route, or getConsentStatus + isCurrentGrant/denialReason inline;
 //   • ONE definition of a current grant: staleVersion is read only by the consent service and the
@@ -103,6 +105,62 @@ function socketViolation({ event, params, body }) {
   return null;
 }
 
+// BE-070 round 2 (SEC-266-4, ARCH-266-6): every socket door now hands its raw payload to a module-level
+// helper (`_payloadOf`, `_admitRequest`, `_admitEmotionUpdate`) that the handler scan above never reads,
+// so a helper that read `payload.heartRate` ahead of the gate would pass it. This follows the payload:
+// every module-level function a handler calls with its raw payload parameter, and every one those call
+// with their own, may name no biometric field at all — the gated handler body is the only reader.
+const PAYLOAD_FIELD_NAMES = [...BIOMETRIC_NAMES, 'hr', 'bpm', 'heart_rate', 'heartrate'];
+
+// Every module-level `function name(params) {`, `const name = (params) => {` and `const name = (params) => expr;`.
+function moduleFunctions(code) {
+  const out = [];
+  const re = /^(?:async\s+)?function\s+(\w+)\s*\(([^)]*)\)\s*\{|^const\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)\s*=>\s*(\{)?/gm;
+  let m;
+  while ((m = re.exec(code))) {
+    const name = m[1] ?? m[3];
+    const params = m[2] ?? m[4];
+    let body;
+    if (m[1] !== undefined || m[5] !== undefined) {
+      const open = m.index + m[0].length - 1;
+      const end = blockEnd(code, open);
+      body = end > 0 ? code.slice(open, end) : null;
+    } else {
+      const start = m.index + m[0].length;
+      const stop = code.indexOf(';\n', start);
+      body = code.slice(start, stop > 0 ? stop : undefined);
+    }
+    out.push({ name, params, body });
+  }
+  return out;
+}
+
+// The module-level functions a handler hands its raw payload to, and the ones those hand it on to.
+function payloadHelpers(code) {
+  const byName = new Map(moduleFunctions(code).map((f) => [f.name, f]));
+  const calledWith = (body, param) => [...body.matchAll(new RegExp(`\\b(\\w+)\\(\\s*${param}\\b`, 'g'))].map((c) => c[1]);
+  const found = new Map();
+  const follow = (name, from) => {
+    const fn = byName.get(name);
+    if (!fn || found.has(name)) return;
+    found.set(name, { ...fn, from });
+    const own = fn.params.split(',')[0].trim();
+    if (/^\w+$/.test(own) && fn.body) calledWith(fn.body, own).forEach((n) => follow(n, name));
+  };
+  for (const h of socketHandlers(code)) {
+    const param = h.params.trim();
+    if (!/^\w+$/.test(param) || !h.body) continue; // a destructured payload has no single raw name
+    calledWith(h.body, param).forEach((n) => follow(n, h.event));
+  }
+  return [...found.values()];
+}
+
+function helperViolation({ name, body, from }) {
+  if (body === null) return `${name}: body could not be parsed`;
+  const named = PAYLOAD_FIELD_NAMES.filter((n) => new RegExp(`\\b${n}\\b`).test(body));
+  return named.length ? `${name} (reached from ${from}): names ${named.join(', ')}` : null;
+}
+
 // Every `exports.<name> = (async) (<params>) => { ... }` controller body.
 function controllers(code) {
   const out = [];
@@ -131,6 +189,118 @@ function restViolation({ name, body }, routeCode) {
   const decide = firstIndex(body, ['isCurrentGrant(', 'denialReason(']);
   if (read < 0 || decide === Infinity) return `${name}: reaches an ingest sink with no Art.9 gate`;
   if (read > sink || decide > sink) return `${name}: the Art.9 gate comes after the ingest sink`;
+  return null;
+}
+
+// BE-205 (SEC-273-1): the Garmin ingest seam gates itself, so a caller that is not a controller (a job, a
+// script, a new route) cannot store a biometric without a current grant. Every file that references it
+// is pinned, so a new caller is a visible diff, and inside it the consent read and the decision come before
+// the normaliser and the store.
+const SEAM_SINKS = ['normalizeGarminSummaries(', 'persistMetrics('];
+
+// The files that name `name` at all. Every reference counts, not only `name(`: an alias
+// (`const ingest = garminIngest.ingestSummaries; ingest(u, i)`), a renamed import or a re-export calls it, or
+// hands it on, under another name (RA-6 of #275). Only the defining file's own `function name(` definition and
+// its `module.exports = { … }` object are set aside; anywhere else an export object counts like any reference.
+function callersOf(files, name) {
+  const reference = new RegExp(`\\b${name}\\b`);
+  const definition = new RegExp(`function\\s+${name}\\s*\\(`, 'g');
+  const exportObject = /module\.exports\s*=\s*\{[^}]*\}/g;
+  const outsideOwn = (code) => {
+    const rest = code.replace(definition, '');
+    return rest === code ? code : rest.replace(exportObject, '');
+  };
+  return files.filter((f) => reference.test(outsideOwn(f.code))).map((f) => f.file).sort();
+}
+
+// SEC-275-1: `ingestSummaries(userId, items, { now })` takes the clock as an option so a test can pin an
+// exact boundary; the future cap (now + MAX_FUTURE_SKEW_MS) and the retention filter both read it. A
+// production caller that passed `now:` (a client's timestamp, a stale date) would move both windows, so no
+// call under app/ may pass any option at all: `now` is the seam's only option, so a third argument, a spread
+// or the word `now` among the arguments is a violation, and a new option is a visible change to this pin.
+// An alias or a re-export cannot be read this way, so a reference that is not a direct call is one too.
+function splitTopLevel(args) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < args.length; i += 1) {
+    const ch = args[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = null;
+    } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+    else if ('([{'.includes(ch)) depth += 1;
+    else if (')]}'.includes(ch)) depth -= 1;
+    else if (ch === ',' && depth === 0) { parts.push(args.slice(start, i)); start = i + 1; }
+  }
+  parts.push(args.slice(start));
+  return parts.map((a) => a.trim()).filter((a) => a !== '');
+}
+
+function seamOptionViolations(files, name) {
+  const definition = new RegExp(`function\\s+${name}\\s*\\(`, 'g');
+  const exportObject = /module\.exports\s*=\s*\{[^}]*\}/g;
+  const violations = [];
+  for (const f of files) {
+    const rest = f.code.replace(definition, '');
+    const code = rest === f.code ? f.code : rest.replace(exportObject, '');
+    const reference = new RegExp(`\\b${name}\\b`, 'g');
+    let m;
+    while ((m = reference.exec(code)) !== null) {
+      const after = m.index + m[0].length;
+      const open = code.slice(after).search(/\S/) + after;
+      if (code[open] !== '(') { violations.push(`${f.file}: ${name} is referenced without a direct call`); continue; }
+      // A parenthesis inside a string literal ('…', "…", `…`) is not the call's own (RA-6 of #280).
+      let depth = 0;
+      let close = -1;
+      let quote = null;
+      for (let i = open; i < code.length; i += 1) {
+        const ch = code[i];
+        if (quote) {
+          if (ch === '\\') i += 1;
+          else if (ch === quote) quote = null;
+        } else if (ch === "'" || ch === '"' || ch === '`') quote = ch;
+        else if (ch === '(') depth += 1;
+        else if (ch === ')' && --depth === 0) { close = i; break; }
+      }
+      if (close < 0) { violations.push(`${f.file}: a call of ${name} could not be parsed`); continue; }
+      const args = splitTopLevel(code.slice(open + 1, close));
+      if (args.length > 2 || args.some((a) => a.startsWith('...') || /\bnow\b/.test(a))) {
+        violations.push(`${f.file}: ${name}(${args.join(', ')}) passes an option`);
+      }
+    }
+  }
+  return violations;
+}
+
+// The body of `(async) function name(…) { … }`. The parameter list is skipped by counting parentheses,
+// so a default such as `{ now = new Date() } = {}` cannot end it early.
+function functionBody(code, name) {
+  const m = new RegExp(`function\\s+${name}\\s*\\(`).exec(code);
+  if (!m) return null;
+  let depth = 0;
+  let close = -1;
+  for (let i = m.index + m[0].length - 1; i < code.length; i += 1) {
+    if (code[i] === '(') depth += 1;
+    else if (code[i] === ')' && --depth === 0) { close = i; break; }
+  }
+  if (close < 0) return null;
+  const open = code.indexOf('{', close);
+  if (open < 0 || code.slice(close + 1, open).trim() !== '') return null;
+  const end = blockEnd(code, open);
+  return end > 0 ? code.slice(open, end) : null;
+}
+
+function seamViolation(body) {
+  if (body === null) return 'ingestSummaries: body could not be parsed';
+  const sink = firstIndex(body, SEAM_SINKS);
+  // A seam that reaches neither sink has moved them elsewhere, and this guard would read nothing.
+  if (sink === Infinity) return 'ingestSummaries: reaches neither the normaliser nor the store; follow them';
+  const read = body.indexOf('getConsentState(');
+  const decide = body.indexOf('isCurrentGrant(');
+  if (read < 0 || decide < 0) return 'ingestSummaries: reaches the normaliser or the store with no Art.9 gate';
+  if (read > sink || decide > sink) return 'ingestSummaries: the Art.9 gate comes after the normaliser or the store';
   return null;
 }
 
@@ -166,6 +336,77 @@ describe('the detectors are not vacuous', () => {
     expect(h.body.endsWith('state.stableHR = heartRate; }')).toBe(true);
   });
 
+  it('flags a payload helper that reads a biometric ahead of the gate, one hop away, which the handler scan alone cannot see; its clean twin passes', () => {
+    const planted = [
+      "socket.on('x', async (payload) => { const { hr } = _admitHeart(payload); if (!(await admitHealthProcessing(uid))) return; state.stableHR = hr; });",
+      'function _admitHeart(payload) { return { hr: _payloadOf(payload).heartRate }; }',
+      "function _payloadOf(payload) { return payload !== null && typeof payload === 'object' ? payload : {}; }",
+    ].join('\n');
+    // The handler itself names no biometric before its gate, so the handler scan is blind to the read.
+    expect(socketViolation(socketHandlers(planted)[0])).toBeNull();
+    const helpers = payloadHelpers(planted);
+    expect(helpers.map((h) => h.name).sort()).toEqual(['_admitHeart', '_payloadOf']);
+    expect(helpers.map(helperViolation).filter(Boolean)).toEqual(['_admitHeart (reached from x): names heartRate, hr']);
+
+    const clean = planted.replace('{ hr: _payloadOf(payload).heartRate }', '{ reqId: _payloadOf(payload).reqId }');
+    expect(payloadHelpers(clean).map(helperViolation).filter(Boolean)).toEqual([]);
+    // Arrow helpers are read too, brace-bodied and expression-bodied alike.
+    const arrows = "socket.on('y', (p) => { const r = _admitOne(p); });\nconst _admitOne = (p) => _pick(p);\nconst _pick = (p) => { return p.bpm; };";
+    expect(payloadHelpers(arrows).map(helperViolation).filter(Boolean)).toEqual(['_pick (reached from _admitOne): names bpm']);
+  });
+
+  it('BE-205: the seam check flags an ungated, a late-read and a late-decided seam, and one whose sinks moved; its gated twin passes', () => {
+    const seam = (body) => `async function ingestSummaries(userId, items, { now = new Date() } = {}) {${body}}`;
+    const gate = 'const { status } = await getConsentState(userId, P); if (!isCurrentGrant(status)) return R;';
+    const sinks = 'const m = normalizeGarminSummaries(t, s); await persistMetrics(userId, m, { now });';
+    const check = (code) => seamViolation(functionBody(code, 'ingestSummaries'));
+
+    expect(check(seam(`${gate} ${sinks}`))).toBeNull();
+    expect(check(seam(sinks))).toMatch(/no Art\.9 gate/);
+    expect(check(seam(`${sinks} ${gate}`))).toMatch(/comes after/);
+    expect(check(seam(`const m = normalizeGarminSummaries(t, s); ${gate} await persistMetrics(userId, m);`))).toMatch(/comes after/);
+    expect(check(seam(`const { status } = await getConsentState(userId, P); await persistMetrics(userId, []); if (!isCurrentGrant(status)) return R;`))).toMatch(/comes after/);
+    expect(check(seam(`${gate} await store(userId, items);`))).toMatch(/reaches neither/);
+    expect(check('const ingestSummaries = 1;')).toMatch(/could not be parsed/);
+    // The default parameter's braces and parentheses do not end the parameter list or open the body.
+    expect(functionBody(seam(`${gate} ${sinks}`), 'ingestSummaries').startsWith('{const { status }')).toBe(true);
+  });
+
+  // RA-6 of #275: an alias calls the seam without ever naming `ingestSummaries(`, and a re-export hands it on, so
+  // both are callers; the defining file's own definition and export are not.
+  it('BE-205: the caller scan finds every reference, an alias and a re-export included, and does not count the definition or its export', () => {
+    const files = [
+      { file: 'controllers/integrationsController.js', code: 'await garminIngest.ingestSummaries(user._id, items);' },
+      { file: 'services/wearable/garminIngest.js', code: 'async function ingestSummaries(userId, items) {}\nmodule.exports = { ingestSummaries };' },
+      { file: 'workers/summaryReplay.js', code: 'const res = await ingestSummaries(userId, admitted.items);' },
+      { file: 'services/wearable/mapper.js', code: 'const seam = garminIngest.ingestSummaries;\nawait seam(userId, items);' },
+      { file: 'services/wearable/barrel.js', code: "module.exports = { ingestSummaries: require('./garminIngest').ingestSummaries };" },
+    ];
+    expect(callersOf(files, 'ingestSummaries')).toEqual([
+      'controllers/integrationsController.js', 'services/wearable/barrel.js', 'services/wearable/mapper.js', 'workers/summaryReplay.js',
+    ]);
+  });
+
+  it('SEC-275-1: the option scan flags a now:, any third argument, a spread and an alias; a two-argument call passes', () => {
+    const scan = (code) => seamOptionViolations([{ file: 'x.js', code }], 'ingestSummaries');
+
+    expect(scan('await garminIngest.ingestSummaries(user._id, items);')).toEqual([]);
+    expect(scan('await ingestSummaries(pick(a, b), [c, d], );')).toEqual([]);
+    expect(scan('await garminIngest.ingestSummaries(user._id, items, { now: new Date(req.body.at) });'))
+      .toEqual(['x.js: ingestSummaries(user._id, items, { now: new Date(req.body.at) }) passes an option']);
+    expect(scan('await ingestSummaries(u, i, { now });')).toHaveLength(1);
+    expect(scan('await ingestSummaries(u, i, opts);')).toHaveLength(1);
+    expect(scan('await ingestSummaries(...args);')).toHaveLength(1);
+    expect(scan('await ingestSummaries(u, { ...i, now });')).toHaveLength(1);
+    expect(scan('const seam = garminIngest.ingestSummaries;\nawait seam(u, i, { now });'))
+      .toEqual(['x.js: ingestSummaries is referenced without a direct call']);
+    expect(scan('await ingestSummaries(u, i')).toEqual(['x.js: a call of ingestSummaries could not be parsed']);
+    expect(scan("await ingestSummaries(u, ')', { now });")).toHaveLength(1);
+    // The defining file's own definition, with its `{ now = new Date() }` default, and its export are not calls.
+    const own = 'async function ingestSummaries(userId, items, { now = new Date() } = {}) {}\nmodule.exports = { ingestSummaries };';
+    expect(seamOptionViolations([{ file: 'garminIngest.js', code: own }], 'ingestSummaries')).toEqual([]);
+  });
+
   it('the scan found what it guards: ≥8 socket handlers and ≥5 biometric REST controllers', () => {
     const handlers = SOCKET_FILES.flatMap((f) => socketHandlers(f.code));
     expect(handlers.length).toBeGreaterThanOrEqual(8);
@@ -174,6 +415,10 @@ describe('the detectors are not vacuous', () => {
     // would slip past the body scan, so the count of all registrations must match.
     const registrations = SOCKET_FILES.reduce((n, f) => n + (f.code.match(/socket\.on\(/g) || []).length, 0);
     expect(handlers.length).toBe(registrations);
+    // The three door helpers BE-070 added are reached from the handlers' raw payload.
+    const helpers = SOCKET_FILES.flatMap((f) => payloadHelpers(f.code));
+    expect(helpers.map((h) => h.name)).toEqual(expect.arrayContaining(['_payloadOf', '_admitEmotionUpdate', '_admitRequest']));
+    expect(helpers.every((h) => h.body !== null)).toBe(true);
 
     const ingest = CONTROLLER_FILES.flatMap((f) => controllers(f.code)).filter((c) => firstIndex(c.body || '', REST_SINKS) !== Infinity);
     expect(ingest.map((c) => c.name).sort()).toEqual(expect.arrayContaining(['appleHealthPush', 'garminWebhook', 'healthBatchIngest', 'suuntoWebhook', 'watchHrIngest']));
@@ -186,6 +431,11 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
     expect(violations).toEqual([]);
   });
 
+  it('socket helpers: no module-level function a door hands its raw payload to names a biometric field (BE-070 round 2)', () => {
+    const violations = SOCKET_FILES.flatMap((f) => payloadHelpers(f.code).map(helperViolation).filter(Boolean).map((v) => `${f.file} ${v}`));
+    expect(violations).toEqual([]);
+  });
+
   it('REST: every controller that reaches a biometric ingest sink is gated before the sink', () => {
     const violations = CONTROLLER_FILES.flatMap((f) => controllers(f.code).map((c) => restViolation(c, ROUTES)).filter(Boolean).map((v) => `${f.file} ${v}`));
     expect(violations).toEqual([]);
@@ -195,6 +445,22 @@ describe('Art.9 gate — the whole class of biometric boundaries', () => {
     const callers = ALL.filter((f) => /\bhandleBiometricReading\(/.test(f.code.replace(/function\s+handleBiometricReading\(/g, '')))
       .map((f) => f.file).sort();
     expect(callers).toEqual(['controllers/integrationsController.js', 'sockets/biometricHandler.js']);
+  });
+
+  it('BE-205: ingestSummaries is referenced only from the Garmin webhook controller (a pin: a new caller or alias is a visible diff)', () => {
+    expect(callersOf(ALL, 'ingestSummaries')).toEqual(['controllers/integrationsController.js']);
+  });
+
+  it('SEC-275-1: no call of ingestSummaries under app/ passes a now: or any other option (the clock is for tests alone)', () => {
+    const callers = ALL.filter((f) => callersOf([f], 'ingestSummaries').length > 0);
+    expect(callers.map((f) => f.file)).toEqual(['controllers/integrationsController.js']); // the scan read the real caller
+    expect(seamOptionViolations(callers, 'ingestSummaries')).toEqual([]);
+  });
+
+  it('BE-205: inside ingestSummaries the consent read and isCurrentGrant come before the normaliser and the store', () => {
+    const seam = ALL.find((f) => f.file === 'services/wearable/garminIngest.js');
+    expect(seam).toBeDefined();
+    expect(seamViolation(functionBody(seam.code, 'ingestSummaries'))).toBeNull();
   });
 
   it('one definition of a current grant: staleVersion is read only in consentState.js', () => {

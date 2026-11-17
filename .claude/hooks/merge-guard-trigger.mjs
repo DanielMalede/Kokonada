@@ -5,17 +5,25 @@
 // the `merge-guard` agent (.claude/agents/merge-guard.md). Every other call prints nothing. It never
 // throws and always exits 0; malformed stdin is silent.
 //
-// .claude/settings.json starts it for Bash and PowerShell only through `if` filters (`git *`,
-// `gh pr *`), so Node runs only for those commands, and for the GitHub MCP tools by matcher.
-// A command started under another name (`git.exe`, a full path, `bash -c "..."`) passes no filter.
+// .claude/settings.json starts it for Bash and PowerShell only through `if` filters, so Node runs
+// only for the commands those filters pass, and for the GitHub MCP tools by matcher. A command
+// started under a name no filter names (`git.exe`, a full path, `bash -c "..."`) never reaches it,
+// so every command below needs a filter there too (the coordinator's needs `node *`).
 //
 // What counts, anywhere in a chain (&&, ||, ;, |, &, newlines, ( ), PowerShell { }):
 //   gh pr merge [<n>|<url>|<branch>]           -> merge   post-merge; several merges are all named
 //   gh pr create                               -> create  pre-merge; the number comes from the output
+//   node <...>/coord.js start --branch <b>     -> create    (OPS-156: it opens or resumes the draft PR)
 //   git [-C <path>] push [<remote> <refspec>]  -> push    pre-merge, if the branch has an open PR
 //   gh pr update-branch [<n>|<url>|<branch>]   -> push      into main or that cannot be told
+//   gh pr ready [<n>|<url>|<branch>]           -> push      (OPS-156: /ship marks the PR ready)
+//   node <...>/coord.js ship [--pr N] | rescope -> push     (OPS-156: each pushes the claim to the PR)
 // and the MCP tools *__merge_pull_request, *__create_pull_request, *__update_pull_request_branch.
-// Ignored: git push --dry-run/-n, --help, gh pr create --dry-run, gh pr merge --disable-auto.
+// The coordinator's script may be spelt any way (./, backslashes, absolute, without .js), started
+// by node, node.exe or a full path to it; its command is read as its own parseArgs reads it.
+// Ignored: git push --dry-run/-n, --help, gh pr create --dry-run, gh pr merge --disable-auto,
+// gh pr ready --undo (back to draft), coord.js start --dry-run, any coord.js --help, and its other
+// commands (check, status, release, ci), which change nothing on GitHub.
 // After a FAILED call (PostToolUseFailure) a merge and a push fire as usual, since either can change
 // GitHub before the error; a create fires only when its error names the PR (it already exists).
 // A push resolves its branch from the refspec, else the current branch where the command ran
@@ -248,6 +256,40 @@ const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const LEADING_WORDS = new Set([
   'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', 'time', 'command', 'exec', 'nohup', 'builtin', '{', '}',
 ]);
+// Wrappers that run the command after them, with options of their own (L7). `env -C <dir>` runs it
+// in another directory; `timeout` takes a duration before the command.
+const ENV_WITH_VALUE = new Set(['-u', '--unset', '-C', '--chdir', '-S', '--split-string']);
+const TIMEOUT_WITH_VALUE = new Set(['-k', '--kill-after', '-s', '--signal']);
+
+// words -> { k: the index of the command's name, dirUnknown: whether env -C moved it }.
+function skipLeading(words) {
+  let k = 0;
+  let dirUnknown = false;
+  const options = (withValue) => {
+    while (k < words.length && words[k].startsWith('-') && words[k] !== '-') {
+      const w = words[k];
+      if (/^(-C|--chdir)(=|$)/.test(w)) dirUnknown = true;
+      if (w === '--') { k += 1; return; }
+      k += withValue.has(w) ? 2 : 1;
+    }
+  };
+  while (k < words.length) {
+    const w = words[k];
+    if (ENV_ASSIGNMENT.test(w) || LEADING_WORDS.has(w)) {
+      k += 1;
+    } else if (w === 'env') {
+      k += 1;
+      options(ENV_WITH_VALUE);
+    } else if (w === 'timeout') {
+      k += 1;
+      options(TIMEOUT_WITH_VALUE);
+      k += 1; // the duration
+    } else {
+      break;
+    }
+  }
+  return { k, dirUnknown };
+}
 const CD = new Set(['cd', 'pushd', 'push-location', 'set-location', 'sl']);
 const POPD = new Set(['popd', 'pop-location']);
 const GH_WITH_VALUE = new Set([
@@ -299,10 +341,13 @@ function analyzeGh(sub, args, dir) {
   if (args.includes('--help') || args.includes('-h')) return null;
   const repo = flagValue(args, '-R', '--repo');
   if (sub === 'create') return args.includes('--dry-run') ? null : { kind: 'create', pr: null, branch: null, dir, repo };
-  if ((sub !== 'merge' && sub !== 'update-branch') || args.includes('--disable-auto')) return null;
+  const ready = sub === 'ready';
+  if (ready && args.includes('--undo')) return null; // back to draft: nothing is about to merge
+  if ((sub !== 'merge' && sub !== 'update-branch' && !ready) || args.includes('--disable-auto')) return null;
   const arg = firstPositional(args);
   const pr = arg === null ? null : prFromArg(arg);
-  return { kind: sub === 'merge' ? 'merge' : 'push', pr, branch: pr === null ? arg : null, dir, repo };
+  const hit = { kind: sub === 'merge' ? 'merge' : 'push', pr, branch: pr === null ? arg : null, dir, repo };
+  return ready ? { ...hit, ran: 'a PR was marked ready for review' } : hit;
 }
 
 function branchFromRefspec(spec) {
@@ -357,8 +402,9 @@ function analyzeShell(command, shell) {
       else if (shell === 'bash' && scopes.length) cd = scopes.pop();
       continue;
     }
-    let k = 0;
-    while (k < words.length && (ENV_ASSIGNMENT.test(words[k]) || LEADING_WORDS.has(words[k]))) k += 1;
+    const lead = skipLeading(words);
+    let k = lead.k;
+    const here = lead.dirUnknown ? null : cd; // env -C runs the command elsewhere
     const name = (words[k] ?? '').toLowerCase();
     const args = words.slice(k + 1);
     if (CD.has(name)) {
@@ -367,11 +413,70 @@ function analyzeShell(command, shell) {
     } else if (POPD.has(name)) {
       cd = null;
     } else {
-      const hit = name === 'gh' && args[0] === 'pr' ? analyzeGh(args[1], args.slice(2), cd) : name === 'git' ? analyzeGit(args, cd) : null;
+      let hit = null;
+      if (name === 'gh' && args[0] === 'pr') hit = analyzeGh(args[1], args.slice(2), here);
+      else if (name === 'git') hit = analyzeGit(args, here);
+      else if (isNode(name)) hit = analyzeNode(args, here);
       if (hit) hits.push(hit);
     }
   }
   return hits;
+}
+
+// The coordinator, scripts/coord/coord.js (OPS-156): start opens or resumes a draft PR and ship and
+// rescope push to it, all inside its own child processes, so no literal `gh pr create` or
+// `git push` shows. Its value flags are the ones its parseArgs reads; a test pins the two together.
+export const COORD_VALUE_FLAGS = new Set(['paths', 'resources', 'task', 'merge', 'title', 'branch', 'dir', 'pr', 'author', 'mode']);
+const COORD_RAN = {
+  start: "the coordinator's start ran (it opens or resumes a draft PR)",
+  ship: "the coordinator's ship ran (it pushes the claim to the PR branch)",
+  rescope: "the coordinator's rescope ran (it pushes the claim to the PR branch)",
+};
+
+const baseName = (word) => word.replace(/\\/g, '/').split('/').pop().toLowerCase();
+const isNode = (name) => baseName(name).replace(/\.exe$/, '') === 'node';
+// Any spelling of the script: ./, backslashes, an absolute path, with or without .js.
+const isCoordScript = (word) => /^coord(?:\.js)?$/.test(baseName(word));
+
+// coord.js's arguments -> { cmd, flags }, read exactly as its parseArgs reads them.
+export function coordCommand(args) {
+  let cmd = null;
+  const flags = {};
+  for (let k = 0; k < args.length; k += 1) {
+    const a = args[k];
+    if (a === '-h') {
+      flags.help = true;
+    } else if (a.startsWith('--')) {
+      const eq = a.indexOf('=');
+      const name = eq > 0 ? a.slice(2, eq) : a.slice(2);
+      if (!COORD_VALUE_FLAGS.has(name)) flags[name] = true;
+      else if (eq > 0) flags[name] = a.slice(eq + 1);
+      else flags[name] = args[(k += 1)];
+    } else if (cmd === null) {
+      cmd = a;
+    }
+  }
+  return { cmd, flags };
+}
+
+// node [node options] <script> <args>. The script is the first word that is not an option; a word
+// right after an option written without "=" may be that option's value, so it is passed over.
+function analyzeNode(args, dir) {
+  let k = 0;
+  for (; k < args.length && !isCoordScript(args[k]); k += 1) {
+    const prev = args[k - 1];
+    if (!args[k].startsWith('-') && !(prev !== undefined && prev.startsWith('-') && !prev.includes('='))) return null;
+  }
+  if (k >= args.length) return null;
+  const { cmd, flags } = coordCommand(args.slice(k + 1));
+  // --dry-run changes nothing, on start, ship or rescope alike
+  if (flags.help || flags['dry-run'] || !Object.hasOwn(COORD_RAN, cmd ?? '')) return null;
+  if (cmd === 'start') {
+    const branch = typeof flags.branch === 'string' && flags.branch && !opaque(flags.branch) ? flags.branch : null;
+    return { kind: 'create', pr: null, branch, dir, repo: null, ran: COORD_RAN.start };
+  }
+  const pr = cmd === 'ship' && typeof flags.pr === 'string' ? prFromArg(flags.pr) : null;
+  return { kind: 'push', pr, branch: null, dir, repo: null, ran: COORD_RAN[cmd] };
 }
 
 export function classify(input) {
@@ -499,11 +604,11 @@ function target(kind, h) {
     : 'the PR for the current branch (find it with `gh pr view --json number,baseRefName` where the command ran)';
 }
 
-function message(kind, failed, targets, notes) {
+function message(kind, failed, targets, notes, ran = RAN[kind]) {
   const phase = PHASE[kind];
   const named = targets.every((t) => /^PR #\d+$/.test(t)) ? targets.join(', ') : 'PR #N';
   return [
-    `merge-guard trigger: ${RAN[kind]}${failed ? ' and exited with an error, which does not mean nothing changed on GitHub' : ''}.`,
+    `merge-guard trigger: ${ran}${failed ? ' and exited with an error, which does not mean nothing changed on GitHub' : ''}.`,
     `Dispatch the merge-guard agent now on ${targets.join(', ')}, phase ${phase}.`,
     'Do not start the next merge or the next task until it has returned and you have acted on its verdict: on VERDICT: GREEN, continue.',
     'On VERDICT: RED, follow its SESSION MUST: record each finding as a TASKS.md row, fix it before the next task (DEC-143), and re-run merge-guard on the fixed state. A RED it says cannot be fixed from here (environment only, a merge window, equal patch-ids with CI on the merge commit green) is recorded or waited out as it says, not retried in a loop.',
@@ -553,7 +658,9 @@ export function run(input, deps = defaultDeps()) {
     }
   }
   const targets = [...new Set(chosen.map((h) => target(kind, h)))];
-  return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: message(kind, failed, targets, [...notes]) } });
+  // A command with its own wording (the coordinator, gh pr ready) says what ran, when every hit agrees.
+  const ran = chosen[0].ran && chosen.every((h) => h.ran === chosen[0].ran) ? chosen[0].ran : RAN[kind];
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: event, additionalContext: message(kind, failed, targets, [...notes], ran) } });
 }
 
 // Raw stdin text -> what to print. Malformed input prints nothing.

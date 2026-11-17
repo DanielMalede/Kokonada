@@ -45,7 +45,6 @@ const ALLOWED_LINES = {
   // the schema field itself
   'app/models/User.js': ['youtubeMusicToken: { type: encryptedTokenSchema, default: null },'],
   // getToken reads (each skips YouTube when null)
-  'app/scripts/classifyAndHydrate.js': ["youtubeToken = user?.getToken?.('youtubeMusicToken')?.accessToken ?? null;"],
   'app/services/musicProfileService.js': ["const youtubeToken = user.getToken?.('youtubeMusicToken')?.accessToken ?? null;"],
   // comment: credentials are excluded from the export
   'app/services/privacy/userDataExport.js': ['// (spotifyToken/youtubeMusicToken/wearableToken), device push-token secrets, the watchToken'],

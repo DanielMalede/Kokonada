@@ -617,6 +617,49 @@ describe('computeBaselineBlob — the superset contract (§0.2.5)', () => {
     expect(b.confidence).toBeLessThanOrEqual(1);
   });
 
+  it('keeps labeled SDNN and RMSSD in separate baselines without contaminating legacy HRV', () => {
+    const rows = Array.from({ length: 14 }, (_, day) => {
+      const recordedAt = T0 + day * DAY + 7 * 3600000;
+      return [
+        { metric: 'hrv', hrvMethod: 'rmssd', value: 38 + (day % 5) * 2, recordedAt },
+        { metric: 'hrv', hrvMethod: 'sdnn', value: 108 + (day % 4) * 9, recordedAt },
+      ];
+    }).flat();
+
+    const withoutSdnn = computeBaselineBlob({
+      vitalSamples: rows.filter((row) => row.hrvMethod !== 'sdnn'), now: T0 + 14 * DAY,
+    });
+    const mixed = computeBaselineBlob({ vitalSamples: rows, now: T0 + 14 * DAY });
+
+    expect(mixed.hrvMedian).toBe(withoutSdnn.hrvMedian);
+    expect(mixed.hrvMAD).toBe(withoutSdnn.hrvMAD);
+    expect(mixed.hrvByMethod.rmssd).toEqual(expect.objectContaining({
+      median: expect.any(Number), mad: expect.any(Number), n: 14,
+    }));
+    expect(mixed.hrvByMethod.sdnn).toEqual(expect.objectContaining({
+      median: expect.any(Number), mad: expect.any(Number), n: 14,
+    }));
+    expect(mixed.hrvByMethod.sdnn.median).toBeGreaterThan(mixed.hrvByMethod.rmssd.median + 30);
+    expect(mixed.hrvByMethod.sdnn.mad).not.toBe(mixed.hrvByMethod.rmssd.mad);
+  });
+
+  it('keeps unlabeled legacy HRV in the top-level RMSSD-oriented calculation only', () => {
+    const rmssd = Array.from({ length: 12 }, (_, day) => ({
+      metric: 'hrv', hrvMethod: 'rmssd', value: 48 + (day % 3), recordedAt: T0 + day * DAY,
+    }));
+    const legacy = Array.from({ length: 12 }, (_, day) => ({
+      metric: 'hrv', value: 20 + (day % 3), recordedAt: T0 + day * DAY + 3600000,
+    }));
+
+    const labeledOnly = computeBaselineBlob({ vitalSamples: rmssd, now: T0 + 12 * DAY });
+    const withLegacy = computeBaselineBlob({ vitalSamples: [...rmssd, ...legacy], now: T0 + 12 * DAY });
+
+    expect(withLegacy.hrvMedian).toBeLessThan(labeledOnly.hrvMedian);
+    expect(withLegacy.coverage.hrvDays).toBe(12);
+    expect(withLegacy.hrvByMethod.rmssd).toEqual(labeledOnly.hrvByMethod.rmssd);
+    expect(withLegacy.hrvByMethod.sdnn.n).toBe(0);
+  });
+
   it('carries NO raw sample and no per-reading detail (zero-knowledge, §0.2.2)', () => {
     const json = JSON.stringify(blob());
     expect(json).not.toMatch(/"samples"|"readings"|"recordedAt"/);

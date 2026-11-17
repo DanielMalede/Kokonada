@@ -36,12 +36,14 @@ const path = require('path');
 // Minimal mock set — just enough to load the controller without mongoose (the Node 21 / mongoose 9
 // incompatibility `tests/integrations.test.js` documents). No behaviour under test is mocked away.
 jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn() }));
+jest.mock('../app/services/wearable/healthStoreV2', () => ({ ingestV2Batch: jest.fn() }));
 jest.mock('../app/models/User',         () => ({ findByIdAndUpdate: jest.fn().mockResolvedValue(true) }));
 jest.mock('../app/models/BiometricLog', () => ({}));
 jest.mock('../app/models/MusicProfile', () => ({}));
 jest.mock('../app/models/ServeEvent',   () => ({}));
 
 const healthStore = require('../app/services/wearable/healthStore');
+const { ingestV2Batch } = require('../app/services/wearable/healthStoreV2');
 const ctrl        = require('../app/controllers/integrationsController');
 const { summarizeMetricKeys } = require('../app/utils/biometricAudit');
 const { PROFILE_SCALAR_METRICS } = require('../app/services/medicalProfileService');
@@ -156,6 +158,35 @@ describe('[healthBatch] ok — the always-on ingest receipt', () => {
     // And the shape that caused it is gone.
     expect(line).not.toMatch(/[{}]/);
     expect(line).not.toMatch(/restingHeartRate"?\s*[:=]\s*\d/);
+  });
+
+  it('does not log v2 sample identity, timestamps or values', async () => {
+    ingestV2Batch.mockResolvedValue({ accepted: 1, created: 1, replayed: 0, deleted: 0, projected: 1 });
+    const sampleId = '6ba7b810-9dad-41d1-80b4-00c04fd430c8';
+    const timestamp = '2026-10-06T06:30:00.000Z';
+
+    await ctrl.healthBatchIngest({
+      user: buildUser(),
+      body: {
+        schemaVersion: 2,
+        batchId: '550e8400-e29b-41d4-a716-446655440000',
+        platform: 'healthkit',
+        samples: [{
+          sampleId,
+          operation: 'upsert',
+          type: 'heart_rate',
+          value: 173,
+          unit: 'bpm',
+          startDate: timestamp,
+          endDate: timestamp,
+        }],
+      },
+    }, buildRes(), jest.fn());
+
+    const allLines = warn.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(allLines).not.toContain(sampleId);
+    expect(allLines).not.toContain(timestamp);
+    expect(allLines).not.toMatch(/\b173\b/);
   });
 
   it('says profileMetrics=0 profileMetricKeys=none when the batch updated no baseline', async () => {

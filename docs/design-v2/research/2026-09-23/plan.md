@@ -509,7 +509,7 @@ The designer, with a developer spike, produces:
     - `CLAUDE.md` omits `sentinel`.
     - A parallel session edits docs in this same tree: stage by path, and never let two sessions touch `R\docs\design-v2\`.
     - Squash-merges strand commits: verify by content.
-    - `UI_UX_MASTER_PLAN.md` describes the retired web plan and should be archived.
+    - `UI_UX_MASTER_PLAN.md (deleted; see docs/ARCHIVE.md)` describes the retired web plan and should be archived.
 11. **Supply chain.** Third-party skills are executable instructions. Pin, vendor and review them. UI UX Pro Max specifically reads `.env` files.
 12. **Scale and capacity.** 13 surfaces × 15 gates is a long programme for one owner. Sentinel should size it, and Daniel should expect the foundation phase (A8) to take about as long as several pages.
 

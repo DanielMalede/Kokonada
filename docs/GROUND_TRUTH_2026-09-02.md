@@ -1,14 +1,14 @@
 # GROUND TRUTH BRIEF — 2026-09-02 (Wave 4 closeout, W4-015)
 
-> Persisted per the rule `docs/GROUND_TRUTH_2026-07-07.md` established: every claim below cites a real
+> Persisted per the rule `GROUND_TRUTH_2026-07-07.md (deleted; see docs/ARCHIVE.md)` established: every claim below cites a real
 > tool run on this machine, so a later session does not re-spend budget re-deriving it. The narrative
-> lives in `docs/plans/WAVE4_REPORT.md` (the closeout package) and `docs/plans/WAVE4_STATE.md` (the run's
+> lives in `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` (the closeout package) and `docs/plans/WAVE4_STATE.md` (the run's
 > live task table, HITL queue and per-session evidence). This brief is the measured-facts snapshot the
 > other two summarise.
 >
 > **Supersedes `docs/GROUND_TRUTH_2026-08-22.md`**, which is an untracked draft from a killed session
 > (W4-D67). That draft is written in the past tense about work that had not happened — it claims the
-> `KOKONADA_ARCHITECTURE_MASTER.md` §0 refresh and `WAVE4_REPORT.md` as done when neither existed — and
+> `KOKONADA_ARCHITECTURE_MASTER.md` §0 refresh and `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` as done when neither existed — and
 > its baseline (222/3523) is five re-baselines stale. **It is safe to delete.** Its §1 table was
 > independently reproduced at the time and nothing in it is lost: everything still true has been carried
 > forward here, re-measured.
@@ -114,7 +114,7 @@ exactly matching W4-D63's cited numbers:
 
 Both are pinned as floors. The serving lane's 13 misses are a geometry question, not a data question:
 more simulated days cannot move them. The live lane's 7 need a client signal that does not exist yet.
-Full per-state reasons: `docs/plans/WAVE4_SOAK_2026-09-02.md` §3.
+Full per-state reasons: `WAVE4_SOAK_2026-09-02.md (deleted; see docs/ARCHIVE.md)` §3.
 
 ## 6. Repo reality
 
@@ -134,7 +134,7 @@ Full per-state reasons: `docs/plans/WAVE4_SOAK_2026-09-02.md` §3.
 ## 7. Open, and where it is tracked
 
 - **6 open HITL items**, one of which (H16) this closeout answers with its own documented default. Full
-  matrix: `WAVE4_REPORT.md` §8.
+  matrix: `WAVE4_REPORT.md (deleted; see docs/ARCHIVE.md)` §8.
 - **46 open discovered-backlog rows**, all `class: improve`. **Zero `repair`-class rows are open.**
   Exactly one is MUST-tier: W4-D83, the keystore ignore glob.
 - **Error budget: 0 consecutive failed sessions.** No task ever hit the rule-of-2.

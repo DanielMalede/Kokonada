@@ -13,6 +13,7 @@ const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 // Collection list MUST stay in lockstep with services/privacy/erasure.js (the
 // controller cascade) — this script only adds dry-run/count reporting on top.
 const BiometricLog    = require('../app/models/BiometricLog');
+const HealthSample    = require('../app/models/HealthSample');
 const VitalSample     = require('../app/models/VitalSample');
 const MedicalProfile  = require('../app/models/MedicalProfile');
 const MorningState    = require('../app/models/MorningState');
@@ -109,6 +110,7 @@ async function main() {
       }
 
       const biometricCount    = await BiometricLog.countDocuments({ userId });
+      const healthSampleCount = await HealthSample.countDocuments({ userId });
       const vitalCount        = await VitalSample.countDocuments({ userId });
       const medicalExists     = await MedicalProfile.findOne({ userId }).lean();
       const morningCount      = await MorningState.countDocuments({ userId });
@@ -125,6 +127,7 @@ async function main() {
       const userExists        = await User.findById(userId).lean();
 
       console.log(`  BiometricLog: ${biometricCount} document(s) would be deleted`);
+      console.log(`  HealthSample: ${healthSampleCount} document(s) would be deleted`);
       console.log(`  VitalSample: ${vitalCount} document(s) would be deleted`);
       console.log(`  MedicalProfile: ${medicalExists ? '1 document would be deleted' : 'not found (nothing to delete)'}`);
       console.log(`  MorningState: ${morningCount} document(s) would be deleted`);
@@ -182,6 +185,9 @@ async function main() {
 
       const biometricResult = await BiometricLog.deleteMany({ userId });
       console.log(`  BiometricLog: deleted ${biometricResult.deletedCount} document(s)`);
+
+      const healthSampleResult = await HealthSample.deleteMany({ userId });
+      console.log(`  HealthSample: deleted ${healthSampleResult.deletedCount} document(s)`);
 
       const vitalResult = await VitalSample.deleteMany({ userId });
       console.log(`  VitalSample: deleted ${vitalResult.deletedCount} document(s)`);
@@ -250,6 +256,8 @@ async function main() {
           stateJobs,
           consentRevoked,
           biometricLogs:    biometricResult.deletedCount,
+          healthSamples:    healthSampleResult.deletedCount,
+          vitalSamples:     vitalResult.deletedCount,
           medicalProfile:   medicalResult.deletedCount,
           morningStates:    morningResult.deletedCount,
           musicProfile:     musicResult.deletedCount,

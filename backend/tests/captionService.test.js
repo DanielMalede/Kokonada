@@ -27,7 +27,7 @@ function captionsResponse(captions) {
 }
 
 const SESSION = {
-  moodKey: 'melancholy',
+  moodKey: 'unwind',
   activity: 'resting',
   hrBand: 'resting',
   emotionTaps: [{ x: -0.2, y: -0.5 }],
@@ -70,7 +70,47 @@ describe('captionService.captionDiscovery — compliance guard (load-bearing)', 
 
     // …but the sonic features + first-party mood context DO.
     expect(prompt).toContain('88bpm');       // the track's tempo
-    expect(prompt).toMatch(/melancholy/i);   // the session mood
+    expect(prompt).toContain('mood=unwind');      // the session mood (a preset key)
+    expect(prompt).toContain('activity=resting'); // the chip the user chose
+  });
+});
+
+// BE-221 — the owner's ruling (class c, 2026-10-27): no health information, and nothing derived
+// from it, reaches Groq. SESSION above deliberately still carries an hrBand and a bpmCenter target
+// (what the handler used to pass): the session line is an ALLOW-LIST, so they must not reach the
+// prompt even when a caller hands them over.
+describe('captionService.captionDiscovery — the session line is an allow-list (BE-221)', () => {
+  beforeEach(() => llmClient.generateJson.mockResolvedValue(captionsResponse([])));
+  const promptFor = async (ctx) => {
+    llmClient.generateJson.mockClear();
+    await captionService.captionDiscovery([disco('youtube:a')], ctx, { budgetMs: 2000 });
+    return llmClient.generateJson.mock.calls[0][0];
+  };
+
+  it('drops a heart-rate band and a tempo target', async () => {
+    const prompt = await promptFor(SESSION);
+    expect(prompt).not.toMatch(/heart-rate band|target tempo|92bpm/);
+    expect(prompt).toBe(await promptFor({ moodKey: SESSION.moodKey, activity: SESSION.activity, emotionTaps: SESSION.emotionTaps }));
+  });
+
+  it('keeps a preset mood key, and drops a synthetic bio: key or an unknown one', async () => {
+    expect(await promptFor({ moodKey: 'calm' })).toContain('mood=calm');
+    for (const moodKey of ['bio:peak:running', 'bio:resting:unknown', 'SENTINEL_MOOD']) {
+      const prompt = await promptFor({ moodKey });
+      expect(prompt).not.toContain(moodKey);
+      expect(prompt).not.toMatch(/mood=/);
+    }
+  });
+
+  it('validates the chip activity to the preset enum, never the raw string', async () => {
+    expect(await promptFor({ activity: 'run' })).toContain('activity=running');
+    const prompt = await promptFor({ activity: 'SENTINEL_ACTIVITY <script>' });
+    expect(prompt).not.toContain('SENTINEL_ACTIVITY');
+    expect(prompt).not.toContain('<script>');
+  });
+
+  it('with nothing allow-listed, says so rather than sending an empty context', async () => {
+    expect(await promptFor({ hrBand: 'peak', targets: { bpmCenter: 160 } })).toContain('no specific mood signal');
   });
 });
 

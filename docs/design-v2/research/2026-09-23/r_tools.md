@@ -119,7 +119,7 @@ A more mobile-relevant reference, if the owner wants to look at examples: [Meliw
    - `docs/canvas/tokens.css:1-9` calls itself "THE canvas colour source".
    - `src/design/tokens.ts:1-3` calls itself "the single source of truth".
    - No mobile file references `tokens.css`.
-   - `docs/plans/DEV_COLOUR_SINGLE_SOURCE.md:5` says "App side NOT started".
+   - `docs/plans/dev-items.md#colour-single-source (was DEV_COLOUR_SINGLE_SOURCE.md:5)` says "App side NOT started".
    - `emotionAccent.ts:66-71` restates the four aurora hues.
 3. **Edge-to-edge.**
    - `android/gradle.properties:44` has `edgeToEdgeEnabled=false`, but `android/build.gradle:6` targets SDK 36.

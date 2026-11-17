@@ -6,7 +6,8 @@
 // this client does NOT read. Those may be PERSISTED only once the user re-consents at
 // GARMIN_CONSENT_MIN_VERSION.
 // Below that (i.e. today, lane dormant, CURRENT_CONSENT_VERSION = 1) they are DROPPED at ingest.
-// The HC-lane metrics (HR / HRV / sleep / resting-HR, lawful at v1) are UNGATED.
+// The HC-lane metrics (HR / HRV / sleep / resting-HR, lawful at v1) are UNGATED by the version; like
+// every metric they still need a current grant, without which the seam persists nothing (BE-205).
 //
 // Real semantics: the REAL consent-version read + REAL predicate + REAL normalizer run; only the
 // DB (ConsentRecord.latestFor) and the persistence side-effect (persistMetrics) are faked.
@@ -98,21 +99,18 @@ describe('Garmin consent version gate', () => {
     for (const hc of HC_LANE) expect(persisted).toContain(hc);
   });
 
-  // Fail-closed: no record on file → special categories dropped, HC-lane still flows.
-  it('no consent record on file → special categories dropped, HC-lane still persisted', async () => {
-    ConsentRecord.latestFor.mockResolvedValue(null);
-    await ingestSummaries(USER, mixedPush());
-    const persisted = persistedMetrics();
-    for (const s of SPECIAL) expect(persisted).not.toContain(s);
-    for (const hc of HC_LANE) expect(persisted).toContain(hc);
-  });
-
-  // Fail-closed: latest row is a WITHDRAWAL (even stamped at a high version) → not a current grant.
-  it('latest row is a withdrawal at a high version → special categories dropped', async () => {
-    ConsentRecord.latestFor.mockResolvedValue({ status: 'withdrawn', consentVersion: GARMIN_CONSENT_MIN_VERSION + 5 });
-    await ingestSummaries(USER, mixedPush());
-    const persisted = persistedMetrics();
-    for (const s of SPECIAL) expect(persisted).not.toContain(s);
+  // Fail-closed, and since BE-205 for the whole push: with no current grant the seam refuses before the
+  // normaliser runs, so no metric of either lane reaches the store. (These two cases used to expect the
+  // HC-lane metrics to persist with no record on file; BE-205 supersedes that.)
+  it.each([
+    ['no consent record on file', null],
+    ['latest row is a withdrawal at a high version', { status: 'withdrawn', consentVersion: GARMIN_CONSENT_MIN_VERSION + 5 }],
+  ])('%s → nothing is persisted, neither lane (BE-205)', async (_label, record) => {
+    ConsentRecord.latestFor.mockResolvedValue(record);
+    const res = await ingestSummaries(USER, mixedPush());
+    expect(res.refused).toBe('consent_not_current');
+    expect(normalizeGarminSummaries).not.toHaveBeenCalled();
+    expect(persistMetrics).not.toHaveBeenCalled();
   });
 });
 
@@ -153,16 +151,18 @@ describe('dailyReadiness is gated exactly like the other Garmin special categori
     expect(persisted).not.toContain('dailyReadiness');
   });
 
-  it('no consent record on file → dailyReadiness dropped (fail-closed)', async () => {
-    const persisted = await ingestInjected(null);
-    expect(persisted).toContain('restingHeartRate');
-    expect(persisted).not.toContain('dailyReadiness');
-  });
-
-  it('latest row is a withdrawal at a high version → dailyReadiness dropped (fail-closed)', async () => {
-    const persisted = await ingestInjected({ status: 'withdrawn', consentVersion: GARMIN_CONSENT_MIN_VERSION + 5 });
-    expect(persisted).toContain('restingHeartRate');
-    expect(persisted).not.toContain('dailyReadiness');
+  // BE-205 supersedes the two cases that expected the HC-lane control to persist with no current grant:
+  // the seam refuses the whole push before the normaliser runs, so nothing is injected (an unconsumed
+  // mockReturnValueOnce would leak into the next case) and nothing, dailyReadiness included, is persisted.
+  it.each([
+    ['no consent record on file', null],
+    ['latest row is a withdrawal at a high version', { status: 'withdrawn', consentVersion: GARMIN_CONSENT_MIN_VERSION + 5 }],
+  ])('%s → nothing is persisted, dailyReadiness included (fail-closed, BE-205)', async (_label, record) => {
+    ConsentRecord.latestFor.mockResolvedValue(record);
+    const res = await ingestSummaries(USER, [{ type: 'readiness', summary: {} }]);
+    expect(res.refused).toBe('consent_not_current');
+    expect(normalizeGarminSummaries).not.toHaveBeenCalled();
+    expect(persistMetrics).not.toHaveBeenCalled();
   });
 
   // The gate must not be a blanket ban — re-consented users at the min version are lawful.
