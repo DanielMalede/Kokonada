@@ -51,7 +51,7 @@ const YOUTUBE_LINES = [
 // cell of an allowed row, or any edit to one, fails until it is reviewed and copied here.
 const YOUTUBE_ROWS = {
   "| 3rd-party OAuth tokens (Spotify, wearable)":
-    "| 3rd-party OAuth tokens (Spotify, wearable) | `User.spotifyToken` / `wearableToken` | Music sourcing + biometrics ingest | **AES-256-GCM encrypted at rest**; excluded from data export as credentials. YouTube is not connected in this version: connecting it is sealed in code (DEC-122), and no account holds a YouTube token (the `User.youtubeMusicToken` field stays empty). <!-- verified: backend/app/services/privacy/userDataExport.js:38-40; seal backend/app/config/youtubeSeal.js (YOUTUBE_CONNECT_ENABLED = false); zero holders: DAN-046 P0, 2026-10-01T14:05Z, before the deploy; P1 after the deploy owed --> |",
+    "| 3rd-party OAuth tokens (Spotify, wearable) | `User.spotifyToken` / `wearableToken` | Music sourcing + biometrics ingest | **AES-256-GCM encrypted at rest**; excluded from data export as credentials. YouTube is not connected in this version: connecting it is sealed in code (DEC-122), and no account holds a YouTube token (the `User.youtubeMusicToken` field stays empty). <!-- verified: backend/app/services/privacy/userDataExport.js:49-51; seal backend/app/config/youtubeSeal.js (YOUTUBE_CONNECT_ENABLED = false); zero holders: DAN-046 P0, 2026-10-01T14:05Z, before the deploy; P1 after the deploy owed --> |",
   "| Music profile & listening-derived taste":
     "| Music profile & listening-derived taste | `MusicProfile` | Personalised generation | Derived from the user's own Spotify history. YouTube is not connected in this version, so nothing from YouTube is imported. Kept until Spotify is disconnected, or the account is deleted (see **Retention**). |",
   "| **Groq** (`api.groq.com`, US-hosted inference)":
@@ -167,7 +167,7 @@ describe('the privacy declarations say YouTube is sealed, and nothing more (HX-3
 
   it('every code symbol the YouTube statements cite as evidence exists where cited', () => {
     const d = doc();
-    // The seal itself (rows :43 and :74).
+    // The seal itself (the `| 3rd-party OAuth tokens` row and the `| **YouTube**` provider row).
     expect(d).toContain('backend/app/config/youtubeSeal.js');
     expect(read('backend/app/config/youtubeSeal.js')).toMatch(/YOUTUBE_CONNECT_ENABLED:\s*false/);
     expect(read('backend/app/config/youtubeSeal.js')).toMatch(/YOUTUBE_EGRESS_ENABLED:\s*false/);
