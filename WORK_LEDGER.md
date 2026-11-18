@@ -130,13 +130,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M08
-- task: `OPS-171` (TASKS)
-- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
-- branch: `fix/ops171-settings-policy`
-- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- task: `OPS-065` (TASKS)
+- title: Stage 0 Q1a: the contract manifest (QA-040), the interim test floor (QA-041) and the RETIRE pins (QA-118)
+- branch: `test/s0-q1-contracts`
+- paths: `mobile/KokonadaHealth/src/__contracts__/**`, `mobile/KokonadaHealth/src/testing/guards/contracts.ts`, `mobile/KokonadaHealth/src/testing/guards/retire.ts`, `mobile/KokonadaHealth/src/testing/guards/testFloor.ts`, `mobile/KokonadaHealth/src/testing/__tests__/contracts.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/retire.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/testFloor.test.ts`, `docs/design-v2/registry/QA-040.md`, `docs/design-v2/registry/QA-041.md`, `docs/design-v2/registry/QA-118.md`, `docs/design-v2/registry/INDEX.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #270
-- started: 2026-10-21
+- state: claimed
+- started: 2026-11-17
 
 ### M09
 - task: `own:ops417-qa116-pinned-callers` (own)
