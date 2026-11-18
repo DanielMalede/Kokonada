@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `DAN-015` (TASKS)
-- title: Re-anchor docs/PRIVACY_DECLARATIONS.md on main (D-1, D-2, BE-122 retry line, Groq row, site and mailbox recipients) and its pin tests; no publication
-- branch: `docs/dan015-privacy-prep`
-- paths: `TASKS.md`, `docs/PRIVACY_DECLARATIONS.md`, `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/youtubeDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `docs/store/play-health-connect-declaration.md`
+- task: `own:dan015-owner-answers` (own)
+- title: record the owner's two answers on package 6 (DAN-015) and #287's merge as TASKS update lines
+- branch: `docs/dan015-owner-answers`
+- paths: `TASKS.md`
 - resources: none
-- state: in-review · PR #287
-- started: 2026-11-17
+- state: claimed
+- started: 2026-11-18
 
 ### M04
 - task: `own:ops067-close` (own)
