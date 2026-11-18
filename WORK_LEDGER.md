@@ -72,7 +72,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/dan070-t16b`
 - paths: `TASKS.md`
 - resources: `res:atlas-prod`
-- state: claimed
+- state: in-review · PR #286
 - started: 2026-11-17
 
 ### M02
