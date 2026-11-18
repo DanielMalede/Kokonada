@@ -404,6 +404,98 @@ describe.each([200, 403])('with /recommendations answering %i', (status) => {
   });
 });
 
+// ── The query against a prompt-sensitive model ───────────────────────────────────────────────────
+// The fake Groq above answers the same PARAMS whatever it is asked, so a sleep intent that re-entered
+// the prompt would change nothing it returns, and an equality of two queries could hold vacuously.
+// Here the model's answer is a function of the prompt itself (a sha256 of it picks the genres, a
+// keyword carrying the digest, and the tempo), so two queries are equal only if the two prompts were.
+// The generation core runs for real; fetchTracks records the DiscoveryQuery it is handed.
+
+describe('the DiscoveryQuery against a prompt-sensitive model (RA-2)', () => {
+  const GENRE_POOL   = ['ambient', 'jazz', 'folk', 'classical', 'soul', 'lo-fi', 'indie', 'pop'];
+  const KEYWORD_POOL = ['dreamy', 'warm', 'airy', 'bright', 'dusky', 'gentle', 'lush', 'sparse'];
+  const PROFILE = { topGenres: TOP_GENRES, tempoBaseline: 110, energy: 0.5, valence: 0.5, acousticness: 0.4 };
+  const prompts = [];
+
+  function installPromptSensitiveGroq(axios) {
+    axios.post.mockImplementation(async (url, body) => {
+      if (String(url).startsWith(SPOTIFY_API)) throw new Error(`unexpected Spotify POST ${url}`);
+      const prompt = body.messages[0].content;
+      prompts.push(prompt);
+      const h = crypto.createHash('sha256').update(prompt).digest();
+      const answer = {
+        target_bpm: 60 + (h[0] % 120), target_energy: (h[1] % 100) / 100,
+        target_valence: (h[2] % 100) / 100, target_acousticness: (h[3] % 100) / 100,
+        seed_artists: [],
+        seed_genres: [GENRE_POOL[h[4] % 8], GENRE_POOL[(h[5] % 7 + 1 + h[4]) % 8]],
+        mood_keywords: [`p-${h.toString('hex').slice(0, 8)}`, KEYWORD_POOL[h[6] % 8]],
+      };
+      return { status: 200, data: { choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(answer) } }] } };
+    });
+  }
+
+  beforeEach(() => {
+    prompts.length = 0;
+    installPromptSensitiveGroq(W.axios);
+  });
+
+  // One real generation run; returns the query the provider would be handed and the local params.
+  // `live`: the model's answer must reach the query. A mood with no note is the strict mode, whose
+  // lists come from the mood descriptor alone, so there the model's answer is overridden by design.
+  async function gen({ taps = [], note = null, ctx = null, live = true } = {}) {
+    const fetchTracks = jest.fn(async () => []);
+    const { params } = await W.engine.buildEmotionPlaylist({
+      musicProfile: PROFILE, emotionTaps: taps, textPrompt: note, activity: null, biometricContext: ctx, fetchTracks,
+    });
+    expect(fetchTracks).toHaveBeenCalledTimes(1);
+    const query = fetchTracks.mock.calls[0][1];
+    expect(query).toBeDefined();
+    expect(query.mood_keywords.some((k) => k.startsWith('p-'))).toBe(live);
+    return { query: JSON.stringify(query), params };
+  }
+
+  it('control: the fake is prompt-sensitive, and a non-sleep note change changes the query', async () => {
+    const calm    = await gen({ taps: CALM, note: 'calm music' });
+    const upbeat  = await gen({ taps: CALM, note: 'upbeat music' });
+    expect(upbeat.query).not.toBe(calm.query);
+    const plain   = await gen({ note: 'help me tonight' });
+    const running = await gen({ note: 'going for a run tonight' });
+    expect(running.query).not.toBe(plain.query);
+    expect(new Set(prompts).size).toBe(4);
+  });
+
+  it('merge mode: "calm music before bed" hands the provider what "calm music" does', async () => {
+    const calm          = await gen({ taps: CALM, note: 'calm music' });
+    const calmBeforeBed = await gen({ taps: CALM, note: 'calm music before bed' });
+    expect(calmBeforeBed.query).toBe(calm.query);
+    expect(calmBeforeBed.params.tempo_category).toBe('resting');
+  });
+
+  it.each(['help me sleep tonight', 'music before bed', 'winding down', "can't sleep"])(
+    'note only, no taps: %p hands the provider what "help me tonight" does, and stays resting locally',
+    async (note) => {
+      const plain = await gen({ note: 'help me tonight' });
+      const sleep = await gen({ note });
+      expect(sleep.query).toBe(plain.query);
+      expect(sleep.params.tempo_category).toBe('resting');
+    },
+  );
+
+  it.each([
+    ['a mood and a note (merge)', CALM, 'calm music', true],
+    ['a mood, no note (strict)', CALM, null, false],
+    ['no mood, no note', [], null, true],
+    ['no mood, a note', [], 'help me tonight', true],
+  ])('stored vitals never move the query but do move the local target_bpm: %s', async (_name, taps, note, live) => {
+    const none = await gen({ taps, note, live });
+    const low  = await gen({ taps, note, live, ctx: { heartRate: 50 } });
+    const high = await gen({ taps, note, live, ctx: { heartRate: 180, hrRatio: 2 } });
+    expect(low.query).toBe(none.query);
+    expect(high.query).toBe(none.query);
+    expect(low.params.target_bpm).toBeLessThan(high.params.target_bpm);
+  });
+});
+
 // ── spotify.fetchVibeDiscovery itself: no query, no request ─────────────────────────────────────
 
 describe('spotify.fetchVibeDiscovery fails closed', () => {
