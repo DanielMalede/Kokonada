@@ -12,7 +12,10 @@
 > screen (`docs/SCREENS.md` §11). Any drift between them is a rejection risk. <!-- verified rationale wiring: mobile/KokonadaHealth/android/app/src/main/AndroidManifest.xml:70-95 -->
 >
 > **Do not submit until:** the Groq DPA is executed + Zero-Data-Retention enabled (see the
-> "Shared: No" caveat), and the consent screen + server consent gate are live.
+> "Shared: No" caveat), and the consent screen + server consent gate are live; the owner's NF-A
+> decision (DAN015-Q3) and a re-check of every Health and fitness answer; `DAN-050`'s sweep record
+> (the 'within a day' answers and the `MedicalProfile` E-3 count); the sub-processor list complete
+> (Sentry, `DAN-018`; the Atlas region).
 
 ## 0. App summary (for the declaration intro)
 
@@ -69,7 +72,7 @@ not a Health Connect permission), but is consent-gated identically.
 > calibration is what lets the app interpret a live reading as elevated, recovered, or resting
 > *relative to that individual*, which materially improves how well the generated music matches
 > their state. Historic access is used for one-time baseline establishment plus occasional
-> re-baselining — not continuous bulk history retrieval. <!-- verified backfill use case: backend/app/routes/integrations.js:81 (medical-profile backfill) -->
+> re-baselining — not continuous bulk history retrieval. <!-- verified backfill use case: backend/app/routes/integrations.js:88 (medical-profile backfill) -->
 
 ## 4. Data Safety form answers (Android app)
 
@@ -77,13 +80,13 @@ not a Health Connect permission), but is consent-gated identically.
 | :--- | :--- |
 | Data collected | **Yes.** |
 | Data type (health) | **Health and fitness → Health info** (heart rate, HRV) + **Fitness info** (resting heart rate, sleep). SpO₂ and respiratory rate are **not** collected. |
-| Other data types collected | Personal info → Email (required), Name (optional); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |
+| Other data types collected | Personal info → Email (required), Name (optional), User IDs (required: the account ID and the sign-in identifier, and the Garmin user ID when Garmin is connected); App activity → user-generated music/taste content + in-app actions; Device or other IDs → push token. |
 | Data shared with third parties | **No.** Derived, non-identifying tokens are processed by Groq as a service provider under a DPA + Zero-Data-Retention; OAuth calls go to the user's chosen providers at their direction — neither is "sharing" per Google's definition. **This answer is conditional on the Groq DPA being executed + ZDR enabled** (business action — confirm before submission). |
-| Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. |
+| Is data collection optional? | **Yes** for health/fitness — the app has a "mood only" path that works without any wearable. <!-- NEEDS VERIFICATION: the state estimate (bio:affect:, Retention, the user-scoped cache row) is written for every user who generates a playlist and kept 2 hours, which is not ephemeral processing; if the owner's NF-A decision (DAN015-Q3) classes it as health data, Health info is collected from every such user and "Optional" no longer holds. File no Health and fitness answer before that decision. --> |
 | Encrypted in transit | **Yes** (HTTPS/TLS on every network call). |
 | Encrypted at rest | **Yes** — AES-256-GCM field-level encryption of biometric and OAuth fields (ADR 0005). |
-| Users can request deletion | **Yes** — in-app **Delete account** (`DELETE /api/auth/account`) hard-deletes all user-owned data (incl. `BiometricLog`, `MedicalProfile`, `ConsentRecord`) + user-scoped Redis, plus a documented deletion URL. <!-- verified: backend/app/controllers/authController.js:220-245; backend/app/services/privacy/erasure.js:33-49 --> |
-| Users can access/export their data | **Yes** — authenticated `GET /api/auth/account/export` returns the subject's own records (health decrypted, credentials redacted). <!-- verified: backend/app/services/privacy/userDataExport.js:26-79; backend/app/routes/auth.js:24 --> |
+| Users can request deletion | **Yes** — in-app **Delete account** (`DELETE /api/auth/account`) hard-deletes all user-owned data (incl. `BiometricLog`, `MedicalProfile`, `ConsentRecord`) + user-scoped Redis, plus a documented deletion URL. <!-- verified: backend/app/controllers/authController.js:216-240; backend/app/services/privacy/erasure.js:43-99 --> |
+| Users can access/export their data | **Yes** — authenticated `GET /api/auth/account/export` returns the subject's own records (health decrypted, credentials redacted). <!-- verified: backend/app/services/privacy/userDataExport.js:31-47,66-87; backend/app/routes/auth.js:24 --> |
 | Purposes | App functionality; Personalization. **Not** advertising, **not** tracking. |
 | Third-party SDK collection | None — no ad/analytics SDKs. |
 
@@ -106,6 +109,9 @@ declaration **and** the consent screen. <!-- verified: mobile/KokonadaHealth/and
 ## 6. Pre-submission gate
 
 - [ ] Groq DPA executed + ZDR enabled + Groq listed as sub-processor (blocks the "Shared: No" answer).
+- [ ] The owner's NF-A decision (DAN015-Q3) made, and every Health and fitness answer re-checked against it.
+- [ ] `DAN-050`'s sweep record on file (the 'within a day' answers and the `MedicalProfile` E-3 count).
+- [ ] The sub-processor list complete (Sentry, `DAN-018`; the Atlas region).
 - [ ] Consent screen live and writing versioned `ConsentRecord`; server `requireConsent` gate confirmed on all user-facing health-ingest routes.
 - [ ] Privacy policy URL + account-deletion URL live and consistent with this doc.
 - [ ] ~~Demo video~~ — not required (Health Connect background read is not requested; the app is foreground-only). Reassess if the BLE/watch live-HR lane (§2) needs its own disclosure.
