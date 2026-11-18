@@ -36,6 +36,40 @@ const FRAMES = /^\d{1,3}$/;
 const DEFAULT_FRAMES = 3;
 const MAX_FRAMES = 600;
 
+// The unknown-scene message names the scene, how many are known and their families (`field.*`, or the id itself when it
+// has no dot), never every id: with the B8 groups the catalogue alone would pass the 4000 bytes a protocol line may take
+// (protocol.ts), and formatLine would throw instead of sending the ERROR. Both parts are cut to a budget in characters
+// (each at most 6 bytes once escaped in JSON), so the message stays near 3000 bytes at worst, whatever the launch or the
+// catalogue holds.
+const MAX_FAMILIES_CHARS = 360;
+
+/**
+ * The most characters of a launch value an ERROR echoes (UI-241): every echo (an unknown key, a value that is not a
+ * number, an unknown scene) is cut to this many code points, the last an ellipsis, so one long extra cannot pass the
+ * 4000 bytes of a protocol line. Cut by code points, a surrogate pair is never split. Many echoes together can still
+ * pass it (60 unknown keys of 100 characters): LabRoot then sends a short ERROR instead (launchErrorBound.test.tsx).
+ */
+export const MAX_ECHO = 120;
+
+function echo(value: string): string {
+  const points = [...value];
+  return points.length <= MAX_ECHO ? value : `${points.slice(0, MAX_ECHO - 1).join('')}…`;
+}
+
+function unknownScene(scene: string, known: readonly string[]): string {
+  const families = [...new Set(known.map((id) => (id.includes('.') ? `${id.slice(0, id.indexOf('.'))}.*` : id)))];
+  let listed = '';
+  let shown = 0;
+  for (const family of families) {
+    const next = shown === 0 ? family : `${listed}, ${family}`;
+    if (next.length > MAX_FAMILIES_CHARS) break;
+    listed = next;
+    shown += 1;
+  }
+  if (shown < families.length) listed = `${listed}${shown === 0 ? '' : ', '}+${families.length - shown} more`;
+  return `scene "${echo(scene)}" is not a lab scene (${known.length} known: ${listed})`;
+}
+
 /**
  * @param raw          the string extras the activity passed (`labArgs`)
  * @param nonStringKeys extras the activity dropped because they were not strings (`--ei`, `--ez`, ...)
@@ -56,10 +90,10 @@ export function parseLabArgs(
 
   for (const key of nonStringKeys) {
     if (KEYS.includes(key)) typeError(key);
-    else errors.push(`unknown key "${key}"`);
+    else errors.push(`unknown key "${echo(key)}"`);
   }
   for (const [key, value] of Object.entries(raw ?? {})) {
-    if (!KEYS.includes(key)) errors.push(`unknown key "${key}"`);
+    if (!KEYS.includes(key)) errors.push(`unknown key "${echo(key)}"`);
     else if (typeof value !== 'string') typeError(key);
     else values[key] = value;
   }
@@ -74,7 +108,7 @@ export function parseLabArgs(
   if (missing('scene')) errors.push('scene is required');
   else if (scene !== undefined) {
     if (Object.prototype.hasOwnProperty.call(scenes, scene)) timing = scenes[scene];
-    else errors.push(`scene "${scene}" is not a lab scene (${Object.keys(scenes).join(', ')})`);
+    else errors.push(unknownScene(scene, Object.keys(scenes)));
   }
 
   const clockRaw = values.clock;
@@ -91,7 +125,7 @@ export function parseLabArgs(
     if (v === undefined) return wrongType.has(key) ? null : undefined;
     // A long enough digit string passes the pattern and still becomes Infinity.
     if (!DECIMAL.test(v) || !Number.isFinite(Number(v))) {
-      errors.push(`${key} must be a finite decimal number (got "${v}")`);
+      errors.push(`${key} must be a finite decimal number (got "${echo(v)}")`);
       return null;
     }
     return Number(v);

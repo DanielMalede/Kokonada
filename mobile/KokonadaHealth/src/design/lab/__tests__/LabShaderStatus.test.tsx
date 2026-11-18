@@ -1,0 +1,365 @@
+import React from 'react';
+import { EventEmitter } from 'events';
+import { View } from 'react-native';
+import ReactTestRenderer, { act } from 'react-test-renderer';
+
+// UI-223 (RA-36): READY says which surface drew a field scene, so a capture of the fallback can never pass as a capture
+// of the field. End to end through the real LabRoot, FieldScene, FieldView, its builder (fieldStep) and FieldFallback:
+//   · a field scene says `ready` when the field effect compiled and the builder ran, and `fallback`, with the reason,
+//     when the effect could not draw (FieldScene reads the memoised effect) or the builder threw on the UI thread
+//     (FieldFallback hands on the reason FieldView gives it; FieldView takes no lab-only knob);
+//   · a fallback scene says `fallback-scene`: FieldFallback mounted by design;
+//   · a scene that draws no field (smoke) says null;
+//   · a field that falls back after its READY was sent is an ERROR: the READY no longer describes the screen.
+// Only the UI thread and Skia are faked: the Reanimated fake is FieldScene.test.tsx's (SharedValues persist, a frame
+// callback runs only while active, each frame on a rising timestamp), and Skia is inert, as in FieldView.test.tsx, so
+// FieldFallback's real model runs on its real props. The builder is the real one; a test may plant a throw in it.
+const ui = { timestamp: 0 };
+jest.mock('react-native-reanimated', () => {
+  const { useEffect, useRef } = require('react');
+  const registry = new Map<number, { fn: (info: unknown) => void; active: boolean }>();
+  let nextId = 1;
+  return {
+    View: require('react-native').View,
+    useAnimatedStyle: (fn: () => unknown) => fn(),
+    useSharedValue: (initial: unknown) => {
+      const ref = useRef(null as null | { value: unknown });
+      if (ref.current === null) ref.current = { value: initial };
+      return ref.current;
+    },
+    useDerivedValue: (fn: () => unknown) => ({ get value() { return fn(); } }),
+    runOnJS: (fn: (...args: unknown[]) => void) => (...args: unknown[]) => fn(...args),
+    useFrameCallback: (fn: (info: unknown) => void, autostart = true) => {
+      const ref = useRef(null as null | { isActive: boolean; callbackId: number; setActive: (a: boolean) => void });
+      if (ref.current === null) {
+        const handle = {
+          isActive: autostart,
+          callbackId: -1,
+          setActive(a: boolean) {
+            const entry = registry.get(handle.callbackId);
+            if (entry) entry.active = a;
+            handle.isActive = a;
+          },
+        };
+        ref.current = handle;
+      }
+      useEffect(() => {
+        const handle = ref.current!;
+        const id = nextId;
+        nextId += 1;
+        registry.set(id, { fn, active: false });
+        handle.callbackId = id;
+        handle.setActive(handle.isActive);
+        return () => { registry.delete(id); handle.callbackId = -1; };
+      }, [fn, autostart]);
+      return ref.current;
+    },
+    __frame: (dt: number) => {
+      ui.timestamp += dt;
+      for (const entry of [...registry.values()]) if (entry.active) entry.fn({ timestamp: ui.timestamp, timeSincePreviousFrame: dt, timeSinceFirstFrame: 0 });
+    },
+  };
+});
+const reanimated = require('react-native-reanimated') as { __frame(dt: number): void };
+
+jest.mock('@shopify/react-native-skia', () => {
+  const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
+  const inert: unknown = new Proxy(function stub() {}, { get: () => inert, apply: () => inert });
+  return {
+    Canvas: Stub, Image: () => null, Picture: () => null,
+    FilterMode: { Nearest: 0, Linear: 1 }, MipmapMode: { None: 0, Nearest: 1, Linear: 2 },
+    ClipOp: { Difference: 0, Intersect: 1 }, TileMode: { Clamp: 0, Repeat: 1, Mirror: 2, Decal: 3 },
+    Skia: inert,
+  };
+});
+
+// The effect, as effect.ts gives it: ready, or the fallback with its reason.
+const effectState: { status: 'ready' | 'fallback' } = { status: 'ready' };
+jest.mock('../../v2/field/effect.ts', () => ({
+  fieldEffect: () => (effectState.status === 'ready'
+    ? { status: 'ready', effect: { name: 'effect' }, blueNoise: {}, blueNoiseShader: { name: 'noise' } }
+    : { status: 'fallback', reason: 'the field shader did not compile' }),
+}));
+
+// The real builder; a test may plant a throw in it, as the UI thread would meet one.
+const planted = { throw: false };
+jest.mock('../../v2/field/fieldFrame.ts', () => {
+  const actual = jest.requireActual('../../v2/field/fieldFrame.ts');
+  return {
+    ...actual,
+    buildFieldFrame: (...args: unknown[]) => {
+      if (planted.throw) throw new RangeError('planted builder throw');
+      return actual.buildFieldFrame(...args);
+    },
+  };
+});
+
+import { FieldFallback } from '../../v2/field/FieldFallback';
+import { FieldSurface } from '../../v2/field/FieldSurface';
+import { LabRoot } from '../LabRoot';
+import type { LabParams } from '../params';
+import { ProbeRegistry } from '../probe/Probe';
+import { FieldScene } from '../scenes/FieldScene';
+import { ShaderReportContext, type ShaderReport } from '../shaderReport';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's LabRoot is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
+const mounts = labMounts();
+
+function setup(scene: string, t = '11000') {
+  const lines: string[] = [];
+  const emitter = new EventEmitter();
+  const frames = {
+    queue: [] as Array<() => void>,
+    next(cb: () => void) { frames.queue.push(cb); return () => { frames.queue = frames.queue.filter((x) => x !== cb); }; },
+    tick(n = 1) { for (let i = 0; i < n; i += 1) { const due = frames.queue; frames.queue = []; due.forEach((cb) => cb()); } },
+  };
+  const events = {
+    addListener: (name: string, cb: (e: unknown) => void) => { emitter.on(name, cb); return { remove: () => emitter.off(name, cb) }; },
+  };
+  // A fixed clock never asks the setting; it stays unknown, so nothing lands after the test.
+  const reduceMotion = { current: () => new Promise<boolean>(() => {}), subscribe: () => () => {} };
+  jest.spyOn(View.prototype as never as { measureInWindow(cb: unknown): void }, 'measureInWindow')
+    .mockImplementation((cb: unknown) => (cb as (...v: number[]) => void)(0, 0, 411, 914));
+  let tree!: ReactTestRenderer.ReactTestRenderer;
+  act(() => {
+    tree = ReactTestRenderer.create(
+      <LabRoot
+        labArgs={{ run: 'r', scene, clock: 'fixed', t, frames: '3' }}
+        nonStringKeys={[]}
+        deps={{ emit: (l: string) => lines.push(l), frames, events, reduceMotion }}
+      />,
+    );
+  });
+  mounts.track(tree);
+  const of = (kind: string) => lines.filter((l) => l.startsWith(`KOKONADA_LAB ${kind} `)).map((l) => JSON.parse(l.slice(`KOKONADA_LAB ${kind} `.length)));
+  /** The scene's own view gets its size: FieldView (or FieldFallback) mounts. */
+  const sizeScene = (testID: string) => act(() => {
+    tree.root.find((n) => n.props.testID === testID && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+  });
+  /** Every probe is measured. */
+  const measure = () => act(() => {
+    for (const p of tree.root.findAll((n) => typeof n.type === 'string' && String(n.props.nativeID ?? '').startsWith('probe-'))) p.props.onLayout({ nativeEvent: { layout: {} } });
+  });
+  const uiFrames = (n: number) => { for (let i = 0; i < n; i++) act(() => reanimated.__frame(16)); };
+  const tick = (n = 1) => act(() => frames.tick(n));
+  return { tree, of, sizeScene, measure, uiFrames, tick };
+}
+
+const FIELD = 'field.abyss.dark.three.full';
+const FALLBACK = 'fallback.abyss.dark.three';
+const status = (ready: { shaderStatus?: unknown; shaderReason?: unknown }) => [ready.shaderStatus, ready.shaderReason];
+
+beforeEach(() => {
+  effectState.status = 'ready';
+  planted.throw = false;
+  ui.timestamp = 0;
+});
+afterEach(() => jest.restoreAllMocks());
+
+describe('READY says which surface drew the scene (UI-223)', () => {
+  it('a field scene drawn by the field shader: ready, and the field is on screen', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.uiFrames(3);
+    h.measure();
+    h.tick(3);
+    expect(h.tree.root.findAllByType(FieldSurface)).toHaveLength(1);
+    expect(h.tree.root.findAllByType(FieldFallback)).toHaveLength(0);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+    expect(h.of('ERROR')).toEqual([]);
+  });
+
+  it('the effect cannot draw (mocked to fallback): READY says fallback with the reason, before and after the field mounts', () => {
+    effectState.status = 'fallback';
+    const before = setup(FIELD);
+    before.measure();
+    before.tick(3);
+    expect(before.of('READY').map(status)).toEqual([['fallback', 'the field shader did not compile']]);
+
+    const after = setup(FIELD);
+    after.sizeScene('field-scene.view');
+    expect(after.tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    after.measure();
+    after.tick(3);
+    expect(after.of('READY').map(status)).toEqual([['fallback', 'the field shader did not compile']]);
+  });
+
+  it('the builder throws on the UI thread: FieldView falls back, and READY says fallback with the builder\'s error', () => {
+    planted.throw = true;
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.uiFrames(1);
+    expect(h.tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['fallback', 'RangeError: planted builder throw']]);
+  });
+
+  it('a fallback scene says it is the fallback by design', () => {
+    const h = setup(FALLBACK);
+    h.sizeScene('fallback-scene.view');
+    expect(h.tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY').map((r) => r.shaderStatus)).toEqual(['fallback-scene']);
+    expect(h.of('READY')[0].shaderReason).toMatch(/fallback scene/);
+  });
+
+  it('a scene that draws no field (smoke) says null', () => {
+    const h = setup('smoke', '1500');
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([[null, null]]);
+  });
+
+  it('a field that falls back after its READY was sent is an ERROR naming why: the READY no longer describes the screen', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.uiFrames(2);
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+    planted.throw = true;
+    h.uiFrames(1);
+    expect(h.tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(h.of('ERROR')).toEqual([{ run: 'r', errors: [expect.stringMatching(/after READY.*ready.*fallback.*RangeError: planted builder throw/)] }]);
+    expect(h.of('READY')).toHaveLength(1);
+  });
+});
+
+// UI-233 (RA-44): `ready` means FieldView drew a frame, not only that the effect compiled. READY's own frames are the JS
+// thread's; if they all land before the UI thread's first frame, the stage is blank (the uniforms are still null) yet
+// stable, and a READY saying `ready` would let a blank shot pass the harness. So the scene says `pending` until FieldView
+// signals its first drawn frame (FieldFirstFrameReport, which only the lab provides), and LabRoot holds READY while the
+// scene is pending: no READY is sent at all, and once the frame is drawn READY counts its frames afresh from there.
+describe('ready means FieldView drew a frame (UI-233, RA-44)', () => {
+  it('no UI frame before the measure and the ticks: no READY at all, however many frames go by', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY')).toEqual([]);
+    h.tick(20);
+    expect(h.of('READY')).toEqual([]);
+    expect(h.of('ERROR')).toEqual([]);
+    expect(h.tree.root.findByType(FieldSurface).props.uniforms.value).toBeNull();
+  });
+
+  it('after the first UI frame, READY counts its frames from there and says ready', () => {
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(5);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    expect(h.tree.root.findByType(FieldSurface).props.uniforms.value).not.toBeNull();
+    expect(h.of('READY')).toEqual([]);
+    h.tick(2);
+    expect(h.of('READY')).toEqual([]); // 2 of 3 frames since the first drawn one
+    h.tick(1);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+    h.tick(10);
+    h.uiFrames(5);
+    expect(h.of('READY')).toHaveLength(1);
+    expect(h.of('ERROR')).toEqual([]);
+  });
+
+  it('the stage measured before the field is even sized: READY waits for the drawn frame too', () => {
+    const h = setup(FIELD);
+    h.measure();
+    h.tick(10);
+    expect(h.of('READY')).toEqual([]);
+    h.sizeScene('field-scene.view');
+    h.tick(10);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['ready', null]]);
+  });
+
+  it('a builder throw on the first UI frame: never ready, READY says fallback', () => {
+    planted.throw = true;
+    const h = setup(FIELD);
+    h.sizeScene('field-scene.view');
+    h.measure();
+    h.tick(3);
+    expect(h.of('READY')).toEqual([]);
+    h.uiFrames(1);
+    h.tick(3);
+    expect(h.of('READY').map(status)).toEqual([['fallback', 'RangeError: planted builder throw']]);
+    expect(h.of('ERROR')).toEqual([]);
+  });
+
+  it('the scene says pending until FieldView\'s first drawn frame, and a scene change re-arms it', () => {
+    const reports: ShaderReport[] = [];
+    const clock = { t: { value: 11000 } } as never;
+    const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 11000, stepMs: 0, frames: 3 });
+    const element = (scene: string) => (
+      <ProbeRegistry onMeasure={() => {}}>
+        <ShaderReportContext.Provider value={(r) => reports.push(r)}>
+          <FieldScene clock={clock} t={11000} params={paramsOf(scene)} />
+        </ShaderReportContext.Provider>
+      </ProbeRegistry>
+    );
+    const last = () => reports[reports.length - 1];
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { tree = mounts.track(ReactTestRenderer.create(element('field.abyss.dark.one.intense.full'))); });
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => {
+      tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+    });
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    const drawn = reports.length;
+    for (let i = 0; i < 5; i++) act(() => reanimated.__frame(16));
+    expect(reports).toHaveLength(drawn); // once per mount: later frames say nothing new
+
+    act(() => tree.update(element('field.abyss.dark.one.joy.full')));
+    expect(tree.root.findByType(FieldSurface).props.uniforms.value).toBeNull();
+    expect(last()).toEqual({ status: 'pending', reason: null });
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    act(() => tree.unmount());
+  });
+});
+
+// B8 (item 4): the builder-throw fallback belongs to the scene it fell back in, as the drawn frame does. A scene change
+// on the same mount mounts a fresh FieldView; an old scene's fallback reason must not stay on the new scene, which says
+// `pending` until its own first frame and then `ready`.
+describe('a fallback is the scene\'s own (B8)', () => {
+  it('a builder throw in scene A, then scene B: pending, then ready, never A\'s reason', () => {
+    const reports: ShaderReport[] = [];
+    const clock = { t: { value: 11000 } } as never;
+    const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 11000, stepMs: 0, frames: 3 });
+    const element = (scene: string) => (
+      <ProbeRegistry onMeasure={() => {}}>
+        <ShaderReportContext.Provider value={(r) => reports.push(r)}>
+          <FieldScene clock={clock} t={11000} params={paramsOf(scene)} />
+        </ShaderReportContext.Provider>
+      </ProbeRegistry>
+    );
+    const last = () => reports[reports.length - 1];
+    planted.throw = true;
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { tree = mounts.track(ReactTestRenderer.create(element('field.abyss.dark.one.intense.full'))); });
+    act(() => {
+      tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
+    });
+    act(() => reanimated.__frame(16));
+    expect(tree.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(last()).toEqual({ status: 'fallback', reason: 'RangeError: planted builder throw' });
+
+    planted.throw = false;
+    const before = reports.length;
+    act(() => tree.update(element('field.abyss.dark.one.joy.full')));
+    expect(tree.root.findAllByType(FieldFallback)).toHaveLength(0);
+    expect(reports.slice(before)).toEqual([{ status: 'pending', reason: null }]);
+    act(() => reanimated.__frame(16));
+    expect(last()).toEqual({ status: 'ready', reason: null });
+    expect(reports.slice(before).map((r) => r.reason)).not.toContain('RangeError: planted builder throw');
+    expect(reports.slice(before).map((r) => r.status)).not.toContain('fallback');
+    act(() => tree.unmount());
+  });
+});
