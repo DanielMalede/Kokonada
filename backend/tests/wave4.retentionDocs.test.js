@@ -164,3 +164,38 @@ describe('W4-D13 · retention documentation is registered, not remembered', () =
     }
   });
 });
+
+// DAN-015 D-2: `MedicalProfile` has no TTL, so the discovery above never asks for its row. Its row is
+// pinned here instead, with the code facts it states: no TTL index, and the all-or-nothing rule.
+describe('DAN-015 D-2 · the stored physiological profile has its own Retention row', () => {
+  const ROW_START = '| Health baseline / stored physiological profile (`MedicalProfile`';
+  const GATE = '<!-- NEEDS VERIFICATION: J2\'s start gate refuses without an undo, so profiles written before it for accounts with no current grant remain. Publish "stored only while health data is on" only once DAN-050 records a count of MedicalProfile rows, and their MorningState rows, of existing accounts whose latest health-consent row is not a current grant, split into never granted / withdrawn / earlier version, reading 0, or a recorded removal (OPS-139, E-3). -->';
+  const rows = () => section(readDoc(), 'Retention').split('\n').filter((l) => l.startsWith('|'));
+  const profileRow = () => rows().find((l) => l.startsWith(ROW_START));
+
+  it('states no retention limit of its own, which the model confirms (no TTL index)', () => {
+    expect(profileRow()).toBeTruthy();
+    expect(profileRow()).toContain('**No retention limit of its own**');
+    expect(fs.readFileSync(path.join(MODELS_DIR, 'MedicalProfile.js'), 'utf8')).not.toMatch(/expireAfterSeconds/);
+    // RA-6: the compiled schema too, so a TTL declared another way (a path's `expires`) is caught.
+    const indexes = require('../app/models/MedicalProfile').schema.indexes();
+    expect(indexes.length).toBeGreaterThan(0); // the userId index: the check is not vacuous
+    expect(indexes.filter(([, opts]) => opts && (opts.expireAfterSeconds != null || opts.expires != null))).toEqual([]);
+  });
+
+  it('names the three sample models the all-or-nothing rule counts', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../app/services/privacy/wearableErasure.js'), 'utf8');
+    const start = src.indexOf('async function purgeOrphanedAggregates');
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf('\n}\n', start));
+    const counted = [...body.matchAll(/(\w+)\.countDocuments\(/g)].map((m) => m[1]).sort();
+    expect(counted).toEqual(['BiometricLog', 'HealthSample', 'VitalSample']);
+    expect(profileRow()).toContain('all-or-nothing once no `BiometricLog`, `HealthSample` or `VitalSample` row of the user remains');
+  });
+
+  it('stands right after the MorningState row, and keeps its gate comment verbatim', () => {
+    const all = rows();
+    expect(all.indexOf(profileRow())).toBe(all.findIndex((l) => l.includes('(`MorningState`)')) + 1);
+    expect(profileRow()).toContain(GATE);
+  });
+});
