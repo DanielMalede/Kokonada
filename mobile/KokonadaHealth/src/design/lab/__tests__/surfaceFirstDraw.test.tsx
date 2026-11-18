@@ -85,6 +85,11 @@ import { GrainScene } from '../scenes/GrainScene';
 import { WitnessScene } from '../scenes/WitnessScene';
 import { SETTING_READ_DEADLINE_MS } from '../settingRead';
 import { ShaderReportContext, type ShaderReport } from '../shaderReport';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's tree is unmounted after it, so no first-draw (RA-55) or setting-read (UI-241) deadline outlives the test
+// (UI-261).
+const mounts = labMounts();
 
 function setup(scene: string) {
   const lines: string[] = [];
@@ -104,6 +109,7 @@ function setup(scene: string) {
       <LabRoot labArgs={{ run: 'r', scene, clock: 'fixed', t: '11000', frames: '3' }} nonStringKeys={[]} deps={{ emit: (l: string) => lines.push(l), frames, events, reduceMotion }} />,
     );
   });
+  mounts.track(tree);
   const of = (kind: string) => lines.filter((l) => l.startsWith(`KOKONADA_LAB ${kind} `)).map((l) => JSON.parse(l.slice(`KOKONADA_LAB ${kind} `.length)));
   const sizeScene = (testID: string) => act(() => {
     tree.root.find((n) => n.props.testID === testID && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
@@ -188,7 +194,7 @@ describe('FieldSurface in the app: no listener, nothing more', () => {
 
   it('without a FieldSurfaceDrawReport it registers no reaction: a UI frame renders nothing extra', () => {
     let tree!: ReactTestRenderer.ReactTestRenderer;
-    act(() => { tree = ReactTestRenderer.create(<FieldSurface {...props()} />); });
+    act(() => { tree = mounts.track(ReactTestRenderer.create(<FieldSurface {...props()} />)); });
     expect(mockUi.reactions.size).toBe(0);
     act(() => reanimated.__frame());
     expect(mockOffscreen.made).toBe(0);
@@ -206,6 +212,7 @@ describe('FieldSurface in the app: no listener, nothing more', () => {
         </FieldSurfaceDrawReport.Provider>,
       );
     });
+    mounts.track(tree);
     expect(told).toEqual([]);
     for (let i = 0; i < 5; i++) act(() => reanimated.__frame());
     expect(told).toEqual([1]);
@@ -312,7 +319,7 @@ describe.each([
     );
     const last = () => reports[reports.length - 1];
     let tree!: ReactTestRenderer.ReactTestRenderer;
-    act(() => { tree = ReactTestRenderer.create(element(first)); });
+    act(() => { tree = mounts.track(ReactTestRenderer.create(element(first))); });
     act(() => {
       tree.root.find((n) => n.props.testID === view && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
     });

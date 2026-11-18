@@ -91,6 +91,10 @@ import { SCENES } from '../scenes';
 import { FieldScene, LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
 import type { MotionPorts } from '../../v2/motion/ports';
 import { ProbeRegistry } from '../probe/Probe';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's tree is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
+const mounts = labMounts();
 
 const POLICY_IDS = FIELD_FACES.flatMap((face) => HERO_SCENES.map((hero) => `field.abyss.${face}.${hero}.policy`));
 
@@ -138,6 +142,7 @@ function setup(scene: string, device: { powerSave: boolean }) {
       />,
     );
   });
+  mounts.track(tree);
   const of = (kind: string) => lines.filter((l) => l.startsWith(`KOKONADA_LAB ${kind} `)).map((l) => JSON.parse(l.slice(`KOKONADA_LAB ${kind} `.length)));
   const sizeScene = () => act(() => {
     tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
@@ -398,7 +403,7 @@ describe('a policy scene whose battery-saver setting cannot be read says so (UI-
   const mountWith = async (ports: MotionPorts) => {
     const facts: SceneFacts[] = [];
     await act(async () => {
-      ReactTestRenderer.create(
+      mounts.track(ReactTestRenderer.create(
         <LabMotionPortsContext.Provider value={ports}>
           <SceneFactsContext.Provider value={(f) => facts.push(f)}>
             <ProbeRegistry onMeasure={() => {}}>
@@ -406,7 +411,7 @@ describe('a policy scene whose battery-saver setting cannot be read says so (UI-
             </ProbeRegistry>
           </SceneFactsContext.Provider>
         </LabMotionPortsContext.Provider>,
-      );
+      ));
     });
     return facts;
   };

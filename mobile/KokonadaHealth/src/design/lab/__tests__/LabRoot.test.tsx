@@ -8,6 +8,10 @@ import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
 import type { Scene } from '../scenes';
 import { ShaderReportContext } from '../shaderReport';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's LabRoot is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
+const mounts = labMounts();
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -47,6 +51,7 @@ function setup(props: Record<string, unknown>, deps: Record<string, unknown> = {
       <LabRoot {...props} deps={{ emit: (l: string) => lines.push(l), frames, events, ...deps }} />,
     );
   });
+  mounts.track(tree);
   const probes = () => tree.root.findAll((n) => typeof n.type === 'string' && String(n.props.nativeID ?? '').startsWith('probe-'));
   const layout = (only?: string) => act(() => {
     for (const p of probes()) if (!only || p.props.nativeID === `probe-${only}`) p.props.onLayout({ nativeEvent: { layout: {} } });

@@ -39,6 +39,10 @@ import { FIELD_STATICS } from '../fieldScenes';
 import { GRAIN_FACTORS, GRAIN_SPECS, grainBase, grainParams, grainProbeId, grainSpec, grainStrips, stripWidth } from '../grain/grainFrames';
 import { GrainScene } from '../scenes/GrainScene';
 import { directionOf, flat, frameOf, hostByNativeId, layoutRules, type Box } from './__fixtures__/yogaRtl';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's scene is unmounted after it, so its first-draw deadline (RA-55) never outlives the test (UI-261).
+const mounts = labMounts();
 
 const K = 2.625;
 const W = 1080 / K;
@@ -70,6 +74,7 @@ function mountMeasured(scene: string) {
       </ShaderReportContext.Provider>,
     );
   });
+  mounts.track(r);
   act(() => r.root.find((n) => n.props.testID === 'grain-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: W, height: H } } }));
   const probes = r.root.findAll((n) => typeof n.type === 'string' && typeof n.props.nativeID === 'string' && n.props.nativeID.startsWith('probe-'));
   act(() => { for (const n of probes) n.props.onLayout({ nativeEvent: { layout: {} } }); });
