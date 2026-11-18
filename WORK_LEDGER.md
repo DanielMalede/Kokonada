@@ -112,13 +112,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M06
-- task: `own:ops201-merge-guard-sweeps-skip` (own)
-- title: OPS-201: merge-guard step 3e also accepts mobile-sweeps skipped when sweeps-changes succeeded and no sweeps: path matches (before #234)
-- branch: `fix/ops201-merge-guard-sweeps-skip`
-- paths: `.claude/agents/merge-guard.md`, `TASKS.md`
+- task: `DAN-131` (TASKS)
+- title: Never store a user's free-text note without current health consent: used for the choice, not kept in PlaylistSession, socket state, shadow, log or Sentry (owner ruling 2026-10-28)
+- branch: `fix/dan131-note-consent`
+- paths: `TASKS.md`, `backend/app/sockets/biometricHandler.js`, `backend/app/services/privacy/healthConsentGate.js`, `backend/app/models/PlaylistSession.js`, `backend/app/workers/sessionTrim.worker.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/consentWithdrawalLiveState.integration.test.js`, `backend/tests/sessionTrim.worker.test.js`, `backend/tests/healthConsentGate.test.js`, `backend/tests/noteConsentStorage.integration.test.js`
 - resources: none
 - state: claimed
-- started: 2026-10-27
+- started: 2026-11-17
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)
