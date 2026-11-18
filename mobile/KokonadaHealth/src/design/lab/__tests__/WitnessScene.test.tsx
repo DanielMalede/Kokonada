@@ -49,6 +49,10 @@ import { w1aFrame, w1bFrame, witnessColours } from '../witness/witnessFrames';
 import { witnessInsets } from '../witness/witnessInsets';
 import { witnessLayout } from '../witness/witnessLayout';
 import { WITNESS_PROBES, witnessProbeId } from '../witness/witnessProbes';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's scene is unmounted after it, so its first-draw deadline (RA-55) never outlives the test (UI-261).
+const mounts = labMounts();
 
 const W = 411;
 const H = 914;
@@ -65,7 +69,7 @@ function mount(scene: string, onReport: (r: ShaderReport) => void = () => {}) {
       </ShaderReportContext.Provider>,
     );
   });
-  return r;
+  return mounts.track(r);
 }
 const probes = (r: ReactTestRenderer.ReactTestRenderer) =>
   r.root.findAll((n) => typeof n.type === 'string' && typeof n.props.nativeID === 'string' && n.props.nativeID.startsWith('probe-')).map((n) => n.props.nativeID);

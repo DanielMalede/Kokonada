@@ -43,6 +43,10 @@ import { GAP_DP, sampleOf, witnessLayout } from '../witness/witnessLayout';
 import { witnessInsets } from '../witness/witnessInsets';
 import { WITNESS_PROBES, witnessProbeProblems } from '../witness/witnessProbes';
 import { frameOf, hostByNativeId, layoutRules, type Box, type Node } from './__fixtures__/yogaRtl';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's scene is unmounted after it, so its first-draw deadline (RA-55) never outlives the test (UI-261).
+const mounts = labMounts();
 
 
 // The dry run's device: 1080 × 2340 px at 2.625 px per dp; the status bar 74 px, the navigation bar 39 px, both over the
@@ -91,6 +95,7 @@ function mountMeasured(scene: string) {
       </ShaderReportContext.Provider>,
     );
   });
+  mounts.track(r);
   act(() => r.root.find((n) => n.props.testID === 'witness-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: W, height: H } } }));
   const probeHosts = r.root.findAll((n) => typeof n.type === 'string' && typeof n.props.nativeID === 'string' && n.props.nativeID.startsWith('probe-'));
   act(() => { for (const n of probeHosts) n.props.onLayout({ nativeEvent: { layout: {} } }); });

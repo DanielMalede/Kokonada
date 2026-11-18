@@ -101,6 +101,10 @@ import type { LabParams } from '../params';
 import { ProbeRegistry } from '../probe/Probe';
 import { FieldScene } from '../scenes/FieldScene';
 import { ShaderReportContext, type ShaderReport } from '../shaderReport';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's LabRoot is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
+const mounts = labMounts();
 
 function setup(scene: string, t = '11000') {
   const lines: string[] = [];
@@ -127,6 +131,7 @@ function setup(scene: string, t = '11000') {
       />,
     );
   });
+  mounts.track(tree);
   const of = (kind: string) => lines.filter((l) => l.startsWith(`KOKONADA_LAB ${kind} `)).map((l) => JSON.parse(l.slice(`KOKONADA_LAB ${kind} `.length)));
   /** The scene's own view gets its size: FieldView (or FieldFallback) mounts. */
   const sizeScene = (testID: string) => act(() => {
@@ -299,7 +304,7 @@ describe('ready means FieldView drew a frame (UI-233, RA-44)', () => {
     );
     const last = () => reports[reports.length - 1];
     let tree!: ReactTestRenderer.ReactTestRenderer;
-    act(() => { tree = ReactTestRenderer.create(element('field.abyss.dark.one.intense.full')); });
+    act(() => { tree = mounts.track(ReactTestRenderer.create(element('field.abyss.dark.one.intense.full'))); });
     expect(last()).toEqual({ status: 'pending', reason: null });
     act(() => {
       tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
@@ -338,7 +343,7 @@ describe('a fallback is the scene\'s own (B8)', () => {
     const last = () => reports[reports.length - 1];
     planted.throw = true;
     let tree!: ReactTestRenderer.ReactTestRenderer;
-    act(() => { tree = ReactTestRenderer.create(element('field.abyss.dark.one.intense.full')); });
+    act(() => { tree = mounts.track(ReactTestRenderer.create(element('field.abyss.dark.one.intense.full'))); });
     act(() => {
       tree.root.find((n) => n.props.testID === 'field-scene.view' && typeof n.type !== 'string').props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 411, height: 914 } } });
     });
