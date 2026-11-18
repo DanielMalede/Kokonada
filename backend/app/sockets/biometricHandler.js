@@ -532,11 +532,16 @@ function _withholdBiometrics(state) {
  * socket's held Art.9 state, keep the connection. Called by consentController.withdraw for every
  * live socket of the user after the withdrawal row is written. Returns whether the socket held any
  * state; an unknown socket is left alone — this never creates state.
+ *
+ * DAN-131: the withdrawal also drops the held note, which a grant let this socket keep. Here and not
+ * in _withholdBiometrics: that also runs on a denied biometric_push or heart request, and a note held
+ * for the very next generation of a user who never consented must still reach that generation.
  */
 function withholdSocketBiometrics(socketId) {
   const held = debounceMap.get(socketId);
   if (!held) return false;
   _withholdBiometrics(held);
+  held.lastTextPrompt = '';
   return true;
 }
 
@@ -883,8 +888,22 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     // Bug 8 — strict branch routing. Route to the mood/emotion pipeline whenever there
     // is ANY emotion intent (mood taps OR a custom text prompt); a custom-text-only
     // request must never fall through to the heart-rate branch and be ignored.
+    // DAN-131: the run takes the held note ONCE, here, and every later use reads this copy.
+    const note = state.lastTextPrompt || '';
     const useEmotion = trigger === 'emotion'
-      && (state.lastEmotionTaps.length > 0 || !!state.lastTextPrompt || !!state.lastActivity);
+      && (state.lastEmotionTaps.length > 0 || !!note || !!state.lastActivity);
+    // DAN-131 (the owner's ruling of 2026-10-28, class (c)): a note is KEPT only under a CURRENT health
+    // grant, read now, for this run — the gate's one definition, failing closed on a stale grant or an
+    // unreadable store. Without one the note still shapes this run (buildEmotionPlaylist reduces it to
+    // closed-vocabulary tags) but the session stores '' and the socket stops holding it. Only a run that
+    // has a note to keep reads consent; a mood-only run still reads nothing.
+    const keepNote = useEmotion && !!note && await admitHealthProcessing(userId);
+    // Only a mood run that read consent and did not admit storage drops the held note: a heart,
+    // biometric or skip_loop run never reads consent for it, and the client's building retry re-sends
+    // request_playlist without a fresh emotion_update, so that retried mood run must still find it.
+    // Only the note THIS run took: a newer emotion_update that landed during the read is its own
+    // run's to decide.
+    if (useEmotion && note && !keepNote && state.lastTextPrompt === note) state.lastTextPrompt = '';
     // The mood the critic, strict personalization and the serve ledger key off.
     // The heart-rate branch now gets a SYNTHETIC, deterministic bio:* moodKey
     // (bio:<band>:<activity>) — closing the old moodKey=null blacklist bypass.
@@ -1036,7 +1055,8 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         _id:               sessionDocId,
         userId,
         emotionTaps:       useEmotion && state.lastEmotionTaps.length > 0 ? state.lastEmotionTaps : [{ x: 0, y: 0 }],
-        contextPrompt:     useEmotion ? (state.lastTextPrompt || '') : '',
+        // DAN-131: '' (never null — null is the trim's fingerprint) unless this run may keep its note.
+        contextPrompt:     keepNote ? note : '',
         moodKey,
         biometricSnapshot: { heartRate: snapshotHR, activity: effectiveActivity },
         targetBpm:         params.target_bpm,
@@ -1220,7 +1240,7 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         aiResult = await withTimeout(buildEmotionPlaylist({
           musicProfile,
           emotionTaps:  state.lastEmotionTaps,
-          textPrompt:   state.lastTextPrompt || null,
+          textPrompt:   note || null,
           activity:     state.lastActivity || null,
           biometricContext,
           fetchTracks,
