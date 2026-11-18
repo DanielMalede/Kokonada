@@ -19,10 +19,42 @@ const MODULE = 'src/plantedQa116Module.ts';
 const BARREL = 'src/plantedQa116Barrel.ts';
 const CALLER = 'src/plantedQa116Caller.tsx';
 const TEST = 'src/__tests__/plantedQa116.test.ts';
+const DEFAULT_ONLY = 'src/plantedQa116Default.ts';
+const ORPHAN = 'src/plantedQa116Orphan.ts';
+const LAB = 'src/design/lab/plantedQa116Lab.tsx';
 const BIOAURA = 'src/experience/aura/BioAura.tsx';
+const APP = 'App.tsx';
 
 const planted: Record<string, string> = {
+  // The release entry reaches the planted caller (and through it the default-export file), so those are
+  // in the release closure; ORPHAN and LAB are not.
+  [at(APP)]: `${ts.sys.readFile(at(APP))!}\nimport './src/plantedQa116Caller';\n`,
+  [at(DEFAULT_ONLY)]: [
+    "import { plantedDefaultReexported } from './plantedQa116Module';",
+    'export default plantedDefaultReexported;',
+  ].join('\n'),
+  [at(ORPHAN)]: [
+    "import { plantedOrphanCalled } from './plantedQa116Module';",
+    'export const plantedOrphanValue = plantedOrphanCalled();',
+  ].join('\n'),
+  [at(LAB)]: [
+    "import { plantedLabOnly } from '../../plantedQa116Module';",
+    'export const plantedLabValue = plantedLabOnly();',
+  ].join('\n'),
   [at(MODULE)]: [
+    'export function plantedDefaultReexported(): number { return 10; }',
+    'export function plantedTypeImported(): number { return 11; }',
+    'export function plantedTypeSpecifier(): number { return 12; }',
+    'export class PlantedClass { readonly v = 13; }',
+    'export class PlantedBuilt { readonly v = 14; }',
+    'export function plantedOverloaded(n: number): number;',
+    'export function plantedOverloaded(n: string): number;',
+    "export function plantedOverloaded(n: number | string): number { return typeof n === 'number' && n > 0 ? plantedOverloaded(n - 1) : 0; }",
+    'export function plantedDestructured(): number { return 15; }',
+    'export function plantedRequirePinned(): number { return 16; }',
+    'export function plantedActualPinned(): number { return 17; }',
+    'export function plantedOrphanCalled(): number { return 18; }',
+    'export function plantedLabOnly(): number { return 19; }',
     'export function plantedUncalled(): number { return 1; }',
     'export function plantedViaBarrel(): number { return 2; }',
     'export function plantedCalledViaBarrel(): number { return 3; }',
@@ -49,13 +81,25 @@ const planted: Record<string, string> = {
     'export const plantedElement = <PlantedBadge />;',
     "export const plantedLazy = (): number => require('./plantedQa116Module').plantedRequired();",
     'export const plantedReact = React;',
+    "import { PlantedBuilt } from './plantedQa116Module';",
+    "import './plantedQa116Default';",
+    'export const plantedBuilt = new PlantedBuilt();',
   ].join('\n'),
   [at(TEST)]: [
     "import plantedDefault, { plantedUncalled, plantedCalledViaBarrel, plantedShorthand, plantedTypeOnly, plantedRecursive, PlantedBadge, plantedRequired, plantedConstant } from '../plantedQa116Module';",
+    "import { plantedDefaultReexported, PlantedClass, PlantedBuilt, plantedOverloaded, plantedOrphanCalled, plantedLabOnly } from '../plantedQa116Module';",
+    "import type { plantedTypeImported } from '../plantedQa116Module';",
+    "import { type plantedTypeSpecifier } from '../plantedQa116Module';",
     "import { barrelName } from '../plantedQa116Barrel';",
     "import * as m from '../plantedQa116Module';",
+    "const { plantedDestructured } = require('../plantedQa116Module');",
     'it("pins", () => {',
     '  expect([plantedDefault(), plantedUncalled(), plantedCalledViaBarrel(), plantedShorthand(), plantedTypeOnly(), plantedRecursive(2), PlantedBadge(), plantedRequired(), plantedConstant, barrelName(), m.plantedNamespacePinned()]).toBeTruthy();',
+    '  expect([plantedDefaultReexported(), new PlantedClass(), new PlantedBuilt(), plantedOverloaded(1), plantedOrphanCalled(), plantedLabOnly(), plantedDestructured()]).toBeTruthy();',
+    "  expect(require('../plantedQa116Module').plantedRequirePinned()).toBe(16);",
+    "  expect(jest.requireActual('../plantedQa116Module').plantedActualPinned()).toBe(17);",
+    '  const typed: [typeof plantedTypeImported, typeof plantedTypeSpecifier] | null = null;',
+    '  expect(typed).toBeNull();',
     '});',
   ].join('\n'),
 };
@@ -90,15 +134,17 @@ describe('QA-116 · which files are production', () => {
     ['src/__contracts__/deadList.ts', false],
     ['scripts/tsc/fullTsc.ts', false],
     ['jest.setup.js', false],
+    ['index.lab.js', false],
+    ['src/design/lab/LabRoot.tsx', false],
     ['node_modules/react/index.js', false],
   ])('%s -> %s', (rel, expected) => {
     expect(isProductionPath(at(rel))).toBe(expected);
   });
 
-  it('agrees with productionFiles() on the real tree (src/__contracts__ aside), so the two never drift', () => {
+  it('agrees with productionFiles() on the real tree (src/__contracts__ and the Design Lab aside), so the two never drift', () => {
     const files = productionFiles();
     expect(files.length).toBeGreaterThan(100);
-    const disagree = files.filter((f) => !isProductionPath(f) && !/[\\/]src[\\/]__contracts__[\\/]/.test(f));
+    const disagree = files.filter((f) => !isProductionPath(f) && !/[\\/]src[\\/](__contracts__|design[\\/]lab)[\\/]|[\\/]index\.lab\.js$/.test(f));
     expect(disagree).toEqual([]);
   });
 });
@@ -109,6 +155,13 @@ describe('QA-116 · the real tree', () => {
     expect(real.pinned.length).toBeGreaterThan(0);
     expect(real.testFiles).toBeGreaterThan(100);
     expect(real.productionFiles).toBeGreaterThan(100);
+    expect(real.releaseFiles).toBeGreaterThan(100);
+  });
+
+  it('a caller only in the Design Lab does not count: useRealtimeFieldClock is called from LabRoot.tsx alone', () => {
+    const clock = find(real, 'src/design/v2/clock/fieldClock.ts#useRealtimeFieldClock');
+    expect(clock!.tests.length).toBeGreaterThan(0);
+    expect(clock!.callers).toEqual([]);
   });
 
   it('hrGlowColor is pinned and its only production caller is BioAura.tsx (the precondition of the removal control)', () => {
@@ -154,6 +207,39 @@ describe('QA-116 · planted controls (in memory)', () => {
     // require() is untyped, so a caller reached only through it is missed: the check errs red, never green
     expect(find(plantedScan, `${MODULE}#plantedRequired`)!.callers).toEqual([]);
   });
+
+  it('RA-1: a caller in a module the release entry never reaches (the Design Lab, an orphan) does not count', () => {
+    expect(isProductionPath(at(LAB))).toBe(false);
+    expect(find(plantedScan, `${MODULE}#plantedLabOnly`)!.callers).toEqual([]);
+    expect(find(plantedScan, `${MODULE}#plantedOrphanCalled`)!.callers).toEqual([]);
+    const failures = pinFailures(plantedScan, []);
+    expect(failures).toContainEqual(expect.stringContaining(`${MODULE}#plantedLabOnly`));
+    expect(failures).toContainEqual(expect.stringContaining(`${MODULE}#plantedOrphanCalled`));
+  });
+
+  it('RA-2: export default x alone is no caller; import type pins nothing', () => {
+    expect(find(plantedScan, `${MODULE}#plantedDefaultReexported`)!.callers).toEqual([]);
+    expect(keys(plantedScan)).not.toContain(`${MODULE}#plantedTypeImported`);
+    expect(keys(plantedScan)).not.toContain(`${MODULE}#plantedTypeSpecifier`);
+  });
+
+  it('RA-3: a class a test constructs is a pin; production construction is a caller; recursion in an overload body is not', () => {
+    expect(find(plantedScan, `${MODULE}#PlantedClass`)!.callers).toEqual([]);
+    expect(pinFailures(plantedScan, [])).toContainEqual(expect.stringContaining(`${MODULE}#PlantedClass`));
+    expect(find(plantedScan, `${MODULE}#PlantedBuilt`)!.callers).toEqual([CALLER]);
+    expect(find(plantedScan, `${MODULE}#plantedOverloaded`)!.callers).toEqual([]);
+  });
+
+  it('RA-5: a test that reaches a function through require() or jest.requireActual pins it', () => {
+    for (const name of ['plantedDestructured', 'plantedRequirePinned', 'plantedActualPinned']) {
+      expect({ name, tests: find(plantedScan, `${MODULE}#${name}`)?.tests }).toEqual({ name, tests: [TEST] });
+    }
+  });
+
+  it('RA-4: a planted import that resolves to nothing is refused, never a silent pass', () => {
+    const file = at('src/plantedRa4.ts');
+    expect(() => scanPinnedExports(parsed, { [file]: "import { x } from './plantedRa4Missing/module'; export const y = x;" })).toThrow(/resolve/);
+  }, TIMEOUT);
 
   it('an anonymous default export is pinned under the name default', () => {
     expect(find(plantedScan, `${MODULE}#default`)!.tests).toEqual([TEST]);
