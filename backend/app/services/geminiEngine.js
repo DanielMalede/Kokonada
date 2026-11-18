@@ -7,6 +7,7 @@ const { disabled }     = require('../utils/envFlag');
 const { DEFAULT_LLM_MODEL } = require('../config/llmProvider');
 const { chatJson, failureMessage, LlmTruncatedError } = require('./llmCall');
 const { resolveMoodKey, MOOD_DESCRIPTORS, applyMoodFallback, applyBiometricBands, buildBioParams, extractIntent, normalizeActivity, promptSafeActivity, applyIntentBand } = require('./moodDescriptors');
+const { toDiscoveryQuery, bioDiscoveryQuery } = require('./discovery/discoveryQuery');
 
 const REQUIRED_FIELDS = [
   'target_bpm', 'target_energy', 'target_valence',
@@ -263,12 +264,28 @@ async function _callLlm(prompt) {
  * Emotion pipeline — deep contextual reasoning.
  * Intended for manual triggers (Emotion Circle, skip loop).
  *
+ * The discovery port is called positionally as `fetchTracks(params, query)` (BE-231): `params` are
+ * the local, health-shaped targets the results are filtered by here; `query` is the health-free
+ * DiscoveryQuery, the only thing a provider request may be built from.
+ *
  * @param {{ musicProfile, emotionTaps, textPrompt?, fetchTracks }} opts
  * @returns {Promise<{ params, tracks }>}
  */
 async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = null, activity = null, biometricContext = null, fetchTracks, seed = null }) {
   const prompt = _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed, { activity });
   const rawParams = await _callLlm(prompt);
+  const intent = extractIntent(textPrompt);
+  // Wave-0: the raw note is reduced to closed-vocabulary intent tags server-side (extractIntent);
+  // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
+  // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
+  // old free-text behaviour deterministically. BE-231 (fork 4i): the note's activity enters only
+  // through promptSafeActivity, so a sleep note no longer flips the switch to MERGE: a note about
+  // sleep shapes the same seed genres and keywords as no note at all.
+  const derivedIntent = [activity || promptSafeActivity(intent.activity), ...intent.keywords].filter(Boolean).join(' ');
+  // BE-231: the DiscoveryQuery, built from the model's answer to a health-free prompt BEFORE any
+  // health input touches the params. Stored vitals and a withheld sleep intent move only the local
+  // targets below; the provider never sees them.
+  const query = toDiscoveryQuery(applyMoodFallback(rawParams, emotionTaps, derivedIntent, musicProfile));
   // Wave-0 two-stage split: the decrypted vitals never crossed the LLM boundary — they
   // map to the audio target bands (BPM/energy/valence/acousticness) DETERMINISTICALLY here,
   // AFTER the LLM has returned, reusing the moodDescriptors band machinery.
@@ -276,19 +293,13 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
   // BE-229: a note intent the prompt withheld (a sleep intent, with no chip to stand in for it)
   // still shapes the music: the targets blend toward its tempo band here, after the model
   // returned, where the prompt used to ask the model for the same calmer, lower-tempo music.
-  const intent = extractIntent(textPrompt);
   const withheld = !normalizeActivity(activity) && promptSafeActivity(intent.activity) !== intent.activity;
   const bandedParams = withheld ? applyIntentBand(bodyBanded, intent.tempoCategory) : bodyBanded;
-  // Wave-0: the raw note is reduced to closed-vocabulary intent tags server-side (extractIntent);
-  // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
-  // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
-  // old free-text behaviour deterministically.
-  const derivedIntent = [activity || intent.activity, ...intent.keywords].filter(Boolean).join(' ');
   const params = applyMoodFallback(bandedParams, emotionTaps, derivedIntent, musicProfile);
   // Deterministic movement cue: a "going for a run" note → peak, even for a calm mood —
   // the override the raw note used to hand the LLM, now applied server-side.
   if (intent.tempoCategory) params.tempo_category = intent.tempoCategory;
-  return { params, tracks: await fetchTracks(params) };
+  return { params, tracks: await fetchTracks(params, query) };
 }
 
 /**
@@ -313,7 +324,9 @@ async function adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks })
   // buildBioParams seeds the user's top genres itself (an empty seed makes Spotify discovery
   // early-return []), so there is no backfill to do here.
   const params = buildBioParams(ctx, musicProfile);
-  return { params, tracks: await fetchTracks(params) };
+  // BE-231: the provider gets the user's top genres only — never the band, its keywords or a target.
+  const query = bioDiscoveryQuery(musicProfile);
+  return { params, tracks: await fetchTracks(params, query) };
 }
 
 // ── LLM genre backfill ─────────────────────────────────────────────────────────
