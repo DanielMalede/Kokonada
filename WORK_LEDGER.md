@@ -121,13 +121,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M07
-- task: `own:dan101-delete-classify-purge` (own)
-- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
-- branch: `chore/dan101-delete-classify-purge`
-- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
+- task: `OPS-066` (TASKS)
+- title: Stage 0 Q2: scoped tsc and the full-project type ratchet (QA-043), the recorded test counts (QA-042), the QA-115 action-props scanner
+- branch: `test/s0-q2-tsc`
+- paths: `mobile/KokonadaHealth/scripts/tsc/**`, `mobile/KokonadaHealth/scripts/baselines/**`, `mobile/KokonadaHealth/src/testing/guards/tsProgram.ts`, `mobile/KokonadaHealth/src/testing/__tests__/tsProgram.test.ts`, `docs/design-v2/registry/QA-042.md`, `docs/design-v2/registry/QA-043.md`, `docs/design-v2/registry/QA-115.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #269
-- started: 2026-10-20
+- state: claimed
+- started: 2026-11-17
 
 ### M08
 - task: `OPS-065` (TASKS)
@@ -139,13 +139,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M09
-- task: `own:ops303-release-custody` (own)
-- title: the release build no longer reads keystore.properties and yields an unsigned APK with no debug fallback; a reviewed signing script the owner runs as kokonada-signer (OPS-303)
-- branch: `fix/ops303-release-custody`
-- paths: `mobile/KokonadaHealth/android/app/build.gradle`, `mobile/KokonadaHealth/scripts/release/sign-release.ps1`, `mobile/KokonadaHealth/src/__tests__/releaseSigning.test.ts`, `TASKS.md`
+- task: `own:ops417-qa116-pinned-callers` (own)
+- title: Stage 0 Q1b: the pinned-caller check (QA-116) and its dead list (OPS-417)
+- branch: `test/s0-q1b-callers`
+- paths: `mobile/KokonadaHealth/src/testing/guards/pinnedCallers.ts`, `mobile/KokonadaHealth/src/testing/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `docs/design-v2/registry/QA-116.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #271
-- started: 2026-10-21
+- state: claimed
+- started: 2026-11-18
 
 ### M10
 _free_
