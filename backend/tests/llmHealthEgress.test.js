@@ -340,7 +340,8 @@ describe('adjustBiometricPlaylist — no request leaves the process', () => {
       const fetchTracks = jest.fn().mockResolvedValue([{ id: 't1' }]);
       const result = await adjustBiometricPlaylist({ musicProfile: MUSIC_PROFILE, biometric: ctx, fetchTracks });
       expect(result.tracks).toEqual([{ id: 't1' }]);
-      expect(fetchTracks).toHaveBeenCalledWith(result.params);
+      // BE-231: the second, positional argument is the health-free query: top genres only.
+      expect(fetchTracks).toHaveBeenCalledWith(result.params, { seed_genres: ['electronic', 'indie'], mood_keywords: [], playlist_queries: [] });
       expect(Number.isFinite(result.params.target_bpm)).toBe(true);
     }
     expect(axios.post).toHaveBeenCalledTimes(0);

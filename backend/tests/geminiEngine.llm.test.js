@@ -39,7 +39,11 @@ describe('OpenAI-compatible LLM provider (e.g. Groq)', () => {
     // Params are mood-normalized (strict vibe enforced) but the LLM's audio targets survive.
     expect(result.params.target_bpm).toBe(120);
     expect(result.params.exclude_genres.length).toBeGreaterThan(0);
-    expect(fetchTracks).toHaveBeenCalledWith(result.params);
+    // BE-231: the discovery port gets the local params AND the health-free query, positionally; the
+    // query carries the lists only, never a target.
+    expect(fetchTracks).toHaveBeenCalledWith(result.params, {
+      seed_genres: result.params.seed_genres, mood_keywords: result.params.mood_keywords, playlist_queries: result.params.playlist_queries,
+    });
   });
 
   it('throws (so the caller can fall back) when the provider returns invalid JSON', async () => {

@@ -94,13 +94,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M04
-- task: `own:ops067-close` (own)
-- title: close OPS-067 after #235 merged (988bab3, post-merge GREEN): the row to the archive with its evidence, release slot M04, and a row for merge-guard's finding that slot M03 on main still shows BE-229 although #281 merged
-- branch: `docs/ops067-close`
-- paths: `TASKS.md`, `WORK_LEDGER.md`
+- task: `BE-231` (TASKS)
+- title: Fence the music provider: a health-free DiscoveryQuery built before any health input, no target_* sent to Spotify, health filtering stays local
+- branch: `fix/be231-discovery-fence`
+- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/spotify.js`, `backend/app/services/discovery/discoveryQuery.js`, `backend/app/sockets/biometricHandler.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/discoveryHealthEgress.structural.test.js`, `backend/tests/discoveryQuery.test.js`, `backend/tests/spotifyService.test.js`, `backend/tests/geminiEngine.llm.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/geminiEngine.cacheKey.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-17
+- started: 2026-11-18
 
 ### M05
 - task: `OPS-230` (TASKS)

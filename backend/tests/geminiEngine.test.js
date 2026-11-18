@@ -354,7 +354,10 @@ const bandTargets = (band) => ({
 async function paramsFor(biometric, musicProfile = MUSIC_PROFILE) {
   const fetchTracks = jest.fn().mockResolvedValue([]);
   const { params } = await adjustBiometricPlaylist({ musicProfile, biometric, fetchTracks });
-  expect(fetchTracks).toHaveBeenCalledWith(params);
+  // BE-231: the provider query is the user's first two top genres, whatever the band.
+  expect(fetchTracks).toHaveBeenCalledWith(params, {
+    seed_genres: ((musicProfile && musicProfile.topGenres) || []).slice(0, 2), mood_keywords: [], playlist_queries: [],
+  });
   return params;
 }
 function expectBand(params, band) {
