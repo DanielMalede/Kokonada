@@ -11,6 +11,8 @@ export const DEAD_LIST: readonly { readonly file: string; readonly name: string;
   { file: 'src/design/accentInk.ts', name: 'accentInkFor', row: 'OPS-430' },
   { file: 'src/design/contrast.ts', name: 'flatten', row: 'OPS-431' },
   { file: 'src/design/contrast.ts', name: 'passesAA', row: 'OPS-431' },
+  { file: 'src/design/v2/clock/fieldClock.ts', name: 'advanceFieldTime', row: 'OPS-437' },
+  { file: 'src/design/v2/clock/fieldClock.ts', name: 'useRealtimeFieldClock', row: 'OPS-437' },
   { file: 'src/experience/aura/auraUniforms.ts', name: 'advancePulsePhase', row: 'OPS-024' },
   { file: 'src/experience/aurora/auroraField.ts', name: 'focalGlowScale', row: 'OPS-432' },
   { file: 'src/health/blePermissions.ts', name: 'requestBlePermissions', row: 'MB-053' },
