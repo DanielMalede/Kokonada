@@ -112,13 +112,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M06
-- task: `own:ops201-merge-guard-sweeps-skip` (own)
-- title: OPS-201: merge-guard step 3e also accepts mobile-sweeps skipped when sweeps-changes succeeded and no sweeps: path matches (before #234)
-- branch: `fix/ops201-merge-guard-sweeps-skip`
-- paths: `.claude/agents/merge-guard.md`, `TASKS.md`
+- task: `DAN-131` (TASKS)
+- title: Never store a user's free-text note without current health consent: used for the choice, not kept in PlaylistSession, socket state, shadow, log or Sentry (owner ruling 2026-10-28)
+- branch: `fix/dan131-note-consent`
+- paths: `TASKS.md`, `backend/app/sockets/biometricHandler.js`, `backend/app/services/privacy/healthConsentGate.js`, `backend/app/models/PlaylistSession.js`, `backend/app/workers/sessionTrim.worker.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/consentWithdrawalLiveState.integration.test.js`, `backend/tests/sessionTrim.worker.test.js`, `backend/tests/healthConsentGate.test.js`, `backend/tests/noteConsentStorage.integration.test.js`
 - resources: none
 - state: claimed
-- started: 2026-10-27
+- started: 2026-11-17
 
 ### M07
 - task: `own:dan101-delete-classify-purge` (own)
@@ -130,13 +130,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-20
 
 ### M08
-- task: `OPS-171` (TASKS)
-- title: narrow .claude/settings.json so no pre-allowed command can read a secret and publish it, pinned by a settings policy test (SEC-264-L4, SEC-264-L1)
-- branch: `fix/ops171-settings-policy`
-- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `TASKS.md`
+- task: `OPS-065` (TASKS)
+- title: Stage 0 Q1a: the contract manifest (QA-040), the interim test floor (QA-041) and the RETIRE pins (QA-118)
+- branch: `test/s0-q1-contracts`
+- paths: `mobile/KokonadaHealth/src/__contracts__/**`, `mobile/KokonadaHealth/src/testing/guards/contracts.ts`, `mobile/KokonadaHealth/src/testing/guards/retire.ts`, `mobile/KokonadaHealth/src/testing/guards/testFloor.ts`, `mobile/KokonadaHealth/src/testing/__tests__/contracts.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/retire.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/testFloor.test.ts`, `docs/design-v2/registry/QA-040.md`, `docs/design-v2/registry/QA-041.md`, `docs/design-v2/registry/QA-118.md`, `docs/design-v2/registry/INDEX.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #270
-- started: 2026-10-21
+- state: claimed
+- started: 2026-11-17
 
 ### M09
 - task: `own:ops303-release-custody` (own)
