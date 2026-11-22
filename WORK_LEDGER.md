@@ -94,13 +94,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-18
 
 ### M04
-- task: `BE-231` (TASKS)
-- title: Fence the music provider: a health-free DiscoveryQuery built before any health input, no target_* sent to Spotify, health filtering stays local
-- branch: `fix/be231-discovery-fence`
-- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/spotify.js`, `backend/app/services/discovery/discoveryQuery.js`, `backend/app/sockets/biometricHandler.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/discoveryHealthEgress.structural.test.js`, `backend/tests/discoveryQuery.test.js`, `backend/tests/spotifyService.test.js`, `backend/tests/geminiEngine.llm.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/geminiEngine.cacheKey.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `TASKS.md`
+- task: `DAN-134` (TASKS)
+- title: DEC-190 records the owner's no-lawyer ruling and his package 6 decisions of 2026-11-17/22 (OD-1..OD-18), with the TASKS update lines and the new rows they create
+- branch: `docs/dan134-decisions`
+- paths: `docs/design-v2/decisions/DEC-190.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-18
+- started: 2026-11-22
 
 ### M05
 - task: `OPS-230` (TASKS)
