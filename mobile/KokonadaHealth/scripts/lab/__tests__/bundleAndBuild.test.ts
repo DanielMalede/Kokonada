@@ -22,6 +22,14 @@ const SENTINEL = 'kokonada-design-lab-sentinel-testfixture2';
 const MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]);
 const HBC = Buffer.concat([MAGIC, Buffer.from(`code ${SENTINEL} code`)]);
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
+// UI-278: the token source and the generated token module app() writes, and the hashes a stamp of that tree names
+// (labStampTokens.test.ts holds the rest of it).
+const TOKEN_SOURCE = '{ "base": 1 }\n';
+const TOKEN_MODULE = 'export const BASE = 1;\n';
+const STAMPED_TOKENS = {
+  'design-tokens/base.tokens.json': sha(Buffer.from(TOKEN_SOURCE)),
+  'mobile/App/src/design/v2/tokens/tokens.generated.ts': sha(Buffer.from(TOKEN_MODULE)),
+};
 
 function app() {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-build-'));
@@ -33,6 +41,9 @@ function app() {
   };
   write('src/design/lab/sentinel.ts', `export const LAB_SENTINEL = '${SENTINEL}';\n`);
   write('android/app/src/lab/res/values/strings.xml', '<resources/>');
+  write('src/design/v2/tokens/tokens.generated.ts', TOKEN_MODULE);
+  fs.mkdirSync(path.join(repoRoot, 'design-tokens'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'design-tokens', 'base.tokens.json'), TOKEN_SOURCE);
   return { repoRoot, appRoot, write, read: (rel: string) => fs.readFileSync(path.join(appRoot, rel)), exists: (rel: string) => fs.existsSync(path.join(appRoot, rel)) };
 }
 
@@ -56,10 +67,10 @@ describe('bundleLab', () => {
     const a = app();
     a.write('android/app/src/lab/assets/stale.txt', 'old');
     a.write('android/app/src/lab/res/drawable-hdpi/old.png', 'old');
-    const result = await bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: (p: string) => p });
+    const result = await bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: (p: string) => p });
     expect(a.read('android/app/src/lab/assets/index.android.bundle').equals(HBC)).toBe(true);
     const stamp = JSON.parse(a.read('android/app/src/lab/assets/lab-stamp.json').toString());
-    expect(stamp).toEqual({ commit: SHA, porcelainEmpty: true, bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', dev: false, createdAt: '2026-10-04T09:00:00.000Z' });
+    expect(stamp).toEqual({ commit: SHA, porcelainEmpty: true, bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', dev: false, createdAt: '2026-10-04T09:00:00.000Z' });
     expect(result.stamp).toEqual(stamp);
     expect(a.exists('android/app/src/lab/assets/stale.txt')).toBe(false);
     expect(a.exists('android/app/src/lab/res/drawable-hdpi/old.png')).toBe(false);
@@ -69,7 +80,7 @@ describe('bundleLab', () => {
 
   it('refuses to run from a subst drive: Metro resolves the drive back to C: and breaks', async () => {
     const a = app();
-    await expect(bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: () => 'C:\\somewhere\\else' }))
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: () => 'C:\\somewhere\\else' }))
       .rejects.toThrow(/real path/);
     expect(a.exists('android/app/src/lab/assets')).toBe(false);
   });
@@ -79,7 +90,7 @@ describe('bundleLab', () => {
     a.write('android/app/src/lab/assets/index.android.bundle', 'the previous, stamped bundle');
     let bundled = false;
     const spy = async (...args: Parameters<ReturnType<typeof bundler>>) => { bundled = true; return bundler()(...args); };
-    await expect(bundleLab({ appRoot: a.appRoot, git: { head: () => SHA, porcelain: () => ' M index.lab.js' }, bundle: spy, now: NOW, realpath: (p: string) => p }))
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: { head: () => SHA, porcelain: () => ' M index.lab.js' }, bundle: spy, now: NOW, realpath: (p: string) => p }))
       .rejects.toThrow(/uncommitted/);
     expect(bundled).toBe(false);
     expect(a.read('android/app/src/lab/assets/index.android.bundle').toString()).toBe('the previous, stamped bundle');
@@ -90,7 +101,7 @@ describe('bundleLab', () => {
     ['missing the sentinel', Buffer.concat([MAGIC, Buffer.from('no marker here')]), /sentinel/],
   ])('refuses a bundle that is %s, and leaves no bundle behind for Gradle to pack', async (_label, hbc, why) => {
     const a = app();
-    await expect(bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p })).rejects.toThrow(why);
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p })).rejects.toThrow(why);
     expect(a.exists('android/app/src/lab/assets/index.android.bundle')).toBe(false);
   });
 
@@ -98,7 +109,7 @@ describe('bundleLab', () => {
     const a = app();
     let calls = 0;
     const git = { head: () => SHA, porcelain: () => (calls++ === 0 ? '' : '?? android/app/src/lab/assets/lab-stamp.json') };
-    await expect(bundleLab({ appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
   });
 });
 
@@ -124,7 +135,7 @@ describe('buildLabApk', () => {
   const DEBUG_CERT = { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'a'.repeat(64) };
   function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT } = {}) {
     const a = app();
-    const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', createdAt: NOW().toISOString() });
+    const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', createdAt: NOW().toISOString() });
     a.write('android/app/src/lab/assets/index.android.bundle', HBC);
     a.write('android/app/src/lab/assets/lab-stamp.json', JSON.stringify(stamp, null, 2));
     const autolinking = path.join(a.appRoot, 'android/build/generated/autolinking/autolinking.json');

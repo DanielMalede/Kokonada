@@ -145,14 +145,16 @@ function world({ head = SHA, porcelain = '', installed = 'same' as 'same' | 'oth
   fs.writeFileSync(path.join(appRoot, 'src/design/lab/sentinel.ts'), `export const LAB_SENTINEL = '${SENTINEL}';\n`);
   const assets = path.join(appRoot, 'android/app/src/lab/assets');
   fs.mkdirSync(assets, { recursive: true });
-  const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', createdAt: '2026-10-04T10:00:00.000Z' });
+  const tokens = { 'design-tokens/base.tokens.json': sha(Buffer.from(TOKENS)) }; // UI-278: the stamp names the token files
+  const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens, entry: 'index.lab.js', createdAt: '2026-10-04T10:00:00.000Z' });
   fs.writeFileSync(path.join(assets, 'index.android.bundle'), HBC);
   fs.writeFileSync(path.join(assets, 'lab-stamp.json'), JSON.stringify(stamp, null, 2));
-  const apk = zip([
+  const apkOf = (s: object) => zip([
     { name: 'AndroidManifest.xml', data: Buffer.from('binary xml') },
     { name: 'assets/index.android.bundle', data: HBC, deflate: true },
-    { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(stamp, null, 2)) },
+    { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(s, null, 2)) },
   ]);
+  const apk = apkOf(stamp);
   const apkPath = path.join(tmp, 'app-lab.apk');
   fs.writeFileSync(apkPath, apk);
 
@@ -169,7 +171,7 @@ function world({ head = SHA, porcelain = '', installed = 'same' as 'same' | 'oth
     sleep: async () => {}, log: () => {}, witness: { witnessLayout, witnessProbeProblems }, ...overrides,
   });
   const mutations = () => device.commands.filter((c) => /^(settings put|settings delete|cmd uimode night \w|svc |dumpsys battery|am start)/.test(c));
-  return { tmp, repoRoot, appRoot, apkPath, device, outDir, before, run, mutations };
+  return { tmp, repoRoot, appRoot, apkPath, device, outDir, before, run, mutations, stamp, apkOf };
 }
 
 beforeEach(() => { frameNo.n = 0; });
@@ -1358,7 +1360,9 @@ describe('RA-51: a failed rm after the recording', () => {
 // capture writes on the fake phone are pinned to the inline assembly's at e2c5f52 (the goldens below were taken there,
 // with the clock fixed): a passed smoke run, the shipped v1-field plan and a failed run. Since rows carry READY's pixel
 // ratio, the bytes are the inline assembly's once each row's pixelRatio, the one field added, is taken out (and it is
-// READY's, 2.8125 on this 450 dpi phone).
+// READY's, 2.8125 on this 450 dpi phone). UI-278: the stamp names the token files' hashes now, where the goldens' stamp
+// named none; so the stamp's and each row's tokens, the world's, are put back to the {} the goldens were taken with, and
+// the APK's hash, at the top and in each row, to that of the same APK packing the stamp with {}.
 describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
   const FIXED = new Date('2026-11-15T10:00:00.000Z');
   const bytesOf = (w: ReturnType<typeof world>) => {
@@ -1366,10 +1370,19 @@ describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
     const m = JSON.parse(text);
     // The writer's own format, so re-serialising changes nothing but what is taken out.
     expect(`${JSON.stringify(m, null, 2)}\n`).toBe(text);
+    const apkThen = sha(w.apkOf({ ...w.stamp, tokens: {} }));
+    expect(m.stamp).toEqual(w.stamp);
+    expect(m.apkSha256).toBe(sha(fs.readFileSync(w.apkPath)));
+    m.stamp.tokens = {};
+    m.apkSha256 = apkThen;
     for (const row of m.rows) {
       expect(Object.keys(row).pop()).toBe('pixelRatio');
       expect(row.pixelRatio).toBe(K450);
       delete row.pixelRatio;
+      expect(row.stamp.tokens).toEqual(w.stamp.tokens);
+      expect(row.app.apkSha256).toBe(sha(fs.readFileSync(w.apkPath)));
+      row.stamp.tokens = {};
+      row.app.apkSha256 = apkThen;
     }
     return Buffer.from(`${JSON.stringify(m, null, 2)}\n`, 'utf8');
   };
