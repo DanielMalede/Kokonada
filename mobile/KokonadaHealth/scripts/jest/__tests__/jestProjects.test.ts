@@ -9,7 +9,7 @@ import { spawnSync } from 'child_process';
 //   · skia — Skia's CanvasKit environment, *.skia.test.* only, and never the Skia stub.
 //   · sweeps — UI-073's full-resolution never-red pass and E3's full ledger-storm grid (QA-068),
 //     *.sweeps.test.* only, in its own config
-//     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it. CI runs it in its own job,
+//     (jest.sweeps.config.js), so `jest` and `jest --ci` never run it. CI runs it in its own shards,
 //     gated by a pinned paths filter, so a PR that cannot change a sweep result skips it.
 //   · sweeps-skia — the real-Skia checks too slow for every PR (the never-red scenes),
 //     *.sweeps.skia.test.* only, in jest.sweeps.config.js beside sweeps, with the skia project's
@@ -195,27 +195,32 @@ describe('the two jest projects (MB-086)', () => {
   });
 
 
-  it('CI runs jest as `jest --ci` (no --selectProjects and no paths, so unit and skia always run), and the sweeps with two workers in their own job', () => {
+  // Both run sharded across runners; ciShards.test.ts checks that the shards of each config together run
+  // exactly the suites its unsharded run does.
+  it('CI runs jest as `jest --ci --shard` (no --selectProjects and no paths, so unit and skia always run), and the sweeps with two workers in their own shards', () => {
     const runs = ciLines().filter((line) => /node_modules\/\.bin\/jest\b/.test(line)).map((line) => line.trim());
-    expect(runs).toEqual(['run: ./node_modules/.bin/jest --ci', 'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2']);
+    expect(runs).toEqual([
+      'run: ./node_modules/.bin/jest --ci --shard="$SHARD"',
+      'run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2 --shard="$SHARD"',
+    ]);
   });
 
-  // The CI-cost fix: the full pass never runs inside the always-run mobile job. It has its own job,
+  // The CI-cost fix: the full pass never runs inside the always-run mobile jobs. It has its own shards,
   // gated like iOS: skipped (not silently green) on a PR its filter does not match.
-  it('the sweeps job is gated by the pinned filter: needs and if on sweeps-changes, read-only token, and the only place the sweeps run', () => {
+  it('the sweeps shards are gated by the pinned filter: needs and if on sweeps-changes, read-only token, and the only place the sweeps run', () => {
     const lines = ciLines();
-    const job = jobBlock(lines, 'mobile-sweeps').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
+    const job = jobBlock(lines, 'mobile-sweeps-shard').map((l) => l.trim()).filter((l) => l.length > 0 && !l.startsWith('#'));
     expect(job).toContain('needs: sweeps-changes');
     expect(job).toContain("if: needs.sweeps-changes.outputs.sweeps == 'true'");
     const perms = job.indexOf('permissions:');
     expect(perms).toBeGreaterThan(-1);
     expect(job.slice(perms + 1, perms + 3)).toEqual(['contents: read', 'steps:']);
-    expect(job).toContain('run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2');
+    expect(job).toContain('run: ./node_modules/.bin/jest --ci --config jest.sweeps.config.js --maxWorkers=2 --shard="$SHARD"');
     // A hung sweep must not burn the default six hours: the job has its own whole-minute limit.
     const timeout = job.find((l) => /^timeout-minutes:/.test(l));
     expect(timeout).toMatch(/^timeout-minutes: [1-9]\d*$/);
-    const mobile = jobBlock(lines, 'mobile').join('\n');
-    expect(mobile).toContain('run: ./node_modules/.bin/jest --ci');
+    const mobile = jobBlock(lines, 'mobile-jest-shard').join('\n');
+    expect(mobile).toContain('run: ./node_modules/.bin/jest --ci --shard="$SHARD"');
     expect(mobile).not.toContain('jest.sweeps.config.js');
     const changes = jobBlock(lines, 'sweeps-changes').map((l) => l.trim());
     expect(changes).toContain('sweeps: ${{ steps.filter.outputs.sweeps }}');
