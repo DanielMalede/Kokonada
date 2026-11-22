@@ -481,6 +481,35 @@ describe('the DiscoveryQuery against a prompt-sensitive model (RA-2)', () => {
     },
   );
 
+  // BE-261 (SEC-293-1 on #293): a sleep word beside a relaxing word used to mask the relaxing row,
+  // so the prompt — and with it the model's own seed_genres and mood_keywords — differed from the
+  // relaxing word's alone. Every sleep-row term (from the lexicon) beside every relaxing-row word.
+  const { _ACTIVITY_LEXICON } = require('../app/services/moodDescriptors');
+  const rowOf = (activity) => _ACTIVITY_LEXICON.find((r) => r.activity === activity);
+  const SLEEP_TERMS = [...rowOf('sleep').words, ...rowOf('sleep').phrases];
+  const RELAX_PAIRS = rowOf('relaxing').words.flatMap((r) => SLEEP_TERMS.map((s) => [r, s]));
+
+  it.each(RELAX_PAIRS)('BE-261: %p with %p hands the provider what the relaxing word alone does, with and without a mood', async (relax, sleep) => {
+    for (const taps of [[], CALM]) {
+      const alone  = await gen({ taps, note: relax });
+      const after  = await gen({ taps, note: `${relax} ${sleep}` });
+      const before = await gen({ taps, note: `${sleep} ${relax}` });
+      expect(after.query).toBe(alone.query);
+      expect(before.query).toBe(alone.query);
+      expect(after.params.tempo_category).toBe('resting');
+    }
+  });
+
+  it.each(RELAX_PAIRS)('BE-261: %p with %p, through the real handler: the Spotify log is the relaxing word\'s own', async (relax, sleep) => {
+    fake.recommendationsStatus = 200;
+    const alone = await run(W, 'emotion', state({ lastTextPrompt: relax }));
+    const both  = await run(W, 'emotion', state({ lastTextPrompt: `${relax} ${sleep}` }));
+    expect(alone.log).not.toBe('');
+    expect(alone.ready.discovery).toBeGreaterThan(0);
+    expect(both.log).toBe(alone.log);
+    expect(both.ready.params.tempo_category).toBe('resting');
+  });
+
   it.each([
     ['a mood and a note (merge)', CALM, 'calm music', true],
     ['a mood, no note (strict)', CALM, null, false],
