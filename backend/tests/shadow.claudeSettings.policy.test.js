@@ -10,8 +10,12 @@
 // Green pins: attribution is the empty string, the whole DEC-145 list, no `*` as a `-c`/`-C` value,
 // no wrapper, file reader or uploader among the allows, an Edit twin for every Read deny, and the
 // flow strings of CLAUDE.md step 3 (sentinel.md § FILING), /ship, /merge and merge-guard.
-// `git branch -D x` expects `ask`, not `deny`: the custodian's CU270-02 on #270 moved the force
-// delete to the ask tier so that CLAUDE.md step 5's cleanup (`git branch -d`) stays possible.
+// `git branch -D x` is never `deny`: the custodian's CU270-02 on #270 kept the force delete out of
+// the deny tier so that CLAUDE.md § Every task step 5's cleanup stays possible. Since the owner's
+// ruling of 2026-11-22 (own:ask-list-trim) it no longer asks either — his user-level settings allow
+// `Bash`, and an ask beats any allow — so from this file alone it prompts, under both readings; in
+// Bash any option after the allowed `git branch -d` still asks. `gh pr create|comment|edit|review`
+// and a read of `gh api` prompt the same way; `gh pr close` and every write form of `gh api` ask.
 // A model only: the runtime's own reading is settled by the `claude -p --setting-sources ""
 // --settings` capture named in the audit (RA-1), never by this file. This model and the one in
 // `backend/tests/claudeSettings.policy.test.js` differ on one rule (RA-6): there a trailing ` *`
@@ -78,8 +82,15 @@ describe('shadow: denies that must not depend on `*` matching nothing (RED at 1f
     }
   }
   for (const tool of ['Bash', 'PowerShell']) {
-    it(`${tool}: asks under the strict reading (CU270-02): git branch -D x`, () => {
-      expect(decide('git branch -D x', tool, true)).toBe('ask');
+    it(`${tool}: prompts under both readings, never allowed or denied: git branch -D x`, () => {
+      expect(decide('git branch -D x', tool, true)).toBe('prompt');
+      expect(decide('git branch -D x', tool, false)).toBe('prompt');
+    });
+  }
+  // CU270-02: a force form under the allowed `Bash(git branch -d *)` asks under the strict reading.
+  for (const cmd of ['git branch -d -f x', 'git branch -d x -f', 'git branch -d --force x', 'git branch -d -D x']) {
+    it(`Bash: asks under the strict reading: ${cmd}`, () => {
+      expect(decide(cmd, 'Bash', true)).toBe('ask');
     });
   }
   // Green already: text stands between `git ` and the token, so no empty `*` is needed.
@@ -182,15 +193,45 @@ describe('shadow: the flows the policy test does not pin (green at 1f88913; red 
     });
   }
 
+  it('asks: never unprompted, never hard-denied: gh pr close 270', () => {
+    expect(decide('gh pr close 270')).toBe('ask');
+    expect(decide('gh pr close 270', 'Bash', true)).toBe('ask');
+  });
+
   for (const cmd of [
     'gh pr comment 270 --body-file x',
     'gh pr edit 270 --body-file x',
     'gh pr create --fill',
-    'gh pr close 270',
     'gh pr review 270 --approve',
+    `gh api "repos/{owner}/{repo}/commits/\$H/check-runs?per_page=100" --jq '.check_runs[].conclusion'`,
+    'gh api repos/o/r/pulls/1',
   ]) {
-    it(`asks: never unprompted, never hard-denied: ${cmd}`, () => {
-      expect(decide(cmd)).toBe('ask');
-    });
+    for (const tool of ['Bash', 'PowerShell']) {
+      it(`${tool}: no longer asks, and prompts under both readings: ${cmd}`, () => {
+        expect(decide(cmd, tool)).toBe('prompt');
+        expect(decide(cmd, tool, true)).toBe('prompt');
+      });
+    }
+  }
+
+  for (const cmd of [
+    'gh api repos/o/r/issues -f title=x',
+    'gh api -X DELETE repos/o/r/rulesets/1',
+    'gh api repos/o/r/issues -XPOST',
+    'gh api --method=PUT repos/o/r/x',
+    'gh api repos/o/r/issues -F n=1',
+    'gh api repos/o/r/issues --field title=x',
+    'gh api --raw-field title=x repos/o/r/issues',
+    'gh api repos/o/r/issues --input body.json',
+    'gh api graphql -f query=x',
+    'gh api -H "Accept: x" graphql --input q.json',
+    'gh api -iXPOST repos/o/r/issues',
+  ]) {
+    for (const tool of ['Bash', 'PowerShell']) {
+      it(`${tool}: a gh api write form asks under both readings: ${cmd}`, () => {
+        expect(decide(cmd, tool)).toBe('ask');
+        expect(decide(cmd, tool, true)).toBe('ask');
+      });
+    }
   }
 });

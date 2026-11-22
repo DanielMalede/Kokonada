@@ -94,12 +94,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-22
 
 ### M04
-- task: `BE-245` (TASKS)
-- title: PR-A: the DEC-047 Garmin music fence (closed by default): quarantine at ingest and a VitalSample read filter
-- branch: `fix/be245-garmin-fence`
-- paths: `backend/app/services/wearable/garminMusicFence.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/wearable/metricStore.js`, `backend/app/services/biosonic/baselines.js`, `backend/app/workers/dailyAnalysis.worker.js`, `backend/tests/garminMusicFence.unit.test.js`, `backend/tests/garminMusicFence.integration.test.js`, `backend/tests/garminMusicFence.structural.test.js`, `backend/tests/art9GateClass.structural.test.js`, `backend/tests/garminConsentVersionGate.test.js`, `backend/tests/garminFutureCap.integration.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/garminLocationExclusion.test.js`, `backend/tests/garminRetentionFilter.integration.test.js`, `backend/tests/garminVitalSample.integration.test.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/healthStoreConsentVersionGate.test.js`, `backend/tests/integrations.test.js`, `backend/tests/integrationsConsentGate.test.js`, `backend/tests/shadow.garminHrvIdentity.integration.test.js`, `backend/tests/shadow.garminHrvNightIdentity.integration.test.js`, `backend/tests/shadow.garminWebhookSeam.integration.test.js`, `backend/tests/metricStore.test.js`, `backend/tests/baselines.test.js`, `backend/tests/dailyAnalysis.worker.test.js`, `backend/tests/coldBaselineParity.integration.test.js`, `docs/adr/0018-garmin-music-fence.md`, `docs/adr/README.md`, `TASKS.md`, `backend/app/controllers/integrationsController.js`
+- task: `own:ask-list-trim` (own)
+- title: Trim the .claude/settings.json ask list: no prompt on gh pr create/comment/edit/review, git branch -D or read-only gh api; CLAUDE.md step 2 parenthetical
+- branch: `chore/ask-list-trim`
+- paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `CLAUDE.md`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #301
 - started: 2026-11-22
 
 ### M05
