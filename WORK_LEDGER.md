@@ -85,13 +85,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:dan015-owner-answers` (own)
-- title: record the owner's two answers on package 6 (DAN-015) and #287's merge as TASKS update lines
-- branch: `docs/dan015-owner-answers`
-- paths: `TASKS.md`
+- task: `BE-261` (TASKS)
+- title: Take the first non-withheld lexicon match so a sleep word never masks the relaxing row in the Groq prompt or derivedIntent (BE-261)
+- branch: `fix/be261-sleep-mask`
+- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/wave4.bugfix.test.js`, `TASKS.md`
 - resources: none
-- state: in-review · PR #294
-- started: 2026-11-18
+- state: claimed
+- started: 2026-11-22
 
 ### M04
 - task: `BE-231` (TASKS)
