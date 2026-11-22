@@ -7,7 +7,9 @@
 // searchVibePlaylists or getVibePlaylistTracks in spotify.js, so the references to those names under
 // backend/app ARE the discovery surface; fetchVibeDiscovery builds what it sends with
 // toDiscoveryQuery; the generation core hands the discovery port a positional second argument,
-// `fetchTracks(params, query)`; and the handler's Spotify closure sends `query`, never `params`.
+// `fetchTracks(params, query)`; and the handler's one send (fetchSpotifyDiscovery) sends `query`,
+// never `params`. Since BE-231 RA-1 only the user-driven paths reach that send — the emotion port
+// and the session-open refresh — and the heart-rate port reads the per-user cache only.
 //
 // Identifier references are counted with comments stripped, so a comment can neither hide a
 // reference nor invent one. Each check is also run on a mutated copy of a real file, so it cannot
@@ -31,7 +33,9 @@ const ALLOWED = {
   },
   'services/discovery/discoveryQuery.js': { toDiscoveryQuery: 3, bioDiscoveryQuery: 2 },
   'services/geminiEngine.js':             { toDiscoveryQuery: 2, bioDiscoveryQuery: 2 },
-  'sockets/biometricHandler.js':          { fetchVibeDiscovery: 1 },
+  // BE-231 RA-1: the one send sits in fetchSpotifyDiscovery; the session-open refresh builds the
+  // heart branch's old query (the first two top genres) itself, so the heart branch needs none.
+  'sockets/biometricHandler.js':          { fetchVibeDiscovery: 1, bioDiscoveryQuery: 2 },
 };
 
 function stripComments(src) {
@@ -116,6 +120,26 @@ function handlerSpotifyClosure(src) {
   if (at < 0) return null;
   return code.slice(at, code.indexOf('} else {', at));
 }
+// BE-231 RA-1: the handler's discovery ports and the one function that sends, by declaration.
+const HANDLER_FN = {
+  send:    'async function fetchSpotifyDiscovery(',
+  emotion: 'function emotionDiscoveryPort(',
+  heart:   'function heartDiscoveryPort(',
+  open:    'async function _refreshDiscoveryCache(',
+};
+const handlerFn = (src, which) => body(src, HANDLER_FN[which]);
+// The names that reach Spotify, or write the cache, from inside the handler.
+const SENDS = /(?<![\w$])(?:fetchVibeDiscovery|fetchSpotifyDiscovery|getRecommendations|searchTracksByGenres|searchVibePlaylists|getVibePlaylistTracks|tagSpotifyDiscovery|getArtistsGenres|writeDiscoveryCandidates|getValidToken|refreshDiscoveryOnSessionOpen)(?![\w$])/;
+// The handler functions above that call `callee(`, one entry per call, the callee's own declaration excluded.
+function callersOf(src, callee) {
+  const out = [];
+  for (const [which, decl] of Object.entries(HANDLER_FN)) {
+    const fn = body(src, decl);
+    if (fn && !decl.includes(`function ${callee}(`)) out.push(...calls(fn, callee).map(() => which));
+  }
+  return out.sort();
+}
+const totalCalls = (src, callee) => calls(src, callee).length;
 
 describe('the Spotify discovery surface is exactly the allow-list', () => {
   it('every reference to the discovery functions and the query builders under backend/app is pinned', () => {
@@ -130,7 +154,7 @@ describe('the Spotify discovery surface is exactly the allow-list', () => {
 
   it('not vacuous: a second fetchVibeDiscovery call in the real handler changes its count', () => {
     const real = read('sockets/biometricHandler.js');
-    const mutated = inject(real, '          const tagged  = await tagSpotifyDiscovery(', '          await spotify.fetchVibeDiscovery(accessToken, params);\n');
+    const mutated = inject(real, '  const tagged = await tagSpotifyDiscovery(', '  await spotify.fetchVibeDiscovery(accessToken, params);\n');
     expect(references(real)).toEqual(ALLOWED['sockets/biometricHandler.js']);
     expect(references(mutated)).not.toEqual(ALLOWED['sockets/biometricHandler.js']);
   });
@@ -158,14 +182,56 @@ describe('no numeric audio target is sent, and the query is the only input', () 
     expect(found).toEqual(['fetchTracks(params, query)', 'fetchTracks(params, query)']);
   });
 
-  it('the handler\'s Spotify closure takes (params, query), fails closed without a query, and sends only the query', () => {
+  it('the handler\'s Spotify block wires the emotion port on the emotion branch and the cache-only port on the heart-rate branch', () => {
     const closure = handlerSpotifyClosure(read('sockets/biometricHandler.js'));
     expect(closure).not.toBeNull();
-    expect(closure).toMatch(/fetchTracks = async \(params, query\) =>/);
-    expect(closure).toMatch(/if \(!query\) return \[\];/);
-    const sent = calls(closure, 'spotify.fetchVibeDiscovery');
-    expect(sent).toEqual(['spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT })']);
-    expect(closure.indexOf('if (!query) return [];')).toBeLessThan(closure.indexOf('spotify.fetchVibeDiscovery('));
+    expect(closure).toMatch(/fetchTracks = useEmotion\s*\?\s*emotionDiscoveryPort\(/);
+    expect(closure).toMatch(/:\s*heartDiscoveryPort\(\{ userId, musicProfile, bandTargets \}\)/);
+    expect(closure).not.toMatch(/fetchVibeDiscovery|fetchSpotifyDiscovery/);
+  });
+
+  it('the one send is fetchSpotifyDiscovery, and it sends only the query', () => {
+    const send = handlerFn(read('sockets/biometricHandler.js'), 'send');
+    expect(send).not.toBeNull();
+    expect(calls(send, 'spotify.fetchVibeDiscovery')).toEqual(['spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT })']);
+  });
+
+  it('the emotion port takes (params, query), fails closed without a query, then sends it and refreshes the cache', () => {
+    const port = handlerFn(read('sockets/biometricHandler.js'), 'emotion');
+    expect(port).not.toBeNull();
+    expect(port).toMatch(/return async \(params, query\) =>/);
+    expect(port).toMatch(/if \(!query\) return \[\];/);
+    expect(calls(port, 'fetchSpotifyDiscovery')).toEqual(['fetchSpotifyDiscovery(accessToken, musicProfile, query)']);
+    expect(port.indexOf('if (!query) return [];')).toBeLessThan(port.indexOf('fetchSpotifyDiscovery('));
+    expect(calls(port, 'writeDiscoveryCandidates')).toEqual(['writeDiscoveryCandidates(userId, onTaste)']);
+  });
+
+  it('RA-1: the heart-rate port reads the cache, and nothing in it can reach Spotify or write the cache', () => {
+    const port = handlerFn(read('sockets/biometricHandler.js'), 'heart');
+    expect(port).not.toBeNull();
+    expect(port).not.toMatch(SENDS);
+    expect(port).not.toMatch(/\bspotify\.|accessToken|query/);
+    expect(calls(port, 'readDiscoveryCandidates')).toEqual(['readDiscoveryCandidates(userId)']);
+  });
+
+  it('RA-1: only the user-driven paths send or refresh — the emotion port and the session-open refresh, called from live_mode', () => {
+    const handler = read('sockets/biometricHandler.js');
+    expect(callersOf(handler, 'fetchSpotifyDiscovery')).toEqual(['emotion', 'open']);
+    expect(totalCalls(handler, 'fetchSpotifyDiscovery')).toBe(3); // its declaration and those two calls
+    expect(callersOf(handler, 'writeDiscoveryCandidates')).toEqual(['emotion', 'open']);
+    expect(totalCalls(handler, 'writeDiscoveryCandidates')).toBe(2);
+    expect(callersOf(handler, 'readDiscoveryCandidates')).toEqual(['heart']);
+    expect(totalCalls(handler, 'readDiscoveryCandidates')).toBe(1);
+    const open = handlerFn(handler, 'open');
+    expect(open).not.toBeNull();
+    expect(calls(open, 'bioDiscoveryQuery')).toEqual(['bioDiscoveryQuery(musicProfile)']);
+    // resilience RA-1 (round 2): the floor is claimed before the first Mongo read
+    expect(calls(open, 'claimDiscoveryRefresh')).toEqual(['claimDiscoveryRefresh(userId)']);
+    expect(open.indexOf('claimDiscoveryRefresh(')).toBeLessThan(open.indexOf('User.findById('));
+    const code = stripComments(handler);
+    const liveMode = code.slice(code.indexOf("socket.on('live_mode',"), code.indexOf("socket.on('emotion_update',"));
+    expect(calls(liveMode, 'refreshDiscoveryOnSessionOpen')).toHaveLength(1);
+    expect(totalCalls(handler, 'refreshDiscoveryOnSessionOpen')).toBe(2); // its declaration and that call
   });
 
   it('not vacuous: each check fails on a mutated copy of the real file', () => {
@@ -180,10 +246,24 @@ describe('no numeric audio target is sent, and the query is the only input', () 
 
     const handler = read('sockets/biometricHandler.js');
     const sendsParams = replaceOnce(handler, 'spotify.fetchVibeDiscovery(accessToken, query,', 'spotify.fetchVibeDiscovery(accessToken, params,');
-    expect(calls(handlerSpotifyClosure(sendsParams), 'spotify.fetchVibeDiscovery'))
+    expect(calls(handlerFn(sendsParams, 'send'), 'spotify.fetchVibeDiscovery'))
       .not.toEqual(['spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT })']);
     const noGuard = replaceOnce(handler, 'if (!query) return [];', '');
-    expect(handlerSpotifyClosure(noGuard)).not.toMatch(/if \(!query\) return \[\];/);
+    expect(handlerFn(noGuard, 'emotion')).not.toMatch(/if \(!query\) return \[\];/);
+
+    // RA-1: a heart port that sends, refreshes or writes is caught, and so is a heart branch wired to the emotion port.
+    const heartAnchor = '    return readDiscoveryCandidates(userId);';
+    for (const leak of [
+      '    await fetchSpotifyDiscovery(accessToken, musicProfile, query);\n',
+      '    await writeDiscoveryCandidates(userId, []);\n',
+      '    await spotify.fetchVibeDiscovery(token, q);\n',
+    ]) {
+      expect(handlerFn(inject(handler, heartAnchor, leak), 'heart')).toMatch(SENDS);
+    }
+    const heartSends = inject(handler, heartAnchor, '    await fetchSpotifyDiscovery(accessToken, musicProfile, query);\n');
+    expect(callersOf(heartSends, 'fetchSpotifyDiscovery')).not.toEqual(['emotion', 'open']);
+    const wiredWrong = replaceOnce(handler, ': heartDiscoveryPort({ userId, musicProfile, bandTargets })', ': emotionDiscoveryPort({ userId, accessToken: spotifyToken, musicProfile, bandTargets })');
+    expect(handlerSpotifyClosure(wiredWrong)).not.toMatch(/:\s*heartDiscoveryPort\(\{ userId, musicProfile, bandTargets \}\)/);
 
     const fvd = body(inject(spotify, '  const genreSearch', '  const leaked = { ...params };\n'), 'async function fetchVibeDiscovery(');
     expect(fvd).toMatch(/\.\.\.params/);

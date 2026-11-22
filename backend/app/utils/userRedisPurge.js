@@ -3,7 +3,7 @@
 // GDPR erasure for user-scoped Redis state. Mongo deletion is the durable part
 // of the cascade; these keys would self-expire anyway (ledger 8d, pool 12h,
 // buffer 30m, baseline 24h — baselines.js CACHE_TTL_S; its 6h is only the freshness
-// window — affect 2h) but right-to-erasure means the encrypted baseline blob,
+// window — affect 2h, discovery cache 6h) but right-to-erasure means the encrypted baseline blob,
 // the precompiled live buffers and the behavioral ledger windows go NOW, not at TTL.
 // purgeUserKeys is best-effort by design: a Redis outage must not block the Mongo
 // erasure, and TTLs guarantee eventual cleanup. purgeUserKeysStrict is the variant for
@@ -38,6 +38,9 @@ const USER_KEY_NAMESPACES = Object.freeze([
   // `label` is an INFERRED emotional/physiological state. Self-expires in 2 h, but right-to-
   // erasure means an inference about a person goes when they ask, not when a TTL gets round to it.
   { name: 'bio-affect',     pattern: (id) => `bio:affect:${id}`, scan: 'bio:affect:*', idOf: (key) => key.slice('bio:affect:'.length) },
+  // BE-231 RA-1: the heart-rate branch's cached Spotify discovery candidates (track ids, URIs, names,
+  // artists and genre tags), written only by user-driven events (services/discovery/discoveryCache.js).
+  { name: 'discovery-cache', pattern: (id) => `disc:bio:${id}`, scan: 'disc:bio:*', idOf: (key) => key.slice('disc:bio:'.length) },
 ]);
 
 // J2 (resilience §7 on T12 v2; round 1, L2): both purges build their patterns from the id, so an id holding a

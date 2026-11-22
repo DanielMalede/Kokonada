@@ -20,6 +20,8 @@
 //   · vocabulary — no request carries a target_*, min_* or max_* audio key.
 //   · the local effect is kept — the params the run served still move with the band and with a
 //     sleep note, so the health filtering moved here rather than disappearing.
+//   · RA-1 — the heart-rate branch sends no discovery request at all: it serves the per-user cache
+//     that only user-driven events fill (opening a live session, the emotion branch's runs).
 
 process.env.NODE_ENV       = 'test';
 process.env.ENCRYPTION_KEY = 'a'.repeat(64);
@@ -31,7 +33,7 @@ delete process.env.GEMINI_API_KEY;
 jest.mock('axios');
 
 // ── The handler's data layer and non-Spotify upstreams (spotify.js itself stays REAL) ─────────
-jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
+jest.mock('../app/models/User', () => ({ findById: jest.fn(), exists: jest.fn() }));
 jest.mock('../app/models/MusicProfile', () => ({ findOne: jest.fn() }));
 jest.mock('../app/models/BiometricLog', () => ({ find: jest.fn() }));
 jest.mock('../app/models/MedicalProfile', () => ({ findOne: jest.fn() }));
@@ -55,7 +57,27 @@ jest.mock('../app/repositories/shadowBufferRepo', () => ({
 jest.mock('../app/services/spotifySessionPlaylist', () => ({
   writeSessionPlaylist: jest.fn().mockResolvedValue({ contextUri: 'spotify:playlist:session-test' }),
 }));
-jest.mock('../app/config/redis', () => ({ getRedis: jest.fn(() => null), createConnection: jest.fn() }));
+// Redis is absent (getRedis → null) except where a test installs this stateful fake: it keeps each
+// value and the EX it was written with, and SCAN MATCH has real glob semantics, so whatever the code
+// writes is read back the way Redis would answer it (RA-1's discovery cache, the candidate pool and
+// the LLM cache alike).
+jest.mock('../app/config/redis', () => {
+  const store = new Map();
+  const globToRegex = (glob) => new RegExp(`^${glob.split('*').map((p) => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+  const fake = {
+    store,
+    async get(key) { return store.has(key) ? store.get(key).value : null; },
+    async set(key, value, ...args) {
+      const ex = args.findIndex((a) => String(a).toUpperCase() === 'EX');
+      store.set(key, { value: String(value), ttl: ex >= 0 ? Number(args[ex + 1]) : null });
+      return 'OK';
+    },
+    async setex(key, seconds, value) { store.set(key, { value: String(value), ttl: Number(seconds) }); return 'OK'; },
+    async del(...keys) { let n = 0; for (const k of keys.flat()) if (store.delete(k)) n += 1; return n; },
+    async scan(_cursor, _match, pattern) { const rx = globToRegex(pattern); return ['0', [...store.keys()].filter((k) => rx.test(k))]; },
+  };
+  return { getRedis: jest.fn(() => null), createConnection: jest.fn(), __fake: fake };
+});
 jest.mock('../app/services/ledger/serveLedger', () => ({
   recordServes: jest.fn().mockResolvedValue({ recorded: 0 }),
   hardExcluded: jest.fn().mockResolvedValue(new Set()),
@@ -97,6 +119,7 @@ const DISCOVERY_PATH = /^\/(recommendations|search|artists|playlists\/[^/]+\/tra
 function loadWorld() {
   return {
     axios:          require('axios'),
+    redis:          require('../app/config/redis'),
     User:           require('../app/models/User'),
     MusicProfile:   require('../app/models/MusicProfile'),
     BiometricLog:   require('../app/models/BiometricLog'),
@@ -129,7 +152,7 @@ function installFakeGroq(axios) {
 
 // ── The fake Spotify: deterministic per request, stateful in what it records ────────────────────
 
-const fake = { recommendationsStatus: 200 };
+const fake = { recommendationsStatus: 200, hold: null };
 const tag = (v) => crypto.createHash('md5').update(JSON.stringify(v)).digest('hex').slice(0, 8);
 const track = (id) => ({ id, uri: `spotify:track:${id}`, name: `Track ${id}`, artists: [{ id: `art-${id}`, name: `Artist ${id}` }] });
 function httpError(status) {
@@ -139,6 +162,7 @@ function installFakeSpotify(axios) {
   axios.get.mockImplementation(async (url, config = {}) => {
     const u = String(url);
     if (!u.startsWith(SPOTIFY_API)) throw new Error(`unexpected GET ${u}`);
+    if (fake.hold) await fake.hold.promise; // a test holds every Spotify answer while it races a purge
     const p = config.params || {};
     const route = u.slice(SPOTIFY_API.length);
     if (route === '/recommendations') {
@@ -206,6 +230,8 @@ function arrange(m) {
   m.spotify._resetArtistGenresCache();
   jest.spyOn(m.spotify, 'getValidToken').mockResolvedValue('spotify-access-token');
   m.User.findById.mockResolvedValue(SPOTIFY_USER);
+  // RA-2 (round 2): the cache write re-checks that the account still holds a Spotify token
+  m.User.exists.mockResolvedValue({ _id: 'user-123' });
   m.MusicProfile.findOne.mockReturnValue(musicProfileQuery({
     userId: 'user-123', library: LIBRARY, lastAnalyzed: new Date('2026-07-01'),
     topGenres: TOP_GENRES, genreSet: ['pop'], knownArtistIds: [],
@@ -259,48 +285,42 @@ describe.each([200, 403])('with /recommendations answering %i', (status) => {
 
   // ── The heart-rate branch ──────────────────────────────────────────────────────────────────────
 
-  describe('the heart-rate branch', () => {
+  describe('the heart-rate branch (RA-1: it reads the per-user cache and sends nothing)', () => {
     const heart = (hr, activity, extra = {}) => state({ stableHR: hr, latestActivity: activity, lastEmotionTaps: [], ...extra });
+    // A filled cache, so every run below really serves discovery: a heart run that sent nothing
+    // because it had nothing to serve would prove nothing.
+    beforeEach(async () => {
+      W.redis.__fake.store.clear();
+      W.redis.getRedis.mockImplementation(() => W.redis.__fake);
+      const { writeDiscoveryCandidates } = require('../app/services/discovery/discoveryCache');
+      await writeDiscoveryCandidates('user-123', [1, 2, 3].map((i) => ({ ...track(`cached-${i}`), provider: 'spotify', artistIds: [], genres: ['pop'] })));
+    });
+    afterEach(() => W.redis.getRedis.mockImplementation(() => null));
+    function expectServedFromCache(r) {
+      expect(r.log).toBe('');
+      expect(r.ready.discovery).toBeGreaterThan(0);
+    }
 
-    it('sends a byte-identical request log at heart rate 50, 95 and 180, whatever the watch detected', async () => {
-      const runs = [];
-      for (const [hr, act] of [[50, 'resting'], [95, 'walking'], [180, 'running'], [130, null]]) runs.push(await run(W, 'biometric', heart(hr, act)));
-      expectLive(runs[0]);
-      for (const r of runs) expect(r.log).toBe(runs[0].log);
+    it('sends no request at heart rate 50, 95 and 180, whatever the watch detected', async () => {
+      for (const [hr, act] of [[50, 'resting'], [95, 'walking'], [180, 'running'], [130, null]]) expectServedFromCache(await run(W, 'biometric', heart(hr, act)));
     });
 
-    it('sends the same log when a baseline ratio, a state label or band-aware targets steer the band', async () => {
-      const plain = await run(W, 'biometric', heart(100, 'walking'));
-      expectLive(plain);
-
+    it('sends none when a baseline ratio, a state label or band-aware targets steer the band', async () => {
       W.baselines.peekBaselines.mockResolvedValue({ rhrMedian: 50 }); // ratio 2.0 → peak
-      const ratio = await run(W, 'biometric', heart(100, 'walking'));
+      expectServedFromCache(await run(W, 'biometric', heart(100, 'walking')));
 
       process.env.DISCOVERY_BAND_AWARE = 'true';
       W.biosonic.translate.mockReturnValue({ stateId: 'exertion', bpmCenter: 160, bpmWidth: 200, energyFloor: 0, energyCeiling: 1, confidence: 0.9 });
-      const label = await run(W, 'biometric', heart(100, 'walking'));
+      expectServedFromCache(await run(W, 'biometric', heart(100, 'walking')));
 
       W.biosonic.translate.mockReturnValue({ stateId: 'stress', bpmCenter: 70, bpmWidth: 200, energyFloor: 0, energyCeiling: 1, confidence: 0.9 });
-      const other = await run(W, 'biometric', heart(100, 'walking'));
-
-      for (const r of [ratio, label, other]) expect(r.log).toBe(plain.log);
+      expectServedFromCache(await run(W, 'biometric', heart(100, 'walking')));
     });
 
-    it('sends the same log with the W4-016 kill switch on', async () => {
-      const off = await run(W, 'biometric', heart(180, 'running'));
+    it('sends none with the W4-016 kill switch on', async () => {
       process.env.WAVE4_LLM_BAND_FROM_STATE_DISABLED = 'true';
       W.baselines.peekBaselines.mockResolvedValue({ rhrMedian: 50 });
-      const on = await run(W, 'biometric', heart(60, 'resting'));
-      expectLive(off);
-      expect(on.log).toBe(off.log);
-    });
-
-    it('asks only for the user\'s first two top genres: no band keyword', async () => {
-      const r = await run(W, 'biometric', heart(180, 'running'));
-      expectLive(r);
-      expect(r.log).not.toMatch(/energetic|driving|high-energy|calm|mellow|soft|upbeat|groovy|steady/);
-      if (status === 200) expect(r.log).toMatch(/"seed_genres":"pop,indie"/);
-      expect(r.log).not.toMatch(/ambient/);
+      expectServedFromCache(await run(W, 'biometric', heart(60, 'resting')));
     });
 
     it('keeps the local effect: the served params still follow the band', async () => {
@@ -309,7 +329,8 @@ describe.each([200, 403])('with /recommendations answering %i', (status) => {
       expect(low.ready.params.target_bpm).toBe(88);
       expect(high.ready.params.target_bpm).toBe(151);
       expect(low.ready.params.target_energy).toBeLessThan(high.ready.params.target_energy);
-      expect(low.log).toBe(high.log);
+      expect(low.log).toBe('');
+      expect(high.log).toBe('');
     });
   });
 
@@ -401,6 +422,176 @@ describe.each([200, 403])('with /recommendations answering %i', (status) => {
     ]) lines.push(...(await run(W, ...st)).all);
     expect(lines.length).toBeGreaterThan(0);
     for (const l of lines) expect(l).not.toMatch(AUDIO_KEY);
+  });
+});
+
+// ── RA-1: the heart-rate branch never sends a discovery request ─────────────────────────────────
+// BE-231 RA-1 (the owner's ruling of 2026-11-22: a per-user cache; decoupling the discovery request
+// alone closes RA-1). A run a sustained heart-rate change triggers used to send Spotify a discovery
+// request under the user's token, so the request's timing (and its fixed shape) told Spotify when
+// the heart rate moved. Now the heart-rate branch reads `disc:bio:<userId>` only, and that cache is
+// refreshed only by what the user does: opening a live session, and the emotion branch's own runs.
+// The Redis here is the stateful fake above, so the cache really is written and read back.
+
+describe.each([200, 403])('RA-1, with /recommendations answering %i: the heart-rate branch sends Spotify no discovery request', (status) => {
+  const KEY = 'disc:bio:user-123';
+  const redisFake = W.redis.__fake;
+  const HRS = [50, 65, 80, 95, 110, 125, 140, 155, 170, 180];
+  const ACTIVITY = (hr) => (hr < 80 ? 'resting' : hr < 125 ? 'walking' : 'running');
+  const heart = (hr) => state({ stableHR: hr, latestActivity: ACTIVITY(hr), lastEmotionTaps: [] });
+  let fetchVibe;
+  let n = 0;
+
+  beforeEach(() => {
+    fake.recommendationsStatus = status;
+    redisFake.store.clear();
+    W.redis.getRedis.mockImplementation(() => redisFake);
+    fetchVibe = jest.spyOn(W.spotify, 'fetchVibeDiscovery');
+  });
+  afterEach(() => {
+    W.redis.getRedis.mockImplementation(() => null);
+    W.handler._resetDebounceState();
+  });
+
+  const cachedIds = () => (redisFake.store.has(KEY) ? JSON.parse(redisFake.store.get(KEY).value).tracks.map((t) => t.id) : []);
+  const servedDiscoveryIds = (ready) => ready.tracks.filter((t) => t.receipt?.label === 'New discovery').map((t) => t.id);
+
+  // A socket with its handlers registered the way socket.io does; `held` is what the socket already
+  // holds when the user opens the live session (a heart rate from earlier readings, say).
+  function connect(m, held = {}) {
+    const handlers = {};
+    const s = { id: `socket-open-${++n}`, data: { user: { _id: 'user-123' } }, emit: jest.fn(), on: (e, fn) => { handlers[e] = fn; } };
+    m.handler.registerBiometricHandler(s);
+    handlers.live_mode({ enabled: false }); // the socket's state exists, as after a connect in Manual
+    Object.assign(m.handler._debounceMap.get(s.id), held);
+    return {
+      async liveMode(enabled) {
+        m.axios.get.mockClear();
+        handlers.live_mode({ enabled });
+        await m.handler._debounceMap.get(s.id).discoveryRefresh;
+        return discoveryRequests(m.axios).join('\n');
+      },
+    };
+  }
+
+  it('ten heart-triggered runs at 50 to 180 bpm inside the window send no discovery request, and each still serves', async () => {
+    for (const hr of HRS) {
+      const r = await run(W, 'biometric', heart(hr));
+      expect(r.log).toBe('');
+      expect(r.ready.tracks.length).toBeGreaterThan(0); // the familiar ladder filled it
+    }
+    for (const trigger of ['heart', 'skip_loop']) expect((await run(W, trigger, heart(120))).log).toBe('');
+    expect(fetchVibe).not.toHaveBeenCalled();
+    expect(redisFake.store.has(KEY)).toBe(false); // and no heart run filled the cache
+  });
+
+  it('opening a live session sends exactly one discovery request: the first two top genres, nothing from the body', async () => {
+    const log = await connect(W).liveMode(true);
+    expect(fetchVibe).toHaveBeenCalledTimes(1);
+    expect(log).toMatch(status === 200 ? /^\/recommendations .*"seed_genres":"pop,indie"/m : /^\/search .*"type":"track"/m);
+    expect(log).not.toMatch(AUDIO_KEY);
+    // no band keyword, no third genre, no playlist search
+    expect(log).not.toMatch(/energetic|driving|high-energy|calm|mellow|soft|upbeat|groovy|steady|ambient|"type":"playlist"/);
+    expect(cachedIds().length).toBeGreaterThan(0);
+    expect(redisFake.store.get(KEY).ttl).toBeLessThanOrEqual(6 * 3600);
+  });
+
+  it('the session-open request is byte-identical whatever heart rate and activity the socket already holds', async () => {
+    const logs = [];
+    for (const hr of [null, 50, 180]) {
+      redisFake.store.clear();
+      logs.push(await connect(W, { stableHR: hr, latestActivity: hr ? ACTIVITY(hr) : null }).liveMode(true));
+    }
+    expect(logs[0]).not.toBe('');
+    for (const l of logs) expect(l).toBe(logs[0]);
+  });
+
+  it('a session already live sends nothing more; switching it off and on again sends nothing inside the floor and refreshes once more after it', async () => {
+    const { DISCOVERY_REFRESH_FLOOR_MS } = require('../app/services/discovery/discoveryCache');
+    const t0 = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(t0);
+    const c = connect(W);
+    await c.liveMode(true);
+    expect(await c.liveMode(true)).toBe('');
+    expect(await c.liveMode(false)).toBe('');
+    expect(await c.liveMode(true)).toBe(''); // resilience RA-1 (round 2): the per-user floor
+    expect(fetchVibe).toHaveBeenCalledTimes(1);
+    expect(await c.liveMode(false)).toBe('');
+    clock.mockReturnValue(t0 + DISCOVERY_REFRESH_FLOOR_MS);
+    expect(await c.liveMode(true)).not.toBe('');
+    expect(fetchVibe).toHaveBeenCalledTimes(2);
+  });
+
+  it('after the session fill, ten heart runs serve the cached candidates and send nothing', async () => {
+    await connect(W).liveMode(true);
+    const cached = cachedIds();
+    expect(cached.length).toBeGreaterThan(0);
+    fetchVibe.mockClear();
+    for (const hr of HRS) {
+      const r = await run(W, 'biometric', heart(hr));
+      expect(r.log).toBe('');
+      expect(r.ready.discovery).toBeGreaterThan(0);
+      for (const id of servedDiscoveryIds(r.ready)) expect(cached).toContain(id);
+    }
+    expect(fetchVibe).not.toHaveBeenCalled();
+    expect(cachedIds()).toEqual(cached); // read, never rewritten by a heart run
+  });
+
+  it('an emotion run sends the request it sent without the cache, and refreshes the cache with its candidates', async () => {
+    W.redis.getRedis.mockImplementation(() => null);
+    const without = await run(W, 'emotion', state());
+    W.redis.getRedis.mockImplementation(() => redisFake);
+    const withCache = await run(W, 'emotion', state());
+    expect(without.log).not.toBe('');
+    expect(withCache.log).toBe(without.log);
+    const cached = cachedIds();
+    expect(cached.length).toBeGreaterThan(0);
+    for (const id of servedDiscoveryIds(withCache.ready)) expect(cached).toContain(id);
+
+    // and the heart run that follows serves them with no request of its own
+    const after = await run(W, 'biometric', heart(150));
+    expect(after.log).toBe('');
+    expect(after.ready.discovery).toBeGreaterThan(0);
+  });
+
+  // RA-2 (round 2): the emotion port writes after a slow fetch; a Spotify disconnect's purge that lands
+  // inside that window must not be undone by the write. The purge is the REAL strict registry purge.
+  it("a Spotify disconnect that lands while an emotion run's fetch is out leaves no disc:bio key", async () => {
+    const { purgeUserKeysStrict } = require('../app/utils/userRedisPurge');
+    let release;
+    fake.hold = { promise: new Promise((r) => { release = r; }) };
+    try {
+      const s = socket();
+      const running = W.handler.generateAndEmitPlaylist(s, 'emotion', state());
+      while (spotifyRequests(W.axios).length === 0) await new Promise((r) => setImmediate(r)); // a request is out
+      W.User.exists.mockResolvedValue(null); // the disconnect cleared the token...
+      await purgeUserKeysStrict('user-123'); // ...and purged the user's keys
+      fake.hold = null;
+      release();
+      await running;
+      expect(readyOf(s)).toBeDefined(); // the run still served
+      expect(redisFake.store.has(KEY)).toBe(false);
+      expect(W.User.exists).toHaveBeenCalledWith(expect.objectContaining({ _id: 'user-123' }));
+    } finally {
+      fake.hold = null;
+      if (release) release();
+    }
+  });
+
+  it('VECTOR_DISCOVERY=true: opening a session sends nothing and caches nothing', async () => {
+    process.env.VECTOR_DISCOVERY = 'true';
+    expect(await connect(W).liveMode(true)).toBe('');
+    expect(fetchVibe).not.toHaveBeenCalled();
+    expect(redisFake.store.has(KEY)).toBe(false);
+  });
+
+  it('a refresh that fails throws nothing out of the socket and logs neither the user nor the query', async () => {
+    W.spotify.getValidToken.mockRejectedValueOnce(new Error('refresh failed for user-123 seed_genres=pop,indie'));
+    expect(await connect(W).liveMode(true)).toBe('');
+    expect(W.spotify.getValidToken).toHaveBeenCalledTimes(1); // the refresh ran, and failed
+    expect(cachedIds()).toEqual([]); // the key holds only the floor's record of the attempt
+    const said = [console.warn, console.error, console.info, console.log].flatMap((f) => f.mock.calls.map((c) => c.join(' ')));
+    for (const line of said) expect(line).not.toMatch(/user-123|pop|indie/);
   });
 });
 
