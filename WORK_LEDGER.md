@@ -90,7 +90,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/dan015-owner-answers`
 - paths: `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #294
 - started: 2026-11-18
 
 ### M04
