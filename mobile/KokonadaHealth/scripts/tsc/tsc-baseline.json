@@ -1,0 +1,14 @@
+{
+  "sha": "988bab3e44f214fd24ce11f6663431c6ffe2afa7",
+  "typescript": "5.9.3",
+  "total": 14,
+  "diagnostics": {
+    "src/__tests__/shadow.context.test.ts|TS2739": 1,
+    "src/__tests__/shadow.qa4.network.test.ts|TS2322": 7,
+    "src/__tests__/shadow.qa4.network.test.ts|TS7006": 1,
+    "src/experience/profile/__tests__/ConsentSheet.test.tsx|TS2367": 2,
+    "src/experience/profile/profileServices.ts|TS2554": 1,
+    "src/health/blePermissions.ts|TS7053": 1,
+    "src/state/warm/__tests__/warmStore.test.ts|TS2352": 1
+  }
+}
