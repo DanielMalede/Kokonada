@@ -5,6 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import { TEST_FLOOR } from '../../../src/__contracts__/testFloor.baseline';
+import { loadMutant } from '../../../src/testing/mutant';
 import { readTestCounts, testCountsPath, validateTestCounts, type FileCounts, type TestCounts } from '../testCounts';
 
 // QA-042 (Stage 0 Q2): the real mobile and backend test counts, measured with `jest --ci --json` on a clean
@@ -125,5 +126,131 @@ describe('OPS-412 · files.mobile, the 988bab3 run per file', () => {
     expect([Object.keys(rows).length, sum(0), sum(1), sum(2)]).toEqual([219, 3209, 1, 0]);
     expect(rows['scripts/lab/__tests__/bundleAndBuild.test.ts']).toEqual([17, 1, 0]); // the run's one pending test
     expect(rows['src/experience/playback/__tests__/NowPlayingScreen.test.tsx']).toEqual([57, 0, 0]);
+  });
+});
+
+// OPS-412 plan step 2: a malformed record is refused, each case by its own rule. Every planted record below
+// breaks one rule and, where it can, keeps every other one (the sums kept by a compensating row). Each is then
+// run once more against an in-memory mutant of testCounts.ts with that rule switched off (src/testing/mutant.ts:
+// its `if (<condition>)` becomes `if (false)`); the outcome its row names, accepted or caught by another rule,
+// shows which rule did the catching. Nothing planted is written to disk (D8 rule 2).
+const RULES = {
+  missing: 'if (!isObject(record))',
+  backslash: "if (key.includes('\\\\'))",
+  order: 'if (i > 0 && !(keys[i - 1] < key))',
+  shape: 'if (!Array.isArray(row) || row.length !== 3)',
+  integers: 'if (!(countInt(tests) && countInt(pending) && countInt(todo)))',
+  rowBound: 'if (pending + todo > tests)',
+  notMeasured: 'if (keys.length > 0)',
+  keySet: 'if (missing.length > 0 || extra.length > 0)',
+  suites: 'if (keys.length !== m.numTotalTestSuites)',
+  testsSum: 'if (sum.tests !== m.numTotalTests)',
+  pendingSum: 'if (sum.pending !== m.numPendingTests)',
+  todoSum: 'if (sum.todo !== m.numTodoTests)',
+} as const;
+type Rule = keyof typeof RULES;
+const REFUSAL: Record<Rule, RegExp> = {
+  missing: /files\.mobile is missing/,
+  backslash: /has a backslash/,
+  order: /sorted in code unit order/,
+  shape: /must be a row \[tests, pending, todo\]/,
+  integers: /counts must be integers of 0 or more/,
+  rowBound: /more pending \+ todo/,
+  notMeasured: /mobile is not measured, so files\.mobile must be empty/,
+  keySet: /must name exactly the 219 files of TEST_FLOOR\.paths/,
+  suites: /rows, mobile\.numTotalTestSuites is/,
+  testsSum: /tests sum to .*, mobile\.numTotalTests is 3209/,
+  pendingSum: /pending sum to 2, mobile\.numPendingTests is 1/,
+  todoSum: /todo sum to 1, mobile\.numTodoTests is 0/,
+};
+
+const PENDING_FILE = 'scripts/lab/__tests__/bundleAndBuild.test.ts'; // [17, 1, 0]
+const BIG_FILE = 'src/experience/playback/__tests__/NowPlayingScreen.test.tsx'; // [57, 0, 0]
+const LAST_FILE = 'tools/eslint-plugin-kokonada/__tests__/tokenIndex.test.js'; // [23, 0, 0]
+
+const entriesOf = (c: TestCounts): Array<[string, unknown]> => Object.entries(c.files.mobile);
+const withRows = (c: TestCounts, entries: Array<[string, unknown]>): unknown => ({ ...c, files: { mobile: Object.fromEntries(entries) } });
+/** The record with the given rows replaced in place; a key that is not a row fails, so nothing is planted silently. */
+const patch = (c: TestCounts, rows: Record<string, unknown>): unknown => {
+  for (const k of Object.keys(rows)) if (!Object.hasOwn(c.files.mobile, k)) throw new Error(`planted: ${k} is not a row of the record`);
+  return withRows(c, entriesOf(c).map(([k, v]) => [k, Object.hasOwn(rows, k) ? rows[k] : v]));
+};
+const renamed = (c: TestCounts, from: string, to: string): unknown => withRows(c, entriesOf(c).map(([k, v]) => [k === from ? to : k, v]));
+const withoutFiles = (c: TestCounts): unknown => {
+  const copy: Partial<TestCounts> = { ...c };
+  delete copy.files;
+  return copy;
+};
+
+type Outcome = 'accepted' | RegExp | typeof TypeError;
+const PLANTS: Array<[name: string, rule: Rule, mutate: (c: TestCounts) => unknown, off: Outcome]> = [
+  ['a backslash in a key (still in code unit order)', 'backslash', (c) => renamed(c, LAST_FILE, LAST_FILE.split('/').join('\\')), REFUSAL.keySet],
+  ['two keys out of code unit order', 'order', (c) => { const e = entriesOf(c); return withRows(c, [e[1], e[0], ...e.slice(2)]); }, 'accepted'],
+  ['keys sorted by localeCompare, not code unit order', 'order', (c) => withRows(c, [...entriesOf(c)].sort(([a], [b]) => a.localeCompare(b))), 'accepted'],
+  ['a fractional count (the sums kept)', 'integers', (c) => patch(c, { [BIG_FILE]: [57.5, 0, 0], [LAST_FILE]: [22.5, 0, 0] }), 'accepted'],
+  ['a negative count (the sums kept)', 'integers', (c) => patch(c, { [PENDING_FILE]: [17, -1, 0], [BIG_FILE]: [57, 2, 0] }), 'accepted'],
+  ['a count written as a string', 'integers', (c) => patch(c, { [BIG_FILE]: ['57', 0, 0] }), REFUSAL.testsSum],
+  ['a row of four numbers', 'shape', (c) => patch(c, { [BIG_FILE]: [57, 0, 0, 0] }), 'accepted'],
+  ['a row of two numbers', 'shape', (c) => patch(c, { [BIG_FILE]: [57, 0] }), REFUSAL.integers],
+  ['pending + todo above its tests (the sums kept)', 'rowBound', (c) => patch(c, { [PENDING_FILE]: [0, 1, 0], [BIG_FILE]: [74, 0, 0] }), 'accepted'],
+  ['tests that sum to 3210', 'testsSum', (c) => patch(c, { [BIG_FILE]: [58, 0, 0] }), 'accepted'],
+  ['pending tests that sum to 2', 'pendingSum', (c) => patch(c, { [BIG_FILE]: [57, 1, 0] }), 'accepted'],
+  ['todo tests that sum to 1', 'todoSum', (c) => patch(c, { [BIG_FILE]: [57, 0, 1] }), 'accepted'],
+  ['a suite total the rows do not match (218)', 'suites', (c) => ({ ...c, mobile: { ...c.mobile, numTotalTestSuites: 218 } }), 'accepted'],
+  ['a floor file renamed (the count and sums kept)', 'keySet', (c) => renamed(c, LAST_FILE, LAST_FILE.replace('tokenIndex', 'tokenIndex2')), 'accepted'],
+  ['a floor file dropped, its tests moved to another row', 'keySet', (c) => withRows(c, entriesOf(c).filter(([k]) => k !== LAST_FILE).map(([k, v]) => [k, k === BIG_FILE ? [80, 0, 0] : v])), REFUSAL.suites],
+  ['a file outside the floor added, with no tests', 'keySet', (c) => withRows(c, [...entriesOf(c), ['tools/zz/__tests__/planted.test.js', [0, 0, 0]]]), REFUSAL.suites],
+  ['no files.mobile', 'missing', (c) => ({ ...c, files: {} }), TypeError],
+  ['no files at all', 'missing', withoutFiles, TypeError],
+  ['files.mobile given as a list', 'missing', (c) => ({ ...c, files: { mobile: [] } }), REFUSAL.keySet],
+  ['mobile not measured, with per-file numbers', 'notMeasured', (c) => ({ ...c, mobile: { notMeasured: 'planted: the run could not start' } }), 'accepted'],
+];
+
+type TestCountsModule = typeof import('../testCounts');
+const MUTANT_TIMEOUT_MS = 30_000; // the first mutant loads @babel/core (src/testing/__tests__/mutant.test.ts)
+const mutants = new Map<Rule | 'none', TestCountsModule>();
+const moduleWithRuleOff = (rule: Rule | 'none'): TestCountsModule => {
+  let m = mutants.get(rule);
+  if (!m) {
+    m = loadMutant<TestCountsModule>(MODULE, rule === 'none' ? [] : [{ find: RULES[rule], replace: 'if (false)' }], require);
+    mutants.set(rule, m);
+  }
+  return m;
+};
+
+describe('OPS-412 · a malformed files.mobile is refused, each case by its own rule', () => {
+  let recorded: TestCounts;
+  beforeAll(() => { recorded = readTestCounts(testCountsPath(APP)); });
+
+  it('every rule has a planted record, and the locale-order plant is not vacuous', () => {
+    expect([...new Set(PLANTS.map(([, rule]) => rule))].sort()).toEqual(Object.keys(RULES).sort());
+    const keys = Object.keys(recorded.files.mobile);
+    expect([...keys].sort((a, b) => a.localeCompare(b))).not.toEqual(keys);
+  });
+
+  it.each(PLANTS)('planted (in memory): %s is refused (rule: %s)', (_name, rule, mutate) => {
+    expect(() => validateTestCounts(mutate(recorded))).toThrow(REFUSAL[rule]);
+  });
+
+  it.each(PLANTS)('planted (in memory): %s, with rule %s switched off in a mutant, gets the outcome its row names', (_name, rule, mutate, off) => {
+    const planted = mutate(recorded);
+    const mutant = moduleWithRuleOff(rule);
+    if (off === 'accepted') {
+      expect(mutant.validateTestCounts(planted)).toBe(planted);
+    } else {
+      expect(() => mutant.validateTestCounts(planted)).toThrow(off);
+      expect(() => mutant.validateTestCounts(planted)).not.toThrow(REFUSAL[rule]); // that rule is really off
+    }
+  }, MUTANT_TIMEOUT_MS);
+
+  it('the in-memory copy with no rule switched off accepts the real record and refuses every plant as the module does', () => {
+    const copy = moduleWithRuleOff('none');
+    expect(copy.validateTestCounts(recorded)).toBe(recorded);
+    for (const [, rule, mutate] of PLANTS) expect(() => copy.validateTestCounts(mutate(recorded))).toThrow(REFUSAL[rule]);
+  }, MUTANT_TIMEOUT_MS);
+
+  it('mobile not measured is accepted with an empty files.mobile: no per-file numbers without a measurement', () => {
+    const unmeasured = { ...recorded, mobile: { notMeasured: 'planted: the run could not start' }, files: { mobile: {} } };
+    expect(validateTestCounts(unmeasured)).toBe(unmeasured);
   });
 });
