@@ -64,8 +64,9 @@ async function ingestSummaries(userId, items, { now = new Date() } = {}) {
 
   // The user's Garmin permissions (BE-219), read by the seam itself from the encrypted token blob, never taken
   // from its caller: a summary type the user did not permit (garminPermissions.SUMMARY_PERMISSION) is dropped
-  // before it is normalised, and counted. A user with no stored record (a link from before BE-219) is not
-  // narrowed; a record that is not a list permits nothing.
+  // before it is normalised, and counted. A live link whose blob has no record (written before BE-219) is not
+  // narrowed; a record that is not a list, or a user with no live Garmin link (an erasure that landed while the
+  // push was in flight), permits nothing.
   const { admitted, droppedNotPermitted } = permitSummaries(items, await readStoredPermissions(userId));
   if (droppedNotPermitted > 0) console.info(`[garmin] not permitted summaries=${droppedNotPermitted}`);
 

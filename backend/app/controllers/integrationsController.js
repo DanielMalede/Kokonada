@@ -505,7 +505,8 @@ exports.garminCallback = async (req, res) => {
     // server-to-server webhook can route pushes.
     user.wearableProvider = 'garmin';
     user.garminUserId = garminUserId;
-    user.setToken('wearableToken', { ...tokens, garminUserId, permissions, permissionsAt: Math.floor(Date.now() / 1000) });
+    // permissionsAtSource names whose clock stamped permissionsAt: ours here, Garmin's on a notice (RA-6).
+    user.setToken('wearableToken', { ...tokens, garminUserId, permissions, permissionsAt: Math.floor(Date.now() / 1000), permissionsAtSource: 'server' });
     await user.save();
     await burnState(payload); // single-use
 
@@ -563,6 +564,11 @@ exports.garminDisconnect = async (req, res, next) => {
 //                          the User_Permission webhook", the PKCE spec of 2025-07-23): store the new list in
 //                          the encrypted token blob, which the ingest seam narrows to; a list without
 //                          HEALTH_EXPORT leaves nothing this app may ingest, so it purges like a deregistration.
+//                          Only a fully recognised list revokes: one holding a value we do not know and no
+//                          HEALTH_EXPORT (garminPermissions.isUnrecognised; Garmin may have renamed the health
+//                          permission) changes nothing and is counted as unrecognized (resilience audit of #304, RA-1).
+// A notice's changeTimeInSeconds is Garmin's clock, so it is held stale only against a time Garmin stamped
+// (permissionsAtSource 'garmin'), never against our connect clock (RA-6).
 // Their entry shapes are not in the sources on file, so each is read CLOSED: `userId` must be a non-empty
 // string, `permissions` an array (garminPermissions.parsePermissionList), `changeTimeInSeconds` a finite
 // number when present. Anything else is ignored and counted as malformed; an unknown Garmin user is ignored
@@ -573,7 +579,7 @@ const GARMIN_NOTICE_TYPES = new Set(['deregistrations', 'userPermissionsChange']
 const _noticeUserId = (entry) => (typeof entry?.userId === 'string' && entry.userId !== '' ? entry.userId : null);
 
 async function handleGarminNotices(body) {
-  const counts = { deregistered: 0, revoked: 0, narrowed: 0, stale: 0, unknown: 0, untracked: 0, malformed: 0 };
+  const counts = { deregistered: 0, revoked: 0, narrowed: 0, stale: 0, unrecognized: 0, unknown: 0, untracked: 0, malformed: 0 };
   const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
   if (!has('deregistrations') && !has('userPermissionsChange')) return counts;
 
@@ -589,7 +595,7 @@ async function handleGarminNotices(body) {
   }
 
   // Permission changes: the latest change per Garmin user (by changeTimeInSeconds, else the later entry).
-  const changes = new Map(); // gid -> { permissions, at }
+  const changes = new Map(); // gid -> { permissions, at, unrecognised }
   if (has('userPermissionsChange')) {
     const list = body.userPermissionsChange;
     if (!Array.isArray(list)) counts.malformed += 1;
@@ -600,7 +606,9 @@ async function handleGarminNotices(body) {
       const at = rawAt === undefined ? null : (Number.isFinite(rawAt) ? rawAt : NaN);
       if (!gid || !parsed || Number.isNaN(at)) { counts.malformed += 1; continue; }
       const prior = changes.get(gid);
-      if (!prior || at === null || prior.at === null || at >= prior.at) changes.set(gid, { permissions: parsed.permissions, at });
+      if (!prior || at === null || prior.at === null || at >= prior.at) {
+        changes.set(gid, { permissions: parsed.permissions, at, unrecognised: garminPermissions.isUnrecognised(parsed) });
+      }
     }
   }
 
@@ -612,23 +620,29 @@ async function handleGarminNotices(body) {
     changes.delete(gid); // nothing left to narrow
   }
 
-  for (const [gid, { permissions, at }] of changes) {
+  for (const [gid, { permissions, at, unrecognised }] of changes) {
     const user = await resolveGarminUser(gid);
     if (!user) { counts.unknown += 1; continue; }
     const blob = user.getToken('wearableToken');
-    if (at !== null && Number.isFinite(blob?.permissionsAt) && at < blob.permissionsAt) { counts.stale += 1; continue; }
+    const garminStamped = blob?.permissionsAtSource === 'garmin' && Number.isFinite(blob.permissionsAt);
+    if (at !== null && garminStamped && at < blob.permissionsAt) { counts.stale += 1; continue; }
+    if (unrecognised) { counts.unrecognized += 1; continue; } // neither revoked nor stored
     if (!garminPermissions.hasHealthPermission(permissions)) {
       await eraseWearableProvider(user, 'garmin', { deregisterWithGarmin: false });
       counts.revoked += 1;
       continue;
     }
     if (!blob) { counts.untracked += 1; continue; } // a link with no token blob has nowhere to keep the list
-    user.setToken('wearableToken', { ...blob, permissions, permissionsAt: at ?? Math.floor(Date.now() / 1000) });
+    user.setToken('wearableToken', {
+      ...blob, permissions,
+      permissionsAt: at ?? Math.floor(Date.now() / 1000),
+      permissionsAtSource: at === null ? 'server' : 'garmin',
+    });
     await user.save();
     counts.narrowed += 1;
   }
 
-  console.info(`[garmin] notices deregistered=${counts.deregistered} revoked=${counts.revoked} narrowed=${counts.narrowed} stale=${counts.stale} unknown=${counts.unknown} untracked=${counts.untracked} malformed=${counts.malformed}`);
+  console.info(`[garmin] notices deregistered=${counts.deregistered} revoked=${counts.revoked} narrowed=${counts.narrowed} stale=${counts.stale} unrecognized=${counts.unrecognized} unknown=${counts.unknown} untracked=${counts.untracked} malformed=${counts.malformed}`);
   return counts;
 }
 

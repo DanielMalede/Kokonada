@@ -9,6 +9,8 @@
  * `{["ACTIVITY_EXPORT", …]}`, which is not JSON, so the reader takes exactly two shapes, a bare array or an
  * object whose `permissions` is an array, and nothing else. A value it does not know is ignored and counted. A
  * shape it cannot read is null, "unknown", never "nothing granted": only a readable list can narrow or revoke.
+ * A list that holds a value we do not know and no HEALTH_EXPORT is unrecognised (`isUnrecognised`): Garmin may
+ * have renamed the health permission, so it neither revokes nor connects. Only a fully recognised list revokes.
  *
  * The granted list lives inside the user's encrypted wearableToken blob (no new User schema path), and the ingest
  * seam (garminIngest.js) drops every summary type it does not permit.
@@ -58,6 +60,15 @@ function hasHealthPermission(permissions) {
 }
 
 /**
+ * True for a parsed list (parsePermissionList) that holds a value we do not know and no HEALTH_EXPORT. Such a list
+ * says nothing we can act on: the value we do not know may be the health permission under a new name, so reading it
+ * as "no health permission" would purge every user at a rename (resilience audit of #304, RA-1, RA-2).
+ */
+function isUnrecognised(parsed) {
+  return Boolean(parsed) && parsed.unknown > 0 && !hasHealthPermission(parsed.permissions);
+}
+
+/**
  * The stored record in a decrypted wearableToken blob. `undefined`: no record (no blob, or a blob written before
  * BE-219 with no `permissions` key), so nothing is narrowed. An array: the granted list, re-read closed. null: a
  * record that is not a list, so nothing is permitted (fail closed).
@@ -68,11 +79,17 @@ function storedPermissions(blob) {
   return parsed ? parsed.permissions : null;
 }
 
-/** The user's stored record, read from their own User row (undefined when there is no row or no record). */
+/**
+ * The user's stored record, read from their own User row. null (permit nothing) unless the row holds a live Garmin
+ * link with its token blob: a push the webhook resolved before an erasure reaches the seam after it, and must find
+ * nothing to write to (resilience audit of #304, RA-4). A live link whose blob predates BE-219 is undefined.
+ */
 async function readStoredPermissions(userId) {
   const user = await User.findById(userId);
-  if (!user || typeof user.getToken !== 'function') return undefined;
-  return storedPermissions(user.getToken('wearableToken'));
+  if (!user || typeof user.getToken !== 'function' || user.wearableProvider !== 'garmin') return null;
+  const blob = user.getToken('wearableToken');
+  if (!blob) return null;
+  return storedPermissions(blob);
 }
 
 /**
@@ -97,6 +114,7 @@ module.exports = Object.freeze({
   parsePermissionList,
   parsePermissionsResponse,
   hasHealthPermission,
+  isUnrecognised,
   storedPermissions,
   readStoredPermissions,
   permitSummaries,

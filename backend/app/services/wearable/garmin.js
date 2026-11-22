@@ -1,7 +1,7 @@
 const axios  = require('axios');
 const crypto = require('crypto');
 const { URLSearchParams } = require('url');
-const { parsePermissionsResponse } = require('./garminPermissions');
+const { parsePermissionsResponse, isUnrecognised } = require('./garminPermissions');
 
 // Garmin Health API — OAuth 2.0 + PKCE (OAuth 1.0a was deprecated by Garmin).
 const AUTHORIZE_URL = 'https://connect.garmin.com/oauth2Confirm';
@@ -99,8 +99,9 @@ async function getUserId(accessToken) {
 }
 
 // The permissions the user granted (BE-219): GET /user/permissions, read closed (garminPermissions.js).
-// Returns the known values, sorted; throws on a body it cannot read, so the connect fails rather than
-// store a link whose permissions are unknown.
+// Returns the known values, sorted; throws on a body it cannot read, or on a list of values we do not know
+// with no HEALTH_EXPORT (garminPermissions.isUnrecognised), so the connect fails rather than store a link
+// whose permissions are unknown and which would silently drop every push.
 async function getUserPermissions(accessToken) {
   const { data } = await axios.get(`${API_BASE}/user/permissions`, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -108,6 +109,7 @@ async function getUserPermissions(accessToken) {
   });
   const parsed = parsePermissionsResponse(data);
   if (!parsed) throw new Error('Garmin permissions response unreadable');
+  if (isUnrecognised(parsed)) throw new Error('Garmin permissions response unrecognised');
   return parsed.permissions;
 }
 
