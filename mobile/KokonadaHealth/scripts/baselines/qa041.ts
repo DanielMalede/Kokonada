@@ -15,20 +15,16 @@
 // Node strips this file's types (qa041.mjs imports it): Node builtins and explicit .ts paths only, no
 // top-level __dirname, no typescript, no enum, and type imports written as `import type`.
 
+import { checkRetireEntries } from '../../src/testing/guards/retireRule.ts';
+import type { DecStatus, RetireEntry } from '../../src/testing/guards/retireRule.ts';
 import type { TestCounts } from './testCounts.ts';
 
+export type { DecStatus, RetireEntry };
 export type Pkg = 'mobile' | 'backend';
 export type Exit = 0 | 1 | 2;
 /** A data input the entry loaded, or why it could not. */
 export type Loaded<T> = { value: T } | { error: string };
 
-/** Structurally the entry of src/__contracts__/retire.ts (that file imports nothing). */
-export interface RetireEntry { kind: 'file' | 'pin'; target: string; dec: string; reason: string }
-export type DecStatus = (dec: string) => string | null;
-/** checkRetireEntries of src/testing/guards/retireRule.ts: one failure line per entry that is not a valid signature. */
-export type CheckRetireEntries = (entries: readonly RetireEntry[], decStatus: DecStatus) => string[];
-/** The RETIRE signature rule and the decision records it reads. */
-export interface Signatures { check: CheckRetireEntries; decStatus: DecStatus }
 /** Structurally ContractRef of src/__contracts__/manifest.ts. */
 export interface ContractRef { file: string; fullTitle: string }
 export type Manifest = Readonly<Record<string, readonly ContractRef[]>>;
@@ -61,7 +57,8 @@ export interface Inputs {
   manifest?: Loaded<Manifest>;
   floor?: Loaded<FloorList>;
   floorTree?: FloorTree;
-  signatures?: Loaded<Signatures>;
+  /** The status of a decision record (DECIDED, OPEN, …), or null when there is none: what the RETIRE signature rule reads. */
+  decStatus?: DecStatus;
 }
 
 export interface Verdict { exit: Exit; lines: string[] }
@@ -196,11 +193,231 @@ export function bindHead(head: string, facts: Loaded<HeadFacts>, startTimes: Rea
   return { problems, note };
 }
 
-/** The verdict: the order of decision of the header. */
-export function decide(inputs: Inputs): Verdict {
+// ---- the rules (plan decisions 3, 5 and 6) ----------------------------------------------------------
+
+export type RuleId = 'floor' | 'RA-5' | 'RETIRE' | 'RA-7' | 'RA-9';
+/** Each package's rules, in the order they report. The backend has no RETIRE path (OPS-473), no manifest (OPS-413) and no floor list. */
+export const RULES: Readonly<Record<Pkg, readonly RuleId[]>> = {
+  mobile: ['floor', 'RA-5', 'RETIRE', 'RA-7', 'RA-9'],
+  backend: ['floor', 'RA-5'],
+};
+
+const COUNTS_FILE = 'scripts/baselines/test-counts.json';
+const RETIRE_FILE = 'src/__contracts__/retire.ts';
+const MANIFEST_FILE = 'src/__contracts__/manifest.ts';
+const FLOOR_FILE = 'src/__contracts__/testFloor.baseline.ts';
+
+interface Outcome { breaches: string[]; cannot: string[]; notes: string[] }
+const outcome = (o: Partial<Outcome>): Outcome => ({ breaches: [], cannot: [], notes: [], ...o });
+interface Measured { numTotalTests: number; numPendingTests: number; numTodoTests: number }
+/** What the valid RETIRE `file` entries take off the floor and the bound, and the entries that break the rule. */
+interface Retired { tests: number; pendingTodo: number; files: number; entries: number; breaches: string[] }
+interface Context { pkg: Pkg; inputs: Inputs; run: Run; base: Loaded<{ counts: Measured; sha: string }>; retired: () => Loaded<Retired> }
+
+function need<T>(x: Loaded<T> | undefined, label: string): Loaded<T> {
+  if (x === undefined) return { error: `${label}: not loaded` };
+  return 'error' in x ? { error: `${label}: ${x.error}` } : x;
+}
+
+function baseline(inputs: Inputs): Context['base'] {
+  if ('error' in inputs.counts) return { error: `${COUNTS_FILE}: ${inputs.counts.error}` };
+  const p = inputs.counts.value[inputs.pkg];
+  if ('notMeasured' in p) return { error: `test-counts.json records ${inputs.pkg} as not measured: ${p.notMeasured}` };
+  return { value: { counts: p, sha: inputs.counts.value.sha } };
+}
+
+/** The RETIRE discount: a `file` entry takes its row off when it is signed, in the record and did not run; a `pin` entry takes nothing. */
+function retiredOf(inputs: Inputs, run: Run): Loaded<Retired> {
+  if (inputs.pkg === 'backend') return { value: { tests: 0, pendingTodo: 0, files: 0, entries: 0, breaches: [] } };
+  if ('error' in inputs.counts) return { error: `${COUNTS_FILE}: ${inputs.counts.error}` };
+  const retire = need(inputs.retire, RETIRE_FILE);
+  if ('error' in retire) return retire;
+  const decStatus = inputs.decStatus;
+  if (decStatus === undefined) return { error: 'the decision records (docs/design-v2/decisions) were not read' };
+  const record = inputs.counts.value.files?.mobile;
+  if (record === undefined) return { error: 'test-counts.json has no per-file record (files.mobile)' };
+  const out: Retired = { tests: 0, pendingTodo: 0, files: 0, entries: retire.value.length, breaches: checkRetireEntries(retire.value, decStatus) };
+  const seen = new Set<string>();
+  for (const e of retire.value) {
+    if (e.kind !== 'file' || seen.has(e.target)) continue; // a second entry is "named twice" above
+    seen.add(e.target);
+    if (!Object.hasOwn(record, e.target)) { out.breaches.push(`RETIRE file ${e.target}: not in the per-file record of test-counts.json (only a file of the baseline run is retired)`); continue; }
+    if (run.files.has(e.target)) { out.breaches.push(`RETIRE file ${e.target}: it still ran in this run`); continue; }
+    if (checkRetireEntries([e], decStatus).length > 0) continue; // unsigned: a breach above, and it lowers nothing
+    const [tests, pendingCount, todoCount] = record[e.target];
+    out.tests += tests;
+    out.pendingTodo += pendingCount + todoCount;
+    out.files += 1;
+  }
+  return { value: out };
+}
+
+const less = (n: number, files: number): string => (files === 0 ? '' : `, less ${n} in ${plural(files, 'retired file', 'retired files')}`);
+
+/** QA-041: the run has at least the baseline's tests, less the rows of the retired files. */
+function floorRule(ctx: Context): Outcome {
+  const b = ctx.base;
+  if ('error' in b) return outcome({ cannot: [b.error] });
+  const r = ctx.retired();
+  if ('error' in r) return outcome({ cannot: [r.error] });
+  const total = ctx.run.numTotalTests;
+  const floor = b.value.counts.numTotalTests - r.value.tests;
+  const why = `(the baseline's ${b.value.counts.numTotalTests} at ${b.value.sha.slice(0, 12)}${less(r.value.tests, r.value.files)})`;
+  return total < floor
+    ? outcome({ breaches: [`floor: ${ctx.pkg} ran ${total} tests: ${total} < floor ${floor} ${why}`] })
+    : outcome({ notes: [`floor: ${ctx.pkg} ran ${total} tests: ${total} >= floor ${floor} ${why}`] });
+}
+
+/** RA-5: skipped and todo tests stay within the baseline's, less those of the retired files (numTotalTests counts them). */
+function pendingRule(ctx: Context): Outcome {
+  const b = ctx.base;
+  if ('error' in b) return outcome({ cannot: [b.error] });
+  const r = ctx.retired();
+  if ('error' in r) return outcome({ cannot: [r.error] });
+  const { numPendingTests: p, numTodoTests: t } = ctx.run;
+  const was = b.value.counts.numPendingTests + b.value.counts.numTodoTests;
+  const bound = was - r.value.pendingTodo;
+  const head = `RA-5: ${ctx.pkg} has ${plural(p + t, 'pending and todo test', 'pending and todo tests')} (${p} pending, ${t} todo)`;
+  const why = `(the baseline's ${was} at ${b.value.sha.slice(0, 12)}${less(r.value.pendingTodo, r.value.files)})`;
+  return p + t > bound
+    ? outcome({ breaches: [`${head}: ${p + t} > bound ${bound} ${why}`] })
+    : outcome({ notes: [`${head}: ${p + t} <= bound ${bound} ${why}`] });
+}
+
+/** The RETIRE rule: every entry signed by a DECIDED DEC that is not the rule itself; a file entry names a baseline file that did not run. */
+function retireRule(ctx: Context): Outcome {
+  const r = ctx.retired();
+  if ('error' in r) return outcome({ cannot: [r.error] });
+  if (r.value.breaches.length > 0) return outcome({ breaches: r.value.breaches });
+  return outcome({ notes: [`RETIRE: ${plural(r.value.entries, 'entry', 'entries')}, every one signed; ${plural(r.value.files, 'test file', 'test files')} retired`] });
+}
+
+/** RA-7: every test the manifest names ran in its file and passed, every copy of its name. */
+function manifestRule(ctx: Context): Outcome {
+  const m = need(ctx.inputs.manifest, MANIFEST_FILE);
+  if ('error' in m) return outcome({ cannot: [m.error] });
+  const ids = Object.keys(m.value);
+  if (ids.length === 0) return outcome({ breaches: ['RA-7: the manifest names no contract'] });
+  const breaches: string[] = [];
+  let refs = 0;
+  for (const id of ids) {
+    const list = m.value[id];
+    if (list.length === 0) { breaches.push(`RA-7 ${id}: no test reference`); continue; }
+    for (const { file, fullTitle } of list) {
+      refs += 1;
+      const title = JSON.stringify(fullTitle);
+      const tests = ctx.run.files.get(file);
+      if (tests === undefined) { breaches.push(`RA-7 ${id}: ${file} did not run, so ${title} did not pass`); continue; }
+      const named = tests.filter((t) => t.fullName === fullTitle);
+      if (named.length === 0) breaches.push(`RA-7 ${id}: ${file} ran no test named ${title}`);
+      else if (named.some((t) => t.status !== 'passed')) breaches.push(`RA-7 ${id}: ${title} in ${file} did not pass (${named.map((t) => t.status).join(', ')})`);
+    }
+  }
+  return breaches.length > 0
+    ? outcome({ breaches })
+    : outcome({ notes: [`RA-7: ${plural(refs, 'test', 'tests')} of ${plural(ids.length, 'contract', 'contracts')} in the manifest passed`] });
+}
+
+const TEST_EXT = /\.[mc]?[jt]sx?$/;
+const TEST_NAME = /\.(test|spec)\.[mc]?[jt]sx?$/;
+
+/** The disk-walk rule of scripts/jest/__tests__/jestProjects.test.ts, on a posix path relative to the app root. */
+export function isTestPath(rel: string): boolean {
+  const parts = rel.split('/');
+  if (parts.some((p) => p === 'node_modules' || p === '.git')) return false;
+  const name = parts[parts.length - 1];
+  return TEST_EXT.test(name) && (parts.slice(0, -1).includes('__tests__') || TEST_NAME.test(name));
+}
+
+/** RA-9: TEST_FLOOR.paths is the tree at TEST_FLOOR.sha (an ancestor of HEAD), and the per-file record names the same files. */
+function floorListRule(ctx: Context): Outcome {
+  const f = need(ctx.inputs.floor, FLOOR_FILE);
+  if ('error' in f) return outcome({ cannot: [f.error] });
+  const floor = f.value;
+  const at = floor.sha.slice(0, 12);
+  const o = outcome({});
+  const counts = ctx.inputs.counts;
+  if ('error' in counts) o.cannot.push(`${COUNTS_FILE}: ${counts.error}`);
+  else {
+    if (counts.value.sha !== floor.sha) o.breaches.push(`RA-9: test-counts.json was measured at ${counts.value.sha.slice(0, 12)}, TEST_FLOOR at ${at}`);
+    const record = counts.value.files?.mobile;
+    if (record === undefined) o.cannot.push('test-counts.json has no per-file record (files.mobile)');
+    else {
+      const listed = new Set(floor.paths);
+      for (const k of Object.keys(record)) if (!listed.has(k)) o.breaches.push(`RA-9: the per-file record of test-counts.json names ${k}, which TEST_FLOOR.paths does not`);
+      for (const p of floor.paths) if (!Object.hasOwn(record, p)) o.breaches.push(`RA-9: TEST_FLOOR.paths names ${p}, which the per-file record of test-counts.json does not`);
+    }
+  }
+  const tree = ctx.inputs.floorTree;
+  if (tree === undefined) o.cannot.push('RA-9: the tree at TEST_FLOOR.sha was not read');
+  else if (tree.state === 'error') o.cannot.push(`RA-9: ${tree.reason}`);
+  else if (tree.state === 'absent') o.cannot.push(`RA-9: TEST_FLOOR.sha ${at} is not in this clone${tree.shallow ? ', a shallow one (check out with fetch-depth: 0)' : ''}`);
+  else if (tree.state === 'notAncestor') {
+    if (tree.shallow) o.cannot.push(`RA-9: the clone is shallow, so whether TEST_FLOOR.sha ${at} is an ancestor of HEAD cannot be told (check out with fetch-depth: 0)`);
+    else o.breaches.push(`RA-9: TEST_FLOOR.sha ${floor.sha} is not an ancestor of HEAD`);
+  } else {
+    const derived = [...new Set(tree.paths.filter(isTestPath))].sort();
+    const inTree = new Set(derived);
+    const listed = new Set(floor.paths);
+    if (floor.listTestsCount !== derived.length) o.breaches.push(`RA-9: TEST_FLOOR.listTestsCount is ${floor.listTestsCount}, but the tree at ${at} has ${derived.length} test files`);
+    for (const p of derived) if (!listed.has(p)) o.breaches.push(`RA-9: ${p} is a test file in the tree at ${at}, but TEST_FLOOR.paths leaves it out`);
+    for (const p of floor.paths) if (!inTree.has(p)) o.breaches.push(`RA-9: TEST_FLOOR.paths names ${p}, which is no test file in the tree at ${at}`);
+    if (!floor.paths.every((p, i) => i === 0 || floor.paths[i - 1] < p)) o.breaches.push('RA-9: TEST_FLOOR.paths is not sorted and unique');
+    if (o.breaches.length === 0) o.notes.push(`RA-9: TEST_FLOOR.paths is the ${derived.length} test files of the tree at ${at}, and the per-file record names the same files`);
+  }
+  return o;
+}
+
+const RULE_FNS: Readonly<Record<RuleId, (ctx: Context) => Outcome>> = {
+  floor: floorRule, 'RA-5': pendingRule, RETIRE: retireRule, 'RA-7': manifestRule, 'RA-9': floorListRule,
+};
+
+/**
+ * The verdict, in the order of decision of the header. `active` switches rules off in memory (a planted
+ * case run with its rule off shows which rule catches it); the CLI always runs every rule of the package.
+ */
+export function decide(inputs: Inputs, active: ReadonlySet<RuleId> = new Set(RULES[inputs.pkg])): Verdict {
   const read = readRun(inputs.results, inputs.locate, inputs.expectShards);
   const bind = bindHead(inputs.head, inputs.headFacts, read.startTimes);
   const untrusted = [...read.problems, ...bind.problems];
   if (untrusted.length > 0 || read.run === null) return { exit: 2, lines: untrusted };
-  return { exit: 0, lines: [bind.note] };
+  const run = read.run;
+  let retired: Loaded<Retired> | undefined;
+  const ctx: Context = {
+    pkg: inputs.pkg, inputs, run, base: baseline(inputs),
+    retired: () => { if (retired === undefined) retired = retiredOf(inputs, run); return retired; },
+  };
+  const all = outcome({ notes: [
+    bind.note,
+    `run: ${run.numTotalTests} tests in ${plural(run.files.size, 'test file', 'test files')} from ${plural(run.resultsFiles, 'results file', 'results files')} (${run.numPendingTests} pending, ${run.numTodoTests} todo)`,
+  ] });
+  for (const id of RULES[inputs.pkg]) {
+    if (!active.has(id)) continue;
+    const o = RULE_FNS[id](ctx);
+    all.breaches.push(...o.breaches);
+    all.cannot.push(...o.cannot);
+    all.notes.push(...o.notes);
+  }
+  if (inputs.pkg === 'backend') all.notes.push('RA-7: the backend has no contract manifest (OPS-413), so no contract test was checked');
+  const unchecked = [...new Set(all.cannot)];
+  if (all.breaches.length > 0) return { exit: 1, lines: [...all.breaches, ...unchecked.map((c) => `not checked: ${c}`)] };
+  if (unchecked.length > 0) return { exit: 2, lines: unchecked };
+  return { exit: 0, lines: all.notes };
+}
+
+// ---- what the CLI prints ----------------------------------------------------------------------------
+
+const HEADERS: Readonly<Record<Exit, string>> = { 0: 'VERIFIED (exit 0)', 1: 'BREACH (exit 1)', 2: 'CANNOT VERIFY (exit 2, never a pass)' };
+
+/** A finding on one line: a control character or a line separator is written as \uXXXX, so no title starts a line (or a runner command). */
+function oneLine(s: string): string {
+  return Array.from(s, (c) => {
+    const code = c.charCodeAt(0);
+    return code < 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029 ? `\\u${code.toString(16).padStart(4, '0')}` : c;
+  }).join('');
+}
+
+/** The report: a header with the verdict, then one indented line per finding. */
+export function formatVerdict(pkg: Pkg | null, v: Verdict): string {
+  return `${[`QA-041${pkg === null ? '' : ` ${pkg}`}: ${HEADERS[v.exit]}`, ...v.lines.map((l) => `  - ${oneLine(l)}`)].join('\n')}\n`;
 }

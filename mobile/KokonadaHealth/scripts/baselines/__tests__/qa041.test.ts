@@ -1,12 +1,11 @@
 /// <reference types="node" />
-import { checkRetireEntries } from '../../../src/testing/guards/retire';
 import type { TestCounts } from '../testCounts';
-import { decide, type Inputs, type ResultsFile, type Verdict } from '../qa041';
+import { decide, formatVerdict, isTestPath, RULES, type Inputs, type ResultsFile, type RuleId, type Verdict } from '../qa041';
 
 // QA-041 proper (OPS-412 part A), the pure core on in-memory inputs. A run is jest's `--ci --json` output
 // as text; the package root, the files on disk, git's facts and the decision records are in memory too,
-// so nothing here reads the tree. The RETIRE signature rule is the real one (retire.ts re-exports the
-// rule of src/testing/guards/retireRule.ts); only its decision statuses come from a stub (#291 audit RA-8).
+// so nothing here reads the tree. The RETIRE signature rule is the real one (the core imports it from
+// src/testing/guards/retireRule.ts); only its decision statuses come from a stub (#291 audit RA-8).
 
 const ROOT = '/planted/app';
 const HEAD = 'a'.repeat(40);
@@ -99,7 +98,7 @@ function inputs(over: Partial<Inputs> = {}): Inputs {
     manifest: { value: MANIFEST },
     floor: { value: FLOOR },
     floorTree: { state: 'ok', paths: [A, B, C, 'src/a/A.ts', 'package.json'] },
-    signatures: { value: { check: checkRetireEntries, decStatus: stub } },
+    decStatus: stub,
     ...over,
   };
 }
@@ -241,5 +240,284 @@ describe('QA-041 · binding the results to the head (plan decision 4, in memory)
     const v = decide(inputs({ headFacts: { error: 'git is not on the PATH (spawnSync git ENOENT)' } }));
     expect(v.exit).toBe(2);
     expect(v.lines).toEqual(['cannot bind the results to a commit: git is not on the PATH (spawnSync git ENOENT)']);
+  });
+});
+
+// ---- plan step 5: the rules, on in-memory runs -------------------------------------------------------
+// Each planted case exits 1 with its line, and exits 0 with its rule switched off in memory: that rule,
+// and no other, is the one catching it.
+
+const MOBILE_RULES: RuleId[] = ['floor', 'RA-5', 'RETIRE', 'RA-7', 'RA-9'];
+const off = (...rules: RuleId[]): ReadonlySet<RuleId> => new Set(MOBILE_RULES.filter((r) => !rules.includes(r)));
+const AT = FLOOR_SHA.slice(0, 12);
+const D = 'src/d/D.test.ts';
+type Row = readonly [string, Status];
+const edit = (spec: Spec, file: string, f: (tests: Row[]) => Row[]): Spec => ({ ...spec, [file]: f([...(spec[file] ?? [])]) });
+const without = (spec: Spec, file: string): Spec => Object.fromEntries(Object.entries(spec).filter(([f]) => f !== file));
+const runOf = (spec: Spec): ResultsFile[] => [{ file: 'shard-1.json', text: jestJson(spec) }];
+const retireFile = (target: string, dec = 'DEC-900') => ({ value: [{ kind: 'file' as const, target, dec, reason: 'planted' }] });
+const nine = (prefix: string): Row[] => range(9).map((i) => [`${prefix} t${i}`, 'passed'] as const);
+const failing = (name: string) => (t: Row[]): Row[] => t.map(([n, s]) => [n, n === name ? 'failed' : s] as const);
+const pending = (name: string) => (t: Row[]): Row[] => t.map(([n, s]) => [n, n === name ? 'pending' : s] as const);
+const dropped = (name: string) => (t: Row[]): Row[] => t.filter(([n]) => n !== name);
+
+/** exit 1 with exactly `lines` under every rule, and exit 0 with `rule` switched off. */
+function caughtBy(rule: RuleId, input: Inputs, lines: string[]): void {
+  const v = decide(input);
+  expect({ exit: v.exit, lines: v.lines }).toEqual({ exit: 1, lines });
+  expect(decide(input, off(rule))).toEqual(expect.objectContaining({ exit: 0 }));
+}
+
+describe('QA-041 · the rules (plan step 5)', () => {
+  it('the rule sets: mobile has five, the backend the totals and the pending bound only', () => {
+    expect(RULES).toEqual({ mobile: MOBILE_RULES, backend: ['floor', 'RA-5'] });
+  });
+
+  it('planted: a deleted test exits 1 with "3208 < floor 3209", through the floor', () => {
+    caughtBy('floor', inputs({ results: runOf(edit(BASE, A, dropped('A t2999'))) }), [
+      `floor: mobile ran 3208 tests: 3208 < floor 3209 (the baseline's 3209 at ${AT})`,
+    ]);
+  });
+
+  it('planted: a .skip added exits 1 through RA-5 only (the total keeps a skipped test)', () => {
+    const input = inputs({ results: runOf(edit(BASE, A, pending('A t10'))) });
+    caughtBy('RA-5', input, [`RA-5: mobile has 2 pending and todo tests (2 pending, 0 todo): 2 > bound 1 (the baseline's 1 at ${AT})`]);
+    expect(decide(input, off('floor')).exit).toBe(1);
+  });
+
+  it('planted: a todo added exits 1 through RA-5 only (it raises the total)', () => {
+    const input = inputs({ results: runOf(edit(BASE, A, (t) => [...t, ['A a todo', 'todo']])) });
+    caughtBy('RA-5', input, [`RA-5: mobile has 2 pending and todo tests (1 pending, 1 todo): 2 > bound 1 (the baseline's 1 at ${AT})`]);
+    expect(decide(input, off('floor')).exit).toBe(1);
+  });
+
+  it('planted: file C (9 tests) removed exits 1; a RETIRE file entry signed by a DECIDED DEC turns it 0', () => {
+    caughtBy('floor', inputs({ results: runOf(without(BASE, C)) }), [`floor: mobile ran 3200 tests: 3200 < floor 3209 (the baseline's 3209 at ${AT})`]);
+    expect(decide(inputs({ results: runOf(without(BASE, C)), retire: retireFile(C) }))).toEqual(expect.objectContaining({ exit: 0 }));
+  });
+
+  it('planted: C removed plus one more test, with C retired, exits 1: the floor drops by the row of C only', () => {
+    caughtBy('floor', inputs({ results: runOf(edit(without(BASE, C), A, dropped('A t2999'))), retire: retireFile(C) }), [
+      `floor: mobile ran 3199 tests: 3199 < floor 3200 (the baseline's 3209 at ${AT}, less 9 in 1 retired file)`,
+    ]);
+  });
+
+  it('planted: a RETIRE entry signed by an OPEN DEC, by the rule itself (DEC-091) or by no record exits 1 through RETIRE', () => {
+    // C removed and nine tests added in D, so the floor holds and only the signature is wrong.
+    const spec = { ...without(BASE, C), [D]: nine('D') };
+    caughtBy('RETIRE', inputs({ results: runOf(spec), retire: retireFile(C, 'DEC-901') }), [`RETIRE file ${C}: DEC-901 is OPEN, not DECIDED`]);
+    caughtBy('RETIRE', inputs({ results: runOf(spec), retire: retireFile(C, 'DEC-091') }), [`RETIRE file ${C}: DEC-091 is the RETIRE rule itself, not a signature`]);
+    caughtBy('RETIRE', inputs({ results: runOf(spec), retire: retireFile(C, 'DEC-950') }), [`RETIRE file ${C}: DEC-950 does not exist`]);
+  });
+
+  it('planted: an unsigned RETIRE entry lowers nothing, so a removed file still breaches the floor', () => {
+    expect(decide(inputs({ results: runOf(without(BASE, C)), retire: retireFile(C, 'DEC-901') }))).toEqual({ exit: 1, lines: [
+      `floor: mobile ran 3200 tests: 3200 < floor 3209 (the baseline's 3209 at ${AT})`,
+      `RETIRE file ${C}: DEC-901 is OPEN, not DECIDED`,
+    ] });
+  });
+
+  it('planted: a RETIRE target not in the per-file record, and one that still ran, exit 1 through RETIRE', () => {
+    caughtBy('RETIRE', inputs({ retire: retireFile(D) }), [`RETIRE file ${D}: not in the per-file record of test-counts.json (only a file of the baseline run is retired)`]);
+    caughtBy('RETIRE', inputs({ retire: retireFile(C) }), [`RETIRE file ${C}: it still ran in this run`]);
+    caughtBy('RETIRE', inputs({ retire: retireFile('__proto__') }), ['RETIRE file __proto__: not in the per-file record of test-counts.json (only a file of the baseline run is retired)']);
+  });
+
+  it('planted: a RETIRE file entry named twice discounts its row once', () => {
+    const twice = { value: [...retireFile(C).value, ...retireFile(C).value] };
+    expect(decide(inputs({ results: runOf(edit(without(BASE, C), A, dropped('A t2999'))), retire: twice }))).toEqual({ exit: 1, lines: [
+      `floor: mobile ran 3199 tests: 3199 < floor 3200 (the baseline's 3209 at ${AT}, less 9 in 1 retired file)`,
+      `RETIRE file ${C}: named twice`,
+    ] });
+  });
+
+  it('planted: a pin entry subtracts 0', () => {
+    const pin = { value: [{ kind: 'pin' as const, target: C, dec: 'DEC-900', reason: 'planted' }] };
+    caughtBy('floor', inputs({ results: runOf(without(BASE, C)), retire: pin }), [`floor: mobile ran 3200 tests: 3200 < floor 3209 (the baseline's 3209 at ${AT})`]);
+    expect(decide(inputs({ retire: pin })).exit).toBe(0);
+  });
+
+  it('the pending and todo tests of a retired file leave the bound with it', () => {
+    // B holds the baseline's one pending test; with B retired the bound is 0, so a new skip in A is red.
+    const v = decide(inputs({ results: runOf(edit(without(BASE, B), A, pending('A t10'))), retire: retireFile(B), manifest: { value: { 'CON-1': MANIFEST['CON-1'] } } }));
+    expect(v).toEqual({ exit: 1, lines: [`RA-5: mobile has 1 pending and todo test (1 pending, 0 todo): 1 > bound 0 (the baseline's 1 at ${AT}, less 1 in 1 retired file)`] });
+  });
+
+  describe('RA-7 · every manifest reference passed in this run', () => {
+    it('all passed exits 0', () => {
+      expect(decide(inputs()).exit).toBe(0);
+    });
+
+    it('planted: a manifest test that failed exits 1', () => {
+      caughtBy('RA-7', inputs({ results: runOf(edit(BASE, A, failing('A t1'))) }), [`RA-7 CON-1: "A t1" in ${A} did not pass (failed)`]);
+    });
+
+    it('planted: a manifest test that is pending exits 1 (the bound kept by passing the baseline\'s own skip)', () => {
+      const spec = edit(BASE, B, (t) => t.map(([n]) => [n, n === 'B t5' ? 'pending' : 'passed'] as const));
+      caughtBy('RA-7', inputs({ results: runOf(spec) }), [`RA-7 CON-2: "B t5" in ${B} did not pass (pending)`]);
+    });
+
+    it('planted: a manifest test missing from its file exits 1', () => {
+      const spec = edit(BASE, A, (t) => t.map(([n, s]) => [n === 'A t1' ? 'A t1 renamed' : n, s] as const));
+      caughtBy('RA-7', inputs({ results: runOf(spec) }), [`RA-7 CON-1: ${A} ran no test named "A t1"`]);
+    });
+
+    it('planted: a manifest test whose file did not run exits 1 (the file retired, so the floor holds)', () => {
+      caughtBy('RA-7', inputs({ results: runOf(without(BASE, B)), retire: retireFile(B) }), [
+        `RA-7 CON-2: ${B} did not run, so "B t5" did not pass`,
+        `RA-7 CON-2: ${B} did not run, so "B t6" did not pass`,
+      ]);
+    });
+
+    it('planted: a duplicate title where one copy fails exits 1', () => {
+      caughtBy('RA-7', inputs({ results: runOf(edit(BASE, A, (t) => [...t, ['A t1', 'failed']])) }), [`RA-7 CON-1: "A t1" in ${A} did not pass (passed, failed)`]);
+    });
+
+    it('planted: a manifest with no contract, or a contract with no reference, exits 1', () => {
+      caughtBy('RA-7', inputs({ manifest: { value: {} } }), ['RA-7: the manifest names no contract']);
+      caughtBy('RA-7', inputs({ manifest: { value: { ...MANIFEST, 'CON-3': [] } } }), ['RA-7 CON-3: no test reference']);
+    });
+  });
+
+  describe('RA-9 · the floor list is the tree at its SHA (in memory; qa041.git.test.ts reads real trees)', () => {
+    const E = 'src/e/__tests__/E.test.ts';
+    it('a test file in the tree that the list leaves out exits 1', () => {
+      caughtBy('RA-9', inputs({ floorTree: { state: 'ok', paths: [A, B, C, E] } }), [
+        `RA-9: TEST_FLOOR.listTestsCount is 3, but the tree at ${AT} has 4 test files`,
+        `RA-9: ${E} is a test file in the tree at ${AT}, but TEST_FLOOR.paths leaves it out`,
+      ]);
+    });
+
+    it('a listed path that is no test file in the tree (fabricated) exits 1', () => {
+      caughtBy('RA-9', inputs({ floorTree: { state: 'ok', paths: [A, B, 'src/c/C.ts'] } }), [
+        `RA-9: TEST_FLOOR.listTestsCount is 3, but the tree at ${AT} has 2 test files`,
+        `RA-9: TEST_FLOOR.paths names ${C}, which is no test file in the tree at ${AT}`,
+      ]);
+    });
+
+    it('a list out of order, or with a count that is not its length, exits 1', () => {
+      caughtBy('RA-9', inputs({ floor: { value: { ...FLOOR, paths: [B, A, C] } } }), ['RA-9: TEST_FLOOR.paths is not sorted and unique']);
+      caughtBy('RA-9', inputs({ floor: { value: { ...FLOOR, listTestsCount: 4 } } }), [`RA-9: TEST_FLOOR.listTestsCount is 4, but the tree at ${AT} has 3 test files`]);
+    });
+
+    it('a per-file record that names other files than the list, or another SHA, exits 1', () => {
+      const files = { mobile: { [A]: [3000, 0, 0], [B]: [200, 1, 0], [D]: [9, 0, 0] } } as const;
+      caughtBy('RA-9', inputs({ counts: { value: { ...COUNTS, files } } }), [
+        `RA-9: the per-file record of test-counts.json names ${D}, which TEST_FLOOR.paths does not`,
+        `RA-9: TEST_FLOOR.paths names ${C}, which the per-file record of test-counts.json does not`,
+      ]);
+      caughtBy('RA-9', inputs({ counts: { value: { ...COUNTS, sha: 'e'.repeat(40) } } }), [`RA-9: test-counts.json was measured at eeeeeeeeeeee, TEST_FLOOR at ${AT}`]);
+    });
+
+    it('TEST_FLOOR.sha present but not an ancestor of HEAD exits 1; in a shallow clone it cannot be told: 2', () => {
+      caughtBy('RA-9', inputs({ floorTree: { state: 'notAncestor', shallow: false } }), [`RA-9: TEST_FLOOR.sha ${FLOOR_SHA} is not an ancestor of HEAD`]);
+      expect(decide(inputs({ floorTree: { state: 'notAncestor', shallow: true } }))).toEqual({ exit: 2, lines: [
+        `RA-9: the clone is shallow, so whether TEST_FLOOR.sha ${AT} is an ancestor of HEAD cannot be told (check out with fetch-depth: 0)`,
+      ] });
+    });
+
+    it('TEST_FLOOR.sha absent from the clone, or git failing, exits 2', () => {
+      expect(decide(inputs({ floorTree: { state: 'absent', shallow: false } }))).toEqual({ exit: 2, lines: [`RA-9: TEST_FLOOR.sha ${AT} is not in this clone`] });
+      expect(decide(inputs({ floorTree: { state: 'absent', shallow: true } }))).toEqual({ exit: 2, lines: [
+        `RA-9: TEST_FLOOR.sha ${AT} is not in this clone, a shallow one (check out with fetch-depth: 0)`,
+      ] });
+      expect(decide(inputs({ floorTree: { state: 'error', reason: 'git timed out after 60000 ms' } }))).toEqual({ exit: 2, lines: ['RA-9: git timed out after 60000 ms'] });
+    });
+  });
+
+  it('the walk rule of scripts/jest/__tests__/jestProjects.test.ts decides which paths are test files', () => {
+    const yes = ['__tests__/App.test.tsx', 'src/__tests__/helper.ts', 'src/x/__tests__/deep/h.js', 'src/a.test.ts', 'src/a.spec.tsx',
+      'src/a.test.mjs', 'src/a.test.cjs', 'src/a.spec.mts', 'src/a.test.jsx', 'src/__fixtures__/a.test.ts', 'src/__tests__/a.d.ts'];
+    const no = ['src/a.ts', 'src/__tests__/data.json', 'src/__tests__/a.ts.snap', 'src/a.test.ts.orig', 'node_modules/p/__tests__/a.test.js',
+      'modules/m/node_modules/p/a.test.js', '.git/a.test.js', 'src/__fixtures__/a.ts', 'src/x__tests__/a.ts', 'src/test.ts', 'src/a.tests.ts', 'src/__tests__'];
+    expect(yes.filter((p) => !isTestPath(p))).toEqual([]);
+    expect(no.filter((p) => isTestPath(p))).toEqual([]);
+  });
+});
+
+describe('QA-041 · the order of decision (plan decision 4)', () => {
+  const deleted = runOf(edit(BASE, A, dropped('A t2999')));
+
+  it('a run that cannot be trusted outranks a breach: 2', () => {
+    const stale = [{ file: 'old.json', text: jestJson(edit(BASE, A, dropped('A t2999')), {}, COMMIT_TIME * 1000 - 1) }];
+    expect(decide(inputs({ results: stale })).exit).toBe(2);
+  });
+
+  it('a breach outranks an input that could not be checked: 1, and the unchecked input is named', () => {
+    expect(decide(inputs({ results: deleted, floorTree: { state: 'absent', shallow: true } }))).toEqual({ exit: 1, lines: [
+      `floor: mobile ran 3208 tests: 3208 < floor 3209 (the baseline's 3209 at ${AT})`,
+      `not checked: RA-9: TEST_FLOOR.sha ${AT} is not in this clone, a shallow one (check out with fetch-depth: 0)`,
+    ] });
+    expect(decide(inputs({ results: runOf(edit(BASE, A, failing('A t1'))), retire: { error: 'SyntaxError: Unexpected token' } }))).toEqual({ exit: 1, lines: [
+      `RA-7 CON-1: "A t1" in ${A} did not pass (failed)`,
+      'not checked: src/__contracts__/retire.ts: SyntaxError: Unexpected token',
+    ] });
+  });
+
+  it.each([
+    ['test-counts.json that will not load', { counts: { error: 'test counts: sha must be 40 lower-case hex characters, got 988bab3' } }, 'scripts/baselines/test-counts.json: test counts: sha must be 40 lower-case hex characters, got 988bab3'],
+    ['mobile recorded as not measured', { counts: { value: { ...COUNTS, mobile: { notMeasured: 'jest could not start' } } } }, 'test-counts.json records mobile as not measured: jest could not start'],
+    ['RETIRE that will not load', { retire: { error: 'boom' } }, 'src/__contracts__/retire.ts: boom'],
+    ['a manifest that will not load', { manifest: { error: 'boom' } }, 'src/__contracts__/manifest.ts: boom'],
+    ['TEST_FLOOR that will not load', { floor: { error: 'boom' } }, 'src/__contracts__/testFloor.baseline.ts: boom'],
+  ] as Array<[string, Partial<Inputs>, string]>)('with no breach, %s exits 2 and names it', (_name, over, line) => {
+    const v = decide(inputs(over));
+    expect(v.exit).toBe(2);
+    expect(v.lines).toContain(line);
+    expect(v.lines).toEqual([...new Set(v.lines)]); // one line per unchecked input, however many rules read it
+  });
+
+  it('a mobile record without its per-file rows (files.mobile) cannot be checked: 2', () => {
+    const v = decide(inputs({ counts: { value: { ...COUNTS, files: undefined } as unknown as TestCounts } }));
+    expect(v.exit).toBe(2);
+    expect(v.lines).toContain('test-counts.json has no per-file record (files.mobile)');
+  });
+});
+
+describe('QA-041 · the backend (totals and the pending bound only)', () => {
+  const backend = (over: Partial<Inputs> = {}): Inputs => ({
+    pkg: 'backend', head: HEAD, results: runOf(BASE), locate,
+    headFacts: { value: { sha: HEAD, parents: [HEAD_P1], commitTime: COMMIT_TIME } },
+    counts: { value: COUNTS }, ...over,
+  });
+
+  it('a run that meets the totals exits 0 and says RA-7 has no backend manifest; no RETIRE, manifest or floor list is read', () => {
+    const v = decide(backend());
+    expect(v.exit).toBe(0);
+    expect(v.lines).toContain('RA-7: the backend has no contract manifest (OPS-413), so no contract test was checked');
+  });
+
+  it('planted: a deleted backend test exits 1 through the floor; a .skip through RA-5', () => {
+    const deleted = backend({ results: runOf(edit(BASE, A, dropped('A t2999'))) });
+    expect(decide(deleted)).toEqual({ exit: 1, lines: [`floor: backend ran 3208 tests: 3208 < floor 3209 (the baseline's 3209 at ${AT})`] });
+    expect(decide(deleted, new Set<RuleId>(['RA-5'])).exit).toBe(0);
+    const skipped = backend({ results: runOf(edit(BASE, A, pending('A t10'))) });
+    expect(decide(skipped)).toEqual({ exit: 1, lines: [`RA-5: backend has 2 pending and todo tests (2 pending, 0 todo): 2 > bound 1 (the baseline's 1 at ${AT})`] });
+    expect(decide(skipped, new Set<RuleId>(['floor'])).exit).toBe(0);
+  });
+
+  it('a RETIRE entry does not lower the backend floor (the backend has no RETIRE path, OPS-473)', () => {
+    expect(decide(backend({ results: runOf(without(BASE, C)), retire: retireFile(C), decStatus: stub })).exit).toBe(1);
+  });
+
+  it('the backend recorded as not measured exits 2', () => {
+    expect(decide(backend({ counts: { value: { ...COUNTS, backend: { notMeasured: 'MongoMemoryServer could not start' } } } }))).toEqual({
+      exit: 2, lines: ['test-counts.json records backend as not measured: MongoMemoryServer could not start'],
+    });
+  });
+});
+
+describe('QA-041 · what the CLI prints', () => {
+  it('a header with the verdict, then one line per finding', () => {
+    expect(formatVerdict('mobile', { exit: 0, lines: ['a', 'b'] })).toBe('QA-041 mobile: VERIFIED (exit 0)\n  - a\n  - b\n');
+    expect(formatVerdict('backend', { exit: 1, lines: ['x'] })).toBe('QA-041 backend: BREACH (exit 1)\n  - x\n');
+    expect(formatVerdict(null, { exit: 2, lines: ['y'] })).toBe('QA-041: CANNOT VERIFY (exit 2, never a pass)\n  - y\n');
+  });
+
+  it('planted: a title that spells a workflow command on a new line stays inside its own line', () => {
+    const title = 'A t1\n::add-mask::planted\r::error::planted';
+    const out = formatVerdict('mobile', decide(inputs({ results: runOf(edit(BASE, A, failing('A t1'))), manifest: { value: { 'CON-1': [{ file: A, fullTitle: title }] } } })));
+    expect(out.split('\n').filter((l) => l.startsWith('::'))).toEqual([]);
+    expect(formatVerdict('mobile', { exit: 1, lines: ['p\nq r\u0007'] })).toBe('QA-041 mobile: BREACH (exit 1)\n  - p\\u000aq\\u2028r\\u0007\n');
   });
 });
