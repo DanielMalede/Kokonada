@@ -35,7 +35,7 @@ const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
 const { bioDiscoveryQuery } = require('../services/discovery/discoveryQuery');
-const { readDiscoveryCandidates, writeDiscoveryCandidates } = require('../services/discovery/discoveryCache');
+const { readDiscoveryCandidates, writeDiscoveryCandidates, claimDiscoveryRefresh } = require('../services/discovery/discoveryCache');
 const captionService = require('../services/discovery/captionService');
 const { peekBaselines } = require('../services/biosonic/baselines');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
@@ -352,9 +352,21 @@ function emotionDiscoveryPort({ userId, accessToken, musicProfile, bandTargets }
     // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
     if (!spotify.artistGenresAvailable()) return [];
     const onTaste = await fetchSpotifyDiscovery(accessToken, musicProfile, query);
-    await writeDiscoveryCandidates(userId, onTaste);
+    if (onTaste.length > 0 && await stillLinkedToSpotify(userId)) await writeDiscoveryCandidates(userId, onTaste);
     return onTaste;
   };
+}
+
+// Resilience RA-2 (round 2): a Spotify disconnect, a withdrawal or an account deletion that purges
+// `disc:bio:` while a fetch is out must not be undone by the write that follows it. So the write is
+// made only if the account still exists and still holds a Spotify token, read again just before it
+// (one _id lookup). Any failure answers false: a write skipped is a cache miss, never a leak.
+async function stillLinkedToSpotify(userId) {
+  try {
+    return !!(await User.exists({ _id: userId, 'spotifyToken.blob': { $type: 'string' } }));
+  } catch {
+    return false;
+  }
 }
 
 // The heart-rate branch's discovery port (RA-1): the cache, and nothing that reaches Spotify. A miss
@@ -372,21 +384,51 @@ function heartDiscoveryPort({ userId, musicProfile, bandTargets }) {
 // two top genres (bioDiscoveryQuery): the request the heart branch used to send at every
 // heart-triggered run, sent now when the user opens the session. Fire-and-forget from `live_mode`;
 // never throws, and a failure logs a fixed line (no user id, no genre, no error text).
-async function refreshDiscoveryOnSessionOpen(socket) {
+//
+// Bounded (resilience RA-1, round 2): no socket event is rate limited, so every Live edge and every
+// socket connecting in Live calls this. One refresh per user runs at a time in this process (the
+// in-flight map: a second call gets the running one), and one per user per
+// DISCOVERY_REFRESH_FLOOR_MS across sockets and processes (claimDiscoveryRefresh, recorded before any
+// Mongo read or Spotify request, whatever the outcome).
+const discoveryRefreshInFlight = new Map(); // userId → the running refresh's promise
+
+// What the refresh reads from the taste profile: the ranked genres and the taste filter's two lists,
+// and the library fields withoutYoutube needs to drop YouTube rows and re-derive the genres — never
+// the whole document (its library is the largest thing a user has).
+const REFRESH_PROFILE_FIELDS = Object.freeze({
+  topGenres: 1, genreSet: 1, knownArtistIds: 1,
+  'library.provider': 1, 'library.recordingKey': 1, 'library.uri': 1, 'library.canonicalKey': 1,
+  'library.genres': 1, 'library.artist': 1,
+});
+
+function refreshDiscoveryOnSessionOpen(socket) {
+  const userId = socket?.data?.user?._id?.toString();
+  if (!userId) return Promise.resolve();
+  const running = discoveryRefreshInFlight.get(userId);
+  if (running) return running;
+  const refresh = _refreshDiscoveryCache(userId).finally(() => {
+    if (discoveryRefreshInFlight.get(userId) === refresh) discoveryRefreshInFlight.delete(userId);
+  });
+  discoveryRefreshInFlight.set(userId, refresh);
+  return refresh;
+}
+
+async function _refreshDiscoveryCache(userId) {
   try {
     if (VECTOR_DISCOVERY()) return;
-    const userId = socket?.data?.user?._id?.toString();
-    if (!userId) return;
+    // A known-403 hour: nothing to ask, so nothing is read and no attempt is recorded.
+    if (!spotify.artistGenresAvailable()) return;
+    if (!(await claimDiscoveryRefresh(userId))) return;
     const user = await User.findById(userId);
     if (!user) return;
     if ((resolvePlaybackProvider(user) || resolveMusicProvider(user)) !== 'spotify') return;
-    if (!spotify.artistGenresAvailable()) return;
-    const musicProfile = withoutYoutube(await MusicProfile.findOne({ userId }).lean());
+    const musicProfile = withoutYoutube(await MusicProfile.findOne({ userId }, REFRESH_PROFILE_FIELDS).lean());
     if (!musicProfile) return;
     const query = bioDiscoveryQuery(musicProfile);
     if (query.seed_genres.length === 0) return;
     const accessToken = await spotify.getValidToken(user);
     const onTaste = await fetchSpotifyDiscovery(accessToken, musicProfile, query);
+    if (onTaste.length === 0 || !(await stillLinkedToSpotify(userId))) return;
     await writeDiscoveryCandidates(userId, onTaste);
   } catch {
     console.warn('[discovery] session-open cache refresh failed');
@@ -2320,6 +2362,8 @@ module.exports = {
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,
+  // a suite awaits every background discovery refresh it started before the next test begins
+  _settleDiscoveryRefreshes: () => Promise.all([...discoveryRefreshInFlight.values()]),
   _hrBand,
   _shouldRecalibrate,
   HR_NOISE_FLOOR,
