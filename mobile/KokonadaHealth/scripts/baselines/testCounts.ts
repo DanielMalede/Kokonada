@@ -3,11 +3,18 @@
 // The counts come from `jest --ci --json` (numTotalTestSuites, numTotalTests, numPendingTests,
 // numTodoTests) on a clean main at `sha`.
 // A package that could not be measured carries its reason instead of numbers, never a guess.
+//
+// OPS-412: the QA-041 CLI (qa041.mjs) loads this module in plain Node 24 through type stripping, and jest
+// loads it through babel. So it imports only Node builtins (as node:*) and explicit .ts paths, and reads no
+// __dirname (an ES module has none): the caller names the app root.
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-export const TEST_COUNTS_PATH = path.join(__dirname, 'test-counts.json');
+/** scripts/baselines/test-counts.json under the app root (mobile/KokonadaHealth) the caller names. */
+export function testCountsPath(appRoot: string): string {
+  return path.join(appRoot, 'scripts/baselines/test-counts.json');
+}
 
 /**
  * numTotalTests counts skipped (pending) and todo tests too, so a `.skip` alone keeps the total: QA-041
@@ -60,5 +67,7 @@ export function validateTestCounts(value: unknown): TestCounts {
   return c;
 }
 
-export const readTestCounts = (file: string = TEST_COUNTS_PATH): TestCounts =>
-  validateTestCounts(JSON.parse(fs.readFileSync(file, 'utf8')));
+/** Reads and validates the given file; there is no default (testCountsPath(appRoot) names the real one). */
+export function readTestCounts(file: string): TestCounts {
+  return validateTestCounts(JSON.parse(fs.readFileSync(file, 'utf8')));
+}

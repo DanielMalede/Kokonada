@@ -1,15 +1,23 @@
 /// <reference types="node" />
-import { readTestCounts, TEST_COUNTS_PATH, validateTestCounts, type TestCounts } from '../testCounts';
+import { spawnSync } from 'child_process';
+import * as os from 'os';
+import * as path from 'path';
+import { pathToFileURL } from 'url';
+import { readTestCounts, testCountsPath, validateTestCounts, type TestCounts } from '../testCounts';
 
 // QA-042 (Stage 0 Q2): the real mobile and backend test counts, measured with `jest --ci --json` on a clean
 // main at a recorded SHA, live in one file, scripts/baselines/test-counts.json, the one place QA-041 reads.
 // This pins the file's shape: a malformed record fails here instead of feeding QA-041 a false floor.
 
+const APP = path.resolve(__dirname, '../../..');
+const MODULE = path.join(APP, 'scripts/baselines/testCounts.ts');
+
 describe('QA-042 · the recorded jest baseline', () => {
-  const recorded = readTestCounts();
+  let recorded: TestCounts;
+  beforeAll(() => { recorded = readTestCounts(testCountsPath(APP)); });
 
   it('is well formed: a 40-hex SHA, positive integer counts for both packages, the tools and the command', () => {
-    expect(TEST_COUNTS_PATH.split(/[\\/]/).slice(-3).join('/')).toBe('scripts/baselines/test-counts.json');
+    expect(testCountsPath(APP)).toBe(path.join(APP, 'scripts', 'baselines', 'test-counts.json'));
     expect(validateTestCounts(recorded)).toBe(recorded);
     for (const pkg of ['mobile', 'backend'] as const) {
       const c = recorded[pkg];
@@ -49,5 +57,40 @@ describe('QA-042 · the recorded jest baseline', () => {
   it('a package that could not be measured is accepted only with its recorded reason', () => {
     const reasoned = { ...recorded, backend: { notMeasured: 'MongoMemoryServer could not start on the measuring machine' } };
     expect(validateTestCounts(reasoned)).toBe(reasoned);
+  });
+});
+
+// OPS-412: the QA-041 CLI (scripts/baselines/qa041.mjs) loads this module in plain Node 24, through type
+// stripping, without jest or babel. So the module takes its root from the caller (no __dirname, which an ES
+// module does not have) and reads only the file it is given.
+describe('OPS-412 · plain Node imports the module', () => {
+  it('testCountsPath(appRoot) is scripts/baselines/test-counts.json under the root it is given', () => {
+    const root = path.join(os.tmpdir(), 'planted-app-root');
+    expect(testCountsPath(root)).toBe(path.join(root, 'scripts', 'baselines', 'test-counts.json'));
+  });
+
+  it('readTestCounts has no default file: called without one, it reads nothing and throws', () => {
+    let thrown: unknown;
+    try {
+      (readTestCounts as unknown as (file?: string) => TestCounts)();
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { code?: string } | undefined)?.code).toBe('ERR_INVALID_ARG_TYPE');
+  });
+
+  it('Node imports testCounts.ts by type stripping, from another directory, and reads the real record', () => {
+    const script = [
+      `const m = await import(${JSON.stringify(pathToFileURL(MODULE).href)});`,
+      `const c = m.readTestCounts(m.testCountsPath(${JSON.stringify(APP)}));`,
+      'console.log(JSON.stringify({ exports: Object.keys(m).sort(), mobile: c.mobile }));',
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 60_000 });
+    // stderr is shown only when the import fails; a warning on a passing run is not asserted away.
+    expect({ status: r.status, error: r.error, stderr: r.status === 0 ? '' : r.stderr }).toEqual({ status: 0, error: undefined, stderr: '' });
+    expect(JSON.parse(r.stdout.trim())).toEqual({
+      exports: ['readTestCounts', 'testCountsPath', 'validateTestCounts'],
+      mobile: { numTotalTestSuites: 219, numTotalTests: 3209, numPendingTests: 1, numTodoTests: 0 },
+    });
   });
 });
