@@ -306,7 +306,9 @@ describe('READY says the tier the motion policy gave FieldView, as the device re
     await h.rm.answer(true);
     h.draw();
     const [ready] = h.of('READY');
-    expect(Object.keys(ready).sort()).toEqual(['clock', 'fontScale', 'isRTL', 'pixelRatio', 'powerSave', 'probes', 'run', 'scene', 'sentinel', 'seq', 'shaderReason', 'shaderStatus', 't', 'tier']);
+    // UI-276: skiaBackend is a build fact (react-native-skia's backend and how it was read), no input of the scene's.
+    expect(Object.keys(ready).sort()).toEqual(['clock', 'fontScale', 'isRTL', 'pixelRatio', 'powerSave', 'probes', 'run', 'scene', 'sentinel', 'seq', 'shaderReason', 'shaderStatus', 'skiaBackend', 't', 'tier']);
+    expect(Object.keys(ready.skiaBackend).sort()).toEqual(['backend', 'readBy', 'reason']);
     expect(JSON.stringify(ready)).not.toMatch(/taps|emotion|joy|intense|"x":-?0\.\d/);
   });
 });

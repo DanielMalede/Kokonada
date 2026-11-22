@@ -7,6 +7,7 @@ import { formatLine } from '../protocol';
 import type { LabParams } from '../params';
 import { LAB_SENTINEL } from '../sentinel';
 import { ShaderReportContext } from '../shaderReport';
+import { SKIA_BACKEND_MAX_REASON } from '../skiaBackend';
 
 // The designer's witness BLOCK (dry run 2026-11-15 at 4323c76, Galaxy S22+, he-IL so isRTL true), items i, ii and iv.
 // React Native on Android lays a right-to-left app out with left and right swapped (I18nManager.doLeftAndRightSwapInRTL,
@@ -149,9 +150,11 @@ describe.each(['dark', 'light'] as const)('under RTL (isRTL true, left and right
     const { reported } = mountMeasured(`witness.abyss.${face}`);
     const long = 1079.9999656677246;
     const worst = Object.fromEntries(Object.keys(reported).map((id) => [id, probeRect({ x: long / K, y: long / K, width: long / K, height: long / K }, K)]));
+    // UI-276: and the longest Skia backend fact the lab can send, a reason clipped to its most.
+    const skiaBackend = { backend: null, readBy: null, reason: `${'x'.repeat(SKIA_BACKEND_MAX_REASON - 1)}…` };
     expect(() => formatLine('READY', {
       run: 'wit-0000000-dark-1', seq: 0, scene: `witness.abyss.${face}`, clock: 'fixed', t: 11000, powerSave: false, pixelRatio: K,
-      isRTL: true, fontScale: 1, probes: worst, sentinel: LAB_SENTINEL, shaderStatus: 'ready', shaderReason: null, tier: null,
+      isRTL: true, fontScale: 1, probes: worst, sentinel: LAB_SENTINEL, shaderStatus: 'ready', shaderReason: null, tier: null, skiaBackend,
     })).not.toThrow();
   });
 });

@@ -8,6 +8,7 @@ import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
 import type { Scene } from '../scenes';
 import { ShaderReportContext } from '../shaderReport';
+import { fakeSkia } from './__fixtures__/fakeSkiaBackend';
 import { labMounts } from './__fixtures__/labMounts';
 
 // Each test's LabRoot is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
@@ -89,7 +90,7 @@ describe('READY', () => {
   it('waits for every probe, then for N frames, then is sent exactly once with the whole state', () => {
     jest.replaceProperty(I18nManager, 'isRTL', true);
     jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
-    const h = setup(FIXED);
+    const h = setup(FIXED, { skia: fakeSkia('ganesh-gl').skia });
     h.tick(5);
     expect(h.of('READY')).toEqual([]);
     h.layout('mark');
@@ -112,9 +113,35 @@ describe('READY', () => {
       shaderStatus: null, shaderReason: null,
       // Nor a motion tier (B8-6: a field scene names the tier FieldView drew at).
       tier: null,
+      // UI-276: the Skia backend react-native-skia answers on the device (skiaBackend.ts), here a Ganesh GL build's.
+      skiaBackend: {
+        backend: 'ganesh-gl',
+        readBy: 'Skia.hasDevice() is false (Ganesh), and a 1x1 Skia.Surface.MakeOffscreen surface\'s native texture is a GL texture on target 0xde1',
+        reason: null,
+      },
     }]);
     h.tick(10);
     expect(h.of('READY')).toHaveLength(1);
+  });
+
+  // UI-276: the backend is read once, when the lab mounts, and every READY of the run says it.
+  it('says the Skia backend the lab read once at launch, on every READY of the run, from one 1x1 surface', () => {
+    const { skia, made } = fakeSkia('ganesh-gl');
+    const h = setup(STEPPED, { skia });
+    h.layout();
+    h.tick(2);
+    h.command({ seq: '1', cmd: 'step' });
+    h.tick(2);
+    expect(h.of('READY').map((r) => r.skiaBackend.backend)).toEqual(['ganesh-gl', 'ganesh-gl']);
+    expect(made.map((s) => [s.width, s.height, s.disposed])).toEqual([[1, 1, 1]]);
+  });
+
+  it('a Skia that cannot say its backend (the unit tests\' stub has no hasDevice): READY says null, and why, and is still sent', () => {
+    const h = setup(FIXED);
+    h.layout();
+    h.tick(2);
+    expect(h.of('READY')).toHaveLength(1);
+    expect(h.of('READY')[0].skiaBackend).toEqual({ backend: null, readBy: null, reason: 'react-native-skia has no Skia.hasDevice(), so it cannot say whether it is the Graphite build' });
   });
 
   // The harness refuses a shot unless the app itself reports RTL (F-13) and the font scale it really

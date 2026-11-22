@@ -81,6 +81,8 @@ const SKIA_LOCK = JSON.stringify({ name: 'app', lockfileVersion: 3, packages: { 
 const NO_SCENE = { direction: null, face: null, hero: null, tier: null };
 // PixelRatio.get() on the fake phone: Android's density for its 450 dpi, 450 × (1f / 160) in float (UI-240).
 const K450 = 2.8125;
+// UI-276: READY's Skia backend as the lab reads it on a Ganesh GL build (src/design/lab/skiaBackend.ts).
+const LAB_SKIA_BACKEND = { backend: 'ganesh-gl', readBy: 'Skia.hasDevice() is false (Ganesh), and a 1x1 Skia.Surface.MakeOffscreen surface\'s native texture is a GL texture on target 0xde1', reason: null };
 
 // OPS-100. The capture harness end to end, on a stateful fake phone (__fixtures__/fakeDevice.ts):
 //   · it refuses BEFORE touching the phone when the stamp chain, the installed APK, the plan, the
@@ -130,7 +132,7 @@ function readyLine(run: string, extras: Record<string, string>, device: FakeDevi
     },
     // The lab activity forces RTL, and the app reads the font scale the device was set to.
     isRTL: true, fontScale: Number(device.settings.get('system/font_scale')),
-    sentinel: SENTINEL, ...override,
+    sentinel: SENTINEL, skiaBackend: LAB_SKIA_BACKEND, ...override,
   })}`;
 }
 
@@ -1362,7 +1364,9 @@ describe('RA-51: a failed rm after the recording', () => {
 // ratio, the bytes are the inline assembly's once each row's pixelRatio, the one field added, is taken out (and it is
 // READY's, 2.8125 on this 450 dpi phone). UI-278: the stamp names the token files' hashes now, where the goldens' stamp
 // named none; so the stamp's and each row's tokens, the world's, are put back to the {} the goldens were taken with, and
-// the APK's hash, at the top and in each row, to that of the same APK packing the stamp with {}.
+// the APK's hash, at the top and in each row, to that of the same APK packing the stamp with {}. UI-276: each row names
+// its schema version first and READY's Skia backend after skiaVersion now; each is held to what it must be and taken out
+// too.
 describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
   const FIXED = new Date('2026-11-15T10:00:00.000Z');
   const bytesOf = (w: ReturnType<typeof world>) => {
@@ -1379,6 +1383,13 @@ describe('UI-240: the manifest bytes are the inline assembly\'s', () => {
       expect(Object.keys(row).pop()).toBe('pixelRatio');
       expect(row.pixelRatio).toBe(K450);
       delete row.pixelRatio;
+      const keys = Object.keys(row);
+      expect(keys[0]).toBe('schemaVersion');
+      expect(row.schemaVersion).toBe(2);
+      delete row.schemaVersion;
+      expect(keys[keys.indexOf('skiaVersion') + 1]).toBe('skiaBackend');
+      expect(row.skiaBackend).toEqual(LAB_SKIA_BACKEND);
+      delete row.skiaBackend;
       expect(row.stamp.tokens).toEqual(w.stamp.tokens);
       expect(row.app.apkSha256).toBe(sha(fs.readFileSync(w.apkPath)));
       row.stamp.tokens = {};
@@ -1466,6 +1477,42 @@ describe('UI-240: each row carries READY\'s pixel ratio', () => {
     const written = JSON.parse(fs.readFileSync(path.join(w.outDir, 'manifest.json'), 'utf8'));
     expect([written.outcome, written.rows]).toEqual(['failed', []]);
     expect(w.device.state()).toEqual(w.before);
+  });
+});
+
+// UI-276: every row names the Skia backend READY says drew it, which the lab reads on the device (adb has no read of
+// it). One the lab could not read is null with its reason, and so is a READY that names none: a capture is never refused
+// for it, a report decides (lib/manifest.mjs skiaBackendProblem). A backend out of form is no row the harness writes.
+describe('UI-276: each row names READY\'s Skia backend', () => {
+  it('as READY sent it, on every row, and every row is one validateRow accepts', async () => {
+    const w = world();
+    const { manifest } = await w.run();
+    expect(manifest.rows.map((r: { skiaBackend: unknown }) => r.skiaBackend)).toEqual([LAB_SKIA_BACKEND, LAB_SKIA_BACKEND, LAB_SKIA_BACKEND]);
+    for (const row of manifest.rows) expect(validateRow(row)).toEqual([]);
+  });
+
+  it('a backend the lab could not read: null with its reason on the row, and the run still passes', async () => {
+    const w = world();
+    const unread = { backend: null, readBy: null, reason: 'Skia.hasDevice() is false (Ganesh), and Skia.Surface.MakeOffscreen(1, 1) made no GPU surface' };
+    readyAs(w, { skiaBackend: unread });
+    const { manifest } = await w.run();
+    expect(manifest.outcome).toBe('passed');
+    expect(manifest.rows.map((r: { skiaBackend: unknown }) => r.skiaBackend)).toEqual([unread, unread, unread]);
+  });
+
+  it('a READY that names no backend: null, "READY names no Skia backend", and the run still passes', async () => {
+    const w = world();
+    readyAs(w, { skiaBackend: undefined });
+    const { manifest } = await w.run();
+    expect(manifest.outcome).toBe('passed');
+    for (const row of manifest.rows) expect(row.skiaBackend).toEqual({ backend: null, readBy: null, reason: 'READY names no Skia backend' });
+  });
+
+  it('a READY backend out of form is refused at the shot, naming the field, and no row is kept', async () => {
+    const w = world();
+    readyAs(w, { skiaBackend: { backend: 'ganesh-vulkan', readBy: 'x', reason: null } });
+    const manifest = await refusedRun(w, PLAN, /^smoke-fixed\.1: the manifest row is not valid: skiaBackend\.backend must be one of ganesh-gl, graphite or null$/);
+    expect(manifest.rows).toEqual([]);
   });
 });
 
