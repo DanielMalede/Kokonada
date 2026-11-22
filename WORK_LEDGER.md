@@ -112,12 +112,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M06
-- task: `own:dan015-page-round` (own)
-- title: docs: DEC-190 records the owner's round-6 legal-basis rulings and the page round's findings as TASKS rows (own:dan015-page-round)
-- branch: `docs/dan015-page-round`
-- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-190.md`, `docs/design-v2/DECISIONS.md`
+- task: `BE-265` (TASKS)
+- title: The declarations take the owner's facts of 2026-11-22 and DEC-190's legal bases (BE-265)
+- branch: `docs/be265-declarations`
+- paths: `docs/PRIVACY_DECLARATIONS.md`, `docs/store/play-health-connect-declaration.md`, `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/wave4.retentionDocs.test.js`, `backend/tests/youtubeDeclarations.test.js`, `mobile/KokonadaHealth/scripts/lab/__tests__/uploadGate.test.ts`, `TASKS.md`
 - resources: none
-- state: in-review · PR #300
+- state: claimed
 - started: 2026-11-22
 
 ### M07
