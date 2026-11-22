@@ -226,8 +226,18 @@ async function maybeDeregisterGarmin(user) {
 
 // Full per-provider erasure: (garmin only) deregister with Garmin, then clear credentials,
 // persist, and purge the data footprint.
-async function eraseWearableProvider(user, provider) {
-  const deregistration = provider === 'garmin' ? await maybeDeregisterGarmin(user) : undefined;
+//
+// `deregisterWithGarmin: false` (BE-219) is for an erasure Garmin itself started: its `deregistrations`
+// notice, or a `userPermissionsChange` that leaves no health permission. The registration the outbound call
+// would delete is Garmin's to drop, so the call is skipped whatever GARMIN_DEREGISTER_ENABLED says; the local
+// erasure is the same in full.
+async function eraseWearableProvider(user, provider, { deregisterWithGarmin = true } = {}) {
+  let deregistration;
+  if (provider === 'garmin') {
+    deregistration = deregisterWithGarmin
+      ? await maybeDeregisterGarmin(user)
+      : { attempted: false, skipped: 'garmin_initiated' };
+  }
   clearWearableCredentials(user, provider);
   await user.save();
   const purged = await purgeWearableData(user._id, provider);

@@ -58,6 +58,8 @@ jest.mock('../app/services/wearable/garmin', () => ({
   getAuthUrl:              jest.fn(),
   exchangeCode:            jest.fn(),
   getUserId:               jest.fn(),
+  // BE-219: the callback reads the granted permissions (the real read is pinned in garminUserPermissions.integration.test.js).
+  getUserPermissions:      jest.fn().mockResolvedValue(['HEALTH_EXPORT']),
   requestSixMonthBackfill: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('../app/services/wearable/garminIngest', () => ({
@@ -584,7 +586,8 @@ describe('Garmin OAuth 2.0 + PKCE flow', () => {
     expect(garmin.getUserId).toHaveBeenCalledWith('gat');
     expect(user.garminUserId).toBe('garmin-99'); // plaintext for webhook routing
     expect(user.setToken).toHaveBeenCalledWith('wearableToken',
-      expect.objectContaining({ accessToken: 'gat', refreshToken: 'grt', garminUserId: 'garmin-99' }));
+      expect.objectContaining({ accessToken: 'gat', refreshToken: 'grt', garminUserId: 'garmin-99', permissions: ['HEALTH_EXPORT'] }));
+    expect(garmin.getUserPermissions).toHaveBeenCalledWith('gat');
     expect(user.save).toHaveBeenCalled();
   });
 
