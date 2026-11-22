@@ -8,6 +8,7 @@ const { encrypt } = require('../../utils/encryption');
 const { logBiometricAccess, auditedDecrypt } = require('../../utils/biometricAudit');
 const { computeBaselineBlob } = require('../../agents/runtime/physiology/baselineEngine');
 const { disabled } = require('../../utils/envFlag');
+const { generationVitalQuery } = require('../wearable/garminMusicFence');
 
 // Personal biometric baselines: rolling 30-day median/MAD of resting heart rate.
 //
@@ -68,13 +69,15 @@ function robustZ(x, med, madValue, fallbackMad = FALLBACK_MAD) {
 // Page a user-scoped, time-windowed collection with the encrypting getters INTACT
 // (deliberately not .lean() — the getters are what decrypt). Returns the mapped rows and the
 // number of documents whose plaintext was actually touched, for the ADR-0005 audit line.
-async function _pageDecrypted(Model, userId, since, map) {
+// `filter` narrows the query further: the VitalSample page passes the Garmin music fence's filter (BE-245),
+// which is the empty object once Garmin permits its data to shape music, so that query is then unchanged.
+async function _pageDecrypted(Model, userId, since, map, filter = {}) {
   const rows = [];
   let lastId = null;
   let decryptedCount = 0;
 
   for (let page = 0; page < MAX_PAGES; page++) {
-    const query = { userId, recordedAt: { $gte: since }, ...(lastId ? { _id: { $gt: lastId } } : {}) };
+    const query = { userId, recordedAt: { $gte: since }, ...filter, ...(lastId ? { _id: { $gt: lastId } } : {}) };
     const docs = await Model.find(query).sort({ _id: 1 }).limit(PAGE_SIZE);
     if (!docs?.length) break;
 
@@ -166,6 +169,10 @@ async function computeBaselines(userId) {
     };
   });
 
+  // BE-245 (DEC-047): the Garmin music fence's second layer. While it is closed, a Garmin Health API row in
+  // VitalSample is never read here, so it moves no baseline and, being filtered in the query, no habitual
+  // timezone either (_modalTzOffset below counts only what was read). BiometricLog is NOT fenced: the phone's
+  // live heart rate is stored there as source 'garmin' too (BE-031).
   const vitals = await _pageDecrypted(VitalSample, userId, since, (doc) => {
     if (doc.value == null) return null;
     const value = Number(doc.value);
@@ -177,7 +184,7 @@ async function computeBaselines(userId) {
       recordedAt: doc.recordedAt,
       tzOffsetMinutes: doc.tzOffsetMinutes ?? null,
     };
-  });
+  }, generationVitalQuery());
 
   // ONE audit line for the whole bulk decryption (userId + purpose + count), never a reading.
   const decryptedCount = hr.decryptedCount + vitals.decryptedCount;
