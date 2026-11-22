@@ -114,6 +114,42 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ users: 0 }));
   });
 
+  // BE-245 (DEC-047): with the REAL seam behind the webhook and the shipped, closed music fence, a consented
+  // user's push is answered 200 and counted, and nothing of it reaches a store a generation reads.
+  it('the shipped fence: a consented user\'s push through the real seam is acknowledged and nothing is stored', async () => {
+    const BiometricLog = require('../app/models/BiometricLog');
+    const VitalSample = require('../app/models/VitalSample');
+    const MedicalProfile = require('../app/models/MedicalProfile');
+    const realIngest = jest.requireActual('../app/services/wearable/garminIngest').ingestSummaries;
+    garminIngest.ingestSummaries.mockImplementationOnce(realIngest);
+    const u = await connectGarmin('garmin-FENCED');
+    await grantConsent(u._id);
+    const res = makeRes();
+    const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+    const yesterday = Math.floor(Date.now() / 86400000) * 86400 - 86400;
+
+    try {
+      await garminWebhook({
+        query: { secret: WEBHOOK_SECRET },
+        body: {
+          dailies: [{ userId: 'garmin-FENCED', startTimeInSeconds: yesterday, restingHeartRateInBeatsPerMinute: 52, timeOffsetHeartRateSamples: { 0: 61 } }],
+          hrv: [{ userId: 'garmin-FENCED', startTimeInSeconds: yesterday, durationInSeconds: 3600, lastNightAvg: 48 }],
+        },
+      }, res, jest.fn());
+
+      expect(garminIngest.ingestSummaries).toHaveBeenCalledTimes(1);
+      expect(await garminIngest.ingestSummaries.mock.results[0].value).toMatchObject({ fenced: true, fencedDropped: 3 });
+      expect(info).toHaveBeenCalledWith('[garmin] fenced metrics=3');
+    } finally {
+      info.mockRestore();
+    }
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ received: true, users: 1 }));
+    expect(await BiometricLog.countDocuments({ userId: u._id })).toBe(0);
+    expect(await VitalSample.countDocuments({ userId: u._id })).toBe(0);
+    expect(await MedicalProfile.countDocuments({ userId: u._id })).toBe(0);
+  });
+
   it('resolves + re-stamps across an ENCRYPTION_KEY rotation (H2 — no reindex outage)', async () => {
     const OLD = 'a'.repeat(64);
     const NEW = 'b'.repeat(64);
