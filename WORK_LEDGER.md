@@ -85,10 +85,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:ra1-heart-discovery-cache` (own)
-- title: BE-231 RA-1: a per-user discovery cache disc:bio:<userId>, refreshed only by user-driven events; the heart branch reads it only and sends no Spotify discovery request
-- branch: `fix/ra1-heart-discovery-cache`
-- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/discovery/discoveryCache.js`, `backend/app/utils/userRedisPurge.js`, `backend/app/services/privacy/spotifyErasure.js`, `backend/tests/discoveryCache.test.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/discoveryHealthEgress.structural.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/heartConsentGate.integration.test.js`, `backend/tests/userRedisPurge.test.js`, `backend/tests/spotifyDisconnectErasure.integration.test.js`, `backend/tests/sessionHealthDeclarations.test.js`, `backend/tests/consentWithdrawalSessionHealth.integration.test.js`, `backend/tests/shadow.generationFaultReply.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `docs/PRIVACY_DECLARATIONS.md`, `TASKS.md`, `backend/tests/shadow.discoveryRefreshStorm.test.js`
+- task: `BE-219` (TASKS)
+- title: Garmin keys-open prerequisites: deregistration and User_Permission notifications, permissions read at connect (BE-219), no backfill at Starter (BE-220)
+- branch: `fix/garmin-dereg-backfill-2`
+- paths: `backend/app/controllers/integrationsController.js`, `backend/app/services/wearable/garmin.js`, `backend/app/services/wearable/garminTier.js`, `backend/app/services/wearable/garminPermissions.js`, `backend/app/services/wearable/garminIngest.js`, `backend/app/services/privacy/wearableErasure.js`, `backend/tests/garminWebhook.integration.test.js`, `backend/tests/garminBackfill.test.js`, `backend/tests/garminDeregister.test.js`, `backend/tests/garminDisconnectErasure.integration.test.js`, `backend/tests/garminIngest.test.js`, `backend/tests/garminIngestConsentGate.integration.test.js`, `backend/tests/shadow.garminWebhookSeam.integration.test.js`, `backend/tests/integrations.test.js`, `backend/tests/integrationsController.test.js`, `backend/tests/wearableErasure.test.js`, `backend/tests/wearableErasure.integration.test.js`, `backend/tests/garminTierBackfill.test.js`, `backend/tests/garminPermissions.test.js`, `backend/tests/garminDeregistrationWebhook.integration.test.js`, `backend/tests/garminUserPermissions.integration.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-22
