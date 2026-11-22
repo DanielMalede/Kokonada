@@ -85,10 +85,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `BE-261` (TASKS)
-- title: Take the first non-withheld lexicon match so a sleep word never masks the relaxing row in the Groq prompt or derivedIntent (BE-261)
-- branch: `fix/be261-sleep-mask`
-- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/wave4.bugfix.test.js`, `TASKS.md`
+- task: `own:ra1-heart-discovery-cache` (own)
+- title: BE-231 RA-1: a per-user discovery cache disc:bio:<userId>, refreshed only by user-driven events; the heart branch reads it only and sends no Spotify discovery request
+- branch: `fix/ra1-heart-discovery-cache`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/app/services/discovery/discoveryCache.js`, `backend/app/utils/userRedisPurge.js`, `backend/app/services/privacy/spotifyErasure.js`, `backend/tests/discoveryCache.test.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/discoveryHealthEgress.structural.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/heartConsentGate.integration.test.js`, `backend/tests/userRedisPurge.test.js`, `backend/tests/spotifyDisconnectErasure.integration.test.js`, `backend/tests/sessionHealthDeclarations.test.js`, `docs/PRIVACY_DECLARATIONS.md`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-22
