@@ -85,22 +85,22 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-06
 
 ### M03
-- task: `own:dan015-owner-answers` (own)
-- title: record the owner's two answers on package 6 (DAN-015) and #287's merge as TASKS update lines
-- branch: `docs/dan015-owner-answers`
-- paths: `TASKS.md`
-- resources: none
-- state: in-review · PR #294
-- started: 2026-11-18
-
-### M04
-- task: `BE-231` (TASKS)
-- title: Fence the music provider: a health-free DiscoveryQuery built before any health input, no target_* sent to Spotify, health filtering stays local
-- branch: `fix/be231-discovery-fence`
-- paths: `backend/app/services/geminiEngine.js`, `backend/app/services/spotify.js`, `backend/app/services/discovery/discoveryQuery.js`, `backend/app/sockets/biometricHandler.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/discoveryHealthEgress.structural.test.js`, `backend/tests/discoveryQuery.test.js`, `backend/tests/spotifyService.test.js`, `backend/tests/geminiEngine.llm.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/geminiEngine.cacheKey.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/youtubeEgressSeam.integration.test.js`, `TASKS.md`
+- task: `BE-261` (TASKS)
+- title: Take the first non-withheld lexicon match so a sleep word never masks the relaxing row in the Groq prompt or derivedIntent (BE-261)
+- branch: `fix/be261-sleep-mask`
+- paths: `backend/app/services/moodDescriptors.js`, `backend/app/services/geminiEngine.js`, `backend/tests/moodDescriptors.test.js`, `backend/tests/llmHealthEgress.test.js`, `backend/tests/llmHealthEgress.structural.test.js`, `backend/tests/discoveryHealthEgress.test.js`, `backend/tests/geminiEngine.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/wave4.bugfix.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-18
+- started: 2026-11-22
+
+### M04
+- task: `DAN-134` (TASKS)
+- title: DEC-190 records the owner's no-lawyer ruling and his package 6 decisions of 2026-11-17/22 (OD-1..OD-18), with the TASKS update lines and the new rows they create
+- branch: `docs/dan134-decisions`
+- paths: `docs/design-v2/decisions/DEC-190.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
+- resources: none
+- state: in-review · PR #296
+- started: 2026-11-22
 
 ### M05
 - task: `OPS-230` (TASKS)
@@ -112,13 +112,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M06
-- task: `DAN-131` (TASKS)
-- title: Never store a user's free-text note without current health consent: used for the choice, not kept in PlaylistSession, socket state, shadow, log or Sentry (owner ruling 2026-10-28)
-- branch: `fix/dan131-note-consent`
-- paths: `TASKS.md`, `backend/app/sockets/biometricHandler.js`, `backend/app/services/privacy/healthConsentGate.js`, `backend/app/models/PlaylistSession.js`, `backend/app/workers/sessionTrim.worker.js`, `backend/tests/biometricHandler.pipeline.test.js`, `backend/tests/biometricHandler.contextUri.test.js`, `backend/tests/emotionUpdatePayloadDoor.integration.test.js`, `backend/tests/socket.payloadDoor.test.js`, `backend/tests/consentWithdrawalLiveState.integration.test.js`, `backend/tests/sessionTrim.worker.test.js`, `backend/tests/healthConsentGate.test.js`, `backend/tests/noteConsentStorage.integration.test.js`
+- task: `own:q1q2-close` (own)
+- title: records after #290, #291 and #292 merged: sync the registry INDEX with the re-issued QA statuses (OPS-416), update OPS-065, OPS-066, OPS-417, close DAN-140, remove the duplicated OPS-420 to OPS-425 rows
+- branch: `docs/q1q2-close`
+- paths: `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/registry/INDEX.md`
 - resources: none
 - state: claimed
-- started: 2026-11-17
+- started: 2026-11-22
 
 ### M07
 - task: `OPS-066` (TASKS)
