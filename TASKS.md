@@ -2403,6 +2403,7 @@ _(put anything you are unsure about here rather than losing it)_
 - [ ] `OPS-104` `P2` **ESLint cannot parse any `.mjs` file in the mobile app, so no `.mjs` script has lint coverage.** It fails with "Parsing error: Unexpected token async" on `scripts/lab/*.mjs` and on `scripts/lint/designSystemLint.mjs`.
   - **This predates V1:** `npm run lint` is `eslint .` and is not a CI gate. CI runs the design-system ratchet, which keeps only `kokonada/*` messages.
   - where: `mobile/KokonadaHealth/.eslintrc.js` (no override for `.mjs`) · `mobile/KokonadaHealth/package.json:8` · done when: `.mjs` files parse as ES modules and `eslint` on `scripts/**/*.mjs` reports real findings, or they are excluded on purpose with the reason written down · src: the V1 lab developer's end-to-end run (NEW-FINDING), 2026-10-04 · added: 2026-10-04
+  - **update 2026-11-22 (#303, lane C of `OPS-412`):** `eslint .` does not visit `.mjs` files at all, and espree cannot parse `import.meta`, so the new `scripts/baselines/qa041.mjs` (the QA-041 CLI entry) and `designSystemLint.mjs` are outside lint as well. `qa041.mjs` is thin: its logic is in `qa041.ts` and `qa041Sources.ts`, which lint and the full tsc ratchet cover.
 - [ ] `OPS-105` `P3` **Where `NoDefaultCurrentDirectoryInExePath` is set, `cmd.exe` does not look in the current directory, so a bare `gradlew.bat` "is not recognized".** It is set in this machine's agent shells.
   - `buildLabApk.mjs` now names the wrapper by its absolute path.
   - The docs that tell a reader to run `gradlew.bat` say nothing about the variable.
