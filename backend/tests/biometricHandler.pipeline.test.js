@@ -206,13 +206,20 @@ const {
   resolveBiometricContext,
   _debounceMap,
   _resetDebounceState,
+  _settleDiscoveryRefreshes,
 } = require('../app/sockets/biometricHandler');
 
 // W4-D06: the streaming lane arms a 60 s debounce timer and several blocks here leave one armed.
 // `--forceExit` used to hide that; the callback outlived this suite and fired inside a LATER one
 // in the same in-band run. `_resetDebounceState()` releases then clears in one step —
 // jest/globalTeardown.js is the run-level guard that makes a regression a non-zero exit.
-afterEach(() => { _resetDebounceState(); });
+// BE-231 RA-1 (resilience RA-6): every live_mode emit that turns Live on starts a background
+// discovery-cache refresh against this file's shared mocks. Each one is awaited here, inside the test
+// that started it (a socket that disconnected included), so none settles inside the next test.
+afterEach(async () => {
+  await _settleDiscoveryRefreshes();
+  _resetDebounceState();
+});
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
 
