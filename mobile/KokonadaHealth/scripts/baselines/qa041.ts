@@ -414,6 +414,113 @@ export function decide(inputs: Inputs, active: ReadonlySet<RuleId> = new Set(RUL
   return { exit: 0, lines: all.notes };
 }
 
+// ---- the command line and the data modules ----------------------------------------------------------
+
+export type Args =
+  | { mode: 'check'; pkg: Pkg; results: string[]; head: string; expectShards?: number }
+  | { mode: 'inputs' };
+
+export const USAGE = 'usage: node scripts/baselines/qa041.mjs --package mobile|backend --results <file> [--results <file>...] '
+  + '[--expect-shards <n>] --head <40-hex SHA>, or --check-inputs alone';
+
+const FLAGS = ['--package', '--results', '--head', '--expect-shards'];
+
+/** The arguments of plan "CLI usage", or the first thing wrong with them. The head comes in only as --head. */
+export function parseArgs(argv: readonly string[]): { args: Args } | { usage: string } {
+  if (argv.includes('--check-inputs')) return argv.length === 1 ? { args: { mode: 'inputs' } } : { usage: '--check-inputs takes no other argument' };
+  let pkg: string | undefined;
+  let head: string | undefined;
+  let shards: string | undefined;
+  const results: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const flag = argv[i];
+    if (!FLAGS.includes(flag)) return { usage: `unknown argument ${JSON.stringify(flag)}` };
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) return { usage: `${flag} needs a value` };
+    i += 1;
+    if (flag === '--results') { results.push(value); continue; }
+    if ((flag === '--package' ? pkg : flag === '--head' ? head : shards) !== undefined) return { usage: `${flag} is given twice` };
+    if (flag === '--package') pkg = value;
+    else if (flag === '--head') head = value;
+    else shards = value;
+  }
+  if (pkg === undefined) return { usage: 'no --package' };
+  if (pkg !== 'mobile' && pkg !== 'backend') return { usage: `--package must be mobile or backend, got ${JSON.stringify(pkg)}` };
+  if (results.length === 0) return { usage: 'no --results file' };
+  if (head === undefined) return { usage: 'no --head' };
+  if (!SHA40.test(head)) return { usage: `--head must be a full 40-hex commit SHA, got ${JSON.stringify(head)}` };
+  if (shards !== undefined && !/^[1-9]\d*$/.test(shards)) return { usage: `--expect-shards must be a whole number of 1 or more, got ${JSON.stringify(shards)}` };
+  return { args: { mode: 'check', pkg, results, head, ...(shards === undefined ? {} : { expectShards: Number(shards) }) } };
+}
+
+/** RETIRE (src/__contracts__/retire.ts) by shape; the signature rule judges each entry later. */
+export function asRetire(v: unknown): RetireEntry[] {
+  if (!Array.isArray(v)) throw new Error('RETIRE is not a list');
+  return v.map((e: unknown, i: number) => {
+    const where = `RETIRE[${i}]`;
+    if (!isRecord(e)) throw new Error(`${where}: not an object`);
+    if (e.kind !== 'file' && e.kind !== 'pin') throw new Error(`${where}: kind must be file or pin, got ${JSON.stringify(e.kind)}`);
+    if (typeof e.target !== 'string' || e.target === '') throw new Error(`${where}: target must be text that is not empty`);
+    if (typeof e.dec !== 'string') throw new Error(`${where}: dec must be text`);
+    if (typeof e.reason !== 'string') throw new Error(`${where}: reason must be text`);
+    return { kind: e.kind, target: e.target, dec: e.dec, reason: e.reason };
+  });
+}
+
+/** CONTRACTS (src/__contracts__/manifest.ts) by shape. */
+export function asManifest(v: unknown): Manifest {
+  if (!isRecord(v)) throw new Error('CONTRACTS is not an object');
+  for (const [id, refs] of Object.entries(v)) {
+    if (!Array.isArray(refs)) throw new Error(`CONTRACTS ${id} is not a list`);
+    refs.forEach((r: unknown, i: number) => {
+      if (!isRecord(r) || typeof r.file !== 'string' || typeof r.fullTitle !== 'string') throw new Error(`CONTRACTS ${id}[${i}] needs a file and a fullTitle`);
+    });
+  }
+  return v as Manifest;
+}
+
+/** The part of TEST_FLOOR (src/__contracts__/testFloor.baseline.ts) RA-9 reads, by shape: its SHA reaches git only through here. */
+export function asFloorList(v: unknown): FloorList {
+  if (!isRecord(v)) throw new Error('TEST_FLOOR is not an object');
+  if (typeof v.sha !== 'string' || !SHA40.test(v.sha)) throw new Error(`TEST_FLOOR.sha must be 40 lower-case hex characters, got ${JSON.stringify(v.sha)}`);
+  if (!isCount(v.listTestsCount)) throw new Error('TEST_FLOOR.listTestsCount must be a whole number of 0 or more');
+  if (!Array.isArray(v.paths) || v.paths.some((p: unknown) => typeof p !== 'string')) throw new Error('TEST_FLOOR.paths must be a list of paths');
+  return { sha: v.sha, listTestsCount: v.listTestsCount, paths: v.paths as string[] };
+}
+
+/** The data the CLI loads through Node, each part or why it did not load. */
+export interface Data {
+  counts: Loaded<TestCounts>;
+  retire: Loaded<readonly RetireEntry[]>;
+  manifest: Loaded<Manifest>;
+  floor: Loaded<FloorList>;
+}
+
+function describePackage(pkg: Pkg, c: TestCounts): string {
+  const p = c[pkg];
+  if ('notMeasured' in p) return `${pkg} not measured (${p.notMeasured})`;
+  const files = pkg === 'mobile' ? ` in ${Object.keys(c.files?.mobile ?? {}).length} files` : '';
+  return `${pkg} ${p.numTotalTests} tests${files} (${p.numPendingTests} pending, ${p.numTodoTests} todo)`;
+}
+
+/** --check-inputs: 0 when every data part loaded through Node (each named), 2 naming each part that did not. */
+export function checkInputs(d: Data): Verdict {
+  const errors: string[] = [];
+  const lines: string[] = [];
+  if ('error' in d.counts) errors.push(`${COUNTS_FILE}: ${d.counts.error}`);
+  else lines.push(`${COUNTS_FILE}: measured at ${d.counts.value.sha.slice(0, 12)}; ${describePackage('mobile', d.counts.value)}; ${describePackage('backend', d.counts.value)}`);
+  if ('error' in d.retire) errors.push(`${RETIRE_FILE}: ${d.retire.error}`);
+  else lines.push(`${RETIRE_FILE}: ${plural(d.retire.value.length, 'RETIRE entry', 'RETIRE entries')}`);
+  if ('error' in d.manifest) errors.push(`${MANIFEST_FILE}: ${d.manifest.error}`);
+  else {
+    const refs = Object.values(d.manifest.value).reduce((n, r) => n + r.length, 0);
+    lines.push(`${MANIFEST_FILE}: ${plural(Object.keys(d.manifest.value).length, 'contract', 'contracts')}, ${plural(refs, 'test reference', 'test references')}`);
+  }
+  if ('error' in d.floor) errors.push(`${FLOOR_FILE}: ${d.floor.error}`);
+  else lines.push(`${FLOOR_FILE}: ${plural(d.floor.value.paths.length, 'path', 'paths')} at ${d.floor.value.sha.slice(0, 12)}`);
+  return errors.length > 0 ? { exit: 2, lines: errors } : { exit: 0, lines };
+}
+
 // ---- what the CLI prints ----------------------------------------------------------------------------
 
 const HEADERS: Readonly<Record<Exit, string>> = { 0: 'VERIFIED (exit 0)', 1: 'BREACH (exit 1)', 2: 'CANNOT VERIFY (exit 2, never a pass)' };
@@ -426,7 +533,7 @@ function oneLine(s: string): string {
   }).join('');
 }
 
-/** The report: a header with the verdict, then one indented line per finding. */
-export function formatVerdict(pkg: Pkg | null, v: Verdict): string {
-  return `${[`QA-041${pkg === null ? '' : ` ${pkg}`}: ${HEADERS[v.exit]}`, ...v.lines.map((l) => `  - ${oneLine(l)}`)].join('\n')}\n`;
+/** The report: a header with the verdict (for a package, `inputs`, or nothing yet), then one indented line per finding. */
+export function formatVerdict(label: Pkg | 'inputs' | null, v: Verdict): string {
+  return `${[`QA-041${label === null ? '' : ` ${label}`}: ${HEADERS[v.exit]}`, ...v.lines.map((l) => `  - ${oneLine(l)}`)].join('\n')}\n`;
 }

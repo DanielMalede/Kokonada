@@ -1,6 +1,9 @@
 /// <reference types="node" />
 import type { TestCounts } from '../testCounts';
-import { decide, formatVerdict, isTestPath, RULES, type Inputs, type ResultsFile, type RuleId, type Verdict } from '../qa041';
+import {
+  asFloorList, asManifest, asRetire, checkInputs, decide, formatVerdict, isTestPath, parseArgs, RULES, USAGE,
+  type Inputs, type ResultsFile, type RuleId, type Verdict,
+} from '../qa041';
 
 // QA-041 proper (OPS-412 part A), the pure core on in-memory inputs. A run is jest's `--ci --json` output
 // as text; the package root, the files on disk, git's facts and the decision records are in memory too,
@@ -525,6 +528,87 @@ describe('QA-041 · what the CLI prints', () => {
     const title = 'A t1\n::add-mask::planted\r::error::planted';
     const out = formatVerdict('mobile', decide(inputs({ results: runOf(edit(BASE, A, failing('A t1'))), manifest: { value: { 'CON-1': [{ file: A, fullTitle: title }] } } })));
     expect(out.split('\n').filter((l) => l.startsWith('::'))).toEqual([]);
-    expect(formatVerdict('mobile', { exit: 1, lines: ['p\nq r\u0007'] })).toBe('QA-041 mobile: BREACH (exit 1)\n  - p\\u000aq\\u2028r\\u0007\n');
+    expect(formatVerdict('mobile', { exit: 1, lines: ['p\nq\u2028r\u0007'] })).toBe('QA-041 mobile: BREACH (exit 1)\n  - p\\u000aq\\u2028r\\u0007\n');
+  });
+});
+
+// ---- plan step 8: what the entry needs from the core ---------------------------------------------------
+
+describe('QA-041 \u00b7 the command line (plan "CLI usage")', () => {
+  it('reads the mobile form (shards), the backend form and --check-inputs alone', () => {
+    expect(parseArgs(['--package', 'mobile', '--results', 'a.json', '--results', 'b.json', '--expect-shards', '2', '--head', HEAD]))
+      .toEqual({ args: { mode: 'check', pkg: 'mobile', results: ['a.json', 'b.json'], expectShards: 2, head: HEAD } });
+    expect(parseArgs(['--package', 'backend', '--results', '/runner/temp/jest-backend.json', '--head', HEAD]))
+      .toEqual({ args: { mode: 'check', pkg: 'backend', results: ['/runner/temp/jest-backend.json'], head: HEAD } });
+    expect(parseArgs(['--check-inputs'])).toEqual({ args: { mode: 'inputs' } });
+    expect(USAGE).toMatch(/--package mobile\|backend --results <file>/);
+  });
+
+  it.each([
+    [[], 'no --package'],
+    [['--package', 'web', '--results', 'a', '--head', HEAD], '--package must be mobile or backend, got "web"'],
+    [['--package', 'mobile', '--head', HEAD], 'no --results file'],
+    [['--package', 'mobile', '--results', 'a'], 'no --head'],
+    [['--package', 'mobile', '--results', 'a', '--head', 'abc1234'], '--head must be a full 40-hex commit SHA, got "abc1234"'],
+    [['--package', 'mobile', '--results', '--head', HEAD], '--results needs a value'],
+    [['--package'], '--package needs a value'],
+    [['--package', 'mobile', '--package', 'backend', '--results', 'a', '--head', HEAD], '--package is given twice'],
+    [['--package', 'mobile', '--results', 'a', '--head', HEAD, '--head', HEAD], '--head is given twice'],
+    [['--package', 'mobile', '--results', 'a', '--head', HEAD, '--expect-shards', '0'], '--expect-shards must be a whole number of 1 or more, got "0"'],
+    [['--package', 'mobile', '--results', 'a', '--head', HEAD, '--expect-shards', '8x'], '--expect-shards must be a whole number of 1 or more, got "8x"'],
+    [['--check-inputs', '--package', 'mobile'], '--check-inputs takes no other argument'],
+    [['--package', 'mobile', '--results', 'a', '--head', HEAD, '--verbose'], 'unknown argument "--verbose"'],
+  ] as Array<[string[], string]>)('refuses %j: %s', (argv, usage) => {
+    expect(parseArgs(argv)).toEqual({ usage });
+  });
+});
+
+describe('QA-041 \u00b7 the data modules, read by shape (a module of the wrong shape cannot be checked: 2)', () => {
+  it('accepts the shapes of RETIRE, CONTRACTS and TEST_FLOOR', () => {
+    expect(asRetire([{ kind: 'file', target: A, dec: 'DEC-900', reason: 'r' }])).toEqual([{ kind: 'file', target: A, dec: 'DEC-900', reason: 'r' }]);
+    expect(asManifest(MANIFEST)).toBe(MANIFEST);
+    expect(asFloorList({ ...FLOOR, skipCount: 2, measuredAt: 'x', command: 'y' })).toEqual(expect.objectContaining(FLOOR));
+  });
+
+  it.each([
+    ['RETIRE not a list', () => asRetire({}), 'RETIRE is not a list'],
+    ['a RETIRE kind of its own', () => asRetire([{ kind: 'moved', target: A, dec: 'DEC-900', reason: 'r' }]), 'RETIRE[0]: kind must be file or pin, got "moved"'],
+    ['a RETIRE entry with no target', () => asRetire([{ kind: 'file', target: '', dec: 'DEC-900', reason: 'r' }]), 'RETIRE[0]: target must be text that is not empty'],
+    ['a RETIRE dec that is not text', () => asRetire([{ kind: 'pin', target: 'p', dec: 900, reason: 'r' }]), 'RETIRE[0]: dec must be text'],
+    ['a RETIRE entry with no reason', () => asRetire([{ kind: 'pin', target: 'p', dec: 'DEC-900' }]), 'RETIRE[0]: reason must be text'],
+    ['CONTRACTS not an object', () => asManifest([]), 'CONTRACTS is not an object'],
+    ['a contract that is not a list', () => asManifest({ X: 'A t1' }), 'CONTRACTS X is not a list'],
+    ['a reference without its title', () => asManifest({ X: [{ file: A }] }), 'CONTRACTS X[0] needs a file and a fullTitle'],
+    ['a floor SHA that is not 40 hex', () => asFloorList({ ...FLOOR, sha: 'HEAD' }), 'TEST_FLOOR.sha must be 40 lower-case hex characters, got "HEAD"'],
+    ['a floor count that is not a whole number', () => asFloorList({ ...FLOOR, listTestsCount: 2.5 }), 'TEST_FLOOR.listTestsCount must be a whole number of 0 or more'],
+    ['floor paths that are not a list of text', () => asFloorList({ ...FLOOR, paths: [A, 7] }), 'TEST_FLOOR.paths must be a list of paths'],
+  ] as Array<[string, () => unknown, string]>)('refuses %s', (_name, read, message) => {
+    expect(read).toThrow(message);
+  });
+});
+
+describe('QA-041 \u00b7 --check-inputs (the data loads, or it says which part does not)', () => {
+  const loaded = { counts: { value: COUNTS }, retire: { value: [] }, manifest: { value: MANIFEST }, floor: { value: FLOOR } };
+
+  it('exits 0 and says what it loaded', () => {
+    expect(checkInputs(loaded)).toEqual({ exit: 0, lines: [
+      `scripts/baselines/test-counts.json: measured at ${AT}; mobile 3209 tests in 3 files (1 pending, 0 todo); backend 3209 tests (1 pending, 0 todo)`,
+      'src/__contracts__/retire.ts: 0 RETIRE entries',
+      'src/__contracts__/manifest.ts: 2 contracts, 3 test references',
+      `src/__contracts__/testFloor.baseline.ts: 3 paths at ${AT}`,
+    ] });
+  });
+
+  it('exits 2 and names every part that did not load', () => {
+    expect(checkInputs({ ...loaded, retire: { error: 'did not load: SyntaxError' }, floor: { error: 'TEST_FLOOR.paths must be a list of paths' } })).toEqual({ exit: 2, lines: [
+      'src/__contracts__/retire.ts: did not load: SyntaxError',
+      'src/__contracts__/testFloor.baseline.ts: TEST_FLOOR.paths must be a list of paths',
+    ] });
+  });
+
+  it('a package recorded as not measured still loads: it is named, not refused', () => {
+    const v = checkInputs({ ...loaded, counts: { value: { ...COUNTS, mobile: { notMeasured: 'jest could not start' }, files: { mobile: {} } } } });
+    expect(v.exit).toBe(0);
+    expect(v.lines[0]).toBe(`scripts/baselines/test-counts.json: measured at ${AT}; mobile not measured (jest could not start); backend 3209 tests (1 pending, 0 todo)`);
   });
 });
