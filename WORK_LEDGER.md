@@ -99,7 +99,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `chore/ask-list-trim`
 - paths: `.claude/settings.json`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `CLAUDE.md`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #301
 - started: 2026-11-22
 
 ### M05
