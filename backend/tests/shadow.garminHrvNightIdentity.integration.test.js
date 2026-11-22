@@ -22,6 +22,7 @@ jest.mock('../app/services/wearable/garminMusicFence', () => ({
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const VitalSample = require('../app/models/VitalSample');
+const User = require('../app/models/User');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
@@ -47,7 +48,13 @@ const FIRST_END = D + 10 * MINUTE;        // 00:10Z = 08:10 at UTC+8
 const SECOND_END = D + DAY - 10 * MINUTE; // 23:50Z = 07:50 at UTC+8, the next morning
 
 async function consentedUser() {
-  const userId = new mongoose.Types.ObjectId();
+  // A live Garmin link with its token blob: the seam permits nothing without one (RA-4 of #304). The blob predates
+  // BE-219 (no permissions key), so nothing is narrowed.
+  const gid = `g-${new mongoose.Types.ObjectId()}`;
+  const user = await User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@example.com`, wearableProvider: 'garmin', garminUserId: gid });
+  user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+  await user.save();
+  const userId = user._id;
   await ConsentRecord.create({
     userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
   });

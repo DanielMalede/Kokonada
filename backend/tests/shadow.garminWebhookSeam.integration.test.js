@@ -58,7 +58,14 @@ const FAR = 1e13; // seconds: past the 8.64e12 s a Date can hold
 const grant = (userId) => ConsentRecord.create({
   userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
 });
-const garminUser = (gid) => User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@x.c`, wearableProvider: 'garmin', garminUserId: gid });
+// A live Garmin link with its token blob: the seam permits nothing without one (RA-4 of #304), so a drop pinned
+// below is the date logic's, not an empty fixture's. The blob predates BE-219 (no permissions key): nothing is narrowed.
+async function garminUser(gid) {
+  const user = await User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@x.c`, wearableProvider: 'garmin', garminUserId: gid });
+  user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+  await user.save();
+  return user;
+}
 const stored = async (userId) => ({
   heartRate: await BiometricLog.countDocuments({ userId }),
   vitals: await VitalSample.countDocuments({ userId }),
@@ -69,7 +76,7 @@ const makeRes = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn().moc
 describe('RA-2: a time a Date cannot hold is dropped by the seam, never thrown or stored', () => {
   it.each([['far future', FAR], ['far past', -FAR]])('%s: heart rate and resting HR resolve with nothing written', async (_label, start) => {
     expect(Number.isNaN(new Date(start * 1000).getTime())).toBe(true); // the fixture really is unrepresentable
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await garminUser(`g-far-${new mongoose.Types.ObjectId()}`);
     await grant(userId);
 
     const res = await ingestSummaries(userId, [{
@@ -81,7 +88,7 @@ describe('RA-2: a time a Date cannot hold is dropped by the seam, never thrown o
   });
 
   it('a resting HR alone at such a time is not folded into MedicalProfile', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const { _id: userId } = await garminUser(`g-far-${new mongoose.Types.ObjectId()}`);
     await grant(userId);
 
     await ingestSummaries(userId, [{ type: 'dailies', summary: { startTimeInSeconds: FAR, restingHeartRateInBeatsPerMinute: 52 } }]);

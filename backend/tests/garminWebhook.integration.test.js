@@ -123,6 +123,9 @@ describe('garminWebhook — resolve encrypted garminUserId via blind index (real
     const realIngest = jest.requireActual('../app/services/wearable/garminIngest').ingestSummaries;
     garminIngest.ingestSummaries.mockImplementationOnce(realIngest);
     const u = await connectGarmin('garmin-FENCED');
+    // The real seam permits nothing without a live link's token blob (RA-4 of #304); this one predates BE-219.
+    u.setToken('wearableToken', { accessToken: 'at-fenced', refreshToken: 'rt-fenced', expiresAt: Date.now() + 3600e3, garminUserId: 'garmin-FENCED' });
+    await u.save();
     await grantConsent(u._id);
     const res = makeRes();
     const info = jest.spyOn(console, 'info').mockImplementation(() => {});

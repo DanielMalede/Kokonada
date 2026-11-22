@@ -35,6 +35,7 @@ const BiometricLog = require('../app/models/BiometricLog');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
 const ConsentRecord = require('../app/models/ConsentRecord');
+const User = require('../app/models/User');
 const { normalizeGarminSummaries } = require('../app/services/wearable/adapter');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
@@ -83,6 +84,18 @@ const row = (userId, status, consentVersion) => ConsentRecord.create({
   ...(status === 'granted' ? { grantedAt: new Date() } : { withdrawnAt: new Date() }),
 });
 
+// A live Garmin link with its token blob: the seam permits nothing without one (RA-4 of #304). The blob predates
+// BE-219 (no permissions key), so nothing is narrowed, and a refusal below is the consent gate's alone.
+let linked = 0;
+async function garminLinkedUserId() {
+  linked += 1;
+  const gid = `g-gate-${linked}`;
+  const user = await User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@example.com`, wearableProvider: 'garmin', garminUserId: gid });
+  user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+  await user.save();
+  return user._id;
+}
+
 const stored = async (userId) => ({
   heartRate: await BiometricLog.countDocuments({ userId }),
   vitals: await VitalSample.countDocuments({ userId }),
@@ -100,7 +113,7 @@ describe('ingestSummaries refuses anything but a current Art. 9 grant (BE-205)',
       await row(userId, 'granted', CURRENT_CONSENT_VERSION - 1);
     }],
   ])('%s: 0 rows in all three stores, the refusal code, and the normaliser never runs', async (_label, seed) => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await seed(userId);
 
     const res = await ingestSummaries(userId, push());
@@ -116,7 +129,7 @@ describe('ingestSummaries refuses anything but a current Art. 9 grant (BE-205)',
   });
 
   it('a consent read that fails throws and writes nothing, so the webhook answers 500 and Garmin retries', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await row(userId, 'granted', CURRENT_CONSENT_VERSION);
     // The one injected fault: the consent store does not answer. Everything after it is real.
     const read = jest.spyOn(ConsentRecord, 'latestFor').mockRejectedValueOnce(new Error('consent store unavailable'));
@@ -133,7 +146,7 @@ describe('ingestSummaries refuses anything but a current Art. 9 grant (BE-205)',
   // The control: the same push for a user who holds a current grant reaches every store, so the
   // refusals above are the gate's doing and not an empty fixture's.
   it('a current grant: the push is normalised and written to all three stores', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await row(userId, 'granted', CURRENT_CONSENT_VERSION);
 
     const res = await ingestSummaries(userId, push());
@@ -145,7 +158,7 @@ describe('ingestSummaries refuses anything but a current Art. 9 grant (BE-205)',
   });
 
   it('a withdrawal after a grant stops the next push: the rows written before it stay, nothing new lands', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await row(userId, 'granted', CURRENT_CONSENT_VERSION);
     await ingestSummaries(userId, push());
     const before = await stored(userId);

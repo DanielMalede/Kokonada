@@ -121,7 +121,7 @@ describe('readStoredPermissions — the seam\'s own read (real Mongo)', () => {
   });
   afterAll(async () => { await mongoose.disconnect(); await mem.stop(); });
 
-  it('reads the list out of the encrypted blob; a user with no blob, or no user, is no record', async () => {
+  it('reads the list out of the encrypted blob; a live link whose blob has no list is no record', async () => {
     const u = await User.create({ ssoProvider: 'google', ssoId: 's-p1', email: 'p1@x.c', wearableProvider: 'garmin', garminUserId: 'g-p1' });
     u.setToken('wearableToken', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 1e6, garminUserId: 'g-p1', permissions: ['HEALTH_EXPORT'] });
     await u.save();
@@ -129,8 +129,20 @@ describe('readStoredPermissions — the seam\'s own read (real Mongo)', () => {
     expect(JSON.stringify(raw)).not.toContain('HEALTH_EXPORT'); // stored inside the encrypted blob only
 
     expect(await perms.readStoredPermissions(u._id)).toEqual(['HEALTH_EXPORT']);
+    const legacy = await User.create({ ssoProvider: 'google', ssoId: 's-p3', email: 'p3@x.c', wearableProvider: 'garmin', garminUserId: 'g-p3' });
+    legacy.setToken('wearableToken', { accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 1e6, garminUserId: 'g-p3' });
+    await legacy.save();
+    expect(await perms.readStoredPermissions(legacy._id)).toBeUndefined();
+  });
+
+  // RA-4 of #304: a push the webhook resolved before an erasure reaches the seam after it.
+  it('no live Garmin link permits nothing: no blob, another wearable, or no user', async () => {
     const bare = await User.create({ ssoProvider: 'google', ssoId: 's-p2', email: 'p2@x.c', wearableProvider: 'garmin', garminUserId: 'g-p2' });
-    expect(await perms.readStoredPermissions(bare._id)).toBeUndefined();
-    expect(await perms.readStoredPermissions(new mongoose.Types.ObjectId())).toBeUndefined();
+    expect(await perms.readStoredPermissions(bare._id)).toBeNull();
+    const other = await User.create({ ssoProvider: 'google', ssoId: 's-p4', email: 'p4@x.c', wearableProvider: 'health_connect' });
+    other.setToken('wearableToken', { accessToken: 'a', refreshToken: 'r', permissions: ['HEALTH_EXPORT'] });
+    await other.save();
+    expect(await perms.readStoredPermissions(other._id)).toBeNull();
+    expect(await perms.readStoredPermissions(new mongoose.Types.ObjectId())).toBeNull();
   });
 });

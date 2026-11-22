@@ -34,6 +34,7 @@ jest.mock('../app/services/wearable/adapter', () => {
 });
 
 const ConsentRecord = require('../app/models/ConsentRecord');
+const User = require('../app/models/User');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 const { normalizeGarminSummaries } = require('../app/services/wearable/adapter');
@@ -66,8 +67,13 @@ const mixedPush = () => [
 const grantedAt = (v) => ({ status: 'granted', consentVersion: v });
 const persistedMetrics = () => persistMetrics.mock.calls[0][1].map((m) => m.metric);
 
+// The seam reads the user's Garmin permissions from their row (BE-219) and permits nothing without a live Garmin
+// link (RA-4 of #304): a live link whose blob predates BE-219 (no permissions key), so nothing is narrowed here.
+const liveGarminLink = () => ({ wearableProvider: 'garmin', getToken: () => ({ accessToken: 'at', refreshToken: 'rt' }) });
+
 beforeEach(() => {
   jest.clearAllMocks();
+  User.findById.mockResolvedValue(liveGarminLink());
   persistMetrics.mockResolvedValue({ inserted: 0, profileMetrics: {} });
 });
 
