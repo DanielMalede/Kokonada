@@ -117,6 +117,7 @@ describe('the user-scoped cache row is the registry, with the windows the code s
     'live-buffer': () => `${words(Number(defaultOf('repositories/shadowBufferRepo.js', /SHADOW_BUFFER_TTL_S \|\| '(\d+)'/)))} (default; \`SHADOW_BUFFER_TTL_S\`)`,
     'bio-baseline': () => words(require('../app/services/biosonic/baselines').CACHE_TTL_S),
     'bio-affect': () => words(require('../app/services/biosonic/affectCache').AFFECT_TTL_S),
+    'discovery-cache': () => words(require('../app/services/discovery/discoveryCache').DISCOVERY_CACHE_TTL_S),
   };
   const cacheRow = () => retentionRows().find((l) => l.startsWith('| User-scoped cache (Redis)'));
 
