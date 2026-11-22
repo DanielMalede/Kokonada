@@ -184,9 +184,21 @@ const stored = async (userId) => ({
 });
 const lines = () => logged.map((l) => l.line);
 
+// A live Garmin link with its token blob: the seam permits nothing without one (RA-4 of #304). The blob predates
+// BE-219 (no permissions key), so nothing is narrowed.
+let linked = 0;
+async function garminLinkedUserId() {
+  linked += 1;
+  const gid = `g-l1-${linked}`;
+  const user = await User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@example.com`, wearableProvider: 'garmin', garminUserId: gid });
+  user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+  await user.save();
+  return user._id;
+}
+
 describe('layer 1 — the quarantine at ingest (fence closed, the shipped default)', () => {
   it('a full push for a consented user writes nothing a generation reads, queues nothing, and counts what it dropped', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await grant(userId);
 
     const res = await ingestSummaries(userId, fullPush());
@@ -197,7 +209,7 @@ describe('layer 1 — the quarantine at ingest (fence closed, the shipped defaul
   });
 
   it('logs one count-only line: the number, never the user id or a value (T1)', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await grant(userId);
 
     await ingestSummaries(userId, fullPush());
@@ -222,7 +234,7 @@ describe('layer 1 — the quarantine at ingest (fence closed, the shipped defaul
   });
 
   it('the consent-version gate still runs: the SpO2 values it drops are not counted as fenced', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await grant(userId);
 
     const res = await ingestSummaries(userId, fullPush().filter(({ type }) => type === 'pulseox'));
@@ -232,7 +244,7 @@ describe('layer 1 — the quarantine at ingest (fence closed, the shipped defaul
   });
 
   it('a replayed backfill writes nothing either, however many times it arrives', async () => {
-    const userId = new mongoose.Types.ObjectId();
+    const userId = await garminLinkedUserId();
     await grant(userId);
 
     for (let day = 0; day < 5; day += 1) await ingestSummaries(userId, fullPush(-day * DAY));
@@ -304,6 +316,11 @@ async function account(tag, { garmin = false } = {}) {
     ssoProvider: 'google', ssoId: `s-${tag}-${seq}`, email: `${tag}-${seq}@example.com`,
     ...(garmin ? { wearableProvider: 'garmin', garminUserId: gid } : {}),
   });
+  if (garmin) {
+    // The seam permits nothing without a live link's token blob (RA-4 of #304); this one predates BE-219.
+    user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+    await user.save();
+  }
   await grant(user._id);
   return { user, userId: user._id, id: String(user._id), gid };
 }

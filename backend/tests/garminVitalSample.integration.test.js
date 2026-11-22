@@ -26,6 +26,7 @@ const { MongoMemoryServer } = require('mongodb-memory-server');
 const mongoose = require('mongoose');
 const VitalSample = require('../app/models/VitalSample');
 const MedicalProfile = require('../app/models/MedicalProfile');
+const User = require('../app/models/User');
 const ConsentRecord = require('../app/models/ConsentRecord');
 const { CURRENT_CONSENT_VERSION, HEALTH_CONSENT_PURPOSE } = require('../app/services/privacy/consentState');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
@@ -34,7 +35,13 @@ jest.setTimeout(120000);
 
 // The seam refuses a user without a current Art. 9 grant (BE-205), so every user here holds one.
 async function consentedUser() {
-  const userId = new mongoose.Types.ObjectId();
+  // A live Garmin link with its token blob: the seam permits nothing without one (RA-4 of #304). The blob predates
+  // BE-219 (no permissions key), so nothing is narrowed.
+  const gid = `g-${new mongoose.Types.ObjectId()}`;
+  const user = await User.create({ ssoProvider: 'google', ssoId: `s-${gid}`, email: `${gid}@example.com`, wearableProvider: 'garmin', garminUserId: gid });
+  user.setToken('wearableToken', { accessToken: `at-${gid}`, refreshToken: `rt-${gid}`, expiresAt: Date.now() + 3600e3, garminUserId: gid });
+  await user.save();
+  const userId = user._id;
   await ConsentRecord.create({
     userId, purpose: HEALTH_CONSENT_PURPOSE, consentVersion: CURRENT_CONSENT_VERSION, status: 'granted', grantedAt: new Date(),
   });

@@ -17,15 +17,20 @@ jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
 jest.mock('../app/services/privacy/wearableErasure', () => ({ WEARABLE_PROVIDERS: [], eraseWearableProvider: jest.fn() }));
 
 const ConsentRecord = require('../app/models/ConsentRecord');
+const User = require('../app/models/User');
 const { persistMetrics } = require('../app/services/wearable/metricStore');
 const { GARMIN_CONSENT_MIN_VERSION } = require('../app/services/privacy/consent');
 const { ingestSummaries } = require('../app/services/wearable/garminIngest');
 
 const START = 1700000000;
+// The seam reads the user's Garmin permissions from their row (BE-219) and permits nothing without a live Garmin
+// link (RA-4 of #304): a live link whose blob predates BE-219 (no permissions key), so nothing is narrowed here.
+const liveGarminLink = () => ({ wearableProvider: 'garmin', getToken: () => ({ accessToken: 'at', refreshToken: 'rt' }) });
 
 describe('garminIngest.ingestSummaries', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    User.findById.mockResolvedValue(liveGarminLink());
     ConsentRecord.latestFor.mockResolvedValue({ status: 'granted', consentVersion: GARMIN_CONSENT_MIN_VERSION });
   });
 
@@ -46,9 +51,11 @@ describe('garminIngest.ingestSummaries', () => {
     ]));
     // Additive (T2): every earlier field keeps its meaning; the retention count is the one new field.
     // BE-205: an admitted push says so, `refused: null`; a refusal names its code. BE-206 adds the
-    // future-cap count, passed on from the store.
+    // future-cap count, passed on from the store. BE-219 adds the count of summaries dropped as outside the
+    // user's Garmin permissions (none here: this user has no stored record, so nothing is narrowed; the
+    // narrowing is pinned on real Mongo in garminUserPermissions.integration.test.js).
     expect(res).toEqual({
-      accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0, refused: null,
+      accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0, droppedNotPermitted: 0, refused: null,
     });
   });
 
