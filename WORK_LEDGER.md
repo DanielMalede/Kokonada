@@ -117,7 +117,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/dan015-page-round`
 - paths: `TASKS.md`, `docs/design-v2/decisions/DEC-190.md`, `docs/design-v2/DECISIONS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #300
 - started: 2026-11-22
 
 ### M07
