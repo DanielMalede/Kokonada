@@ -11,7 +11,10 @@
 // steer the mood's on-taste Spotify seed — and drives the REAL generateAndEmitPlaylist over:
 //   • the emotion and heart branches, with VECTOR_DISCOVERY 'true' and unset,
 //   • a forced fallback on each branch: the LLM transport fails on the emotion branch; the heart
-//     branch makes no LLM call (BE-221), so there a Spotify discovery failure forces it,
+//     branch makes no LLM call (BE-221) and, since BE-231 RA-1, no Spotify discovery request, so
+//     there the generation core failing forces it,
+//   • opening a live session, whose discovery-cache refresh sends the Spotify request the heart
+//     branch used to send (BE-231 RA-1),
 //   • a YouTube token with no Spotify link (the addition for the unconditional strip).
 // It asserts:
 //   1. every consumer of the profile received the SAME YouTube-free view: generateV2,
@@ -146,7 +149,7 @@ const { personalizeWhitelist } = require('../app/services/playlistMixer');
 const { buildMoodParams } = require('../app/services/moodDescriptors');
 const { vectorDiscoveryFetch } = require('../app/services/discovery/discoveryFetch');
 const { isYoutubeContent } = require('../app/utils/youtubeContent');
-const { generateAndEmitPlaylist, _resetDebounceState } = require('../app/sockets/biometricHandler');
+const { generateAndEmitPlaylist, registerBiometricHandler, _resetDebounceState, _debounceMap } = require('../app/sockets/biometricHandler');
 
 jest.setTimeout(120000);
 
@@ -269,7 +272,13 @@ async function run(branch, { vector = false, fallback = false, user }) {
   // BE-221: the heart branch makes no LLM call, so a failing LLM cannot force its fallback. Without
   // vector discovery a Spotify discovery failure forces it; with vector discovery (which never
   // throws) a stalled corpus query overruns the AI budget instead (RA-8 on #279).
-  spotify.__fail.discovery = fallback && branch === 'heart' && !vector;
+  // BE-231 RA-1: the heart branch sends Spotify no discovery request, so without vector discovery its
+  // fallback is forced by the generation core failing.
+  if (fallback && branch === 'heart' && !vector) {
+    geminiEngine.adjustBiometricPlaylist.mockImplementationOnce(async () => {
+      throw Object.assign(new Error('Request failed with status code 503'), { response: { status: 503 } });
+    });
+  }
   if (fallback && branch === 'heart' && vector) {
     process.env.GENERATION_AI_BUDGET_MS = '25';
     const stalled = vectorDiscoveryFetch.getMockImplementation();
@@ -337,6 +346,9 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
       if (vector) {
         expect(vectorDiscoveryFetch).toHaveBeenCalled();
         expect(spotify.__calls.some((c) => c.name === 'searchTrackUri' && c.args[1].title === 'Catalogue Find')).toBe(true);
+      } else if (branch === 'heart') {
+        // BE-231 RA-1: the heart branch reads the discovery cache and asks Spotify nothing.
+        expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(false);
       } else {
         expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(true);
       }
@@ -366,7 +378,8 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
         expect(vectorDiscoveryFetch).toHaveBeenCalled(); // the corpus was queried, and stalled past the budget
         expect(spotify.markDiscoveryUnavailable).toHaveBeenCalled(); // the gen_budget path, not another error
       } else {
-        expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(true); // discovery was tried, and failed
+        expect(geminiEngine.adjustBiometricPlaylist).toHaveBeenCalled(); // the generation core was tried, and failed
+        expect(spotify.__calls.some((c) => c.name === 'fetchVibeDiscovery')).toBe(false); // BE-231 RA-1: no discovery request
       }
       expect(http.some((h) => h.url === LLM_URL)).toBe(false); // and no LLM was ever asked
     } else {
@@ -377,6 +390,28 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
     expect(ready).toBeTruthy();
     expect(ready[1]).toEqual(expect.objectContaining({ fallback: true }));
     expect({ served: leaksIn(ready[1]) }).toEqual({ served: [] });
+    await expectStoredProfileUntouched(user);
+  });
+
+  // BE-231 RA-1: the request the heart branch used to send now leaves when the user opens a live
+  // session; it reads the profile through the same seam, so it carries nothing YouTube-derived.
+  it('opening a live session: the discovery-cache refresh sends no YouTube-derived string', async () => {
+    const user = await account('session-open');
+    const handlers = {};
+    const socket = { id: `sock-open-${user._id}`, data: { user: { _id: user._id } }, emit: jest.fn(), on: (e, fn) => { handlers[e] = fn; } };
+    registerBiometricHandler(socket);
+    handlers.live_mode({ enabled: true });
+    await _debounceMap.get(socket.id).discoveryRefresh;
+
+    const sent = spotify.__calls.filter((c) => c.name === 'fetchVibeDiscovery');
+    expect(sent).toHaveLength(1); // the instrument is live: the refresh asked Spotify once
+    expect(sent[0].args[1].seed_genres.length).toBeGreaterThan(0);
+    expect({ spotifyCalls: leaksIn(spotify.__calls) }).toEqual({ spotifyCalls: [] });
+    for (const seeds of discoverySeeds()) expect({ discoverySeed: seeds }).toEqual({ discoverySeed: expect.not.arrayContaining([ALLOWED_YT_GENRE]) });
+    expect({ http: leaksIn(http) }).toEqual({ http: [] });
+    expect(llmCall.chatJson).not.toHaveBeenCalled();
+    for (const [, opts] of personalizeWhitelist.mock.calls) expect({ taste: leaksIn(opts), allowListed: opts.genreSet.includes(ALLOWED_YT_GENRE) }).toEqual({ taste: [], allowListed: false });
+    expect(personalizeWhitelist).toHaveBeenCalledTimes(1);
     await expectStoredProfileUntouched(user);
   });
 
