@@ -17,6 +17,8 @@ const RENDER = {
   display: { colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
 };
 const STAGE_PX = { x: 0, y: 0, width: 1080, height: 2340 };
+/** UI-276: READY's Skia backend, as the S22+'s lab reads it (src/design/lab/skiaBackend.ts). */
+const SKIA_BACKEND = { backend: 'ganesh-gl', readBy: 'Skia.hasDevice() is false (Ganesh), and a 1x1 Skia.Surface.MakeOffscreen surface\'s native texture is a GL texture on target 0xde1', reason: null };
 
 /** The sources one shot's row is built from, as captureShot holds them. */
 const sources = (over: Record<string, unknown> = {}) => ({
@@ -34,6 +36,7 @@ const sources = (over: Record<string, unknown> = {}) => ({
     run: 'r', seq: 4, scene: 'field.abyss.dark.three.full', clock: 'fixed', t: 11000, powerSave: true, tier: 'full', isRTL: true, fontScale: 1.149,
     shaderStatus: 'ready', shaderReason: '', pixelRatio: 2.625, sentinel: 's',
     probes: { stage: { dp: { x: 0, y: 0, width: 411.43, height: 891.43 }, px: STAGE_PX } },
+    skiaBackend: SKIA_BACKEND,
   },
   region: { x: 0, y: 84, width: 1080, height: 2130 },
   probes: { inside: {}, excluded: [{ id: 'stage', reason: 'partly under the system bars', px: STAGE_PX }] },
@@ -47,6 +50,7 @@ describe('buildRow: one row from the sources the harness holds', () => {
   it('maps every source to its field, and the row is one validateRow accepts', () => {
     const row = buildRow(sources());
     expect(row).toEqual({
+      schemaVersion: 2,
       shot: 'dark-three', repeat: 2, file: 'dark-three.2.png', sha256: H('1'), appRegionHash: H('2'),
       commit: { sha: SHA, porcelainEmpty: true },
       stamp: { bundleSha256: H('3'), tokens: {} },
@@ -72,6 +76,7 @@ describe('buildRow: one row from the sources the harness holds', () => {
       gl: RENDER.gl,
       display: RENDER.display,
       skiaVersion: '2.6.9',
+      skiaBackend: SKIA_BACKEND,
       shaderReason: null,
       stage: STAGE_PX,
       pixelRatio: 2.625,
@@ -81,9 +86,9 @@ describe('buildRow: one row from the sources the harness holds', () => {
 
   it('keeps the harness\'s field order (the bytes it writes)', () => {
     expect(Object.keys(buildRow(sources()))).toEqual([
-      'shot', 'repeat', 'file', 'sha256', 'appRegionHash', 'commit', 'stamp', 'device', 'app', 'scene', 'direction', 'face', 'fontScale',
+      'schemaVersion', 'shot', 'repeat', 'file', 'sha256', 'appRegionHash', 'commit', 'stamp', 'device', 'app', 'scene', 'direction', 'face', 'fontScale',
       'motion', 'locale', 'isRTL', 'clock', 'shaderStatus', 'uimode', 'animatorScales', 'forceDark', 'colorSpace', 'region', 'probes',
-      'timestamps', 'expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage', 'pixelRatio',
+      'timestamps', 'expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'skiaBackend', 'shaderReason', 'stage', 'pixelRatio',
     ]);
   });
 
@@ -99,6 +104,9 @@ describe('buildRow: one row from the sources the harness holds', () => {
     ['a scene with no tier', { renderFacts: { renderScale: null, sampling: null } }, (r: any) => [r.renderScale, r.sampling], [null, null]],
     ['READY\'s pixel ratio, as READY sent it (never the density\'s)', { ready: { ...sources().ready, pixelRatio: 2.6250004 } }, (r: any) => r.pixelRatio, 2.6250004],
     ['a READY with no pixel ratio: none (validateRow refuses the row)', { ready: { ...sources().ready, pixelRatio: undefined } }, (r: any) => 'pixelRatio' in r && r.pixelRatio !== undefined, false],
+    // UI-276: a Skia backend READY does not name is null, and why, never a guess.
+    ['a READY with no Skia backend: null, and why', { ready: { ...sources().ready, skiaBackend: undefined } }, (r: any) => r.skiaBackend, { backend: null, readBy: null, reason: 'READY names no Skia backend' }],
+    ['READY\'s Skia backend, as READY sent it, a copy', { ready: { ...sources().ready, skiaBackend: { backend: 'graphite', readBy: 'r', reason: null } } }, (r: any) => r.skiaBackend, { backend: 'graphite', readBy: 'r', reason: null }],
   ])('%s', (_label, over, pick, want) => {
     expect(pick(buildRow(sources(over)))).toEqual(want);
   });

@@ -9,6 +9,10 @@
 // UI-240: a row also carries READY's pixel ratio, the px per dp every report reads (rowPixelRatio); the row and the
 // manifest are built here (buildRow, buildManifest) for the harness and the reports' fixtures alike, and the manifest's
 // top level has its own validator (validateManifest).
+// UI-276: a row also names its schema version and the Skia backend that drew it (skiaBackend, READY's:
+// src/design/lab/skiaBackend.ts reads it from react-native-skia on the device), which a report reads through
+// rowSkiaBackend and a model validated on one backend holds to through skiaBackendProblem. The field came with version 2;
+// a row of version 1, or of no version, was written before it and stays valid as written (architect ruling A5).
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const SHA1 = /^[0-9a-f]{40}$/;
@@ -41,7 +45,15 @@ const orNull = (schema) => ({ [NULLABLE]: schema });
 const RECT = { x: int(0), y: int(0), width: int(1), height: int(1) };
 const PX = { x: number(-Infinity), y: number(-Infinity), width: number(-Infinity), height: number(-Infinity) };
 
+/** UI-276: the Skia backends a row may name (src/design/lab/skiaBackend.ts SKIA_BACKENDS, pinned equal by jest). */
+export const SKIA_BACKENDS = Object.freeze(['ganesh-gl', 'graphite']);
+/** UI-276: the row schema the harness writes, and every version a row may name (none is version 1). */
+export const ROW_SCHEMA_VERSION = 2;
+export const ROW_SCHEMA_VERSIONS = Object.freeze([1, 2]);
+
+// The schema of the version the harness writes (ROW_SCHEMA_VERSION).
 const SCHEMA = {
+  schemaVersion: oneOf(ROW_SCHEMA_VERSIONS),
   shot: string,
   repeat: int(1),
   file: string,
@@ -78,6 +90,8 @@ const SCHEMA = {
   gl: { renderer: nullableString, gles: nullableString, reason: nullableString },
   display: { colorMode: nullableString, wideColor: nullableBoolean, refreshMode: nullableString, reason: nullableString },
   skiaVersion: semver,
+  // UI-276: READY's Skia backend and how the lab read it, or null and why (never refused at capture: a report decides).
+  skiaBackend: { backend: nullableOneOf(SKIA_BACKENDS), readBy: nullableString, reason: nullableString },
   shaderReason: nullableString,
   // READY's stage probe in px (window coordinates, which the harness requires to be the screen's).
   stage: PX,
@@ -85,8 +99,29 @@ const SCHEMA = {
   pixelRatio: positive,
 };
 
-// A fact object whose facts may be null: then, and only then, its reason says why.
-const REASONED = ['gl', 'display'];
+// A fact object whose facts may be null: then, and only then, its reason says why. The run's render facts are the first
+// two (validateManifest); a row also has its Skia backend.
+const RENDER_REASONED = ['gl', 'display'];
+const REASONED = [...RENDER_REASONED, 'skiaBackend'];
+
+// UI-276 (architect ruling A5): skiaBackend came with row schema version 2, and a version-2 row must carry it. A row of
+// no version, or version 1, is one the harness wrote before (every session up to UI-276, the 91d6940 evidence among
+// them): it is held to the fields it was written with (no skiaBackend, and no schemaVersion unless it names 1), so it
+// stays valid as written and is never rewritten, and a reader names its backend SKIA_BACKEND_UNRECORDED. The harness
+// writes version 2.
+export const SKIA_BACKEND_UNRECORDED = 'recorded before UI-276';
+const SCHEMA_V1 = Object.fromEntries(Object.entries(SCHEMA).filter(([key]) => key !== 'schemaVersion' && key !== 'skiaBackend'));
+const SCHEMA_V1_NAMED = { schemaVersion: literal(1), ...SCHEMA_V1 };
+
+/** The schema a row is held to, by the version it names: none, or 1, is version 1; anything else is held to the current one. */
+const rowSchema = (row) => {
+  const version = isObject(row) ? row.schemaVersion : undefined;
+  if (version === undefined) return SCHEMA_V1;
+  return version === 1 ? SCHEMA_V1_NAMED : SCHEMA;
+};
+
+/** A row written before UI-276, as it was written: version 1 (named or not), and no skiaBackend. */
+const recordedBeforeSkiaBackend = (row) => isObject(row) && (row.schemaVersion === undefined || row.schemaVersion === 1) && row.skiaBackend === undefined;
 
 function walk(schema, value, path, errors) {
   if (schema !== null && typeof schema === 'object' && NULLABLE in schema) {
@@ -128,11 +163,16 @@ function reasonErrors(facts, key, path) {
 /** Every way a row departs from the schema, each naming its field path. [] for a valid row. */
 export function validateRow(row) {
   const errors = [];
-  walk(SCHEMA, row, '', errors);
+  walk(rowSchema(row), row, '', errors);
   if (!isObject(row)) return errors;
   for (const key of REASONED) errors.push(...reasonErrors(row[key], key, key));
   if (row.renderScale !== undefined && row.sampling !== undefined && (row.renderScale === null) !== (row.sampling === null)) {
     errors.push('renderScale and sampling are both null or both set');
+  }
+  // UI-276: a backend always says how it was read, and no backend never does (why is its reason).
+  const backend = row.skiaBackend;
+  if (isObject(backend) && backend.backend !== undefined && backend.readBy !== undefined && (backend.backend === null) !== (backend.readBy === null)) {
+    errors.push('skiaBackend.backend and skiaBackend.readBy are both null or both set');
   }
   return errors;
 }
@@ -153,6 +193,60 @@ export function readSkiaVersion(text) {
   return { version: entry.version, reason: null };
 }
 
+// ---- UI-276: the Skia backend that drew a row
+
+/**
+ * READY's skiaBackend as a row states it: a copy of its three facts, or, when READY names none, null and why. A fact out
+ * of form is kept as it came, for validateRow to refuse, naming the field.
+ */
+function readySkiaBackend(fact) {
+  if (fact === undefined || fact === null) return { backend: null, readBy: null, reason: 'READY names no Skia backend' };
+  if (!isObject(fact)) return fact;
+  return { backend: fact.backend, readBy: fact.readBy, reason: fact.reason };
+}
+
+/**
+ * The Skia backend a report reads from a row: { backend, readBy, reason }, a copy of the row's own, or null and why. A row
+ * written before UI-276 (version 1, named or not) says SKIA_BACKEND_UNRECORDED, and is not rewritten; a row that lacks
+ * the field its version requires, names a version the harness never wrote, or holds a fact out of form (rows validateRow
+ * refuses) is named so, never read as a backend.
+ */
+export function rowSkiaBackend(row) {
+  const none = (reason) => ({ backend: null, readBy: null, reason });
+  if (!isObject(row)) return none('not a row');
+  if (recordedBeforeSkiaBackend(row)) return none(SKIA_BACKEND_UNRECORDED);
+  const version = row.schemaVersion;
+  if (version !== undefined && !ROW_SCHEMA_VERSIONS.includes(version)) return none(`the row's schema version ${JSON.stringify(version)} is not one the harness writes (validateRow refuses it)`);
+  const fact = row.skiaBackend;
+  if (fact === undefined) return none(`the row has no skiaBackend, though its schema version ${ROW_SCHEMA_VERSION} requires one (validateRow refuses it)`);
+  const malformed = none('the row\'s skiaBackend is not one the harness writes (validateRow refuses it)');
+  if (version !== ROW_SCHEMA_VERSION) return malformed;
+  const errors = [];
+  walk(SCHEMA.skiaBackend, fact, 'skiaBackend', errors);
+  errors.push(...reasonErrors(fact, 'skiaBackend', 'skiaBackend'));
+  if (errors.length > 0 || (fact.backend === null) !== (fact.readBy === null)) return malformed;
+  return { backend: fact.backend, readBy: fact.readBy, reason: fact.reason };
+}
+
+/**
+ * Why a model of the device's drawing validated on `validatedOn` (backend names) must not be applied to this row, or null
+ * (UI-272's fallback twin: its ring coverage is the S22+'s Ganesh GL coverage). A row whose backend was not read is
+ * refused with its reason. A row written before UI-276 names none either: it is refused unless the caller accepts those
+ * rows by name ({ acceptRecordedBefore: true }), as a model validated on that very evidence may, saying so in its report.
+ * It reads skiaBackend only: what else the model holds to (the Skia version, the GPU) is the caller's. A validatedOn that
+ * is not a non-empty list of SKIA_BACKENDS is the caller's mistake: it throws.
+ */
+export function skiaBackendProblem(row, validatedOn, { acceptRecordedBefore = false } = {}) {
+  if (!Array.isArray(validatedOn) || validatedOn.length === 0 || !validatedOn.every((b) => SKIA_BACKENDS.includes(b))) {
+    throw new Error(`validatedOn must be a non-empty list of ${SKIA_BACKENDS.join(', ')}, got ${JSON.stringify(validatedOn ?? null)}`);
+  }
+  const only = `the model was validated on ${validatedOn.join(', ')} only`;
+  const { backend, readBy, reason } = rowSkiaBackend(row);
+  if (backend !== null) return validatedOn.includes(backend) ? null : `the row was drawn by ${backend} (${readBy}), and ${only}`;
+  if (acceptRecordedBefore && recordedBeforeSkiaBackend(row)) return null;
+  return `the row names no Skia backend (${reason}), and ${only}`;
+}
+
 // ---- UI-240: the builders, used by the harness (capture.mjs) and by the reports' fixtures (reports/__fixtures__/rows.ts)
 
 /**
@@ -167,6 +261,7 @@ export function readSkiaVersion(text) {
 export function buildRow({ shot, repeat, file, sha256, appRegionHash, build, app, facts, frame, observed, ready, region, probes, timestamps, renderFacts, render }) {
   const stage = ready.probes.stage.px;
   return {
+    schemaVersion: ROW_SCHEMA_VERSION,
     shot: shot.id, repeat, file, sha256, appRegionHash,
     commit: { sha: build.head, porcelainEmpty: true },
     stamp: { bundleSha256: build.stamp.bundleSha256, tokens: build.stamp.tokens ?? {} },
@@ -193,6 +288,7 @@ export function buildRow({ shot, repeat, file, sha256, appRegionHash, build, app
     gl: render.gl,
     display: render.display,
     skiaVersion: build.skiaVersion,
+    skiaBackend: readySkiaBackend(ready.skiaBackend),
     shaderReason: typeof ready.shaderReason === 'string' && ready.shaderReason.length > 0 ? ready.shaderReason : null,
     stage: { x: stage.x, y: stage.y, width: stage.width, height: stage.height },
     pixelRatio: ready.pixelRatio,
@@ -256,7 +352,7 @@ export function validateManifest(manifest) {
   walk(MANIFEST, manifest, '', errors);
   if (!isObject(manifest)) return errors;
   const m = manifest;
-  if (isObject(m.render)) for (const key of REASONED) errors.push(...reasonErrors(m.render[key], key, `render.${key}`));
+  if (isObject(m.render)) for (const key of RENDER_REASONED) errors.push(...reasonErrors(m.render[key], key, `render.${key}`));
   if (isObject(m.stamp) && typeof m.stamp.commit === 'string' && typeof m.commit === 'string' && m.stamp.commit !== m.commit) {
     errors.push(`stamp.commit must be the manifest's commit ${m.commit}, got ${m.stamp.commit}`);
   }

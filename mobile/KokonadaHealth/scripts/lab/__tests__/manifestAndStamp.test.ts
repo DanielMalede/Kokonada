@@ -15,6 +15,8 @@ const H = (c: string) => c.repeat(64);
 const SHA = 'a'.repeat(40);
 
 const ROW = {
+  // UI-276: the row schema the harness writes (a row of no version is one written before it: manifestSkiaBackend.test.ts).
+  schemaVersion: 2,
   shot: 'smoke-fixed', repeat: 1, file: 'smoke-fixed.1.png', sha256: H('1'), appRegionHash: H('2'),
   commit: { sha: SHA, porcelainEmpty: true },
   stamp: { bundleSha256: H('3'), tokens: {} },
@@ -39,6 +41,8 @@ const ROW = {
   gl: { renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.65', reason: null },
   display: { colorMode: 'ColorMode::SRGB (7)', wideColor: true, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
   skiaVersion: '2.6.9',
+  // UI-276: READY's Skia backend, as the lab reads it from react-native-skia (src/design/lab/skiaBackend.ts).
+  skiaBackend: { backend: 'ganesh-gl', readBy: 'Skia.hasDevice() is false (Ganesh), and a 1x1 Skia.Surface.MakeOffscreen surface\'s native texture is a GL texture on target 0xde1', reason: null },
   shaderReason: null,
   stage: { x: 0, y: 0, width: 1080, height: 2340 },
   // UI-240: READY's pixel ratio (PixelRatio.get()), the px per dp every report reads.
@@ -57,7 +61,7 @@ describe('a manifest row is checked against its schema', () => {
     expect(validateRow(SMOKE_ROW)).toEqual([]);
   });
 
-  it.each(['expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'shaderReason', 'stage', 'pixelRatio'])('refuses a row without %s', (key) => {
+  it.each(['expect', 'renderScale', 'sampling', 'gl', 'display', 'skiaVersion', 'skiaBackend', 'shaderReason', 'stage', 'pixelRatio'])('refuses a row without %s', (key) => {
     const row: Record<string, unknown> = { ...ROW };
     delete row[key];
     expect(validateRow(row)).toEqual([`${key} is required`]);

@@ -10,6 +10,8 @@
 // scene that says a setting cannot be read (UI-241) is an ERROR at once, naming it: its tier would never be known.
 // Every setting read the lab makes has a deadline (settingRead.ts): one that never settles is refused by time, so it is
 // named in an ERROR too, never a READY held until the harness times out.
+// READY also says which Skia backend draws the lab (UI-276, skiaBackend.ts): read once from react-native-skia when the
+// session mounts, the same on every READY of the run; one that cannot be read is null with the reason, never an ERROR.
 //
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
@@ -17,6 +19,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
+import { Skia } from '@shopify/react-native-skia';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import type { MotionPorts } from '../v2/motion/ports';
 import type { MotionTier } from '../v2/motion/useMotionPolicy';
@@ -33,6 +36,7 @@ import { createSettingReads } from './settingRead';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from './scenes/FieldScene';
 import { LAB_SENTINEL } from './sentinel';
 import { ShaderReportContext, type ShaderReport, type ShaderStatus } from './shaderReport';
+import { readSkiaBackend, type BackendSkia } from './skiaBackend';
 
 /** The launch options DesignLabActivity passes as initial props (nativeContract.test.ts pins them). */
 export const LAB_PROPS = { args: 'labArgs', nonStringKeys: 'nonStringKeys', powerSave: 'powerSave' } as const;
@@ -52,6 +56,8 @@ export type LabDeps = {
   fontsReady: boolean;
   reduceMotion: ReduceMotionSource;
   scenes: Readonly<Record<string, Scene>>;
+  /** The Skia whose backend READY names (UI-276): react-native-skia's own, or a test's. */
+  skia: BackendSkia;
 };
 
 const animationFrames: FrameSource = {
@@ -76,6 +82,7 @@ const DEFAULT_DEPS: LabDeps = {
   fontsReady: true,
   reduceMotion: accessibilityReduceMotion,
   scenes: SCENES,
+  skia: Skia,
 };
 
 type LabRootProps = {
@@ -175,6 +182,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     powerSave: powerSaveSource,
   }));
 
+  // The Skia backend that draws this run (UI-276), read once as the session mounts: a build fact, never one that changes.
+  const [skiaBackend] = useState(() => readSkiaBackend(deps.skia));
+
   // What READY reports is what was committed last.
   const latest = useRef({ seq: step.seq, t: step.t, powerSave });
   latest.current = { seq: step.seq, t: step.t, powerSave };
@@ -229,6 +239,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
           probes, sentinel: LAB_SENTINEL,
           shaderStatus: shader.current?.status ?? null, shaderReason: clip(shader.current?.reason ?? null),
           tier: facts.current?.tier ?? null,
+          skiaBackend,
         });
       } catch (e) {
         fail((e as Error).message);
