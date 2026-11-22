@@ -8,59 +8,26 @@
 // test is gone needs a RETIRE entry; a RETIRE entry for a pin still in place is red.
 
 import { createHash } from 'crypto';
-import * as fs from 'fs';
 import * as path from 'path';
 import ts from 'typescript';
 import { indexTests, normalizeEol } from './contracts';
 import { APP_ROOT } from './productionImports';
+import { DEC_ID, RULE_DECS, checkRetireEntries, parseDecStatus, readDecStatus as readDecStatusIn, type DecStatus, type RetireEntry } from './retireRule';
+
+// The signature rule lives in ./retireRule, which plain Node can load (QA-041's CLI, OPS-412). It is
+// re-exported here, so every caller of this module is unchanged.
+export { DEC_ID, RULE_DECS, checkRetireEntries, parseDecStatus };
+export type { DecStatus, RetireEntry };
 
 export const REPO_ROOT = path.resolve(APP_ROOT, '../..');
 export const DECISIONS_DIR = path.join(REPO_ROOT, 'docs/design-v2/decisions');
 
-/** Structurally the entry in src/__contracts__/retire.ts (that file imports nothing). */
-export interface RetireEntry { kind: 'file' | 'pin'; target: string; dec: string; reason: string }
-
 /** Structurally the pin in src/__contracts__/pins.ts. `file` is relative to the repository root. */
 export interface Pin { id: string; file: string; fullTitle: string; statements: number; sha256: string; description: string; ref: string }
 
-export type DecStatus = (dec: string) => string | null;
-
-const DEC_ID = /^DEC-\d{3,}$/;
-/** The RETIRE rule (DEC-091) and its refinement (DEC-142) say who signs; they are never the signature (#291 audit RA-2). */
-export const RULE_DECS: ReadonlySet<string> = new Set(['DEC-091', 'DEC-142']);
-
-/** The `status:` of a decision record's front matter, or null when there is none. */
-export function parseDecStatus(text: string): string | null {
-  const m = /^---\n([\s\S]*?)\n---/.exec(normalizeEol(text));
-  if (!m) return null;
-  const s = /^status:\s*(\S+)\s*$/m.exec(m[1]);
-  return s ? s[1] : null;
-}
-
 /** The status of docs/design-v2/decisions/<dec>.md, or null when the id is malformed or the file is missing. */
 export function readDecStatus(dec: string, dir: string = DECISIONS_DIR): string | null {
-  if (!DEC_ID.test(dec)) return null;
-  const file = path.join(dir, `${dec}.md`);
-  return fs.existsSync(file) ? parseDecStatus(fs.readFileSync(file, 'utf8')) : null;
-}
-
-/** One failure line per RETIRE entry that is not a valid signature; [] when all are. */
-export function checkRetireEntries(entries: readonly RetireEntry[], decStatus: DecStatus): string[] {
-  const failures: string[] = [];
-  const seen = new Set<string>();
-  for (const e of entries) {
-    const who = `RETIRE ${e.kind} ${e.target}`;
-    const key = `${e.kind}\u0000${e.target}`;
-    if (seen.has(key)) { failures.push(`${who}: named twice`); continue; }
-    seen.add(key);
-    if (!DEC_ID.test(e.dec)) { failures.push(`${who}: ${e.dec} is not a DEC-nnn id`); continue; }
-    if (RULE_DECS.has(e.dec)) { failures.push(`${who}: ${e.dec} is the RETIRE rule itself, not a signature`); continue; }
-    const status = decStatus(e.dec);
-    if (status === null) failures.push(`${who}: ${e.dec} does not exist`);
-    else if (status !== 'DECIDED') failures.push(`${who}: ${e.dec} is ${status}, not DECIDED`);
-    if (e.reason.trim() === '') failures.push(`${who}: no reason`);
-  }
-  return failures;
+  return readDecStatusIn(dec, dir);
 }
 
 export const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
