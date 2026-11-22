@@ -112,10 +112,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-10-28
 
 ### M06
-- task: `own:q1q2-close` (own)
-- title: records after #290, #291 and #292 merged: sync the registry INDEX with the re-issued QA statuses (OPS-416), update OPS-065, OPS-066, OPS-417, close DAN-140, remove the duplicated OPS-420 to OPS-425 rows
-- branch: `docs/q1q2-close`
-- paths: `TASKS.md`, `WORK_LEDGER.md`, `docs/design-v2/registry/INDEX.md`
+- task: `own:dan015-page-round` (own)
+- title: docs: DEC-190 records the owner's round-6 legal-basis rulings and the page round's findings as TASKS rows (own:dan015-page-round)
+- branch: `docs/dan015-page-round`
+- paths: `TASKS.md`, `docs/design-v2/decisions/DEC-190.md`, `docs/design-v2/DECISIONS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-22
