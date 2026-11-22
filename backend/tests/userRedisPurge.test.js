@@ -46,6 +46,7 @@ describe('purgeUserKeys (GDPR Redis erasure)', () => {
       `buffer:${USER}:happy`,
       `buffer:${USER}:bio:active:running`,
       `bio:baseline:${USER}`,
+      `disc:bio:${USER}`, // BE-231 RA-1: the heart branch's discovery cache
     ];
     const theirs = [
       'ledger:u2:served',
@@ -53,6 +54,7 @@ describe('purgeUserKeys (GDPR Redis erasure)', () => {
       'pool:u2:happy',
       'buffer:u2:happy',
       'bio:baseline:u2',
+      'disc:bio:u2',
       'af:spotify:xyz', // global caches stay
       'revoked:jti:abc',
     ];
@@ -101,7 +103,7 @@ describe('USER_KEY_NAMESPACES registry', () => {
     // The live-buffer namespace was previously absent from the purge — pin it here so a
     // future user-scoped namespace must register or fail this guard.
     expect(names).toEqual(expect.arrayContaining([
-      'serve-ledger', 'candidate-pool', 'live-buffer', 'bio-baseline',
+      'serve-ledger', 'candidate-pool', 'live-buffer', 'bio-baseline', 'discovery-cache',
     ]));
   });
 

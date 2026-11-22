@@ -163,7 +163,7 @@ async function seedWithdrawer(user) {
   };
   const id = String(user._id);
   for (const key of [`ledger:${id}:served`, `ledger:${id}:mood:bio:peak:running`, `ledger:${id}:mood:calm`, `pool:${id}:bio:peak:running`,
-    `pool:${id}:calm`, `buffer:${id}:bio:peak:running`, `bio:baseline:${id}`, `bio:affect:${id}`]) {
+    `pool:${id}:calm`, `buffer:${id}:bio:peak:running`, `bio:baseline:${id}`, `bio:affect:${id}`, `disc:bio:${id}`]) {
     redis.store.set(key, 'x');
   }
   return { W, rows, serves };
@@ -236,14 +236,14 @@ describe('the erasure module on real Mongo (T4) — the operation list', () => {
     expect([...redis.store.keys()].filter((k) => k.includes(String(a._id)))).toEqual([]);
     for (const k of GLOBAL_KEYS) expect(redis.store.has(k)).toBe(true);
 
-    expect(counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 8 });
+    expect(counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 9 });
     expect(await PlaylistSession.countDocuments({ userId: a._id })).toBe(7); // no session is deleted
     expect(await bystanderState(b)).toBe(bBefore);
   });
 
   // N7 (round 1): inside the withdrawal request, the two exact-name keys are deleted by name. A SCAN
   // walks the whole keyspace, so it is spent only on the namespaces that need a pattern.
-  it('the strict purge deletes bio:baseline: and bio:affect: by name and SCANs only the wildcard namespaces', async () => {
+  it('the strict purge deletes bio:baseline:, bio:affect: and disc:bio: by name and SCANs only the wildcard namespaces', async () => {
     const a = await listener('a');
     await seedWithdrawer(a);
     const scans = jest.spyOn(redis, 'scan');
@@ -251,9 +251,9 @@ describe('the erasure module on real Mongo (T4) — the operation list', () => {
 
     const counts = await eraseSessionHealth(a._id, { heartRateBefore: new Date(), targetsBefore: new Date() }, { purgeRedis: true });
 
-    expect(counts.redisKeys).toBe(8);
+    expect(counts.redisKeys).toBe(9);
     expect(scans.mock.calls.map((c) => c[2])).toEqual([`ledger:${a._id}:*`, `pool:${a._id}:*`, `buffer:${a._id}:*`]);
-    expect(dels.mock.calls.flat()).toEqual(expect.arrayContaining([`bio:baseline:${a._id}`, `bio:affect:${a._id}`]));
+    expect(dels.mock.calls.flat()).toEqual(expect.arrayContaining([`bio:baseline:${a._id}`, `bio:affect:${a._id}`, `disc:bio:${a._id}`]));
     expect([...redis.store.keys()].filter((k) => k.includes(String(a._id)))).toEqual([]);
   });
 
@@ -358,7 +358,7 @@ describe('eraseSessionHealthOnWithdrawal — the withdrawal entry point (T4)', (
     expect(err.failedSteps).toEqual(['serveBioKeys:MongoNetworkError']);
     expect(err.message).not.toMatch(/10\.0\.0\.7|131/);
     // the band step still ran over all three banded rows, the bio one included
-    expect(err.counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 8 });
+    expect(err.counts).toEqual({ sessions: 4, sessionTargets: 3, serveEvents: 3, redisKeys: 9 });
     expect((await raw(rows.heart)).moodKey).toBe('bio:');
     expect((await rawServe(serves.moodBand)).bioState.tempoBand).toBeNull(); // the next serve step ran
     expect((await rawServe(serves.bio)).moodKey).toBe('bio:peak:running'); // the failed one did not
