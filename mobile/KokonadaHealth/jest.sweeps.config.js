@@ -1,7 +1,7 @@
 // The sweeps project (UI-073): the never-red sweeps at full resolution, and E3's ledger storms on
 // their full grid (QA-068). It has its own config, so `jest` and CI's `jest --ci` never run it and
-// keep the coarse grids. CI runs it in its own gated job, with two workers:
-// `jest --ci --config jest.sweeps.config.js --maxWorkers=2`.
+// keep the coarse grids. CI runs it in its own gated jobs, four shards of two workers each:
+// `jest --ci --config jest.sweeps.config.js --maxWorkers=2 --shard=<i>/4`.
 //
 // It reuses the unit project's transforms in a plain node environment, with no global stubs: the
 // sweeps touch no React Native. Name such a test *.sweeps.test.ts.

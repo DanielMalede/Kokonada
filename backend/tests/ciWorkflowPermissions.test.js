@@ -173,13 +173,14 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
     const ci = WORKFLOWS.find((w) => w.file === 'ci.yml');
     expect(ci.triggers.sort()).toEqual(['pull_request', 'push']);
     expect(ci.jobs.map((j) => j.id).sort()).toEqual([
-      'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
+      'backend', 'ios-changes', 'mobile', 'mobile-android-compile', 'mobile-ios-build', 'mobile-jest-shard',
+      'mobile-lab', 'mobile-sweeps', 'mobile-sweeps-shard', 'secret-scan', 'sweeps-changes',
     ]);
-    // Every job checks out, so every job needs `contents` named in any override it declares.
+    // Every job but the two gates checks out, so it needs `contents` named in any override it declares.
+    // The gates (`mobile`, `mobile-sweeps`) only read their needed jobs' results: see the next test.
     expect(ci.jobs.filter((j) => j.checksOut).map((j) => j.id).sort()).toEqual([
-      'backend', 'ios-changes', 'mobile', 'mobile-android-compile',
-      'mobile-ios-build', 'mobile-sweeps', 'secret-scan', 'sweeps-changes',
+      'backend', 'ios-changes', 'mobile-android-compile', 'mobile-ios-build', 'mobile-jest-shard',
+      'mobile-lab', 'mobile-sweeps-shard', 'secret-scan', 'sweeps-changes',
     ]);
 
     // Every job that touches the PR API is caught by the PR-API rule. secret-scan and
@@ -197,6 +198,21 @@ describe('CI workflow GITHUB_TOKEN permissions (W4-D37)', () => {
       .map((j) => j.id)
       .sort();
     expect(prApiJobs).toEqual(['ios-changes', 'mobile-android-compile', 'sweeps-changes']);
+  });
+
+  it('the two gates check nothing out, run no action and grant themselves no token scope at all', () => {
+    // `mobile` ("Mobile — jest") and `mobile-sweeps` report the old jobs' checks from their needed jobs' results
+    // (mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts), so `permissions: {}` sets every scope to none.
+    const ci = WORKFLOWS.find((w) => w.file === 'ci.yml');
+    const gates = ci.jobs.filter((j) => ['mobile', 'mobile-sweeps'].includes(j.id));
+    expect(gates.map((j) => j.id).sort()).toEqual(['mobile', 'mobile-sweeps']);
+    for (const gate of gates) {
+      expect([gate.id, gate.checksOut, gate.uses]).toEqual([gate.id, false, []]);
+      expect([gate.id, gate.permissions]).toEqual([gate.id, { mode: '{}' }]);
+      for (const scope of ['contents', 'pull-requests', 'actions', 'id-token']) {
+        expect([gate.id, scope, grantedLevel(gate.permissions, scope)]).toEqual([gate.id, scope, 'none']);
+      }
+    }
   });
 
   it('reads every entry of the workflows directory, so none escapes these pins', () => {
@@ -331,7 +347,10 @@ describe('CI runner images (OPS-191)', () => {
       'ci.yml ios-changes',
       'ci.yml mobile',
       'ci.yml mobile-android-compile',
+      'ci.yml mobile-jest-shard',
+      'ci.yml mobile-lab',
       'ci.yml mobile-sweeps',
+      'ci.yml mobile-sweeps-shard',
       'ci.yml secret-scan',
       'ci.yml sweeps-changes',
       'coordination.yml coordination',
