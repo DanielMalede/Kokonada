@@ -3,7 +3,7 @@ import type { TestCounts } from '../testCounts';
 import {
   asFloorList, asManifest, asRetire, checkInputs, decide, formatVerdict, isTestPath, parseArgs, RULES, USAGE,
   type Inputs, type ResultsFile, type RuleId, type Verdict,
-} from '../qa041';
+} from '../qa041.ts';
 
 // QA-041 proper (OPS-412 part A), the pure core on in-memory inputs. A run is jest's `--ci --json` output
 // as text; the package root, the files on disk, git's facts and the decision records are in memory too,

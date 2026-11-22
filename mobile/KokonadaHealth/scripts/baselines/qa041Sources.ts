@@ -11,7 +11,10 @@
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { FloorTree, HeadFacts, Loaded, ResultsFile } from './qa041.ts';
+import { readDecStatus } from '../../src/testing/guards/retireRule.ts';
+import { asFloorList, asManifest, asRetire } from './qa041.ts';
+import type { Args, Data, DecStatus, FloorTree, HeadFacts, Inputs, Loaded, Pkg, ResultsFile } from './qa041.ts';
+import type { TestCounts } from './testCounts.ts';
 
 /** How long one git command may run (a full mobile tree lists in well under a second). */
 export const GIT_TIMEOUT_MS = 60_000;
@@ -137,5 +140,68 @@ export function locator(pkgRoot: string): (name: string) => string | null {
     const rel = path.relative(root, real);
     if (rel === '' || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return null;
     return rel.split(path.sep).join('/');
+  };
+}
+
+// ---- what the entry hands the core ------------------------------------------------------------------
+
+/** A module as `await import()` gave it, or why it did not load. */
+export type Imported = Loaded<Record<string, unknown>>;
+/** The modules qa041.mjs imported; the backend needs only testCounts.ts. */
+export interface Modules { testCounts: Imported; retire?: Imported; manifest?: Imported; floor?: Imported }
+
+/** A data part from its module; `what` names the module when the core's label for the part names another file. */
+function from<T>(m: Imported | undefined, what: string | null, pick: (ns: Record<string, unknown>) => T): Loaded<T> {
+  const lead = what === null ? '' : `${what} `;
+  if (m === undefined) return { error: `${lead}was not loaded` };
+  if ('error' in m) return { error: `${lead}did not load: ${m.error}` };
+  try {
+    return { value: pick(m.value) };
+  } catch (e) {
+    return { error: (e instanceof Error ? e.message : String(e)).split('\n')[0] };
+  }
+}
+
+/** The data parts: test-counts.json read and validated by testCounts.ts; RETIRE, CONTRACTS and TEST_FLOOR by shape. */
+export function loadData(appRoot: string, m: Modules): Data {
+  return {
+    counts: from(m.testCounts, 'scripts/baselines/testCounts.ts', (ns) => {
+      if (typeof ns.readTestCounts !== 'function' || typeof ns.testCountsPath !== 'function') throw new Error('testCounts.ts exports no readTestCounts and testCountsPath');
+      const read = ns.readTestCounts as (file: string) => TestCounts;
+      const where = ns.testCountsPath as (root: string) => string;
+      return read(where(appRoot));
+    }),
+    retire: from(m.retire, null, (ns) => asRetire(ns.RETIRE)),
+    manifest: from(m.manifest, null, (ns) => asManifest(ns.CONTRACTS)),
+    floor: from(m.floor, null, (ns) => asFloorList(ns.TEST_FLOOR)),
+  };
+}
+
+/** The repository holding the app (mobile/KokonadaHealth sits two levels down). */
+export const repoRootOf = (appRoot: string): string => path.resolve(appRoot, '..', '..');
+/** Where a package's test files are: the app itself, or the backend beside it. */
+export const packageRoot = (appRoot: string, pkg: Pkg): string => (pkg === 'mobile' ? appRoot : path.join(repoRootOf(appRoot), 'backend'));
+
+/** The core's inputs for one run: the results files, git's facts, the data, and the decision records the RETIRE rule reads. */
+export function collect(appRoot: string, args: Extract<Args, { mode: 'check' }>, data: Data, run: Git = git): Inputs {
+  const inputs: Inputs = {
+    pkg: args.pkg,
+    head: args.head,
+    ...(args.expectShards === undefined ? {} : { expectShards: args.expectShards }),
+    results: readResultFiles(args.results),
+    locate: locator(packageRoot(appRoot, args.pkg)),
+    headFacts: headFacts(appRoot, run),
+    counts: data.counts,
+  };
+  if (args.pkg === 'backend') return inputs;
+  const decisions = path.join(repoRootOf(appRoot), 'docs', 'design-v2', 'decisions');
+  const decStatus: DecStatus = (dec) => readDecStatus(dec, decisions);
+  return {
+    ...inputs,
+    retire: data.retire,
+    manifest: data.manifest,
+    floor: data.floor,
+    floorTree: 'error' in data.floor ? undefined : floorTree(appRoot, data.floor.value.sha, run),
+    decStatus,
   };
 }

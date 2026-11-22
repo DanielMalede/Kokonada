@@ -5,8 +5,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { TestCounts } from '../testCounts';
-import { decide, type FloorList, type FloorTree, type Inputs, type Loaded, type HeadFacts, type RuleId } from '../qa041';
-import { floorTree, git, headFacts, locator, readResultFiles, runGit, type Git } from '../qa041Sources';
+import { decide, type FloorList, type FloorTree, type Inputs, type Loaded, type HeadFacts, type RuleId } from '../qa041.ts';
+import { floorTree, git, headFacts, locator, readResultFiles, runGit, type Git } from '../qa041Sources.ts';
 
 // QA-041 proper (OPS-412 part A), plan steps 6 and 7: the git and fs adapters on real repositories made in
 // os.tmpdir() (D8 rule 2), with git's own config isolated from the machine's. The tree at the floor SHA,
