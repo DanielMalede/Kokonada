@@ -49,7 +49,18 @@ delete process.env.DISCOVERY_BAND_AWARE;
 delete process.env.DISCOVERY_CAPTION_LLM;
 delete process.env.GENERATION_AI_BUDGET_MS;
 
-jest.mock('../app/config/redis', () => ({ getRedis: () => null, connectRedis: jest.fn(), createConnection: jest.fn() }));
+// Redis is absent except in the session-open case, which installs this stateful fake: the refresh
+// claims its per-user floor there before it reads anything (resilience RA-1, round 2).
+jest.mock('../app/config/redis', () => {
+  const store = new Map();
+  const fake = {
+    store,
+    async get(key) { return store.has(key) ? store.get(key) : null; },
+    async set(key, value) { store.set(key, String(value)); return 'OK'; },
+    async del(...keys) { let n = 0; for (const k of keys.flat()) if (store.delete(k)) n += 1; return n; },
+  };
+  return { getRedis: jest.fn(() => null), connectRedis: jest.fn(), createConnection: jest.fn(), __fake: fake };
+});
 jest.mock('../app/config/sentry', () => ({ captureException: jest.fn(), initSentry: jest.fn() }));
 
 // (1) The lowest shared LLM layer: observed at its export, real underneath.
@@ -400,8 +411,15 @@ describe('DT-B5 seam: no YouTube sentinel leaves through generation, on any bran
     const handlers = {};
     const socket = { id: `sock-open-${user._id}`, data: { user: { _id: user._id } }, emit: jest.fn(), on: (e, fn) => { handlers[e] = fn; } };
     registerBiometricHandler(socket);
-    handlers.live_mode({ enabled: true });
-    await _debounceMap.get(socket.id).discoveryRefresh;
+    const redis = require('../app/config/redis');
+    redis.__fake.store.clear();
+    redis.getRedis.mockImplementation(() => redis.__fake);
+    try {
+      handlers.live_mode({ enabled: true });
+      await _debounceMap.get(socket.id).discoveryRefresh;
+    } finally {
+      redis.getRedis.mockImplementation(() => null);
+    }
 
     const sent = spotify.__calls.filter((c) => c.name === 'fetchVibeDiscovery');
     expect(sent).toHaveLength(1); // the instrument is live: the refresh asked Spotify once

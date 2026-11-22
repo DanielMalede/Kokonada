@@ -125,7 +125,7 @@ const HANDLER_FN = {
   send:    'async function fetchSpotifyDiscovery(',
   emotion: 'function emotionDiscoveryPort(',
   heart:   'function heartDiscoveryPort(',
-  open:    'async function refreshDiscoveryOnSessionOpen(',
+  open:    'async function _refreshDiscoveryCache(',
 };
 const handlerFn = (src, which) => body(src, HANDLER_FN[which]);
 // The names that reach Spotify, or write the cache, from inside the handler.
@@ -225,6 +225,9 @@ describe('no numeric audio target is sent, and the query is the only input', () 
     const open = handlerFn(handler, 'open');
     expect(open).not.toBeNull();
     expect(calls(open, 'bioDiscoveryQuery')).toEqual(['bioDiscoveryQuery(musicProfile)']);
+    // resilience RA-1 (round 2): the floor is claimed before the first Mongo read
+    expect(calls(open, 'claimDiscoveryRefresh')).toEqual(['claimDiscoveryRefresh(userId)']);
+    expect(open.indexOf('claimDiscoveryRefresh(')).toBeLessThan(open.indexOf('User.findById('));
     const code = stripComments(handler);
     const liveMode = code.slice(code.indexOf("socket.on('live_mode',"), code.indexOf("socket.on('emotion_update',"));
     expect(calls(liveMode, 'refreshDiscoveryOnSessionOpen')).toHaveLength(1);

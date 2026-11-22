@@ -226,3 +226,102 @@ describe('the key the cache writes is the key every erasure removes', () => {
     expect(keys.map(ns.idOf).sort()).toEqual([OTHER, USER].sort());
   });
 });
+
+// Resilience RA-1 (round 2): the session-open refresh claims a per-user floor before any Mongo or
+// Spotify work. The floor lives inside the same key, so every erasure that removes the candidates
+// removes it too, and it holds across sockets and processes because it is in Redis.
+describe('the refresh floor (claimDiscoveryRefresh)', () => {
+  let t;
+  beforeEach(() => {
+    t = 1_000_000_000;
+    jest.spyOn(Date, 'now').mockImplementation(() => t);
+  });
+  afterEach(() => jest.restoreAllMocks());
+  const FLOOR_S = () => cache.DISCOVERY_REFRESH_FLOOR_MS / 1000;
+
+  it('is 15 to 30 minutes, inside the cache window, a constant with no env override', async () => {
+    expect(cache.DISCOVERY_REFRESH_FLOOR_MS).toBeGreaterThanOrEqual(15 * 60 * 1000);
+    expect(cache.DISCOVERY_REFRESH_FLOOR_MS).toBeLessThanOrEqual(30 * 60 * 1000);
+    expect(cache.DISCOVERY_REFRESH_FLOOR_MS).toBeLessThanOrEqual(cache.DISCOVERY_CACHE_TTL_S * 1000);
+    process.env.DISCOVERY_REFRESH_FLOOR_MS = '1';
+    try {
+      expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+      t += 1000;
+      expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+    } finally {
+      delete process.env.DISCOVERY_REFRESH_FLOOR_MS;
+    }
+  });
+
+  it('the first claim wins and is recorded; a second inside the floor loses; after the floor it wins again', async () => {
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+    t += cache.DISCOVERY_REFRESH_FLOOR_MS - 1;
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+    t += 1;
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+  });
+
+  it('the floor is per user', async () => {
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+    expect(await cache.claimDiscoveryRefresh(OTHER)).toBe(true);
+  });
+
+  it('an attempt on an empty cache stores no candidates and lives exactly the floor', async () => {
+    await cache.claimDiscoveryRefresh(USER);
+    expect(redis.store.get(`disc:bio:${USER}`).ttl).toBe(FLOOR_S());
+    expect(await cache.readDiscoveryCandidates(USER)).toEqual([]);
+    const raw = redis.store.get(`disc:bio:${USER}`).value;
+    expect(Object.keys(JSON.parse(raw)).sort()).toEqual(['refreshedAt', 'tracks', 'writtenAt']);
+  });
+
+  it('a write is a refresh too: a claim right after an emotion run\'s write loses', async () => {
+    await cache.writeDiscoveryCandidates(USER, [candidate('a')]);
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+  });
+
+  it('an attempt keeps the cached candidates with the lifetime they had left, never more', async () => {
+    await cache.writeDiscoveryCandidates(USER, [candidate('a')]);
+    t += cache.DISCOVERY_REFRESH_FLOOR_MS;
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+    expect((await cache.readDiscoveryCandidates(USER)).map((x) => x.id)).toEqual(['a']);
+    expect(redis.store.get(`disc:bio:${USER}`).ttl).toBe(cache.DISCOVERY_CACHE_TTL_S - FLOOR_S());
+    // and they still go when their 6 hours from the write are over
+    redis.now = () => t;
+    t += cache.DISCOVERY_CACHE_TTL_S * 1000 - cache.DISCOVERY_REFRESH_FLOOR_MS;
+    expect(await cache.readDiscoveryCandidates(USER)).toEqual([]);
+  });
+
+  it('candidates with less than the floor left are dropped, so the floor still lasts its full length', async () => {
+    await cache.writeDiscoveryCandidates(USER, [candidate('a')]);
+    t += cache.DISCOVERY_CACHE_TTL_S * 1000 - 60 * 1000; // one minute of life left (the fake has not expired it)
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+    expect(await cache.readDiscoveryCandidates(USER)).toEqual([]);
+    expect(redis.store.get(`disc:bio:${USER}`).ttl).toBe(FLOOR_S());
+  });
+
+  it('reads a list written before the floor existed, and a claim over it wins once', async () => {
+    redis.store.set(`disc:bio:${USER}`, { value: JSON.stringify([candidate('legacy')]), expiresAt: null });
+    expect((await cache.readDiscoveryCandidates(USER)).map((x) => x.id)).toEqual(['legacy']);
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+  });
+
+  it('fails closed: no Redis, a Redis error, a blank or glob id all answer false', async () => {
+    redis.failNext = 'get';
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+    redis.failNext = 'set';
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+    redis.calls.length = 0;
+    for (const id of ['', '  ', null, undefined, 'u*', 'u[1]']) expect(await cache.claimDiscoveryRefresh(id)).toBe(false);
+    expect(redis.calls).toEqual([]);
+    getRedis.mockImplementation(() => null);
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(false);
+  });
+
+  it('the floor record is erased with the candidates (the strict purge)', async () => {
+    await cache.claimDiscoveryRefresh(USER);
+    await purgeUserKeysStrict(USER);
+    expect(redis.store.has(`disc:bio:${USER}`)).toBe(false);
+    expect(await cache.claimDiscoveryRefresh(USER)).toBe(true);
+  });
+});

@@ -33,7 +33,7 @@ delete process.env.GEMINI_API_KEY;
 jest.mock('axios');
 
 // ── The handler's data layer and non-Spotify upstreams (spotify.js itself stays REAL) ─────────
-jest.mock('../app/models/User', () => ({ findById: jest.fn() }));
+jest.mock('../app/models/User', () => ({ findById: jest.fn(), exists: jest.fn() }));
 jest.mock('../app/models/MusicProfile', () => ({ findOne: jest.fn() }));
 jest.mock('../app/models/BiometricLog', () => ({ find: jest.fn() }));
 jest.mock('../app/models/MedicalProfile', () => ({ findOne: jest.fn() }));
@@ -152,7 +152,7 @@ function installFakeGroq(axios) {
 
 // ── The fake Spotify: deterministic per request, stateful in what it records ────────────────────
 
-const fake = { recommendationsStatus: 200 };
+const fake = { recommendationsStatus: 200, hold: null };
 const tag = (v) => crypto.createHash('md5').update(JSON.stringify(v)).digest('hex').slice(0, 8);
 const track = (id) => ({ id, uri: `spotify:track:${id}`, name: `Track ${id}`, artists: [{ id: `art-${id}`, name: `Artist ${id}` }] });
 function httpError(status) {
@@ -162,6 +162,7 @@ function installFakeSpotify(axios) {
   axios.get.mockImplementation(async (url, config = {}) => {
     const u = String(url);
     if (!u.startsWith(SPOTIFY_API)) throw new Error(`unexpected GET ${u}`);
+    if (fake.hold) await fake.hold.promise; // a test holds every Spotify answer while it races a purge
     const p = config.params || {};
     const route = u.slice(SPOTIFY_API.length);
     if (route === '/recommendations') {
@@ -229,6 +230,8 @@ function arrange(m) {
   m.spotify._resetArtistGenresCache();
   jest.spyOn(m.spotify, 'getValidToken').mockResolvedValue('spotify-access-token');
   m.User.findById.mockResolvedValue(SPOTIFY_USER);
+  // RA-2 (round 2): the cache write re-checks that the account still holds a Spotify token
+  m.User.exists.mockResolvedValue({ _id: 'user-123' });
   m.MusicProfile.findOne.mockReturnValue(musicProfileQuery({
     userId: 'user-123', library: LIBRARY, lastAnalyzed: new Date('2026-07-01'),
     topGenres: TOP_GENRES, genreSet: ['pop'], knownArtistIds: [],
@@ -450,7 +453,7 @@ describe.each([200, 403])('RA-1, with /recommendations answering %i: the heart-r
     W.handler._resetDebounceState();
   });
 
-  const cachedIds = () => (redisFake.store.has(KEY) ? JSON.parse(redisFake.store.get(KEY).value).map((t) => t.id) : []);
+  const cachedIds = () => (redisFake.store.has(KEY) ? JSON.parse(redisFake.store.get(KEY).value).tracks.map((t) => t.id) : []);
   const servedDiscoveryIds = (ready) => ready.tracks.filter((t) => t.receipt?.label === 'New discovery').map((t) => t.id);
 
   // A socket with its handlers registered the way socket.io does; `held` is what the socket already
@@ -503,12 +506,18 @@ describe.each([200, 403])('RA-1, with /recommendations answering %i: the heart-r
     for (const l of logs) expect(l).toBe(logs[0]);
   });
 
-  it('a session already live sends nothing more; the user switching it off and on again refreshes once more', async () => {
+  it('a session already live sends nothing more; switching it off and on again sends nothing inside the floor and refreshes once more after it', async () => {
+    const { DISCOVERY_REFRESH_FLOOR_MS } = require('../app/services/discovery/discoveryCache');
+    const t0 = Date.now();
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(t0);
     const c = connect(W);
     await c.liveMode(true);
     expect(await c.liveMode(true)).toBe('');
     expect(await c.liveMode(false)).toBe('');
+    expect(await c.liveMode(true)).toBe(''); // resilience RA-1 (round 2): the per-user floor
     expect(fetchVibe).toHaveBeenCalledTimes(1);
+    expect(await c.liveMode(false)).toBe('');
+    clock.mockReturnValue(t0 + DISCOVERY_REFRESH_FLOOR_MS);
     expect(await c.liveMode(true)).not.toBe('');
     expect(fetchVibe).toHaveBeenCalledTimes(2);
   });
@@ -545,6 +554,30 @@ describe.each([200, 403])('RA-1, with /recommendations answering %i: the heart-r
     expect(after.ready.discovery).toBeGreaterThan(0);
   });
 
+  // RA-2 (round 2): the emotion port writes after a slow fetch; a Spotify disconnect's purge that lands
+  // inside that window must not be undone by the write. The purge is the REAL strict registry purge.
+  it("a Spotify disconnect that lands while an emotion run's fetch is out leaves no disc:bio key", async () => {
+    const { purgeUserKeysStrict } = require('../app/utils/userRedisPurge');
+    let release;
+    fake.hold = { promise: new Promise((r) => { release = r; }) };
+    try {
+      const s = socket();
+      const running = W.handler.generateAndEmitPlaylist(s, 'emotion', state());
+      while (spotifyRequests(W.axios).length === 0) await new Promise((r) => setImmediate(r)); // a request is out
+      W.User.exists.mockResolvedValue(null); // the disconnect cleared the token...
+      await purgeUserKeysStrict('user-123'); // ...and purged the user's keys
+      fake.hold = null;
+      release();
+      await running;
+      expect(readyOf(s)).toBeDefined(); // the run still served
+      expect(redisFake.store.has(KEY)).toBe(false);
+      expect(W.User.exists).toHaveBeenCalledWith(expect.objectContaining({ _id: 'user-123' }));
+    } finally {
+      fake.hold = null;
+      if (release) release();
+    }
+  });
+
   it('VECTOR_DISCOVERY=true: opening a session sends nothing and caches nothing', async () => {
     process.env.VECTOR_DISCOVERY = 'true';
     expect(await connect(W).liveMode(true)).toBe('');
@@ -556,7 +589,7 @@ describe.each([200, 403])('RA-1, with /recommendations answering %i: the heart-r
     W.spotify.getValidToken.mockRejectedValueOnce(new Error('refresh failed for user-123 seed_genres=pop,indie'));
     expect(await connect(W).liveMode(true)).toBe('');
     expect(W.spotify.getValidToken).toHaveBeenCalledTimes(1); // the refresh ran, and failed
-    expect(redisFake.store.has(KEY)).toBe(false);
+    expect(cachedIds()).toEqual([]); // the key holds only the floor's record of the attempt
     const said = [console.warn, console.error, console.info, console.log].flatMap((f) => f.mock.calls.map((c) => c.join(' ')));
     for (const line of said) expect(line).not.toMatch(/user-123|pop|indie/);
   });

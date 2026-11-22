@@ -308,11 +308,11 @@ describe('a database fault inside a generation is answered and reported, never a
   it('the live lane: a regime change whose cold-key generation hits a User read that fails is reported, never a rejection', async () => {
     const client = await connect();
     const findById = jest.spyOn(User, 'findById');
-    // BE-231 RA-1: turning Live on refreshes the discovery cache, which reads the User first. That
-    // read is let through, so the one that fails is the generation's.
-    client.emit('live_mode', { enabled: true });
-    await until(() => findById.mock.calls.length === 1, 'the session-open refresh read the User', 3000);
+    // BE-231 RA-1: turning Live on starts the discovery-cache refresh. With no Redis to hold its
+    // per-user floor (claimDiscoveryRefresh fails closed) it reads nothing, so the one User read
+    // here, the one that fails, is the generation's.
     findById.mockImplementationOnce(connectionDropped);
+    client.emit('live_mode', { enabled: true });
     // The taxonomy posterior confirms a transition on this reading, which the live-mode socket serves.
     liveState.onlineUpdate.mockResolvedValueOnce({ regimeChanged: true });
     const assembling = nextEvent(client, ['live_assembling']);
@@ -324,7 +324,7 @@ describe('a database fault inside a generation is answered and reported, never a
     await assembling; // the cold-key fallback started: its generation is the one that fails
     await until(() => captureException.mock.calls.length > 0, 'the fault reported', 3000);
     expect(captureException).toHaveBeenCalledWith(aMongoFault, expect.objectContaining({ scope: 'generate.biometric' }));
-    expect(findById).toHaveBeenCalledTimes(2); // the refresh's read, then the generation's that failed
+    expect(findById).toHaveBeenCalledTimes(1); // the generation's, which failed; the refresh read nothing
     findById.mockRestore();
     expect(unhandled).toEqual([]);
 
