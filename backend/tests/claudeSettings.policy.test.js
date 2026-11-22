@@ -8,9 +8,15 @@
 // RA-2, RA-7, CU270-02 and F6 on #270): a secret read through the file tools (Read and Edit denies
 // for the J4 shapes), a secret read through an allowed git form (`--no-index` denied; the implicit
 // no-index of `git diff <outside path> <file>` asked), a file published through an allowed gh form
-// (`gh pr merge` with a body, subject or author flag denied; `gh pr create|comment|edit|close|
-// review`, `gh gist|api|secret|release|repo` asked), a force or refspec fetch, a git escape hatch
+// (`gh pr merge` with a body, subject or author flag denied; `gh pr close`, `gh gist|secret|release|
+// repo` and the write forms of `gh api` asked), a force or refspec fetch, a git escape hatch
 // (`--output`, `--ext-diff`, `--exec`, `add --force`), and the destructive forms DEC-145 names.
+// The owner's ruling of 2026-11-22 (own:ask-list-trim): his user-level settings allow `Bash`,
+// `PowerShell(git *)` and `PowerShell(gh *)`, and an ask beats any allow, so the routine commands
+// no longer ask: `gh pr create|comment|edit|review`, `git branch -D` and a read of `gh api` (no
+// `-X`, `--method`, `-f`, `-F`, `--field`, `--raw-field`, `--input`, `-i` or `graphql`). From this
+// file alone they prompt — no project allow covers them. Bash alone keeps an ask on any option after
+// `git branch -d`, so the allowed `git branch -d *` never auto-allows a force delete.
 // What it does not close: `npm run`, `npm test`, `npm ci`, `npm install`, `npm --prefix <pkg> ci`,
 // `npx jest`, `./node_modules/.bin/jest` and `./node_modules/.bin/tsc` execute repository code and
 // no deny reaches a subprocess; the owner's ruling F2 B accepts that development surface.
@@ -448,26 +454,38 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
     'git -C /x diff /dev/null y',
     'git -c a=b diff /dev/null y',
     'git diff /dev/null backend/.env',
-    'gh pr comment 1 --body-file x',
-    'gh pr edit 1 --body-file x',
-    'gh pr create --fill',
     'gh pr close 1',
-    'gh pr review 1 --approve',
     // SEC-270-10: the other gh verbs that publish bytes or change the repository.
     'gh gist create x',
-    'gh api repos/DanielMalede/Kokonada/issues -f title=x',
     'gh secret set X',
     'gh release create v1 x',
     'gh repo delete x',
-    // CU270-02: a force delete, and every force form under the allowed `git branch -d *`, asks.
-    'git branch -D x',
-    'git -C /x branch -D y',
-    'git branch -d -f x',
-    'git branch -d x -f',
-    'git branch -d --force x',
-    'git branch -d x --force',
-    'git branch -d -D x',
-    'git branch --delete --force x',
+    // The write forms of `gh api`, spaced and glued, before and after the endpoint (2026-11-22).
+    'gh api repos/DanielMalede/Kokonada/issues -f title=x',
+    'gh api -f title=x repos/o/r/issues',
+    'gh api repos/o/r/issues -ftitle=x',
+    'gh api repos/o/r/issues -F n=1',
+    'gh api -F n=1 repos/o/r/issues',
+    'gh api repos/o/r/issues --field title=x',
+    'gh api --field=title=x repos/o/r/issues',
+    'gh api repos/o/r/issues --raw-field title=x',
+    'gh api --raw-field title=x repos/o/r/issues',
+    'gh api -X DELETE repos/o/r/rulesets/1',
+    'gh api -XPOST repos/o/r/issues',
+    'gh api repos/o/r/issues -X POST',
+    'gh api --method=PUT repos/o/r/branches/main/protection',
+    'gh api --method PUT repos/o/r/branches/main/protection',
+    'gh api repos/o/r/pulls/1 --method=PATCH',
+    'gh api repos/o/r/issues --input body.json',
+    'gh api --input - repos/o/r/issues',
+    // `gh api graphql` is always a POST, a mutation included.
+    'gh api graphql -f query=x',
+    'gh api graphql --input q.json',
+    'gh api -H "Accept: x" graphql -f query=x',
+    // `-i` is the one boolean shorthand of `gh api`, so `-X`, `-f` and `-F` can be glued behind it.
+    'gh api -iXPOST repos/o/r/issues',
+    'gh api -if title=x repos/o/r/issues',
+    'gh api repos/o/r/issues -iF n=1',
   ];
   for (const tool of TOOLS) {
     for (const cmd of mustAsk) {
@@ -475,6 +493,52 @@ describe('OPS-171 settings policy — exfiltration and destructive commands are 
         expect(shellDecision(cmd, tool)).toBe('ask');
       });
     }
+  }
+
+  // No longer asked (the owner's ruling of 2026-11-22): from this file alone they prompt, because
+  // no project allow covers them; on the owner's machine his user-level allow runs them. Never
+  // 'allow' from this file: a widened `Bash(gh pr *)`, `Bash(gh api *)` or `Bash(git branch *)`
+  // allow turns these red.
+  const promptNow = [
+    'gh pr create --fill',
+    'gh pr create --body-file x',
+    'gh pr comment 1 --body-file x',
+    'gh pr edit 1 --body-file x',
+    'gh pr review 1 --approve',
+    'git branch -D x',
+    'git -C /x branch -D y',
+    'git branch --delete --force x',
+    // gh api reads: no write flag, no graphql.
+    'gh api "repos/{owner}/{repo}/commits/$H/check-runs?per_page=100" --jq \'.check_runs[] | [.name, .status, .conclusion] | @tsv\'',
+    'gh api repos/o/r/pulls/1',
+    'gh api "repos/{owner}/{repo}/commits/$H/status" --jq \'.state\'',
+    'gh api user --jq .login',
+    'gh api repos/o/r/pulls/1/files --paginate',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of promptNow) {
+      it(`${tool} no longer asks, and the project file alone never allows: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).toBe('prompt');
+      });
+    }
+  }
+
+  // CU270-02: the allowed `Bash(git branch -d *)` must never auto-allow a force delete, so in Bash
+  // any option after `-d` asks. PowerShell has no `git branch` allow: there they prompt.
+  const forceUnderDelete = [
+    'git branch -d -f x',
+    'git branch -d x -f',
+    'git branch -d --force x',
+    'git branch -d x --force',
+    'git branch -d -D x',
+    'git branch -d -qf x',
+    'git branch -d x --forc',
+  ];
+  for (const cmd of forceUnderDelete) {
+    it(`Bash asks, PowerShell prompts: ${cmd}`, () => {
+      expect(shellDecision(cmd, 'Bash')).toBe('ask');
+      expect(shellDecision(cmd, 'PowerShell')).toBe('prompt');
+    });
   }
 
   it('an ordinary commit carrying a -c option is not denied (M5 must not over-reach)', () => {
@@ -563,8 +627,9 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     }
   });
 
-  it('in PowerShell, git branch -d asks (its rules cannot tell -d from -D)', () => {
-    expect(shellDecision('git branch -d x', 'PowerShell')).toBe('ask');
+  it('git branch -d on a branch with a dash in its name stays allowed in Bash and prompts in PowerShell', () => {
+    expect(shellDecision('git branch -d fix/ops171-settings-policy', 'Bash')).toBe('allow');
+    expect(shellDecision('git branch -d x', 'PowerShell')).toBe('prompt');
   });
 
   it('the CLAUDE.md step-2 L-check (its text, with L substituted) prompts: no rule matches it in either direction', () => {
