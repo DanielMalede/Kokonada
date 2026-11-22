@@ -34,6 +34,8 @@ const { insertManyAccounted } = require('../services/wearable/insertAccounted');
 const featureService = require('../services/features/featureService');
 const shadowBufferRepo = require('../repositories/shadowBufferRepo');
 const { vectorDiscoveryFetch } = require('../services/discovery/discoveryFetch');
+const { bioDiscoveryQuery } = require('../services/discovery/discoveryQuery');
+const { readDiscoveryCandidates, writeDiscoveryCandidates, claimDiscoveryRefresh } = require('../services/discovery/discoveryCache');
 const captionService = require('../services/discovery/captionService');
 const { peekBaselines } = require('../services/biosonic/baselines');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
@@ -306,6 +308,131 @@ async function tagSpotifyDiscovery(accessToken, tracks) {
     const genres = [...new Set(artistIds.flatMap((id) => genreMap[id] || []))];
     return { ...t, provider: t.provider ?? 'spotify', artistIds, genres };
   });
+}
+
+// ── Spotify discovery: who may send it (BE-231 RA-1) ───────────────────────────────────────────
+//
+// A run that a sustained heart-rate change triggers used to send Spotify a discovery request under
+// the user's token, so its timing (and its fixed shape: the top two genres, nothing else) told
+// Spotify when the heart rate moved. The owner ruled on 2026-11-22 for a per-user cache: the
+// heart-rate branch reads `disc:bio:<userId>` (services/discovery/discoveryCache.js) and never
+// sends; only user-driven events send and refresh it — opening a live session (the `live_mode`
+// event turning Live on: a connect in Live, or the user's toggle) and the emotion branch's own runs.
+// Nothing in this section is health-shaped: what Spotify is sent is a DiscoveryQuery (BE-231's fence).
+
+// The ONE Spotify discovery request the handler makes: the query and nothing else, then the genre
+// tags and the taste filter, so what comes back is the list the mixer reads.
+async function fetchSpotifyDiscovery(accessToken, musicProfile, query) {
+  const raw = await spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT });
+  const tagged = await tagSpotifyDiscovery(accessToken, raw);
+  return personalizeWhitelist(tagged, {
+    genreSet:       musicProfile.genreSet,
+    knownArtistIds: musicProfile.knownArtistIds,
+  });
+}
+
+// The emotion branch's discovery port, `(params, query)`. `params` are the local, health-shaped
+// targets (they stay in-process: the vector corpus and the mixer filter by them); `query` is the
+// generation core's health-free DiscoveryQuery and the ONLY thing sent to Spotify. No query means
+// no Spotify request: a caller that forgets it fails closed, never open. What it fetched refreshes
+// the cache the heart-rate branch reads.
+function emotionDiscoveryPort({ userId, accessToken, musicProfile, bandTargets }) {
+  return async (params, query) => {
+    if (VECTOR_DISCOVERY()) {
+      // Spotify-independent discovery over our own corpus (dead /v1/recommendations
+      // replacement). Never throws; yields [] on any failure so the fallback ladder
+      // still fills the playlist.
+      return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
+    }
+    if (!query) return [];
+    // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
+    // candidates can't be tagged → personalization discards them anyway → the whole
+    // discovery sourcing + tagging + critic is pure wasted time (and burns the
+    // Dev-Mode rate budget, slowing everything to a client timeout). Skip it and let
+    // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
+    if (!spotify.artistGenresAvailable()) return [];
+    const onTaste = await fetchSpotifyDiscovery(accessToken, musicProfile, query);
+    if (onTaste.length > 0 && await stillLinkedToSpotify(userId)) await writeDiscoveryCandidates(userId, onTaste);
+    return onTaste;
+  };
+}
+
+// Resilience RA-2 (round 2): a Spotify disconnect, a withdrawal or an account deletion that purges
+// `disc:bio:` while a fetch is out must not be undone by the write that follows it. So the write is
+// made only if the account still exists and still holds a Spotify token, read again just before it
+// (one _id lookup). Any failure answers false: a write skipped is a cache miss, never a leak.
+async function stillLinkedToSpotify(userId) {
+  try {
+    return !!(await User.exists({ _id: userId, 'spotifyToken.blob': { $type: 'string' } }));
+  } catch {
+    return false;
+  }
+}
+
+// The heart-rate branch's discovery port (RA-1): the cache, and nothing that reaches Spotify. A miss
+// is [] and the familiar ladder fills the playlist. Vector discovery, when on, is local.
+function heartDiscoveryPort({ userId, musicProfile, bandTargets }) {
+  return async (params) => {
+    if (VECTOR_DISCOVERY()) {
+      return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
+    }
+    return readDiscoveryCandidates(userId);
+  };
+}
+
+// Opening a live session refreshes the cache with the heart-rate branch's own query, the user's first
+// two top genres (bioDiscoveryQuery): the request the heart branch used to send at every
+// heart-triggered run, sent now when the user opens the session. Fire-and-forget from `live_mode`;
+// never throws, and a failure logs a fixed line (no user id, no genre, no error text).
+//
+// Bounded (resilience RA-1, round 2): no socket event is rate limited, so every Live edge and every
+// socket connecting in Live calls this. One refresh per user runs at a time in this process (the
+// in-flight map: a second call gets the running one), and one per user per
+// DISCOVERY_REFRESH_FLOOR_MS across sockets and processes (claimDiscoveryRefresh, recorded before any
+// Mongo read or Spotify request, whatever the outcome).
+const discoveryRefreshInFlight = new Map(); // userId → the running refresh's promise
+
+// What the refresh reads from the taste profile: the ranked genres and the taste filter's two lists,
+// and the library fields withoutYoutube needs to drop YouTube rows and re-derive the genres — never
+// the whole document (its library is the largest thing a user has).
+const REFRESH_PROFILE_FIELDS = Object.freeze({
+  topGenres: 1, genreSet: 1, knownArtistIds: 1,
+  'library.provider': 1, 'library.recordingKey': 1, 'library.uri': 1, 'library.canonicalKey': 1,
+  'library.genres': 1, 'library.artist': 1,
+});
+
+function refreshDiscoveryOnSessionOpen(socket) {
+  const userId = socket?.data?.user?._id?.toString();
+  if (!userId) return Promise.resolve();
+  const running = discoveryRefreshInFlight.get(userId);
+  if (running) return running;
+  const refresh = _refreshDiscoveryCache(userId).finally(() => {
+    if (discoveryRefreshInFlight.get(userId) === refresh) discoveryRefreshInFlight.delete(userId);
+  });
+  discoveryRefreshInFlight.set(userId, refresh);
+  return refresh;
+}
+
+async function _refreshDiscoveryCache(userId) {
+  try {
+    if (VECTOR_DISCOVERY()) return;
+    // A known-403 hour: nothing to ask, so nothing is read and no attempt is recorded.
+    if (!spotify.artistGenresAvailable()) return;
+    if (!(await claimDiscoveryRefresh(userId))) return;
+    const user = await User.findById(userId);
+    if (!user) return;
+    if ((resolvePlaybackProvider(user) || resolveMusicProvider(user)) !== 'spotify') return;
+    const musicProfile = withoutYoutube(await MusicProfile.findOne({ userId }, REFRESH_PROFILE_FIELDS).lean());
+    if (!musicProfile) return;
+    const query = bioDiscoveryQuery(musicProfile);
+    if (query.seed_genres.length === 0) return;
+    const accessToken = await spotify.getValidToken(user);
+    const onTaste = await fetchSpotifyDiscovery(accessToken, musicProfile, query);
+    if (onTaste.length === 0 || !(await stillLinkedToSpotify(userId))) return;
+    await writeDiscoveryCandidates(userId, onTaste);
+  } catch {
+    console.warn('[discovery] session-open cache refresh failed');
+  }
 }
 
 // W4-D57: how long a socket may reuse the baseline blob it already read.
@@ -944,38 +1071,16 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
     try {
       if (provider === 'spotify') {
         spotifyToken = await spotify.getValidToken(user);
-        const accessToken = spotifyToken;
         // Layer 1 → personalization. Source candidates from curated vibe playlists
         // (energy/tempo encoded by curation), tag with artist genres, then apply the
         // ABSOLUTE personalization filter (a Rock track from "Beast Mode" is dropped
         // for an Afrobeat listener). The LLM critic left the hot path in Phase 7 —
         // vibe enrichment happens asynchronously in the embedding worker.
-        // BE-231: the discovery port is `(params, query)`. `params` are the local, health-shaped
-        // targets (they stay in-process: the vector corpus and the mixer filter by them); `query` is
-        // the generation core's health-free DiscoveryQuery and the ONLY thing sent to Spotify. No
-        // query means no Spotify request: a caller that forgets it fails closed, never open.
-        fetchTracks = async (params, query) => {
-          if (VECTOR_DISCOVERY()) {
-            // Spotify-independent discovery over our own corpus (dead /v1/recommendations
-            // replacement). Never throws; yields [] on any failure so the fallback ladder
-            // still fills the playlist.
-            return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
-          }
-          if (!query) return [];
-          // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
-          // candidates can't be tagged → personalization discards them anyway → the whole
-          // discovery sourcing + tagging + critic is pure wasted time (and burns the
-          // Dev-Mode rate budget, slowing everything to a client timeout). Skip it and let
-          // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
-          if (!spotify.artistGenresAvailable()) return [];
-          const raw     = await spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT });
-          const tagged  = await tagSpotifyDiscovery(accessToken, raw);
-          const onTaste = personalizeWhitelist(tagged, {
-            genreSet:       musicProfile.genreSet,
-            knownArtistIds: musicProfile.knownArtistIds,
-          });
-          return onTaste;
-        };
+        // BE-231 RA-1: only the emotion branch sends Spotify a discovery request; the heart-rate
+        // branch (biometric, heart, skip_loop) reads the per-user cache the user-driven events fill.
+        fetchTracks = useEmotion
+          ? emotionDiscoveryPort({ userId, accessToken: spotifyToken, musicProfile, bandTargets })
+          : heartDiscoveryPort({ userId, musicProfile, bandTargets });
       } else {
         // YouTube-as-data, no Spotify playback: keep the OAuth token warm for first-party taste
         // import, but discovery no longer burns a per-generation search.list (100 quota units).
@@ -1588,9 +1693,11 @@ async function _serveForBand(socket, state, userId, bioMoodKey, claim = null) {
 }
 
 // ── Shared biometric reading handler ──────────────────────────────────────────
-// Called by both the socket `biometric_push` event and server-side pollers
-// (e.g. garminPoller). Normalizes the raw reading, updates debounce state,
-// and triggers playlist generation when a sustained HR change is detected.
+// Called by the socket `biometric_push` event and by the watch's HR ingest route
+// (controllers/integrationsController.js `watchHrIngest`); the Garmin dailies poller was
+// removed (index.js). Normalizes the raw reading, updates debounce state, and triggers
+// playlist generation when a sustained HR change is detected. Since BE-231 RA-1 that
+// generation sends Spotify no discovery request: the heart-rate branch reads the cache.
 
 // Reject physiologically impossible / malformed readings before they reach the
 // AI engine or state machine. The socket is authenticated, but the *content* of
@@ -2116,8 +2223,13 @@ function registerBiometricHandler(socket) {
   socket.on('live_mode', (payload) => {
     const { enabled } = _payloadOf(payload);
     const state = getState(socketId);
+    const opening = !!enabled && !state.liveMode;
     state.liveMode = !!enabled;
     log(`[live_mode] enabled=${state.liveMode}`);
+    // BE-231 RA-1: the user opening a live session (Live turned on for this socket) is one of the two
+    // user-driven events that refresh the heart-rate branch's discovery cache. Held on the state so a
+    // caller can wait for it; it never rejects.
+    if (opening) state.discoveryRefresh = refreshDiscoveryOnSessionOpen(socket);
   });
 
   socket.on('emotion_update', (payload) => {
@@ -2250,6 +2362,8 @@ module.exports = {
   _debounceMap: debounceMap,
   // Exported for unit testing
   _resetDebounceState,
+  // a suite awaits every background discovery refresh it started before the next test begins
+  _settleDiscoveryRefreshes: () => Promise.all([...discoveryRefreshInFlight.values()]),
   _hrBand,
   _shouldRecalibrate,
   HR_NOISE_FLOOR,

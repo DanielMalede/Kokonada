@@ -13,6 +13,13 @@
 // DB (ConsentRecord.latestFor) and the persistence side-effect (persistMetrics) are faked.
 process.env.NODE_ENV = 'test';
 
+// BE-245 (DEC-047): this suite pins the PERMITTED Garmin pipeline, what the lane does once Garmin permits its data
+// to shape music, so the music fence is mocked OPEN here. The shipped, closed fence is pinned by
+// garminMusicFence.{unit,integration,structural}.test.js.
+jest.mock('../app/services/wearable/garminMusicFence', () => ({
+  GARMIN_MAY_SHAPE_MUSIC: true, garminMayShapeMusic: () => true, fencedSources: () => [], generationVitalQuery: () => ({}),
+}));
+
 jest.mock('../app/services/wearable/metricStore', () => ({ persistMetrics: jest.fn() }));
 jest.mock('../app/models/ConsentRecord', () => ({ latestFor: jest.fn() }));
 jest.mock('../app/models/User', () => ({ findById: jest.fn() }));

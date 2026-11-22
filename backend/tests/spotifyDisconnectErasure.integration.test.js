@@ -113,7 +113,7 @@ async function seedConnectedUser(tag) {
     { userId, track: { id: 'trk1', provider: 'spotify', name: 'Song A' } },
     { userId, track: { id: 'yt-1', provider: 'youtube_music', name: 'Video B' } },
   ]);
-  for (const k of [`ledger:${userId}:served`, `ledger:${userId}:mood:uplift`, `pool:${userId}:uplift`, `buffer:${userId}:uplift`]) redis.__keys.add(k);
+  for (const k of [`ledger:${userId}:served`, `ledger:${userId}:mood:uplift`, `pool:${userId}:uplift`, `buffer:${userId}:uplift`, `disc:bio:${userId}`]) redis.__keys.add(k);
   return userId;
 }
 
@@ -230,7 +230,7 @@ describe('spotifyDisconnect — logs carry counts only (M10)', () => {
     await spotifyDisconnect({ user: await authUser(userId) }, makeRes(), jest.fn());
 
     const erasure = lines.filter((l) => l.includes('[spotifyErasure]'));
-    expect(erasure).toEqual([expect.stringMatching(/^\[spotifyErasure\] sessions=2 serveEvents=3 profiles=1 unclassified=1 redisKeys=4$/)]);
+    expect(erasure).toEqual([expect.stringMatching(/^\[spotifyErasure\] sessions=2 serveEvents=3 profiles=1 unclassified=1 redisKeys=5$/)]);
     const all = lines.join('\n');
     for (const secret of [...CONTENT, String(userId)]) expect(all).not.toContain(secret);
   });

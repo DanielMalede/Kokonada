@@ -11,7 +11,6 @@ const { parseHealthBatchRequest } = require('../services/wearable/healthBatchCon
 const garminIngest = require('../services/wearable/garminIngest');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
-const { persistMetrics } = require('../services/wearable/metricStore');
 // W4-D10: the ingest receipt log names the metrics a batch touched, never their values.
 const { summarizeMetricKeys } = require('../utils/biometricAudit');
 const { PROFILE_SCALAR_METRICS } = require('../services/medicalProfileService');

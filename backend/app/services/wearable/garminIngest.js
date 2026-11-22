@@ -7,6 +7,10 @@
  * receiver groups them by user (via stored garminUserId) and calls this with an
  * array of { type, summary } for ONE user. We flatten every summary to canonical
  * metrics and persist via the shared pipeline (BiometricLog + MedicalProfile).
+ *
+ * BE-245 (DEC-047, ADR-0018): while the Garmin music fence is closed (garminMusicFence.js, the shipped
+ * default), the gates below still run, and then nothing is persisted: Garmin's data may not shape the music
+ * until Garmin permits it in writing, and every store persistMetrics writes is read by generation.
  */
 
 const { normalizeGarminSummaries } = require('./adapter');
@@ -19,6 +23,7 @@ const {
   getConsentState,
 } = require('../privacy/consent');
 const { isCurrentGrant } = require('../privacy/consentState');
+const { garminMayShapeMusic } = require('./garminMusicFence');
 
 // What the seam returns when the user holds no current Art. 9 grant: nothing was read past the consent
 // row, so every count is zero.
@@ -26,12 +31,20 @@ const refusal = (code) => ({
   accepted: 0, inserted: 0, rejected: NO_REJECTS, profileMetrics: {}, droppedOutsideRetention: 0, droppedInFuture: 0, refused: code,
 });
 
+// What the seam returns while the music fence is closed: the push was admitted by both gates, and its
+// `count` metrics were dropped before any store, so nothing was written and nothing was queued.
+const fencedDrop = (count) => ({
+  accepted: count, inserted: 0, rejected: NO_REJECTS, profileMetrics: {}, droppedOutsideRetention: 0, droppedInFuture: 0,
+  refused: null, fenced: true, fencedDropped: count,
+});
+
 /**
  * @param {string} userId
  * @param {Array<{type:string, summary:object}>} items
  * @param {{now?: Date}} [options]  the clock the retention window and the future cap are measured against
- * @returns {Promise<{accepted:number, inserted:number, rejected:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number, refused:null|'consent_not_current'}>}
+ * @returns {Promise<{accepted:number, inserted:number, rejected:object, profileMetrics:object, droppedOutsideRetention:number, droppedInFuture:number, refused:null|'consent_not_current', fenced?:boolean, fencedDropped?:number}>}
  *   `accepted` counts the metrics that cleared the normaliser and the consent gate;
+ *   `fenced` is true when the music fence dropped them all before any store, `fencedDropped` how many (BE-245);
  *   `droppedOutsideRetention` counts those of them older than their store keeps, never written;
  *   `droppedInFuture` counts those stamped past `now` + MAX_FUTURE_SKEW_MS, never written;
  *   `refused` is null when the push was admitted, else the code it was refused with (every count 0).
@@ -60,6 +73,14 @@ async function ingestSummaries(userId, items, { now = new Date() } = {}) {
   const gated = garminSpecialCategoryAllowed(latest.consentVersion)
     ? metrics
     : metrics.filter((m) => !GARMIN_SPECIAL_CATEGORY_METRICS.has(m.metric));
+
+  // The music fence (BE-245, DEC-047). Closed: no BiometricLog, VitalSample or MedicalProfile write and no
+  // state-vector recompute queued, so no baseline, state, target or live recalibration can move on Garmin's
+  // data. One count-only line (T1): never the user id, never a value.
+  if (!garminMayShapeMusic()) {
+    console.info(`[garmin] fenced metrics=${gated.length}`);
+    return fencedDrop(gated.length);
+  }
 
   // Retention (T2). Garmin hands this lane history: the webhook's backfill reaches back 182 days
   // (garmin.js requestSixMonthBackfill), while BiometricLog and VitalSample keep 90 days by default.

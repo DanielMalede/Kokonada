@@ -11,6 +11,7 @@ const {
 const { localDayIndex } = require('../agents/runtime/physiology/baselineEngine');
 const { readNightHistory } = require('../repositories/sleepHistoryRepo');
 const { existingAccountIds } = require('../services/privacy/accountExistence');
+const { generationVitalQuery } = require('../services/wearable/garminMusicFence');
 
 // An error's class name, or 'Error': never its message (a driver message can quote values).
 const errorType = (e) => (typeof e?.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(e.name) ? e.name : 'Error');
@@ -38,13 +39,14 @@ const DAY_MS = 86400000;
 
 // Page this user's VitalSample window, decrypted (getters run on a non-.lean() find). Mirrors
 // baselines.js `_pageDecrypted`'s shape but scoped to the wider CUSUM window that module does
-// not itself need.
+// not itself need. BE-245 (DEC-047): the Garmin music fence's filter applies, as it does in baselines.js, so a
+// Garmin Health API row never reaches the CUSUM detector while the fence is closed (an empty object once open).
 async function _pageVitals(userId, since) {
   const rows = [];
   let lastId = null;
   let decryptedCount = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const query = { userId, recordedAt: { $gte: since }, ...(lastId ? { _id: { $gt: lastId } } : {}) };
+    const query = { userId, recordedAt: { $gte: since }, ...generationVitalQuery(), ...(lastId ? { _id: { $gt: lastId } } : {}) };
     const docs = await VitalSample.find(query).sort({ _id: 1 }).limit(PAGE_SIZE);
     if (!docs?.length) break;
     for (const doc of docs) {
