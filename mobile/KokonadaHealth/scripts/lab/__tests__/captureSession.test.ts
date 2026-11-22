@@ -177,7 +177,8 @@ function world() {
   const assets = path.join(appRoot, 'android/app/src/lab/assets');
   fs.mkdirSync(assets, { recursive: true });
   const build = (commit: string) => {
-    const stamp = makeStamp({ commit, porcelain: '', bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', createdAt: '2026-11-17T10:00:00.000Z' });
+    const tokens = { 'design-tokens/base.tokens.json': sha(Buffer.from(TOKENS)) }; // UI-278: the stamp names the token files
+    const stamp = makeStamp({ commit, porcelain: '', bundleSha256: sha(HBC), tokens, entry: 'index.lab.js', createdAt: '2026-11-17T10:00:00.000Z' });
     fs.writeFileSync(path.join(assets, 'index.android.bundle'), HBC);
     fs.writeFileSync(path.join(assets, 'lab-stamp.json'), JSON.stringify(stamp, null, 2));
     const apk = zip([
