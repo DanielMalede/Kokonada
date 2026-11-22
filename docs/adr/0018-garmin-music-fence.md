@@ -26,7 +26,9 @@ Two facts shaped the design:
 1. **The label is not the lane.** The phone's live heart rate (a BLE strap, or the Health Connect fallback
    through `watchHrIngest`) is also stored in `BiometricLog` as `source: 'garmin'` (`BE-031`). Garmin's terms
    cover the Health API lane, not a strap the phone reads. A fence keyed on the label in `BiometricLog` would
-   silence that lane.
+   silence that lane. (Open, not verified: whether `DEC-047` also covers Garmin-origin heart rate that reaches
+   the phone through Garmin Connect's Health Connect sync or a Garmin watch's BLE broadcast; `compliance-auditor`
+   reads it in writing on #299, else the owner (c); `BE-245`, RA-4.)
 2. **Rows already stored.** A fence at ingest alone leaves any row that reached `VitalSample` before it, or
    some other way, readable by generation.
 
@@ -142,7 +144,12 @@ approved"). Until he approves it in his own words at a named SHA, nothing below 
 
 **T0 (the owner, read-only counts).** `VitalSample { source: 'garmin' }`, `User { garminUserIdHmac:
 { $ne: null } }`, `BiometricLog { source: 'garmin' }`, and the names (never the values) of any `GARMIN_*`
-variable on Railway. Expected: no Health API data ever reached a derived store.
+variable on Railway. The `BiometricLog { source: 'garmin' }` count is expected non-zero, by design: the
+phone's BLE and Health Connect fallback lane stores its live heart rate as `garmin` (`BE-031`,
+`backend/app/controllers/integrationsController.js:856`), so it says nothing about the Health API. The deciding
+evidence that no Health API data ever reached a derived store is `VitalSample { source: 'garmin' }` = 0,
+`User { garminUserIdHmac: { $ne: null } }` = 0, and no `GARMIN_WEBHOOK_SECRET` name on Railway: without it the
+webhook answers 503 (`integrationsController.js:563-565`).
 
 **Keys open** only after PR-A, PR-B and RA-1 have merged, the owner's index build is verified with
 `listIndexes`, the deregistration and permission-change handling (`BE-219`) has landed, and T0 is recorded.
@@ -162,7 +169,8 @@ variable on Railway. Expected: no Health API data ever reached a derived store.
 - Pinned by `backend/tests/garminMusicFence.unit.test.js` (closed by default, frozen, the literal tripwire,
   only `=== true`, no run-time override), `garminMusicFence.integration.test.js` (real Mongo: the quarantine,
   the read filter, and the end-to-end equality with a Health Connect-only control) and
-  `garminMusicFence.structural.test.js` (every `VitalSample` generation reader applies the filter; the seam's
-  closed-fence return comes before `persistMetrics`; no `BiometricLog` reader is fenced; no socket module in
+  `garminMusicFence.structural.test.js` (every `VitalSample` read outside a file-by-file allow-list carries the
+  filter in its own query, and the model or its collection reached by name fails; the seam's closed-fence return
+  comes before `persistMetrics`, which only the two ingest lanes name; no `BiometricLog` reader is fenced; no socket module in
   the seam's closure; each rule also run on a mutated copy). The existing Garmin suites pin the permitted
   pipeline with the fence mocked open.
