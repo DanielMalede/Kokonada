@@ -4,9 +4,11 @@
 //
 // The integration suite proves the fence on real stores for the readers and lanes that exist today. These
 // rules keep it true for the code that comes later, read with espree from the source, never executed:
-//   R1  every generation reader of VitalSample in backend/app applies generationVitalQuery(), outside a short
-//       allow-list of non-generation readers (erasure, export and the orphan sweeps; the store's own dedupe;
-//       the Health Connect projection lane);
+//   R1  every read of VitalSample in backend/app carries generationVitalQuery() in its own query argument (or
+//       in the variable or helper parameter that query is built from), outside a short allow-list of
+//       non-generation files (the export, the orphan sweep and the per-provider erasure; the store's own dedupe;
+//       the Health Connect projection lane); the model or its collection reached by name fails anywhere else;
+//   R5  persistMetrics is named only by its own module and the two ingest lanes (healthStore, garminIngest);
 //   R2  garminIngest never reaches persistMetrics while the fence is closed: the closed-fence return comes
 //       first, and the seam reaches no store any other way;
 //   R3  no BiometricLog reader applies the fence: the phone's live heart rate is stored as source 'garmin'
@@ -76,8 +78,6 @@ function containsCall(node, names) {
 const FUNCTION_TYPES = new Set(['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression']);
 const enclosingFunction = (ancestors) => [...ancestors].reverse().find((a) => FUNCTION_TYPES.has(a.type)) ?? null;
 
-const VITAL_READS = new Set(['find', 'findOne', 'findById', 'aggregate', 'countDocuments', 'estimatedDocumentCount', 'distinct', 'exists', 'watch']);
-
 // Every place a file reads through the model `binding`: a read method called on it, the model handed to a
 // helper (`_pageDecrypted(VitalSample, …)`), which reads through it, or the model put in a list a loop reads
 // through (`for (const Model of [BiometricLog, VitalSample])`).
@@ -98,14 +98,138 @@ function modelUses(ast, bindings, { reads = null } = {}) {
   return uses;
 }
 
-// R1. The allow-list: readers that are not generation, each with its reason. Matched on the path relative to
-// backend/app; an entry that no longer reads VitalSample fails the rule too, so the list cannot rot.
+// R1. The allow-list: readers that are not generation, each with its reason, matched on the file's path relative
+// to backend/app (whole files, never a directory: a generation reader planted beside them is still checked). An
+// entry whose file no longer reads VitalSample fails the rule too, so the list cannot rot. erasure.js is not on
+// it: it only deletes (deleteMany), which returns no row, so it is no reader.
 const VITAL_READ_ALLOW = [
-  { match: /^services\/privacy\//, why: 'erasure, the data export and the orphan sweeps read every row, by design' },
+  { match: /^services\/privacy\/orphanSweep\.js$/, why: 'the orphan sweep reads every row of a deleted user, by design' },
+  { match: /^services\/privacy\/userDataExport\.js$/, why: 'the data export (GDPR Art. 15/20) reads every row, by design' },
+  { match: /^services\/privacy\/wearableErasure\.js$/, why: 'the per-provider erasure counts the rows it deletes' },
   { match: /^services\/wearable\/metricStore\.js$/, why: 'the store\'s own dedupe read before a write' },
   { match: /^services\/wearable\/healthSampleProjection\.js$/, why: 'the Health Connect projection lane: writes and deletes its own rows' },
   { match: /^services\/wearable\/healthSampleReconciliation\.js$/, why: 'the Health Connect projection sweep: deletes orphaned rows' },
 ];
+const VITAL_MODEL_FILE = 'models/VitalSample.js';
+
+// The model's methods that hand back no document: writes and deletes. Every other method is a read, so a read
+// the list below does not name (findOneAndUpdate, findByIdAndUpdate, watch, a method added later) is checked.
+const VITAL_NON_READS = new Set(['deleteMany', 'deleteOne', 'insertMany', 'create', 'updateMany', 'updateOne', 'replaceOne', 'bulkWrite', 'createIndexes', 'syncIndexes', 'ensureIndexes', 'init']);
+const GEN_FENCE = 'generationVitalQuery';
+const isConstantName = (name) => /^[A-Z][A-Z0-9_]*$/.test(name); // VitalSample.VITAL_METRICS: data, not a read
+
+// Does `node` apply the fence: a generationVitalQuery() call in it, or a reference to a helper parameter the
+// caller filled with one (`fenceParams`)?
+function refsFence(node, fenceParams) {
+  let found = false;
+  walk(node, (n, anc) => {
+    if (n.type === 'CallExpression' && calleeName(n) === GEN_FENCE) found = true;
+    const parent = anc.at(-1);
+    const isPropertyName = parent && ((parent.type === 'MemberExpression' && parent.property === n && !parent.computed)
+      || (parent.type === 'Property' && parent.key === n && !parent.computed && !parent.shorthand));
+    if (n.type === 'Identifier' && fenceParams.has(n.name) && !isPropertyName) found = true;
+  });
+  return found;
+}
+
+// A query argument is fenced when the fence is inside it, or inside the initialiser of the variable it names,
+// declared in the same function (one level, as R3 follows a query passed by name).
+function queryFenced(arg, fn, fenceParams = new Set()) {
+  if (!arg) return false;
+  if (refsFence(arg, fenceParams)) return true;
+  if (arg.type !== 'Identifier' || !fn) return false;
+  let ok = false;
+  walk(fn, (n) => {
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.id.name === arg.name && n.init && refsFence(n.init, fenceParams)) ok = true;
+  });
+  return ok;
+}
+
+const paramName = (p) => (p?.type === 'Identifier' ? p.name : p?.type === 'AssignmentPattern' && p.left.type === 'Identifier' ? p.left.name : null);
+function findFunction(ast, name) {
+  let fn = null;
+  walk(ast, (n) => {
+    if (n.type === 'FunctionDeclaration' && n.id?.name === name) fn = n;
+    if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier' && n.id.name === name && FUNCTION_TYPES.has(n.init?.type)) fn = n.init;
+  });
+  return fn;
+}
+
+// Every reference to the model in `scope`, each judged on its own: a read must carry the fence in its query
+// argument; the model handed to a helper is followed into that helper once (the helper's read must use the
+// parameter the caller filled with the fence); any other reference — the model put in a list or an object,
+// assigned, returned, or its raw `.collection` / `.db` handle — lets it escape where the rule cannot follow, and
+// fails. Returns the violating line numbers.
+function unfencedVitalUses(ast, scope, bindings, { fenceParams = new Set(), followHelpers = true } = {}) {
+  const lines = [];
+  walk(scope, (node, ancestors) => {
+    if (node.type !== 'Identifier' || !bindings.has(node.name)) return;
+    const parent = ancestors.at(-1);
+    const line = node.loc?.start.line;
+    if (parent?.type === 'VariableDeclarator' && parent.id === node) return; // the binding itself
+    if (parent?.type === 'MemberExpression' && parent.property === node && !parent.computed) return; // x.VitalSample
+    if (parent?.type === 'Property' && parent.key === node && !parent.computed && !parent.shorthand) return; // { VitalSample: … }
+    if (parent?.type === 'FunctionDeclaration' || parent?.type === 'FunctionExpression' || parent?.type === 'ArrowFunctionExpression') {
+      if (parent.params.includes(node)) return; // the helper's own parameter declaration
+    }
+    if (parent?.type === 'AssignmentPattern' && parent.left === node) return;
+    const fn = enclosingFunction(ancestors);
+
+    if (parent?.type === 'MemberExpression' && parent.object === node && !parent.computed) {
+      const method = parent.property.name;
+      const grand = ancestors.at(-2);
+      if (grand?.type === 'CallExpression' && grand.callee === parent) {
+        if (VITAL_NON_READS.has(method)) return;
+        if (!queryFenced(grand.arguments[0], fn, fenceParams)) lines.push(line);
+        return;
+      }
+      if (isConstantName(method)) return;
+      lines.push(line); // `.collection`, `.db`, a method taken off the model: a raw or untracked read path
+      return;
+    }
+
+    if (parent?.type === 'CallExpression' && parent.arguments.includes(node)) {
+      if (!followHelpers) { lines.push(line); return; }
+      const at = parent.arguments.indexOf(node);
+      const fenceAt = parent.arguments
+        .map((a, i) => (i !== at && !FUNCTION_TYPES.has(a.type) && queryFenced(a, fn, fenceParams) ? i : -1))
+        .filter((i) => i >= 0);
+      const helper = parent.callee.type === 'Identifier' ? findFunction(ast, parent.callee.name) : null;
+      const modelParam = helper && paramName(helper.params[at]);
+      const helperFence = new Set(fenceAt.map((i) => helper && paramName(helper.params[i])).filter(Boolean));
+      if (!fenceAt.length || !modelParam || helperFence.size !== fenceAt.length) { lines.push(line); return; }
+      const inner = unfencedVitalUses(ast, helper, new Set([modelParam]), { fenceParams: helperFence, followHelpers: false });
+      lines.push(...inner);
+      return;
+    }
+
+    lines.push(line); // the model escapes into a value
+  });
+  return lines;
+}
+
+// The model or its collection reached by name, with no binding the walk above can see:
+// mongoose.model('VitalSample'), connection.collection('vitalsamples'), `$lookup: { from: 'vitalsamples' }`,
+// mongoose.models.VitalSample.
+const VITAL_NAME = /^vital_?samples?$/i;
+function vitalNameLookups(ast) {
+  const lines = [];
+  walk(ast, (n, ancestors) => {
+    if (n.type === 'Literal' && typeof n.value === 'string' && VITAL_NAME.test(n.value)) lines.push(n.loc?.start.line);
+    if (n.type === 'TemplateElement' && VITAL_NAME.test(n.value.cooked ?? '')) lines.push(n.loc?.start.line);
+    const parent = ancestors.at(-1);
+    if (n.type === 'Identifier' && n.name === 'VitalSample' && parent?.type === 'MemberExpression' && parent.property === n
+      && ((parent.object.type === 'Identifier' && parent.object.name === 'models')
+        || (parent.object.type === 'MemberExpression' && parent.object.property.name === 'models'))) lines.push(n.loc?.start.line);
+  });
+  return lines;
+}
+
+// A file reads VitalSample when the model is read through, handed on or put in a list at all, fenced or not;
+// a write or a delete on it alone is no read.
+const readsVital = (ast, bindings) => modelUses(ast, bindings).some((u) => !(u.node.type === 'CallExpression'
+  && u.node.callee.type === 'MemberExpression' && bindings.has(u.node.callee.object?.name)
+  && VITAL_NON_READS.has(u.node.callee.property?.name)));
 
 function vitalReaderViolations(overrides = {}, extraFiles = {}) {
   const files = [...new Set([...appFiles(), ...Object.keys(extraFiles)])];
@@ -113,21 +237,19 @@ function vitalReaderViolations(overrides = {}, extraFiles = {}) {
   const violations = [];
   const allowedSeen = new Set();
   for (const file of files) {
+    const r = rel(file);
+    if (r === VITAL_MODEL_FILE) continue; // the model's own definition: mongoose.model('VitalSample', schema)
     const src = extraFiles[file] ?? overrides[file] ?? fs.readFileSync(file, 'utf8');
-    if (!src.includes('VitalSample')) continue;
+    if (!/vital_?sample/i.test(src)) continue;
     const ast = parse(src);
     const bindings = modelBindings(ast, 'VitalSample');
-    if (!bindings.size) continue;
-    const uses = modelUses(ast, bindings, { reads: VITAL_READS });
-    if (!uses.length) continue;
-    const allowed = VITAL_READ_ALLOW.find((a) => a.match.test(rel(file)));
+    const lines = [...new Set([...(bindings.size ? unfencedVitalUses(ast, ast, bindings) : []), ...vitalNameLookups(ast)])];
+    const reads = bindings.size > 0 && readsVital(ast, bindings);
+    if (!lines.length && !reads) continue;
+    const allowed = VITAL_READ_ALLOW.find((a) => a.match.test(r));
     if (allowed) { allowedSeen.add(allowed); continue; }
-    readers.push(rel(file));
-    for (const use of uses) {
-      const fn = enclosingFunction(use.ancestors);
-      const scope = fn ?? ast;
-      if (!containsCall(scope, new Set(['generationVitalQuery']))) violations.push(`${rel(file)}:${use.line}`);
-    }
+    readers.push(r);
+    for (const line of lines) violations.push(`${r}:${line}`);
   }
   const staleAllow = VITAL_READ_ALLOW.filter((a) => !allowedSeen.has(a)).map((a) => String(a.match));
   return { readers, violations, staleAllow };
@@ -194,6 +316,27 @@ function biometricLogFenceViolations(overrides = {}) {
     }
   }
   return violations;
+}
+
+// R5. persistMetrics writes every store generation reads, so the only modules that may name it are its own and
+// the two ingest lanes: Health Connect (healthStore.js) and the fenced Garmin seam (garminIngest.js). Any
+// identifier or string `persistMetrics` elsewhere — an import, an alias, a call, a computed member — fails.
+const PERSIST_OWNER = 'services/wearable/metricStore.js';
+const PERSIST_CALLERS = new Set(['services/wearable/healthStore.js', 'services/wearable/garminIngest.js']);
+function persistMetricsViolations(overrides = {}) {
+  const violations = [];
+  for (const file of appFiles()) {
+    const r = rel(file);
+    if (r === PERSIST_OWNER || PERSIST_CALLERS.has(r)) continue;
+    const src = overrides[file] ?? fs.readFileSync(file, 'utf8');
+    if (!src.includes('persistMetrics')) continue;
+    walk(parse(src), (node) => {
+      const named = (node.type === 'Identifier' && node.name === 'persistMetrics')
+        || (node.type === 'Literal' && node.value === 'persistMetrics');
+      if (named) violations.push(`${r}:${node.loc?.start.line}`);
+    });
+  }
+  return [...new Set(violations)];
 }
 
 // R4. Every file reachable from `entry` through relative require() calls, lazy ones included (the P15 walk of
@@ -267,6 +410,57 @@ describe('R1 — every generation reader of VitalSample applies generationVitalQ
     const { staleAllow } = vitalReaderViolations({ [metricStore]: src });
     expect(staleAllow).toEqual([String(/^services\/wearable\/metricStore\.js$/)]);
   });
+
+  it('mutated (a): a second, unfenced read inside computeBaselines fails, though the function calls the fence elsewhere', () => {
+    const { violations } = vitalReaderViolations(mutate(BASELINES, '  const vitals = await _pageDecrypted(VitalSample,', '  const extra = await VitalSample.find({ userId });\n  const vitals = await _pageDecrypted(VitalSample,'));
+    expect(violations.some((v) => v.startsWith('services/biosonic/baselines.js:'))).toBe(true);
+  });
+
+  it('mutated: a helper that is handed the fence but leaves it out of its query fails', () => {
+    const { violations } = vitalReaderViolations(mutate(BASELINES, '...filter, ...(lastId', '...(lastId'));
+    expect(violations.some((v) => v.startsWith('services/biosonic/baselines.js:'))).toBe(true);
+  });
+
+  it('mutated (b): a generation reader planted in services/privacy/ fails; the allow-list names files, not the directory', () => {
+    const planted = abs('services/privacy/__plantedGenerationReader.js');
+    const { violations } = vitalReaderViolations({}, {
+      [planted]: [
+        "const VitalSample = require('../../models/VitalSample');",
+        'async function read(userId) { return VitalSample.find({ userId }); }',
+        'module.exports = { read };',
+      ].join('\n'),
+    });
+    expect(violations.some((v) => v.startsWith('services/privacy/__plantedGenerationReader.js:'))).toBe(true);
+  });
+
+  it('mutated (c): a $lookup from the vitalsamples collection fails, with no VitalSample binding in the file', () => {
+    const planted = abs('services/biosonic/__plantedLookup.js');
+    const { violations } = vitalReaderViolations({}, {
+      [planted]: [
+        "const BiometricLog = require('../../models/BiometricLog');",
+        "async function read(userId) { return BiometricLog.aggregate([{ $match: { userId } }, { $lookup: { from: 'vitalsamples', localField: 'userId', foreignField: 'userId', as: 'v' } }]); }",
+        'module.exports = { read };',
+      ].join('\n'),
+    });
+    expect(violations.some((v) => v.startsWith('services/biosonic/__plantedLookup.js:'))).toBe(true);
+  });
+
+  it('mutated: the model reached by name, a raw driver read, an update-and-return read, or the model escaping into a value, fails', () => {
+    const planted = abs('services/biosonic/__plantedBackdoors.js');
+    const { violations } = vitalReaderViolations({}, {
+      [planted]: [
+        "const mongoose = require('mongoose');",
+        "const VitalSample = require('../../models/VitalSample');",
+        "async function byName(userId) { return mongoose.model('VitalSample').find({ userId }); }",
+        'async function raw(userId) { return VitalSample.collection.find({ userId }).toArray(); }',
+        'async function upd(userId) { return VitalSample.findOneAndUpdate({ userId }, { $set: { seen: true } }, { new: true }); }',
+        'const registry = { model: VitalSample };',
+        'module.exports = { byName, raw, upd, registry };',
+      ].join('\n'),
+    });
+    const lines = violations.filter((v) => v.startsWith('services/biosonic/__plantedBackdoors.js:')).map((v) => Number(v.split(':')[1]));
+    expect(lines).toEqual(expect.arrayContaining([3, 4, 5, 6]));
+  });
 });
 
 describe('R2 — garminIngest never reaches persistMetrics while the fence is closed', () => {
@@ -316,6 +510,21 @@ describe('R3 — no BiometricLog reader applies the fence (the phone lane is lab
     const planted = abs('services/biosonic/baselines.js');
     const src = `${read(planted)}\nasync function _planted(userId) { const q = { userId, ...generationVitalQuery() }; return BiometricLog.find(q); }\n`;
     expect(biometricLogFenceViolations({ [planted]: src }).some((v) => v.includes('via q'))).toBe(true);
+  });
+});
+
+describe('R5 — persistMetrics is reached only from the two ingest lanes', () => {
+  it('holds on the shipped code: only healthStore.js and garminIngest.js name it, besides its own module', () => {
+    expect(persistMetricsViolations()).toEqual([]);
+  });
+
+  it('mutated: a call, or an import, from any other module fails', () => {
+    const ctrl = abs('controllers/integrationsController.js');
+    const called = `${read(ctrl)}\nconst { persistMetrics: pm } = require('../services/wearable/metricStore');\nasync function _planted(u, m) { return pm(u, m); }\n`;
+    expect(persistMetricsViolations({ [ctrl]: called }).some((v) => v.startsWith('controllers/integrationsController.js:'))).toBe(true);
+    const worker = abs('workers/dailyAnalysis.worker.js');
+    const member = `${read(worker)}\nasync function _planted(u, m) { return require('../services/wearable/metricStore')['persistMetrics'](u, m); }\n`;
+    expect(persistMetricsViolations({ [worker]: member }).some((v) => v.startsWith('workers/dailyAnalysis.worker.js:'))).toBe(true);
   });
 });
 
