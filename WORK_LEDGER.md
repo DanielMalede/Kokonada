@@ -121,13 +121,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M07
-- task: `own:dan101-delete-classify-purge` (own)
-- title: delete the July purge script classifyAndHydrate and the code only it uses (DAN-101)
-- branch: `chore/dan101-delete-classify-purge`
-- paths: `backend/app/scripts/classifyAndHydrate.js`, `backend/tests/classifyAndHydrate.test.js`, `backend/app/services/musicPurge.js`, `backend/tests/musicPurge.test.js`, `backend/app/scripts/countFeatureless.js`, `backend/tests/youtubeTokenWriters.structural.test.js`, `TASKS.md`
+- task: `OPS-066` (TASKS)
+- title: Stage 0 Q2: scoped tsc and the full-project type ratchet (QA-043), the recorded test counts (QA-042), the QA-115 action-props scanner
+- branch: `test/s0-q2-tsc`
+- paths: `mobile/KokonadaHealth/scripts/tsc/**`, `mobile/KokonadaHealth/scripts/baselines/**`, `mobile/KokonadaHealth/src/testing/guards/tsProgram.ts`, `mobile/KokonadaHealth/src/testing/__tests__/tsProgram.test.ts`, `docs/design-v2/registry/QA-042.md`, `docs/design-v2/registry/QA-043.md`, `docs/design-v2/registry/QA-115.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #269
-- started: 2026-10-20
+- state: claimed
+- started: 2026-11-17
 
 ### M08
 - task: `OPS-065` (TASKS)
