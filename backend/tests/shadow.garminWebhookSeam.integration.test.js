@@ -18,6 +18,13 @@ delete process.env.REDIS_URL;
 const WEBHOOK_SECRET = 'ra2-it-secret';
 process.env.GARMIN_WEBHOOK_SECRET = WEBHOOK_SECRET;
 
+// BE-245 (DEC-047): this suite pins the PERMITTED Garmin pipeline, what the lane does once Garmin permits its data
+// to shape music, so the music fence is mocked OPEN here. The shipped, closed fence is pinned by
+// garminMusicFence.{unit,integration,structural}.test.js.
+jest.mock('../app/services/wearable/garminMusicFence', () => ({
+  GARMIN_MAY_SHAPE_MUSIC: true, garminMayShapeMusic: () => true, fencedSources: () => [], generationVitalQuery: () => ({}),
+}));
+
 jest.mock('../app/sockets', () => ({ getIo: () => null }));
 jest.mock('../app/sockets/biometricHandler', () => ({ handleBiometricReading: jest.fn() }));
 
