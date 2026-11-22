@@ -37,6 +37,15 @@ const STAMPED = [
 
 type Bundler = (root: string, entry: string, platform: string, outDir: string, options: { assetsDest: string }) => Promise<{ bundle: string; map: string; hbc: string }>;
 
+// The stamp as these tests read it: its tokens are the path -> sha256 record lib/tokenHashes.mjs makes. bundleLab's JS
+// types them from makeStamp's `tokens = {}` default as `{}`, which no path can index. run's result is declared this shape
+// (an assignment the compiler checks, not a cast), and the tests below assert every hash's value.
+interface Stamp {
+  readonly bundleSha256: string;
+  readonly tokens: Readonly<Record<string, string>>;
+}
+type Bundled = Promise<{ stamp: Stamp; bundlePath: string; stampPath: string }>;
+
 // Stands in for Metro + hermesc: writes the outputs releaseBundle would. The bundle is the same whatever the token files
 // hold, so a stamp that changes with a token file changed because of that file, never because of the bundle.
 const bundler: Bundler = async (_root, _entry, _platform, outDir, { assetsDest }) => {
@@ -74,7 +83,7 @@ function repo() {
   write('mobile/App/design-tokens/base.tokens.json', '{ "app": 1 }\n');
   const hashes = () => Object.fromEntries(STAMPED.map((rel) => [rel, sha(fs.readFileSync(path.join(repoRoot, rel)))]));
   const assets = path.join(appRoot, 'android/app/src/lab/assets');
-  const run = (over: Record<string, unknown> = {}) => bundleLab({
+  const run = (over: Record<string, unknown> = {}): Bundled => bundleLab({
     repoRoot, appRoot, git: cleanGit, bundle: bundler, now: NOW, realpath: (p: string) => p, ...over,
   });
   return { repoRoot, appRoot, assets, write, hashes, run };
