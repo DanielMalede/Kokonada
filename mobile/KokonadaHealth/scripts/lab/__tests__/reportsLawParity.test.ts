@@ -319,8 +319,9 @@ describe('lawParity on a planted run with pixels over 1', () => {
 });
 
 // UI-274: what ±1 cannot judge. On the dark field, G one level down at every pixel whose x + y is even: half the pixels
-// move by 1 and the rest by 0, a mean of −0.5 that the |Δ| histogram shows only as a passing row. On the light field,
-// pixels over 1 planted in shapes whose 8-connected groups are known.
+// move by 1 and the rest by 0, a mean of −0.5 that the |Δ| histogram shows only as a passing row. On the dark fallback,
+// G one level down at every pixel whose twin's G is 64–127 and nowhere else: a residue confined to one band. On the light
+// field, pixels over 1 planted in shapes whose 8-connected groups are known.
 describe('UI-274: lawParity measures what ±1 cannot judge: a one-sided shift, and pixels over 1 in groups', () => {
   /** The light field's planted pixels over 1 (G − 2), PNG px: a V of 5 that only both diagonals join, an L of 3, two at the
    * ends of adjacent rows (not neighbours, though one follows the other in memory), and two one pixel apart. */
@@ -329,9 +330,19 @@ describe('UI-274: lawParity measures what ±1 cannot judge: a one-sided shift, a
   const ENDS = [[102, 150], [0, 151]];
   const APART = [[40, 200], [42, 200]];
   const shift = { planted: 0, onEdge: 0, bands: BANDS.map(() => ({ n: 0, planted: 0 })) };
+  /** The dark fallback's pixels by the band of the twin's G: those of 64–127 are each one level down. */
+  const confined = BANDS.map(() => 0);
   let r: ReturnType<typeof run>;
   beforeAll(async () => {
     const dir = copySet('parity-pass');
+    const fb = await readRow(dir, 2);
+    expect(SHOTS[2]).toBe('fb-dark-one-c-right.1');
+    for (let i = 0; i < fb.width * fb.height; i++) {
+      const g = fb.rgba[i * 4 + 1]; // the twin's G: the fixtures never nudge G
+      confined[bandOf(g)]++;
+      if (bandOf(g) === 1) fb.rgba[i * 4 + 1] = g - 1;
+    }
+    await writeRow(dir, 2, fb);
     const dark = await readRow(dir, 0);
     expect(SHOTS[0]).toBe('dark-one-joy-still.1');
     for (let y = 0; y < dark.height; y++) {
@@ -382,6 +393,19 @@ describe('UI-274: lawParity measures what ±1 cannot judge: a one-sided shift, a
     });
     expect(s).toContain(`  signed Δ R (capture − twin): mean 0.000297, Σ 7 over ${N} px; histogram 0: ${N - 7}, 1: 7`);
     expect(s).toContain(`  signed Δ B (capture − twin): mean -0.000212, Σ -5 over ${N} px; histogram -1: 5, 0: ${N - 5}`);
+  });
+
+  it('a residue confined to one band shows there whole: the fallback\'s 64–127 band reads −1, its 0 bin kept though empty, while the row\'s mean dilutes it', () => {
+    const [n0, n1, n2] = confined;
+    // The guard: both of the lower bands have pixels.
+    expect([n0 > 0, n1 > 0]).toEqual([true, true]);
+    const s = section(r.report!, 'fb-dark-one-c-right.1');
+    expect(s[0]).toBe(`row fb-dark-one-c-right.1 fallback.abyss.dark.one.C.right: FieldFallback twin, ${N} px compared, max |Δ| 1, over 1: 0`);
+    expect(s).toContain(`  signed Δ G (capture − twin): mean ${(-n1 / N).toFixed(6)}, Σ -${n1} over ${N} px; histogram -1: ${n1}, 0: ${N - n1}`);
+    expect(s).toContain(`  signed Δ G where the twin's G is 0–63: mean 0.000000, Σ 0 over ${n0} px; histogram 0: ${n0}`);
+    expect(s).toContain(`  signed Δ G where the twin's G is 64–127: mean -1.000000, Σ -${n1} over ${n1} px; histogram -1: ${n1}, 0: 0`);
+    expect(s).toContain(n2 === 0 ? '  signed Δ G where the twin\'s G is 128–255: no px' : `  signed Δ G where the twin's G is 128–255: mean 0.000000, Σ 0 over ${n2} px; histogram 0: ${n2}`);
+    expect(s[s.length - 1]).toBe('  PASS');
   });
 
   it('the largest 8-connected group over 1 is the V of 5, joined only through both diagonals; 6 groups in all', () => {
