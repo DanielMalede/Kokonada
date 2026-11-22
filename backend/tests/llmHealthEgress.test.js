@@ -314,6 +314,47 @@ describe('buildEmotionPlaylist — a note about sleep sends nothing about sleep 
     expect(params.tempo_category).toBe('resting');
   });
 
+  // BE-261 (security-auditor L1 on #293): the sleep row precedes the relaxing row, and a note's
+  // activity used to be its FIRST matching row, so "relax before bed" withheld the activity yet kept
+  // the keyword `relaxing` — a combination only a masking sleep word produces. Every word and phrase
+  // of the sleep row (read from the lexicon) beside every word of the relaxing row must send exactly
+  // what the relaxing word alone sends, in either order, and serve the same params.
+  describe('a sleep word never masks a later row (BE-261)', () => {
+    const rowOf = (activity) => _ACTIVITY_LEXICON.find((r) => r.activity === activity);
+    const SLEEP_TERMS = [...rowOf('sleep').words, ...rowOf('sleep').phrases];
+    const RELAX_WORDS = [...rowOf('relaxing').words];
+    const PAIRS = RELAX_WORDS.flatMap((r) => SLEEP_TERMS.map((s) => [r, s]));
+
+    it('the lexicon still orders the sleep row before the relaxing row (the mask this pins)', () => {
+      const order = _ACTIVITY_LEXICON.map((r) => r.activity);
+      expect(order.indexOf('sleep')).toBeLessThan(order.indexOf('relaxing'));
+      expect(SLEEP_TERMS.length).toBeGreaterThan(0);
+      expect(RELAX_WORDS.length).toBeGreaterThan(0);
+    });
+
+    it.each(PAIRS)('%p with %p: the body is byte-identical to the relaxing word alone, in either order', async (relax, sleep) => {
+      const { body: alone } = await run(relax);
+      expect(alone).toContain('Current activity: relaxing');
+      const { body: after } = await run(`${relax} ${sleep}`);
+      const { body: before } = await run(`${sleep} ${relax}`);
+      expect(after).toBe(alone);
+      expect(before).toBe(alone);
+    });
+
+    it.each(PAIRS)('%p with %p: the params equal those of the relaxing word alone, resting', async (relax, sleep) => {
+      const { params: alone } = await run(relax);
+      const { params: both } = await run(`${relax} ${sleep}`);
+      expect(both).toEqual(alone);
+      expect(both.tempo_category).toBe('resting');
+    });
+
+    it('"relax before bed" sends what "relax" sends (the reported case)', async () => {
+      const { body: relax } = await run('relax');
+      const { body: relaxBeforeBed } = await run('relax before bed');
+      expect(relaxBeforeBed).toBe(relax);
+    });
+  });
+
   // RA-4 on #281: the sweep reads the lexicon's own withheld rows, so a word added there is covered.
   it('property: no text around any word or phrase of a withheld row changes the prompt', () => {
     const terms = _ACTIVITY_LEXICON

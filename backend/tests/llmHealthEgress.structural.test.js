@@ -146,12 +146,14 @@ describe('the health-derived inputs are gone from the prompt builders', () => {
     expect(args).not.toMatch(ARG_BANS);
   });
 
-  it('_buildEmotionPrompt reads the note\'s intent activity only through the sleep filter (BE-229)', () => {
+  // BE-261: the filtered tag is extractIntent's promptActivity (the first non-withheld lexicon match,
+  // through promptSafeActivity), so the builder names no intent.activity at all, filtered or not: a
+  // filtered FIRST match would let the sleep row mask a later row.
+  it('_buildEmotionPrompt reads the note\'s intent activity only as the sleep-filtered promptActivity (BE-229, BE-261)', () => {
     const body = emotionPromptBody(read('services/geminiEngine.js'));
     expect(body).not.toBeNull();
-    const { all, filtered } = unfilteredIntentActivity(body);
-    expect(filtered).toBeGreaterThan(0);
-    expect(all).toBe(filtered);
+    expect(unfilteredIntentActivity(body)).toEqual({ all: 0, filtered: 0 });
+    expect(body).toMatch(/(?<![\w$])intent\.promptActivity(?![\w$])/);
   });
 
   it('not vacuous: a bare intent.activity pasted into the real _buildEmotionPrompt is found', () => {
