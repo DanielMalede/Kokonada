@@ -1894,13 +1894,13 @@ describe('vibe pipeline wiring (Spotify)', () => {
     const socket = makeSocket();
     await generateAndEmitPlaylist(socket, 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
 
-    const result = await captured({ ...AI_PARAMS, mood_keywords: ['heavy'], playlist_queries: ['beast mode'] });
+    // BE-231: the port is (params, query); the closure sends the query and nothing of the params.
+    const query = Object.freeze({ seed_genres: ['afrobeat'], mood_keywords: ['heavy'], playlist_queries: ['beast mode'] });
+    const result = await captured({ ...AI_PARAMS, target_bpm: 151, mood_keywords: ['heavy'], playlist_queries: ['beast mode'] }, query);
 
-    expect(spotify.fetchVibeDiscovery).toHaveBeenCalledWith(
-      'spotify-access-token',
-      expect.objectContaining({ playlist_queries: ['beast mode'] }),
-      { limit: 60 },
-    );
+    expect(spotify.fetchVibeDiscovery).toHaveBeenCalledTimes(1);
+    expect(spotify.fetchVibeDiscovery).toHaveBeenCalledWith('spotify-access-token', query, { limit: 60 });
+    expect(spotify.fetchVibeDiscovery.mock.calls[0][1]).toBe(query);
     expect(playlistMixer.personalizeWhitelist).toHaveBeenCalledWith(
       expect.arrayContaining([expect.objectContaining({ id: 'r1', genres: ['afrobeat'] })]),
       expect.objectContaining({ genreSet: expect.anything(), knownArtistIds: expect.anything() }),
@@ -1908,6 +1908,21 @@ describe('vibe pipeline wiring (Spotify)', () => {
     // Phase 7: vibe judgment is worker-side enrichment now — zero LLM in the closure.
     expect(geminiEngine.critiqueTrackVibe).not.toHaveBeenCalled();
     expect(result).toEqual([{ id: 'r1', artists: [{ id: 'a1' }], provider: 'spotify', artistIds: ['a1'], genres: ['afrobeat'] }]);
+  });
+
+  it('BE-231: the Spotify closure called without a query sends nothing and returns [] (fails closed)', async () => {
+    spotify.fetchVibeDiscovery.mockResolvedValue([{ id: 'r1', artists: [{ id: 'a1' }] }]);
+    let captured;
+    geminiEngine.buildEmotionPlaylist.mockImplementation(async ({ fetchTracks }) => {
+      captured = fetchTracks;
+      return { params: AI_PARAMS, tracks: [] };
+    });
+    await generateAndEmitPlaylist(makeSocket(), 'emotion', makeState({ lastEmotionTaps: [{ x: 0.1, y: 0.95 }] }));
+    spotify.fetchVibeDiscovery.mockClear();
+
+    expect(await captured({ ...AI_PARAMS, playlist_queries: ['beast mode'] })).toEqual([]);
+    expect(await captured({ ...AI_PARAMS }, undefined)).toEqual([]);
+    expect(spotify.fetchVibeDiscovery).not.toHaveBeenCalled();
   });
 });
 

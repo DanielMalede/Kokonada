@@ -1,6 +1,7 @@
 const axios = require('axios');
 const { URLSearchParams } = require('url');
 const { withRetry } = require('../utils/retry');
+const { toDiscoveryQuery } = require('./discovery/discoveryQuery');
 const User = require('../models/User');
 
 const BASE_AUTH = 'https://accounts.spotify.com';
@@ -442,17 +443,17 @@ async function batchAudioFeatures(accessToken, ids) {
 }
 
 /**
- * Fetches Spotify track recommendations using AI-computed audio targets.
- * seed_artists from Gemini are display names, not Spotify IDs — we rely on
- * seed_genres which are valid genre seeds for the recommendations API.
+ * Fetches Spotify track recommendations for a DiscoveryQuery's genre seeds.
+ * BE-231: no numeric audio target is sent. The generation core's targets are shaped by health
+ * data (a heart-rate band, stored vitals, a sleep note), and the owner's ruling of 2026-10-28 is
+ * that Spotify receives no value derived from medical information; the targets filter the
+ * results locally, after they come back.
  *
  * @param {string} accessToken
- * @param {{ target_bpm, target_energy, target_valence, target_acousticness, seed_genres, limit? }} params
+ * @param {{ seed_genres, mood_keywords?, limit? }} query  a DiscoveryQuery's lists
  * @returns {Promise<SpotifyTrack[]>}
  */
-async function getRecommendations(accessToken, {
-  target_bpm, target_energy, target_valence, target_acousticness, seed_genres, mood_keywords = [], limit = 10,
-}) {
+async function getRecommendations(accessToken, { seed_genres, mood_keywords = [], limit = 10 }) {
   const validGenres = (seed_genres || []).slice(0, 5);
   if (!validGenres.length) return [];
 
@@ -461,11 +462,7 @@ async function getRecommendations(accessToken, {
       axios.get(`${BASE_API}/recommendations`, {
         headers: authHeader(accessToken),
         params: {
-          seed_genres:         validGenres.join(','),
-          target_tempo:        target_bpm,
-          target_energy,
-          target_valence,
-          target_acousticness,
+          seed_genres: validGenres.join(','),
           limit,
         },
         timeout: 8_000,
@@ -647,12 +644,18 @@ async function getVibePlaylistTracks(accessToken, playlistIds = [], { limit = 50
  * topping up with the genre search if they under-fill the limit. Otherwise (flag off,
  * or the HR branch with no mood) it degrades to the existing genre path — so any
  * failure is never worse than today's behavior.
+ *
+ * BE-231: takes a DiscoveryQuery, not the generation params, and runs it through the
+ * allow-list again (toDiscoveryQuery) before anything is sent: only seed genres, mood
+ * keywords and playlist queries leave, whatever the caller hands in. No query, or one
+ * with no lists, sends no request and returns [].
  * @returns {Promise<SpotifyTrack[]>}
  */
-async function fetchVibeDiscovery(accessToken, params = {}, { limit = 10 } = {}) {
-  const queries     = params.playlist_queries || [];
+async function fetchVibeDiscovery(accessToken, discoveryQuery, { limit = 10 } = {}) {
+  const query       = toDiscoveryQuery(discoveryQuery);
+  const queries     = query.playlist_queries;
   const sourcingOn  = process.env.VIBE_PLAYLIST_SOURCING !== 'false';
-  const genreSearch = (n) => getRecommendations(accessToken, { ...params, limit: n });
+  const genreSearch = (n) => getRecommendations(accessToken, { seed_genres: query.seed_genres, mood_keywords: query.mood_keywords, limit: n });
 
   if (!sourcingOn || queries.length === 0) return genreSearch(limit);
 
