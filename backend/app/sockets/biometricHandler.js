@@ -950,20 +950,25 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
         // ABSOLUTE personalization filter (a Rock track from "Beast Mode" is dropped
         // for an Afrobeat listener). The LLM critic left the hot path in Phase 7 —
         // vibe enrichment happens asynchronously in the embedding worker.
-        fetchTracks = async (params) => {
+        // BE-231: the discovery port is `(params, query)`. `params` are the local, health-shaped
+        // targets (they stay in-process: the vector corpus and the mixer filter by them); `query` is
+        // the generation core's health-free DiscoveryQuery and the ONLY thing sent to Spotify. No
+        // query means no Spotify request: a caller that forgets it fails closed, never open.
+        fetchTracks = async (params, query) => {
           if (VECTOR_DISCOVERY()) {
             // Spotify-independent discovery over our own corpus (dead /v1/recommendations
             // replacement). Never throws; yields [] on any failure so the fallback ladder
             // still fills the playlist.
             return vectorDiscoveryFetch({ musicProfile, aiParams: params, blacklistCanonicalKeys: [], targets: bandTargets });
           }
+          if (!query) return [];
           // Latency cut: when Spotify won't serve artist genres (/artists 403), discovery
           // candidates can't be tagged → personalization discards them anyway → the whole
           // discovery sourcing + tagging + critic is pure wasted time (and burns the
           // Dev-Mode rate budget, slowing everything to a client timeout). Skip it and let
           // the genre-backfilled familiar library fill the playlist (~20s → ~5s).
           if (!spotify.artistGenresAvailable()) return [];
-          const raw     = await spotify.fetchVibeDiscovery(accessToken, params, { limit: DISCOVERY_FETCH_LIMIT });
+          const raw     = await spotify.fetchVibeDiscovery(accessToken, query, { limit: DISCOVERY_FETCH_LIMIT });
           const tagged  = await tagSpotifyDiscovery(accessToken, raw);
           const onTaste = personalizeWhitelist(tagged, {
             genreSet:       musicProfile.genreSet,

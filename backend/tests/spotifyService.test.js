@@ -130,6 +130,15 @@ describe('getRecommendations', () => {
     expect(out).toEqual([{ id: 'r1' }, { id: 'r2' }]);
   });
 
+  // BE-231: the targets are shaped by health data, so none is sent; they filter the results locally.
+  it('sends the seed genres and the limit only — no target_* key, whatever the caller passes', async () => {
+    axios.get.mockResolvedValue({ data: { tracks: [] } });
+    await spotify.getRecommendations('tok', PARAMS);
+    expect(axios.get).toHaveBeenCalledTimes(1);
+    expect(axios.get.mock.calls[0][0]).toMatch(/\/recommendations$/);
+    expect(axios.get.mock.calls[0][1].params).toEqual({ seed_genres: 'pop', limit: 2 });
+  });
+
   it('returns [] when there are no seed genres (no call made)', async () => {
     expect(await spotify.getRecommendations('tok', { seed_genres: [] })).toEqual([]);
     expect(axios.get).not.toHaveBeenCalled();
@@ -266,6 +275,29 @@ describe('fetchVibeDiscovery', () => {
     });
     const out = await spotify.fetchVibeDiscovery('tok', { seed_genres: ['metal'], mood_keywords: ['heavy'], playlist_queries: ['beast mode'] }, { limit: 3 });
     expect(out.map((t) => t.id)).toEqual(['t1', 'g1', 'g2']);
+  });
+
+  // BE-231: the adapter runs what it is handed through the DiscoveryQuery allow-list before sending.
+  it('sends only the query lists: health-shaped params beside them never leave', async () => {
+    process.env.VIBE_PLAYLIST_SOURCING = 'true';
+    axios.get.mockImplementation((url, cfg) => {
+      if (url.includes('/search') && cfg.params.type === 'playlist') return Promise.resolve({ data: { playlists: { items: [{ id: 'p1' }] } } });
+      if (url.includes('/playlists/')) return Promise.resolve({ data: { items: [{ track: { id: 't1' } }] } });
+      if (url.includes('/recommendations')) return reject404();
+      return Promise.resolve({ data: { tracks: { items: [{ id: 'g1' }] } } });
+    });
+    await spotify.fetchVibeDiscovery('tok', {
+      seed_genres: ['metal'], mood_keywords: ['heavy'], playlist_queries: ['beast mode'],
+      target_bpm: 151, target_energy: 0.9, target_acousticness: 0.1, target_valence: 0.5, tempo_category: 'peak', exclude_genres: ['sleep'],
+    }, { limit: 3 });
+    const sent = JSON.stringify(axios.get.mock.calls.map((c) => c[1].params));
+    expect(axios.get.mock.calls.length).toBeGreaterThan(2);
+    expect(sent).not.toMatch(/target_|tempo_category|exclude_genres|peak|sleep|151/);
+  });
+
+  it.each([undefined, null, {}, { target_bpm: 88 }])('query %p: no request and []', async (query) => {
+    expect(await spotify.fetchVibeDiscovery('tok', query, { limit: 3 })).toEqual([]);
+    expect(axios.get).not.toHaveBeenCalled();
   });
 });
 
