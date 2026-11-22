@@ -140,7 +140,9 @@ describe('the Skia version, from the lockfile at HEAD', () => {
 });
 
 describe('the stamp chain', () => {
-  const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: H('3'), tokens: {}, entry: 'index.lab.js', createdAt: '2026-10-04T11:00:00.000Z' });
+  // UI-278: the sha256 of the token files, by their path from the repository root (bundleLab, lib/tokenHashes.mjs).
+  const tokens = { 'design-tokens/base.tokens.json': H('5'), 'mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts': H('6') };
+  const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: H('3'), tokens, entry: 'index.lab.js', createdAt: '2026-10-04T11:00:00.000Z' });
   const ok = {
     head: SHA, porcelain: '', stamp,
     apk: { bundleSha256: H('3'), stamp: JSON.parse(JSON.stringify(stamp)) },
@@ -172,5 +174,20 @@ describe('the stamp chain', () => {
 
   it('refuses a stamp that is not complete', () => {
     expect(verifyStampChain({ ...ok, stamp: { ...stamp, bundleSha256: undefined } }).join('\n')).toMatch(/stamp/);
+  });
+
+  // UI-278: a stamp without the token files' hashes is what made every manifest record `stamp.tokens: {}`, which no check
+  // against the token files can read. The same stamp sits on disk and in the APK here, so the hashes are the only fault.
+  const withTokens = (t: unknown) => {
+    const s = JSON.parse(JSON.stringify({ ...stamp, tokens: t }));
+    return { ...ok, stamp: s, apk: { ...ok.apk, stamp: JSON.parse(JSON.stringify(s)) } };
+  };
+  it.each([
+    ['no token hashes (the empty map every manifest recorded)', {}],
+    ['no tokens field', undefined],
+    ['tokens that are not a map', ['design-tokens/base.tokens.json']],
+    ['a token hash that is not a sha256', { ...tokens, 'design-tokens/direction.abyss.tokens.json': 'abc' }],
+  ])('refuses a stamp with %s', (_label, t) => {
+    expect(verifyStampChain(withTokens(t))).toEqual(['the lab stamp does not carry the sha256 of the token files (UI-278): run node scripts/lab/bundleLab.mjs']);
   });
 });

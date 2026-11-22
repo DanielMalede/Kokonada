@@ -8,10 +8,17 @@
 //   · fallback.*: the capture's stage against FieldFallback's picture in CanvasKit, ±1 per channel (UI-211);
 // with, for each, the full |Δ| histogram (every bin from 0 to the largest |Δ|: per pixel by its largest channel, and per
 // channel), and every pixel over 1 listed by the region the law puts its centre in: the ring, a bead's halo, a quiet
-// rect, the plate face, else the ground (first match, in that order). For every field.* row (every tier) it writes ×8
-// crops of both ring edges, 16 × 16 px on the plate's horizontal through its centre, as one PNG of three panels: the
-// capture, the twin and |Δ| × 32 (UI-159). Rows of other scenes, and field.* rows on another clock (no fixed frame time,
-// so no twin), are named, not compared.
+// rect, the plate face, else the ground (first match, in that order). For every compared row (every field.* tier, UI-159,
+// and every fallback.* row, UI-277) it writes ×8 crops of both ring edges, 16 × 16 px on the plate's horizontal through
+// its centre, as one PNG of three panels: the capture, the twin and |Δ| × 32; a field row's edges are the frame the law
+// drew, a fallback row's the ring its FieldFallback plan draws. Rows of other scenes, and field.* rows on another clock
+// (no fixed frame time, so no twin), are named, not compared.
+//
+// Beside the verdict, measured and never judged (UI-274): each channel's signed Δ (capture − twin), its histogram (every
+// bin from the lowest to the highest, 0 among them) and its mean, over the row and by the band of the twin's value of
+// that channel (0–63, 64–127, 128–255), so a residue on one side shows (|Δ| cannot tell −1 from +1); and the largest
+// 8-connected group of pixels over 1, with how many groups there are. The header names the commit the report was made at
+// (and whether its tree held more) and the packages the twin is drawn with, beside the run's commit (lib/provenance.mjs).
 //
 // The stage is READY's, the app window (the harness holds it to the whole screen, UI-216), and the PNG is the app region
 // the system bars leave: each row is compared where its stage lies in the PNG, and the pixels of the stage outside the
@@ -30,6 +37,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { quietFactor, pixelTerms, type FieldFrame, type QuietRect } from '../../../src/design/v2/field/fieldLaw.ts';
 import { removedZones } from '../../../src/design/v2/field/fallbackModel.ts';
@@ -55,10 +63,15 @@ import {
   type Rect,
   type Rgba,
 } from './lib/evidence.mts';
+import { describeMadeAt, describeVersion, madeAt, packageVersion } from './lib/provenance.mjs';
 import { shareTwins, twinKey } from './lib/twinShare.mjs';
 import { fieldTwinWorkers, twinWorkerCount } from './lib/twinWorkers.mts';
 
 const REPORT = 'lawParity';
+/** The app's root: the checkout the report runs from, and where the twin's packages are resolved. */
+const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+/** What the twin is drawn with (lib/evidence.mts loadSkia): RN Skia's own web API over canvaskit-wasm. */
+const TWIN_PACKAGES = ['canvaskit-wasm', '@shopify/react-native-skia'] as const;
 /** ±1 per channel: the B8 tolerance (UI-183). Not this report's to widen. */
 const TOLERANCE = 1;
 const REGIONS = ['plate face', 'ring', 'halo', 'quiet rect', 'ground'] as const;
@@ -67,6 +80,13 @@ const CROP = 16;
 const ZOOM = 8;
 const GAP = 8;
 const DELTA_GAIN = 32;
+const CHANNELS = ['R', 'G', 'B'] as const;
+/** The bands of the twin's value of a channel that the signed Δ is also kept by (UI-274). */
+const BANDS = [[0, 63], [64, 127], [128, 255]] as const;
+/** Each 8-bit value's band. */
+const BAND_OF = Uint8Array.from({ length: 256 }, (_, v) => BANDS.findIndex(([lo, hi]) => v >= lo && v <= hi));
+/** A channel's signed Δ runs from −255 to 255: one bin for each, at Δ + 255. */
+const SPAN = 511;
 
 function args(argv: readonly string[]): { manifest: string; out: string } {
   const at = (flag: string) => {
@@ -128,6 +148,8 @@ interface Compared {
   readonly perPixel: number[];
   readonly perChannel: number[][];
   readonly over: Over[];
+  /** The signed Δ (capture − twin) counted by channel, by the band of the twin's value of it, and by value: [(channel × bands + band) × SPAN + Δ + 255]. */
+  readonly signed: Uint32Array;
 }
 
 /** The stage of the capture against the twin, pixel by pixel where both have one; (x, y) of each pixel over the tolerance are the PNG's. */
@@ -139,6 +161,7 @@ function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y
     h[v]++;
   };
   const over: Over[] = [];
+  const signed = new Uint32Array(CHANNELS.length * BANDS.length * SPAN);
   let max = 0;
   let pixels = 0;
   for (let y = 0; y < twin.height; y++) {
@@ -151,6 +174,10 @@ function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y
       const d = Math.max(...delta);
       delta.forEach((v, ch) => bump(perChannel[ch], v));
       bump(perPixel, d);
+      for (let ch = 0; ch < CHANNELS.length; ch++) {
+        const v = twin.rgba[t + ch];
+        signed[(ch * BANDS.length + BAND_OF[v]) * SPAN + capture.rgba[c + ch] - v + 255]++;
+      }
       if (d > max) max = d;
       if (d > TOLERANCE) {
         over.push({
@@ -161,10 +188,78 @@ function compare(capture: Rgba, stage: Rect, twin: Rgba, regionAt: (x: number, y
     }
   }
   for (const h of [perPixel, ...perChannel]) while (h.length <= max) h.push(0);
-  return { pixels, stageOutside: twin.width * twin.height - pixels, captureOutside: capture.width * capture.height - pixels, max, perPixel, perChannel, over };
+  return { pixels, stageOutside: twin.width * twin.height - pixels, captureOutside: capture.width * capture.height - pixels, max, perPixel, perChannel, over, signed };
 }
 
 const histogram = (h: readonly number[]) => h.map((n, v) => `${v}: ${n}`).join(', ');
+
+/** One channel's signed Δ over some bands of the twin's value: the mean, the sum over the pixels, and every bin from the lowest Δ to the highest, 0 among them. */
+function signedOver(c: Compared, ch: number, bands: readonly number[]): string {
+  const count = (d: number) => bands.reduce((k, b) => k + c.signed[(ch * BANDS.length + b) * SPAN + d + 255], 0);
+  let n = 0;
+  let sum = 0;
+  let lo = 0;
+  let hi = 0;
+  for (let d = -255; d <= 255; d++) {
+    const k = count(d);
+    if (k === 0) continue;
+    n += k;
+    sum += d * k;
+    lo = Math.min(lo, d);
+    hi = Math.max(hi, d);
+  }
+  if (n === 0) return 'no px';
+  const bins: string[] = [];
+  for (let d = lo; d <= hi; d++) bins.push(`${d}: ${count(d)}`);
+  return `mean ${(sum / n).toFixed(6)}, Σ ${sum} over ${n} px; histogram ${bins.join(', ')}`;
+}
+
+interface Group {
+  readonly size: number;
+  /** Its bounding box, PNG px. */
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+/** The pixels over the tolerance in 8-connected groups: how many groups, and the largest (the first in reading order of its size). */
+function overGroups(over: readonly Over[], width: number): { count: number; largest: Group | null } {
+  const at = new Map<number, number>();
+  over.forEach((o, i) => at.set(o.y * width + o.x, i));
+  const seen = new Uint8Array(over.length);
+  const stack: number[] = [];
+  let count = 0;
+  let largest: Group | null = null;
+  for (let i = 0; i < over.length; i++) {
+    if (seen[i]) continue;
+    count++;
+    seen[i] = 1;
+    stack.push(i);
+    const g = { size: 0, x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+    while (stack.length > 0) {
+      const { x, y } = over[stack.pop()!];
+      g.size++;
+      g.x0 = Math.min(g.x0, x);
+      g.y0 = Math.min(g.y0, y);
+      g.x1 = Math.max(g.x1, x);
+      g.y1 = Math.max(g.y1, y);
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          // A neighbour past either end of the row is no pixel: it would be read as the next row's first or the last row's last.
+          if ((dx === 0 && dy === 0) || x + dx < 0 || x + dx >= width) continue;
+          const j = at.get((y + dy) * width + x + dx);
+          if (j !== undefined && !seen[j]) {
+            seen[j] = 1;
+            stack.push(j);
+          }
+        }
+      }
+    }
+    if (largest === null || g.size > largest.size) largest = g;
+  }
+  return { count, largest };
+}
 
 // ---------------------------------------------------------------------------------------- the ×8 ring-edge crops
 
@@ -204,6 +299,22 @@ type Job =
   | { kind: 'field'; shot: FieldShot }
   | { kind: 'fallback'; shot: FallbackShot };
 
+/**
+ * The ring's two edges on the plate's horizontal through its centre, in stage px: a field row's from the frame the law
+ * drew (UI-159), a fallback row's from the ring its FieldFallback plan draws (UI-277).
+ */
+function ringEdges(job: Job, twin: FieldTwin | FallbackTwin): { y: number; edges: ReadonlyArray<readonly ['ring-inner' | 'ring-outer', number]> } {
+  if (job.kind === 'field') {
+    const t = twin as FieldTwin;
+    const k = t.inputs.pxPerDp;
+    const cx = t.inputs.layout.centre[0] * k;
+    const R = t.inputs.layout.radius * k;
+    return { y: t.inputs.layout.centre[1] * k, edges: [['ring-inner', cx + t.frame.ringInner * R], ['ring-outer', cx + R]] };
+  }
+  const { ring } = (twin as FallbackTwin).plan;
+  return { y: ring.centre[1], edges: [['ring-inner', ring.centre[0] + ring.inner], ['ring-outer', ring.centre[0] + ring.outer]] };
+}
+
 async function main(): Promise<number> {
   const { manifest: manifestFile, out } = args(process.argv.slice(2));
   const cropsDir = `${out.replace(/\.txt$/, '')}.crops`;
@@ -211,6 +322,8 @@ async function main(): Promise<number> {
   for (const p of [out, cropsDir]) {
     if (fs.existsSync(p)) throw new EvidenceInputError(`refusing to overwrite ${p}: a report never replaces an earlier one`);
   }
+  // What made this report, read as it starts, when its code was loaded (UI-274).
+  const madeBy = `report: ${describeMadeAt(madeAt(APP))}; the twin: ${TWIN_PACKAGES.map((p) => describeVersion(p, packageVersion(APP, p))).join(', ')}`;
   const manifest = loadManifest(manifestFile);
 
   // Every row is read and every capture loaded before anything is written: an input error leaves no report.
@@ -231,7 +344,9 @@ async function main(): Promise<number> {
     `${REPORT} (B8-8a: UI-183 field parity, UI-159 ring-edge crops, UI-211 fallback parity)`,
     `manifest: ${manifest.file} sha256 ${manifest.sha256}`,
     `run: plan ${JSON.stringify(manifest.plan)}, outcome ${JSON.stringify(manifest.outcome)}, commit ${JSON.stringify(manifest.commit)}`,
+    madeBy,
     `tolerance: ±${TOLERANCE} per channel against the law twin in CanvasKit; this report never widens it: it lists every pixel over it, and the designer rules`,
+    `measured, not judged (UI-274): the signed Δ (capture − twin) of each channel, overall and by the twin's value of the channel (${BANDS.map(([lo, hi]) => `${lo}–${hi}`).join(', ')}), and the largest 8-connected group of pixels over ${TOLERANCE}`,
   ];
   const runFailed = manifest.outcome !== 'passed';
   if (runFailed) lines.push(`the capture run failed: ${manifest.failure ?? `outcome ${JSON.stringify(manifest.outcome)}`}`);
@@ -258,25 +373,28 @@ async function main(): Promise<number> {
       lines.push(`row ${job.shot.name} ${job.shot.scene}: ${job.kind === 'field' ? 'field twin' : 'FieldFallback twin'}, ${c.pixels} px compared, max |Δ| ${c.max}, over ${TOLERANCE}: ${c.over.length}`);
       lines.push(`  |Δ| histogram (largest channel per pixel): ${histogram(c.perPixel)}`);
       ['R', 'G', 'B'].forEach((ch, n) => lines.push(`  |Δ| histogram ${ch}: ${histogram(c.perChannel[n])}`));
+      CHANNELS.forEach((ch, n) => {
+        lines.push(`  signed Δ ${ch} (capture − twin): ${signedOver(c, n, BANDS.map((_, b) => b))}`);
+        BANDS.forEach(([lo, hi], b) => lines.push(`  signed Δ ${ch} where the twin's ${ch} is ${lo}–${hi}: ${signedOver(c, n, [b])}`));
+      });
       lines.push(`  over ${TOLERANCE} by region: ${REGIONS.map((r) => `${r} ${c.over.filter((o) => o.region === r).length}`).join(', ')}`);
+      const groups = overGroups(c.over, capture.width);
+      const g = groups.largest;
+      lines.push(g === null
+        ? `  largest 8-connected group over ${TOLERANCE}: 0 px (no pixel over ${TOLERANCE})`
+        : `  largest 8-connected group over ${TOLERANCE}: ${g.size} px in (${g.x0}, ${g.y0})–(${g.x1}, ${g.y1}), of ${groups.count} group${groups.count === 1 ? '' : 's'}`);
       lines.push(`  not compared: ${c.stageOutside} px of the stage outside the app region (under the system bars), ${c.captureOutside} px of the app region outside the stage`);
       for (const r of REGIONS) {
         for (const o of c.over.filter((v) => v.region === r)) {
           lines.push(`  over ${TOLERANCE} · ${o.region} · (${o.x}, ${o.y}) capture (${o.capture.join(', ')}) twin (${o.twin.join(', ')}) |Δ| (${o.delta.join(', ')})`);
         }
       }
-      if (job.kind === 'field') {
-        const t = twin as FieldTwin;
-        const k = t.inputs.pxPerDp;
-        const cx = t.inputs.layout.centre[0] * k;
-        const cy = t.inputs.layout.centre[1] * k;
-        const R = t.inputs.layout.radius * k;
-        for (const [edge, x] of [['ring-inner', cx + t.frame.ringInner * R], ['ring-outer', cx + R]] as const) {
-          const at = cropAt(twin, capture, job.shot.stage, x, cy);
-          const file = `${job.shot.name}.${edge}.x${ZOOM}.png`;
-          crops.push({ file, image: cropPanels(capture, job.shot.stage, twin, at) });
-          lines.push(`  crop ${edge} ×${ZOOM}: ${file}, ${CROP} × ${CROP} px at (${at.x + job.shot.stage.x}, ${at.y + job.shot.stage.y}), panels: capture | twin | |Δ| × ${DELTA_GAIN}`);
-        }
+      const ring = ringEdges(job, twin);
+      for (const [edge, x] of ring.edges) {
+        const at = cropAt(twin, capture, job.shot.stage, x, ring.y);
+        const file = `${job.shot.name}.${edge}.x${ZOOM}.png`;
+        crops.push({ file, image: cropPanels(capture, job.shot.stage, twin, at) });
+        lines.push(`  crop ${edge} ×${ZOOM}: ${file}, ${CROP} × ${CROP} px at (${at.x + job.shot.stage.x}, ${at.y + job.shot.stage.y}), panels: capture | twin | |Δ| × ${DELTA_GAIN}`);
       }
       if (c.over.length > 0) {
         failing.push(job.shot.name);

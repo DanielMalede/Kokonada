@@ -4,8 +4,8 @@
 // "!(handle->flags & UV_HANDLE_CLOSING)"): the process dies with exit 127 or 0xC0000409 instead of its own code, so a
 // report's verdict is lost (seen at a3f3ea5 on neverRed.mts). Such a script sets process.exitCode and returns.
 //
-// "Loads CanvasKit" is followed through relative imports: lawParity.mts never names canvaskit-wasm, but evidence.mts
-// imports png.mjs, which does. Every .mts and .mjs under scripts/lab/ and scripts/field/ is checked; comments are not code.
+// "Loads CanvasKit" is followed through relative imports: neverRed.mts never names canvaskit-wasm, but evidence.mts,
+// which it imports, does. Every .mts and .mjs under scripts/lab/ and scripts/field/ is checked; comments are not code.
 
 import fs from 'node:fs';
 import path from 'node:path';

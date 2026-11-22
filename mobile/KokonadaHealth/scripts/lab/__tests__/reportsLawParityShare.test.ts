@@ -77,8 +77,8 @@ describe('lawParity shares twins, and its report is the one each row gets alone'
   );
 
   it('renders each distinct twin once: 7 field twins and 4 fallback twins for 14 rows', () => {
-    // Alone, each row renders its own: 9 field rows and 5 fallback rows.
-    expect(result.rows.reduce((n, x) => n + (x.cropsOwn.length > 0 ? 2 : 1), 0)).toBe(2 * 9 + 5);
+    // Alone, each row renders its own: 9 field rows and 5 fallback rows (each row's kind is its own section's header).
+    expect(result.rows.reduce((n, x) => n + (x.own[0].includes(': field twin, ') ? 2 : 1), 0)).toBe(2 * 9 + 5);
     expect(result.whole.surfaces).toBe(2 * 7 + 2 * 4);
   });
 
@@ -150,8 +150,8 @@ console.log(JSON.stringify([back(new E.EvidenceInputError('row a: the manifest f
     for (const x of result.rows) expect({ row: x.name, section: x.shared.join('\n') }).toEqual({ row: x.name, section: x.own.join('\n') });
   });
 
-  it('each field row\'s ×8 crops are its own, byte for byte', () => {
-    expect(result.rows.filter((x) => x.cropsOwn.length > 0).map((x) => x.name)).toEqual(['dark-one-joy-still.1', 'light-three-low.1', 'dark-one-joy-still.2', 'light-three-low.2', 'v-face.1', 'v-time.1', 'v-density.1', 'v-font.1', 'v-stage.1']);
+  it('each row\'s ×8 crops, a field row\'s and (UI-277) a fallback row\'s, are its own, byte for byte', () => {
+    expect(result.rows.filter((x) => x.cropsOwn.length === 2).map((x) => x.name)).toEqual(result.rows.map((x) => x.name));
     for (const x of result.rows) expect({ row: x.name, crops: x.cropsShared }).toEqual({ row: x.name, crops: x.cropsOwn });
     expect(result.whole.crops.size).toBe(result.rows.reduce((n, x) => n + x.cropsOwn.length, 0));
   });
