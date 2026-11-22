@@ -18,7 +18,7 @@ export interface Run {
   readonly stderr: string;
   readonly report: string;
   readonly crops: ReadonlyMap<string, Buffer>;
-  /** The CanvasKit surfaces the run made (countSurfaces.cjs): two per field twin rendered, one per fallback twin. */
+  /** The CanvasKit surfaces the run made (countSurfaces.cjs): two per field twin rendered, two per fallback twin (UI-272). */
   readonly surfaces: number;
   /** The surfaces by the thread they were made on, and by size: 0 is the main thread. */
   readonly threads: ReadonlyArray<{ thread: number; size: string }>;
