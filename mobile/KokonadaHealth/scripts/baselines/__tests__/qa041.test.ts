@@ -467,6 +467,13 @@ describe('QA-041 · the order of decision (plan decision 4)', () => {
     expect(v.lines).toEqual([...new Set(v.lines)]); // one line per unchecked input, however many rules read it
   });
 
+  it('mobile not measured, with the empty per-file record testCounts.ts requires then, exits 2: no record rule reads it as a breach', () => {
+    const unmeasured = { ...COUNTS, mobile: { notMeasured: 'jest could not start' }, files: { mobile: {} } };
+    for (const retire of [{ value: [] }, retireFile(C)]) {
+      expect(decide(inputs({ counts: { value: unmeasured }, retire }))).toEqual({ exit: 2, lines: ['test-counts.json records mobile as not measured: jest could not start'] });
+    }
+  });
+
   it('a mobile record without its per-file rows (files.mobile) cannot be checked: 2', () => {
     const v = decide(inputs({ counts: { value: { ...COUNTS, files: undefined } as unknown as TestCounts } }));
     expect(v.exit).toBe(2);

@@ -17,7 +17,7 @@
 
 import { checkRetireEntries } from '../../src/testing/guards/retireRule.ts';
 import type { DecStatus, RetireEntry } from '../../src/testing/guards/retireRule.ts';
-import type { TestCounts } from './testCounts.ts';
+import type { FileCounts, TestCounts } from './testCounts.ts';
 
 export type { DecStatus, RetireEntry };
 export type Pkg = 'mobile' | 'backend';
@@ -226,6 +226,13 @@ function baseline(inputs: Inputs): Context['base'] {
   return { value: { counts: p, sha: inputs.counts.value.sha } };
 }
 
+/** The mobile per-file record, or why it cannot be read: a mobile run that was not measured has none (testCounts.ts keeps it empty). */
+function mobileRecord(counts: TestCounts): Loaded<Readonly<Record<string, FileCounts>>> {
+  if ('notMeasured' in counts.mobile) return { error: `test-counts.json records mobile as not measured: ${counts.mobile.notMeasured}` };
+  const record = counts.files?.mobile;
+  return record === undefined ? { error: 'test-counts.json has no per-file record (files.mobile)' } : { value: record };
+}
+
 /** The RETIRE discount: a `file` entry takes its row off when it is signed, in the record and did not run; a `pin` entry takes nothing. */
 function retiredOf(inputs: Inputs, run: Run): Loaded<Retired> {
   if (inputs.pkg === 'backend') return { value: { tests: 0, pendingTodo: 0, files: 0, entries: 0, breaches: [] } };
@@ -234,8 +241,9 @@ function retiredOf(inputs: Inputs, run: Run): Loaded<Retired> {
   if ('error' in retire) return retire;
   const decStatus = inputs.decStatus;
   if (decStatus === undefined) return { error: 'the decision records (docs/design-v2/decisions) were not read' };
-  const record = inputs.counts.value.files?.mobile;
-  if (record === undefined) return { error: 'test-counts.json has no per-file record (files.mobile)' };
+  const rec = mobileRecord(inputs.counts.value);
+  if ('error' in rec) return rec;
+  const record = rec.value;
   const out: Retired = { tests: 0, pendingTodo: 0, files: 0, entries: retire.value.length, breaches: checkRetireEntries(retire.value, decStatus) };
   const seen = new Set<string>();
   for (const e of retire.value) {
@@ -340,9 +348,10 @@ function floorListRule(ctx: Context): Outcome {
   if ('error' in counts) o.cannot.push(`${COUNTS_FILE}: ${counts.error}`);
   else {
     if (counts.value.sha !== floor.sha) o.breaches.push(`RA-9: test-counts.json was measured at ${counts.value.sha.slice(0, 12)}, TEST_FLOOR at ${at}`);
-    const record = counts.value.files?.mobile;
-    if (record === undefined) o.cannot.push('test-counts.json has no per-file record (files.mobile)');
+    const rec = mobileRecord(counts.value);
+    if ('error' in rec) o.cannot.push(rec.error);
     else {
+      const record = rec.value;
       const listed = new Set(floor.paths);
       for (const k of Object.keys(record)) if (!listed.has(k)) o.breaches.push(`RA-9: the per-file record of test-counts.json names ${k}, which TEST_FLOOR.paths does not`);
       for (const p of floor.paths) if (!Object.hasOwn(record, p)) o.breaches.push(`RA-9: TEST_FLOOR.paths names ${p}, which the per-file record of test-counts.json does not`);
