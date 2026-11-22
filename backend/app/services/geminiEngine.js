@@ -183,8 +183,10 @@ function _buildEmotionPrompt(musicProfile, emotionTaps, textPrompt, seed = null,
   // H1: the client-supplied activity CHIP is validated against the preset enum before it
   // can enter the prompt; the server-derived intent activity is already closed-vocabulary.
   // BE-229: a sleep intent from the note is medical information and is withheld here; its
-  // effect on the music is applied after the model returns (buildEmotionPlaylist).
-  const effectiveActivity = normalizeActivity(activity) || promptSafeActivity(intent.activity);
+  // effect on the music is applied after the model returns (buildEmotionPlaylist). BE-261: the note
+  // activity is promptActivity, the first match that is not withheld, so a sleep word never masks a
+  // later row ("relax before bed" sends what "relax" sends).
+  const effectiveActivity = normalizeActivity(activity) || intent.promptActivity;
   const intentLine = intent.keywords.length
     ? `Derived listener intent (structured tags, not the user's words): ${intent.keywords.join(', ')}`
     : '';
@@ -279,9 +281,10 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
   // the RAW text never leaves the process. A non-empty derived intent (activity or keywords)
   // counts as custom intent so the strict mood MERGES rather than overrides — reproducing the
   // old free-text behaviour deterministically. BE-231 (fork 4i): the note's activity enters only
-  // through promptSafeActivity, so a sleep note no longer flips the switch to MERGE: a note about
-  // sleep shapes the same seed genres and keywords as no note at all.
-  const derivedIntent = [activity || promptSafeActivity(intent.activity), ...intent.keywords].filter(Boolean).join(' ');
+  // through promptActivity (sleep-filtered), so a sleep note no longer flips the switch to MERGE: a
+  // note about sleep shapes the same seed genres and keywords as no note at all, and (BE-261) a sleep
+  // word beside a relaxing word shapes what the relaxing word alone does.
+  const derivedIntent = [activity || intent.promptActivity, ...intent.keywords].filter(Boolean).join(' ');
   // BE-231: the DiscoveryQuery, built from the model's answer to a health-free prompt BEFORE any
   // health input touches the params. Stored vitals and a withheld sleep intent move only the local
   // targets below; the provider never sees them.
@@ -293,7 +296,9 @@ async function buildEmotionPlaylist({ musicProfile, emotionTaps, textPrompt = nu
   // BE-229: a note intent the prompt withheld (a sleep intent, with no chip to stand in for it)
   // still shapes the music: the targets blend toward its tempo band here, after the model
   // returned, where the prompt used to ask the model for the same calmer, lower-tempo music.
-  const withheld = !normalizeActivity(activity) && promptSafeActivity(intent.activity) !== intent.activity;
+  // BE-261: a note activity the prompt did carry (promptActivity) stands in for it as a chip does,
+  // so "relax before bed" is served exactly what "relax" is — both rows are resting-tempo rows.
+  const withheld = !normalizeActivity(activity) && !intent.promptActivity && promptSafeActivity(intent.activity) !== intent.activity;
   const bandedParams = withheld ? applyIntentBand(bodyBanded, intent.tempoCategory) : bodyBanded;
   const params = applyMoodFallback(bandedParams, emotionTaps, derivedIntent, musicProfile);
   // Deterministic movement cue: a "going for a run" note → peak, even for a calm mood —
