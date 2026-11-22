@@ -10,8 +10,8 @@
 // alone (the face of a field and of a fallback scene, the frame time, the density, the font scale, the stage), each
 // captured as its base's PNG, so a twin wrongly shared shows. The guard: each such row's own report differs from its
 // base's, so a shared twin could not pass unseen. The renders are counted by the CanvasKit surfaces the run makes (two
-// per field twin, one per fallback twin, countSurfaces.cjs). reportsHarness.test.ts holds the harness's own v1-field run
-// to the same oracle.
+// per field twin, and two per fallback twin, its picture and its layers under the ring (UI-272); countSurfaces.cjs).
+// reportsHarness.test.ts holds the harness's own v1-field run to the same oracle.
 
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -79,7 +79,7 @@ describe('lawParity shares twins, and its report is the one each row gets alone'
   it('renders each distinct twin once: 7 field twins and 4 fallback twins for 14 rows', () => {
     // Alone, each row renders its own: 9 field rows and 5 fallback rows (each row's kind is its own section's header).
     expect(result.rows.reduce((n, x) => n + (x.own[0].includes(': field twin, ') ? 2 : 1), 0)).toBe(2 * 9 + 5);
-    expect(result.whole.surfaces).toBe(2 * 7 + 4);
+    expect(result.whole.surfaces).toBe(2 * 7 + 2 * 4);
   });
 
   it('draws its distinct field twins on worker threads, as many as the machine spares up to 4, each worker at least one; the fallback twins on its own thread', () => {
@@ -91,7 +91,7 @@ describe('lawParity shares twins, and its report is the one each row gets alone'
     }
     expect(off).toHaveLength(2 * 7);
     expect(new Set(off.map((s) => s.thread)).size).toBe(workers);
-    expect(result.whole.threads.filter((s) => s.thread === 0)).toHaveLength(4);
+    expect(result.whole.threads.filter((s) => s.thread === 0)).toHaveLength(2 * 4);
     // A row alone has one twin: no worker is worth starting for it.
     for (const x of result.rows) expect({ row: x.name, threads: [...new Set(x.threads.map((s) => s.thread))] }).toEqual({ row: x.name, threads: [0] });
   });

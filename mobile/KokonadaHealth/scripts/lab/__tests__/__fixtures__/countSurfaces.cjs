@@ -1,7 +1,8 @@
 // A preload (node --require; worker threads inherit it) that records each CanvasKit surface a report makes, one line
 // "<threadId> <width>x<height>" appended to the file named by UI239_SURFACES as it is made. Each law twin is drawn on
-// surfaces CanvasKit makes for it (a field twin on two: the render target and the stage; a fallback twin on one), so
-// the lines are the twins the report rendered, and the thread each was drawn on (0 is the main thread).
+// surfaces CanvasKit makes for it (a field twin on two: the render target and the stage; a fallback twin on two: its
+// picture and its layers under the ring, UI-272), so the lines are the twins the report rendered, and the thread each
+// was drawn on (0 is the main thread).
 // With UI239_FAIL_SURFACE="<width>x<height>", CanvasKit makes no surface of that size (MakeSurface returns null, as it
 // does when it cannot), so the twin that needs it fails. With UI239_EXIT_SURFACE="<width>x<height>", a worker thread
 // asked for a surface of that size exits (code 9), as a worker that dies mid-twin; with UI239_THROW_IN_WORKER=1, every

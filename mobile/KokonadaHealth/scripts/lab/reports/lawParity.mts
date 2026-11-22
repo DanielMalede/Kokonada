@@ -5,7 +5,9 @@
 // For a capture run (scripts/lab/capture.mjs), every row whose scene is
 //   · field.* on the fixed clock: the capture's stage against the field's law twin in CanvasKit (lib/evidence.mts: fieldStep on the scene's
 //     inputs, renderFieldImage, FieldImage's bilinear upscale at the density), ±1 per channel (UI-183);
-//   · fallback.*: the capture's stage against FieldFallback's picture in CanvasKit, ±1 per channel (UI-211);
+//   · fallback.*: the capture's stage against FieldFallback's twin, ±1 per channel (UI-211): its picture in CanvasKit, but
+//     within 1.5 px of the ring's two edges the ring by the device's coverage (lib/evidence.mts, UI-272), a model applied
+//     only to a row recorded on the backend it was validated on, which the header names;
 // with, for each, the full |Δ| histogram (every bin from 0 to the largest |Δ|: per pixel by its largest channel, and per
 // channel), and every pixel over 1 listed by the region the law puts its centre in: the ring, a bead's halo, a quiet
 // rect, the plate face, else the ground (first match, in that order). For every compared row (every field.* tier, UI-159,
@@ -28,7 +30,8 @@
 // "a few 2-LSB pixels" on the emulator). It prints the report and writes it to --out, and the crops to <out>.crops/;
 // neither may exist (a report never overwrites). Exit 0: every compared row within ±1 of its twin in a passed run;
 // 1: a pixel over 1, a failed capture run, or nothing to compare; 2: an input it cannot use (a manifest field missing or
-// malformed, named; a PNG that is not its row's; an output that exists; no --manifest or --out), and no report.
+// malformed, named; a fallback row recorded on a backend the ring model was not validated on, named with the reason; a PNG
+// that is not its row's; an output that exists; no --manifest or --out), and no report.
 //
 // Each distinct twin is rendered once and shared by every row whose twin it is (a shot's repeats; lib/twinShare.mjs),
 // and when a run has two or more distinct field twins they are drawn on worker threads ahead of the walk
@@ -45,6 +48,8 @@ import { BASE } from '../../../src/design/v2/tokens/tokens.generated.ts';
 import { encodePng } from '../lib/png.mjs';
 import {
   EvidenceInputError,
+  RING_MODEL,
+  RING_MODEL_SCOPE,
   cropRgba,
   loadCapture,
   loadManifest,
@@ -345,6 +350,9 @@ async function main(): Promise<number> {
     `manifest: ${manifest.file} sha256 ${manifest.sha256}`,
     `run: plan ${JSON.stringify(manifest.plan)}, outcome ${JSON.stringify(manifest.outcome)}, commit ${JSON.stringify(manifest.commit)}`,
     madeBy,
+    // The twin's one modelled layer, and the rows it may be applied to (UI-272): the library's own words.
+    RING_MODEL,
+    RING_MODEL_SCOPE,
     `tolerance: ±${TOLERANCE} per channel against the law twin in CanvasKit; this report never widens it: it lists every pixel over it, and the designer rules`,
     `measured, not judged (UI-274): the signed Δ (capture − twin) of each channel, overall and by the twin's value of the channel (${BANDS.map(([lo, hi]) => `${lo}–${hi}`).join(', ')}), and the largest 8-connected group of pixels over ${TOLERANCE}`,
   ];

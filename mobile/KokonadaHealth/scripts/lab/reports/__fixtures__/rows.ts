@@ -53,6 +53,8 @@ export interface RowInput {
   readonly shaderReason?: string | null;
   /** The tier READY observed (motion.tier): the expect's tier by default, as for a scene whose id names it. */
   readonly observedTier?: string | null;
+  /** The GPU line the harness read (lib/device.mjs parseGles): the planted phone's by default, the one GPU UI-272's ring model was validated on. */
+  readonly gl?: { readonly renderer: string | null; readonly gles: string | null; readonly reason: string | null };
 }
 
 const ZERO64 = '0'.repeat(64);
@@ -67,9 +69,12 @@ const build = (skiaVersion: string) => ({
 });
 /** lib/device.mjs readDeviceFacts of the planted phone (its size and density are each row's). */
 const FACTS = { model: 'fixture', fingerprint: 'fixture/planted', width: 1, height: 1, density: 160, refreshRate: 120, forceDark: false, locale: 'he-IL' };
-/** lib/device.mjs readRenderFacts of the planted phone. */
+/**
+ * lib/device.mjs readRenderFacts of the planted phone. Its GL renderer is the one UI-272's fallback ring model was validated
+ * on (the S22+'s Adreno 730), so the reports model a planted fallback row's ring; a test plants another to see it refused.
+ */
 const RENDER = {
-  gl: { renderer: 'fixture GPU', gles: 'OpenGL ES 3.2 fixture', reason: null },
+  gl: { renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 fixture', reason: null },
   display: { colorMode: 'ColorMode::SRGB (7)', wideColor: false, refreshMode: 'render 120 Hz, vsync 120 Hz', reason: null },
 };
 
@@ -123,7 +128,7 @@ export function row(input: RowInput): Record<string, unknown> {
     probes: classifyProbes({ stage: { px: { ...stage } }, ...Object.fromEntries(Object.entries(input.probes ?? {}).map(([id, px]) => [id, { px: { ...px } }])) }, screen, region),
     timestamps: { launched: new Date('2026-11-15T00:00:00Z'), ready: new Date('2026-11-15T00:00:01Z'), captured: new Date('2026-11-15T00:00:02Z') },
     renderFacts: renderFacts(input.expect.tier, tiers),
-    render: RENDER,
+    render: input.gl === undefined ? RENDER : { ...RENDER, gl: { ...input.gl } },
   }) as Record<string, unknown>;
   const errors = validateRow(r) as string[];
   if (errors.length > 0) throw new Error(`the fixture row ${input.shot} is not one the harness writes: ${errors.join('; ')}`);

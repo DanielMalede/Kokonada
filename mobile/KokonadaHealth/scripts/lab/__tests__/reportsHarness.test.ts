@@ -322,7 +322,8 @@ describe('the harness\'s v1-field run, fed unmodified to every report', () => {
     const fallbackTwins = distinct((s) => s.scene.startsWith('fallback.'), (s) => `${s.scene}|${s.device.fontScale}`);
     expect(fieldTwins).toBeLessThan(fixedField());
     expect(fallbackTwins).toBeLessThan(fallbacks());
-    expect(alone.whole.surfaces).toBe(2 * fieldTwins + fallbackTwins);
+    // Two surfaces per twin of either kind: a field twin's render target and stage, a fallback twin's picture and its layers under the ring (UI-272).
+    expect(alone.whole.surfaces).toBe(2 * fieldTwins + 2 * fallbackTwins);
   });
 
   it('neverRed accepts it: every row judged in full, none in the check band', () => {

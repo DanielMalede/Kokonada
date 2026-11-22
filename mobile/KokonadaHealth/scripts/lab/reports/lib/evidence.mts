@@ -18,6 +18,19 @@
 // (FieldFallback.tsx). scripts/lab/__tests__/reportsTwin.skia.test.ts holds the twin to those functions byte for byte,
 // and reportsEvidence.test.ts holds its inputs to the props the lab's FieldScene and FallbackScene really pass.
 //
+// One layer is modelled, not drawn (UI-272): FieldFallback's ring, at its two anti-aliased edges, so for those pixels the
+// twin is no longer the app's own drawing byte for byte. The app draws the ring with drawDRRect, anti-aliased; CanvasKit
+// scan-converts it on the CPU and puts each edge up to 0.25 px off the circle the phone's GPU draws, so at 91d6940 all 22
+// fallback scenes failed ±1 on those two edges and nowhere else. Within RING_BAND (1.5 px) of either edge the twin is
+// therefore plate.ring (its token) over the app's own layers 1–3 (fallbackDraw.ts's ground, face and field, recorded and
+// played as the app's picture is) at the coverage the device draws (ringCoverage), an 8-bit src-over blend
+// (compositeRing); every other pixel is still FieldFallback's picture in CanvasKit, byte for byte. Every input of the
+// model is the plan's or the twin's, never a capture's. It was measured on one device backend only, the S22+ (SM-S906E,
+// Adreno 730, OpenGL ES 3.2, RN Skia 2.6.9) at 91d6940, so readFallbackShot refuses a row recorded on any other
+// (RING_MODEL_BACKEND, the report side of UI-276), and a report's header names the model and its scope (RING_MODEL,
+// RING_MODEL_SCOPE): scripts/lab/__tests__/reportsRingModel.test.ts holds it to that phone's own pixels, and
+// reportsTwin.skia.test.ts holds the rest of the twin to the app.
+//
 // The rows' shape is the harness's (B8-5a/5b): a row carries no launch args; its px per dp is READY's `pixelRatio` (UI-240). The frame time is
 // READY's `clock` {mode, t}; the density, `device.density` (wm density), only cross-checks it; the stage is READY's stage probe in screen px,
 // the app window, which the harness holds to the whole screen (UI-216), so it reaches under the system bars that the PNG
@@ -34,7 +47,7 @@ import { fileURLToPath } from 'node:url';
 import { srgbToOklab } from '../../../../src/design/v2/color/oklab.ts';
 import { isRed } from '../../../../src/design/v2/color/redBand.ts';
 import { BLUE_NOISE_SIZE, blueNoiseRgba } from '../../../../src/design/v2/field/blueNoise.ts';
-import { recordFieldFallback, type FallbackSkia } from '../../../../src/design/v2/field/fallbackDraw.ts';
+import { drawFallbackFace, drawFallbackField, drawFallbackGround, recordFieldFallback, type FallbackSkia } from '../../../../src/design/v2/field/fallbackDraw.ts';
 import { fallbackPlan, type FallbackPlan } from '../../../../src/design/v2/field/fallbackModel.ts';
 import { fallbackScenes, heroLayout } from '../../../../src/design/v2/field/fallbackScenes.ts';
 import { fieldStep, renderGeometry, renderScaleFor, renderSize, stateFromLedger, type FieldLayout, type FrameParams } from '../../../../src/design/v2/field/fieldDriver.ts';
@@ -303,6 +316,8 @@ export function readFallbackShot(row: unknown, report: string): FallbackShot {
   if (fallbackTaps(direction, fallbackScene) === undefined) refuse(r, report, 'scene', `names no fallback scene: ${JSON.stringify(fallbackScene)}`);
   const status = needString(r, report, 'shaderStatus');
   if (status !== 'fallback-scene') refuse(r, report, 'shaderStatus', `is ${JSON.stringify(status)}: a fallback.* shot must be drawn by the lab fallback scene`);
+  // The twin's ring is modelled on the one backend it was validated on (UI-272): a row recorded on any other is not its.
+  refuseOffBackend(r, report);
   const stage = readStage(r, report, cap.region);
   const pxPerDp = readPxPerDp(r, report);
   need(r, report, 'fontScale');
@@ -517,11 +532,15 @@ function fieldEffect(s: Skia): Effect {
   return effectMade;
 }
 
-function readSurface(s: Skia, surface: { flush(): void; makeImageSnapshot(): { readPixels(x: number, y: number, info: unknown): unknown } }, width: number, height: number): Uint8Array {
+/** The surface's pixels, copied out; the snapshot it reads them through is freed (its pixels are CanvasKit's memory). */
+function readSurface(s: Skia, surface: { flush(): void; makeImageSnapshot(): { readPixels(x: number, y: number, info: unknown): unknown; dispose(): void } }, width: number, height: number): Uint8Array {
   surface.flush();
-  const px = surface.makeImageSnapshot().readPixels(0, 0, { width, height, colorType: s.enums.ColorType.RGBA_8888, alphaType: s.enums.AlphaType.Unpremul });
-  if (!px) throw new Error('CanvasKit could not read the twin back');
-  return new Uint8Array(px as Uint8Array);
+  const snapshot = surface.makeImageSnapshot();
+  const px = snapshot.readPixels(0, 0, { width, height, colorType: s.enums.ColorType.RGBA_8888, alphaType: s.enums.AlphaType.Unpremul });
+  const rgba = px ? new Uint8Array(px as Uint8Array) : null;
+  snapshot.dispose();
+  if (!rgba) throw new Error('CanvasKit could not read the twin back');
+  return rgba;
 }
 
 /** The stage's whole px: what the twin covers and the reports compare. */
@@ -588,24 +607,162 @@ export async function renderFieldTwin(shot: FieldShot): Promise<FieldTwin> {
   return { ...out, rgba: readSurface(s, surface, out.width, out.height), inputs, frame, renderScale: rs };
 }
 
+// ---------------------------------------------------------------------------------------- the ring model (UI-272)
+
+/** The pixels the ring model owns: those whose centre lies within RING_BAND px of either ring edge. */
+export const RING_BAND = 1.5;
+
+type Ring = FallbackPlan['ring'];
+/** A ring's coverage, in [0, 1], of the stage pixel whose top left is (x, y). */
+export type RingCoverage = (ring: Ring, x: number, y: number) => number;
+
+const unit = (v: number) => Math.min(1, Math.max(0, v));
+
+/**
+ * The S22+'s coverage of FieldFallback's ring at the centre of stage pixel (x, y), d that centre's distance from the
+ * ring's centre (dx, dy its offsets). Measured on the 22 fallback scenes of the 91d6940 v1-field run, each edge's ramp
+ * fitted in sixteen sectors of the circle; the two edges are drawn differently:
+ *   · the inner edge, an exact distance ramp one pixel wide at every angle: clamp(d − R_in + ½, 0, 1);
+ *   · the outer edge, the circle's implicit function over the L1 norm of its gradient, as an fwidth ramp draws it:
+ *     clamp(½ + (R_out² − d²) / (2(|dx| + |dy|)), 0, 1), |cos θ| + |sin θ| px wide, one pixel on the axes and √2 between
+ *     them. An exact distance ramp there, clamp(R_out + ½ − d, 0, 1), left 236 (dark) and 411 (light) pixels over ±1 in
+ *     every scene; this one leaves none.
+ */
+export function ringCoverage(ring: Ring, x: number, y: number): number {
+  const dx = x + 0.5 - ring.centre[0];
+  const dy = y + 0.5 - ring.centre[1];
+  const d = Math.hypot(dx, dy);
+  const l1 = 2 * (Math.abs(dx) + Math.abs(dy));
+  // At the ring's very centre the gradient is zero: the outer edge is then all ring or none.
+  const outer = l1 > 0 ? unit(0.5 + (ring.outer * ring.outer - d * d) / l1) : ring.outer > 0 ? 1 : 0;
+  return unit(d - ring.inner + 0.5) * outer;
+}
+
+/**
+ * The one device backend the ring model was validated on (UI-272; the report side of UI-276): the RN Skia a row records
+ * (`skiaVersion`) and its GL renderer (`gl.renderer`, as lib/device.mjs reads it from dumpsys SurfaceFlinger).
+ */
+export const RING_MODEL_BACKEND = { skiaVersion: '2.6.9', glRenderer: /\bAdreno \(TM\) 730\b/ } as const;
+
+/** The ring model as a report's header names it: each edge's coverage, and the backend it was validated on. */
+export const RING_MODEL = 'the fallback ring: inner exact clamp(d − R_in + ½), outer L1 clamp(½ + (R_out² − d²)/(2(|dx|+|dy|))), validated on Skia GL / Adreno 730 at 91d6940';
+
+/** The rows the ring model is applied to, as a report's header says it: readFallbackShot refuses every other. */
+export const RING_MODEL_SCOPE = `the fallback ring model applies only to rows recorded with skiaVersion ${RING_MODEL_BACKEND.skiaVersion} and a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}; any other fallback row is refused, with the reason`;
+
+/** A fallback row recorded on any backend but the one the ring model was validated on is refused, naming the field and why. */
+function refuseOffBackend(row: Row, report: string): void {
+  const skia = needString(row, report, 'skiaVersion');
+  if (skia !== RING_MODEL_BACKEND.skiaVersion) {
+    refuse(row, report, 'skiaVersion', `is ${JSON.stringify(skia)}: the fallback ring model (UI-272) was validated on RN Skia ${RING_MODEL_BACKEND.skiaVersion} only, so its twin's ring would not be this row's`);
+  }
+  need(row, report, 'gl');
+  const gl = row.gl as { renderer?: unknown; reason?: unknown };
+  if (gl.renderer === null || gl.renderer === undefined) {
+    refuse(row, report, 'gl.renderer', `was not recorded (${JSON.stringify(gl.reason ?? null)}): the fallback ring model (UI-272) applies only to a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}`);
+  }
+  if (typeof gl.renderer !== 'string' || !RING_MODEL_BACKEND.glRenderer.test(gl.renderer)) {
+    refuse(row, report, 'gl.renderer', `is ${JSON.stringify(gl.renderer)}: the fallback ring model (UI-272) was validated only on a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}`);
+  }
+}
+
+/** plate.ring's bytes: the model draws an opaque #RRGGBB token, and refuses any other colour rather than guess one. */
+function ringBytes(colour: string): readonly [number, number, number] {
+  if (!/^#[0-9a-fA-F]{6}$/.test(colour)) throw new Error(`the ring colour ${JSON.stringify(colour)} is not an opaque #RRGGBB token, so the ring model cannot draw it`);
+  return [parseInt(colour.slice(1, 3), 16), parseInt(colour.slice(3, 5), 16), parseInt(colour.slice(5, 7), 16)];
+}
+
+/**
+ * The ring by the model: every pixel within RING_BAND of either ring edge is plate.ring over `under` (the layers below the
+ * ring) at the coverage, an 8-bit src-over blend of the opaque ring, round(ring·a + under·(1 − a)) in each channel, opaque;
+ * every other pixel is `picture`'s, byte for byte. It reads the ring's geometry and colour and the two layers, nothing else.
+ */
+export function compositeRing(picture: Rgba, under: Rgba, ring: Ring, coverage: RingCoverage = ringCoverage): Uint8Array {
+  if (under.width !== picture.width || under.height !== picture.height) {
+    throw new Error(`the layers under the ring are ${under.width}x${under.height}, the picture ${picture.width}x${picture.height}`);
+  }
+  const rgb = ringBytes(ring.colour);
+  const out = new Uint8Array(picture.rgba);
+  // Only the ring's box, one pixel more on each side, can hold the band; a NaN centre or outer radius leaves no pixel in it.
+  const reach = ring.outer + RING_BAND;
+  const x0 = Math.max(0, Math.floor(ring.centre[0] - reach) - 1);
+  const x1 = Math.min(picture.width, Math.ceil(ring.centre[0] + reach) + 1);
+  const y0 = Math.max(0, Math.floor(ring.centre[1] - reach) - 1);
+  const y1 = Math.min(picture.height, Math.ceil(ring.centre[1] + reach) + 1);
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const d = Math.hypot(x + 0.5 - ring.centre[0], y + 0.5 - ring.centre[1]);
+      if (!(Math.abs(d - ring.inner) <= RING_BAND || Math.abs(d - ring.outer) <= RING_BAND)) continue;
+      const a = coverage(ring, x, y);
+      const i = (y * picture.width + x) * 4;
+      for (let ch = 0; ch < 3; ch++) out[i + ch] = Math.round(rgb[ch] * a + under.rgba[i + ch] * (1 - a));
+      out[i + 3] = 255;
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------- the fallback's twin
+
 export interface FallbackTwin extends Rgba {
   readonly inputs: FallbackTwinInputs;
   /** What FieldFallback drew, in device px from the stage's top left. */
   readonly plan: FallbackPlan;
 }
 
-/** FieldFallback's twin over the stage: its picture (fallbackPlan, recordFieldFallback) played under the density's scale. */
-export async function renderFallbackTwin(shot: FallbackShot): Promise<FallbackTwin> {
+export interface FallbackLayers {
+  readonly width: number;
+  readonly height: number;
+  readonly inputs: FallbackTwinInputs;
+  /** What FieldFallback drew, in device px from the stage's top left. */
+  readonly plan: FallbackPlan;
+  /** FieldFallback's whole picture (recordFieldFallback) played under the density's scale: the twin outside the ring's band. */
+  readonly picture: Rgba;
+  /** Its layers 1–3 alone, the ring left out (fallbackDraw.ts's own functions), recorded and played the same way: what the ring lies over. */
+  readonly under: Rgba;
+}
+
+/** FieldFallback's layers 1–3 (ground, face, field), recorded as recordFieldFallback records all four: in dp, at device px under scale(1/pxPerDp). */
+function recordUnderRing(s: FallbackSkia, plan: FallbackPlan, widthDp: number, heightDp: number): ReturnType<typeof recordFieldFallback> {
+  const recorder = s.Skia.PictureRecorder();
+  const canvas = recorder.beginRecording(s.Skia.XYWHRect(0, 0, widthDp, heightDp));
+  canvas.scale(1 / plan.pxPerDp, 1 / plan.pxPerDp);
+  drawFallbackGround(s, canvas, plan);
+  drawFallbackFace(s, canvas, plan);
+  drawFallbackField(s, canvas, plan);
+  const picture = recorder.finishRecordingAsPicture();
+  recorder.dispose();
+  return picture;
+}
+
+/** The fallback twin's two CanvasKit layers over the stage: FieldFallback's whole picture, and its layers 1–3 without the ring. */
+export async function renderFallbackLayers(shot: FallbackShot): Promise<FallbackLayers> {
   const s = await loadSkia();
   const inputs = fallbackTwinInputs(shot);
   const plan = fallbackPlan({ direction: inputs.direction, face: inputs.face, statics: staticsOf(inputs.direction), taps: inputs.taps, layout: inputs.layout, pxPerDp: inputs.pxPerDp });
-  const picture = recordFieldFallback({ Skia: s.Skia, ClipOp: s.enums.ClipOp, TileMode: s.enums.TileMode }, plan, inputs.layout.width, inputs.layout.height);
+  const draw: FallbackSkia = { Skia: s.Skia, ClipOp: s.enums.ClipOp, TileMode: s.enums.TileMode };
   const out = stagePx(shot.stage);
-  const surface = s.Skia.Surface.Make(out.width, out.height);
-  if (!surface) throw new Error(`row ${shot.name}: no ${out.width}x${out.height} stage surface`);
-  surface.getCanvas().scale(inputs.pxPerDp, inputs.pxPerDp);
-  surface.getCanvas().drawPicture(picture);
-  const rgba = readSurface(s, surface, out.width, out.height);
-  picture.dispose();
-  return { ...out, rgba, inputs, plan };
+  // Each picture played on its own stage surface, as RN Skia's canvas plays FieldFallback's, then read back and freed.
+  const play = (picture: ReturnType<typeof recordFieldFallback>): Rgba => {
+    const surface = s.Skia.Surface.Make(out.width, out.height);
+    if (!surface) throw new Error(`row ${shot.name}: no ${out.width}x${out.height} stage surface`);
+    surface.getCanvas().scale(inputs.pxPerDp, inputs.pxPerDp);
+    surface.getCanvas().drawPicture(picture);
+    const rgba = readSurface(s, surface, out.width, out.height);
+    picture.dispose();
+    surface.dispose();
+    return { ...out, rgba };
+  };
+  const picture = play(recordFieldFallback(draw, plan, inputs.layout.width, inputs.layout.height));
+  const under = play(recordUnderRing(draw, plan, inputs.layout.width, inputs.layout.height));
+  return { ...out, inputs, plan, picture, under };
+}
+
+/**
+ * FieldFallback's twin over the stage: its picture (fallbackPlan, recordFieldFallback) played under the density's scale,
+ * but within RING_BAND of either ring edge plate.ring over its layers 1–3 at the device's coverage (UI-272).
+ */
+export async function renderFallbackTwin(shot: FallbackShot): Promise<FallbackTwin> {
+  const { width, height, inputs, plan, picture, under } = await renderFallbackLayers(shot);
+  return { width, height, rgba: compositeRing(picture, under, plan.ring), inputs, plan };
 }
