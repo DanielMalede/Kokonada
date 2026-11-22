@@ -4,13 +4,13 @@ Sources were fetched on 2026-09-23. Status tags: **RET** means the primary text 
 
 The task asked for rulings on DT-7 (item 4) and H2 (item 5). I have not given rulings. Each gets a branch map instead, because both are questions of law for counsel.
 
-## 0 · Product facts that change the picture (new since `r_regulatory.md`)
+## 0 · Product facts that change the picture (new since `docs/design-v2/counsel/research-regulatory-2026-09-23.md`)
 
 - **N1. A heart-rate path with no consent check.** When a user has no emotion input and a live heart rate exists, the Generate button offers "Listen to your heart" (`M\experience\generate\generateController.ts:75-82`).
   - Tapping it sends the phone's heart-rate reading to the server (`M\net\socketClient.ts:317-326`).
   - The `request_heart_playlist` handler has **no consent check** (`B\sockets\biometricHandler.js:1816-1830`). It falls back to the client's value (`:525-527`) and sets `stableHR`.
   - That value then feeds the affect engine (`:848`, through `buildTargets` into `resolveAffect`). It is also saved as `PlaylistSession.biometricSnapshot.heartRate` (`:958`). The model itself labels that field "special-category health data" (`B\models\PlaylistSession.js:19-21`).
-  - Only `biometric_push` is gated (`:1769-1777`). So "the server gates ingestion" (`r_regulatory.md` F11) is **not true for this path**.
+  - Only `biometric_push` is gated (`:1769-1777`). So "the server gates ingestion" (`docs/design-v2/counsel/research-regulatory-2026-09-23.md` F11) is **not true for this path**.
 - **N2. The Bluetooth scan connects to the first heart-rate broadcaster it finds.** There is no pairing or device choice (`M\health\bleHeartRate.ts:45-50`), so the app can read a nearby stranger's heart rate.
 - **N3. The heart-rate stream is never stopped.** The `LiveHrSession` handle is thrown away (`M\prodBootstrap.ts:77,93`; `M\appBootstrap.ts:33`).
   - The logout teardown clears the watch token but never calls `stop()` (`M\experience\profile\sessionTeardown.ts:24-40`).
@@ -20,7 +20,7 @@ The task asked for rulings on DT-7 (item 4) and H2 (item 5). I have not given ru
 - **N5. When a wearable user's data starts being processed.** After the Art. 9 grant, the Connect screen syncs straight away (`M\experience\connect\connectController.ts:56-57`). That queues a state recompute 60 seconds later (`B\services\wearable\metricStore.js:188-195`), which runs `resolveAffect` (`B\workers\stateVector.worker.js:50-70`). **So a consented user's data is processed starting on the Connect screen, just before Generate first appears.**
 - **N6. "100% read confidence" is rule coverage, not accuracy.** Pulse prints `${confidence*100}% read confidence` (`M\experience\pulse\PulseScreen.tsx:199-203`). The legacy classifier's "confidence" is 1.0, 0.7 or 0.5 depending on how many rule conditions were evaluated (`B\services\medicalProfileService.js:179,183`). It does not measure accuracy.
 - **N7. The Pulse label comes from nine hand-written rules, not the affect engine.** The server serves `stateVector.status` from `computeStateVector` (`B\services\medicalProfileService.js:195,223`; `B\controllers\pulseController.js:188-197`). The taxonomy id never ships (`:52-53`).
-  - **Correction to `critique.md:145`:** "Pre-Panic" did not leak through `BAND_LABELS`. It leaks through `stateVector.status` and the capital-letter passthrough in `M\experience\pulse\statusLabels.ts:23`. `BAND_LABELS` is not rendered anywhere.
+  - **Correction to `critique.md:145 (deleted; see docs/ARCHIVE.md)`:** "Pre-Panic" did not leak through `BAND_LABELS`. It leaks through `stateVector.status` and the capital-letter passthrough in `M\experience\pulse\statusLabels.ts:23`. `BAND_LABELS` is not rendered anywhere.
 - **Route order.** Splash → Onboarding → Sign-in → Connect → App.
   - Onboarding appears only when there is no user and the device has never seen it (`M\navigation\routeMachine.ts:23-24`). It is one-way, and Skip is available from panel 1 (`M\onboarding\OnboardingScreen.tsx:125-134`).
   - Generate is the first tab (`M\navigation\tabRoutes.ts:6`; `RootNavigator.tsx:36`), with no navigation-state persistence. So **Generate is the first screen shown on every entry into the app**. Pulse mounts only when the user opens it.
@@ -92,7 +92,7 @@ Everything in this section is a **draft for counsel, not cleared copy**. One exp
 
 > Kokonada is not a medical device and does not diagnose, treat, cure, or prevent any medical condition.
 
-- It matches the store-listing wording `compliance-auditor` registered (`r_compliance.md:236`, P-HEALTH). I did not re-verify that wording.
+- It matches the store-listing wording `compliance-auditor` registered (`r_compliance.md:236 (deleted; see docs/ARCHIVE.md)`, now `CMP-084`; P-HEALTH). I did not re-verify that wording.
 - Render it in the Pulse body wherever readings or a state appear, not only inside the StateCard.
 - **The disclaimer is not a safe harbour.**
   - MDR Art. 2(12) sets the intended purpose from "promotional or sales materials or statements" (REP).
@@ -164,7 +164,7 @@ Backend keys stay as they are. Every string that can reach the screen today goes
 | **H-A.** Yes, it is health data | Art. 9(1) prohibits the processing unless 9(2)(a) applies: "explicit consent… for one or more specified purposes" (REP). Today's code runs these steps without that consent: display on the device, sending to `/watch/hr` (then refused with a 403), and N1, where the server saves the value and feeds it to the affect engine. |
 | **H-B.** No, it is not health data | GDPR still needs a lawful basis under Art. 6. ePrivacy 5(3) applies when locally produced data is sent to a server (EDPB 2/2023 para 53; paras 58 and 60 cover a device relaying over Bluetooth: "a 'gaining of access'", RET). The exemption for a service "explicitly requested by the subscriber or user" has no obvious footing for a mood-only user. |
 | **H-C.** Data stays on the device only | EDPB para 44 (RET): no "gaining of access… as long as the information does not leave the device". **The current code is not in this branch**, because both `pushLiveHr` and N1 send the data off the device. |
-| **Every branch** | N2 (a stranger's heart rate) is not cured by any consent gate and needs device selection or an ownership check. Play policy P-UD requires a prominent disclosure immediately before the Bluetooth permission (`compliance-auditor` finding C6, a HALT). |
+| **Every branch** | N2 (a stranger's heart rate) is not cured by any consent gate and needs device selection or an ownership check. Play policy P-UD requires a prominent disclosure immediately before the Bluetooth permission (`compliance-auditor` finding C6, a HALT; now `CMP-078`). |
 
 **The gate** (prepared as the configuration defensible on every branch; not a ruling). The live heart-rate lane covers token minting, the Bluetooth permission request, scanning, the REST fallback and writes to `warmStore.liveHr`. Start it only when all of these hold:
 1. A signed-in identity is present.
