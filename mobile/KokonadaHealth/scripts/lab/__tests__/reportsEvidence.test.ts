@@ -94,6 +94,8 @@ const FIELD_NEEDS = [
 const FALLBACK_NEEDS = [
   'file', 'sha256', 'scene', 'region', 'expect', 'expect.direction', 'expect.face',
   'stage', 'stage.x', 'stage.y', 'stage.width', 'stage.height', 'device', 'device.density', 'shaderStatus', 'fontScale', 'fontScale.app', 'pixelRatio',
+  // UI-272: the backend the fallback ring model was validated on, the report side of UI-276.
+  'skiaVersion', 'gl', 'gl.renderer',
 ];
 
 describe('B8-8c: the typed reader of a manifest row', () => {
@@ -264,6 +266,43 @@ describe('B8-8c: the typed reader of a manifest row', () => {
   it.each(BAD_FALLBACK)('a fallback row with %s is refused, naming the field', (_, bad, field) => {
     const r = lib<Result<unknown>>('return E.readFallbackShot(input, "lawParity");', bad);
     expect(r.error).toEqual({ name: expect.anything(), message: expect.stringContaining(`"${field}"`), isInput: true });
+  });
+
+  // UI-272, the report side of UI-276: the fallback twin's ring is modelled on the one backend it was validated on, the
+  // RN Skia and the GL renderer the 91d6940 rows record, so a fallback row recorded on any other, or whose GPU line the
+  // harness could not read, is refused with the reason, never modelled as if it were that phone.
+  const OFF_BACKEND: Array<[string, Record<string, unknown>, string, string[]]> = [
+    ['another RN Skia', withValue(fallbackRow(), 'skiaVersion', '2.7.0'), 'skiaVersion', ['"2.7.0"', 'RN Skia 2.6.9', 'UI-272']],
+    ['no GL renderer recorded', fallbackRow({ gl: { renderer: null, gles: null, reason: 'dumpsys SurfaceFlinger: no GLES line' } }), 'gl.renderer', ['not recorded', 'dumpsys SurfaceFlinger: no GLES line', 'Adreno', 'UI-272']],
+    ['another GPU', fallbackRow({ gl: { renderer: 'ARM, Mali-G710', gles: 'OpenGL ES 3.2', reason: null } }), 'gl.renderer', ['"ARM, Mali-G710"', 'Adreno', 'UI-272']],
+    ['another Adreno', fallbackRow({ gl: { renderer: 'Qualcomm, Adreno (TM) 740', gles: 'OpenGL ES 3.2', reason: null } }), 'gl.renderer', ['"Qualcomm, Adreno (TM) 740"', 'UI-272']],
+    ['a model number that only begins as 730 does', fallbackRow({ gl: { renderer: 'Qualcomm, Adreno (TM) 7300', gles: 'OpenGL ES 3.2', reason: null } }), 'gl.renderer', ['"Qualcomm, Adreno (TM) 7300"', 'UI-272']],
+  ];
+  it.each(OFF_BACKEND)('a fallback row on %s is refused, naming the field and the reason', (_, bad, field, says) => {
+    expect(validateRow(bad)).toEqual([]);
+    const r = lib<Result<unknown>>('return E.readFallbackShot(input, "lawParity");', bad);
+    expect(r.error).toEqual({ name: 'EvidenceInputError', message: expect.stringContaining(`"${field}"`), isInput: true });
+    for (const s of says) expect(r.error!.message).toContain(s);
+  });
+
+  it('the backend it was validated on is read: the S22+’s own GPU line as the 91d6940 manifest records it, and the harness’s fake phone’s', () => {
+    const rows = [
+      fallbackRow({ gl: { renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.98 (GIT@0c393b63cf, I94e2bd5684, 1746191168) (Date:05/02/25)', reason: null } }),
+      fallbackRow({ gl: { renderer: 'Adreno (TM) 730', gles: 'OpenGL ES 3.2', reason: null } }),
+    ];
+    const r = lib<Result<unknown[]>>('return input.map((x) => E.readFallbackShot(x, "lawParity").fallbackScene);', rows);
+    expect(r).toEqual({ ok: ['one.C.right', 'one.C.right'] });
+  });
+
+  it('the guard is the fallback ring model’s alone: a field row on another GPU is still read', () => {
+    const r = lib<Result<unknown>>('return E.readFieldShot(input, "lawParity").scene;', fieldRow({ gl: { renderer: 'ARM, Mali-G710', gles: 'OpenGL ES 3.2', reason: null } }));
+    expect(r).toEqual({ ok: 'field.abyss.dark.one.joy.still' });
+  });
+
+  it('the guard names the backend from evidence.mts’s own exports, the ones the lawParity header prints', () => {
+    const r = lib<Result<{ skiaVersion: string; glRenderer: string; scope: string }>>('return { skiaVersion: E.RING_MODEL_BACKEND.skiaVersion, glRenderer: String(E.RING_MODEL_BACKEND.glRenderer), scope: E.RING_MODEL_SCOPE };');
+    expect(r.ok).toEqual({ skiaVersion: '2.6.9', glRenderer: '/\\bAdreno \\(TM\\) 730\\b/', scope: expect.stringContaining('2.6.9') });
+    expect(r.ok!.scope).toContain('/\\bAdreno \\(TM\\) 730\\b/');
   });
 
   it('a manifest with no rows list is refused, naming "rows"', () => {

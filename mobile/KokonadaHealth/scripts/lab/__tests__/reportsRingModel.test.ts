@@ -13,9 +13,15 @@
 //     is also the architect's): 12 distinct pixels, on the inner edge and the top of the outer edge, both faces;
 //   · eight pins on the outer edge, two faces by four quadrants: in each, the fractional-coverage outer-edge pixel nearest
 //     the diagonal at which an exact distance ramp (the brief's outer clamp(R_out + ½ − d)) is off by 2 or more. On the
-//     axes the two ramps agree; on the diagonals the phone's outer ramp is √2 px wide, so these pin which one it draws.
+//     axes the two ramps agree; on the diagonals the phone's outer ramp is √2 px wide, so these pin which one it draws;
+//   · eight tenth pins on the outer edge (RA-64), where the ring lies only 4–12 LSB from the ground, so a tenth of a pixel
+//     shows only where a byte already sits one level off: on each face and for each of R_out ± 0.1 px, the first two
+//     outer-edge pixels in reading order at which that plant moves the twin over ±1 while the twin holds ±1. Every one
+//     of the 44 rows turns red under either plant (122 to 566 px each); these hold it in the test.
 // The geometry is never the capture's (C1): the twin derives the centre and both radii from fallbackPlan at the row's
-// pixel ratio and stage, as lawParity does, and the rows here are the device's own (its screen, bars, stage and density).
+// pixel ratio and stage, as lawParity does, and the rows here are the device's own (its screen, bars, stage, density and
+// GPU line: the one backend the model was validated on, which readFallbackShot requires; reportsEvidence.test.ts holds
+// the refusal of any other).
 
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -55,7 +61,7 @@ interface DevicePixel {
   readonly rgb: Rgb;
   readonly edge: 'inner' | 'outer';
   /** Who named it. */
-  readonly by: ReadonlyArray<'architect' | 'designer' | 'outer pin'>;
+  readonly by: ReadonlyArray<'architect' | 'designer' | 'outer pin' | 'tenth pin'>;
 }
 interface DeviceShot {
   readonly scene: string;
@@ -80,6 +86,12 @@ const DEVICE: readonly DeviceShot[] = [
       { x: 240, y: 1510, rgb: [6, 20, 29], edge: 'outer', by: ['outer pin'] },
       { x: 843, y: 883, rgb: [3, 14, 23], edge: 'outer', by: ['outer pin'] },
       { x: 236, y: 883, rgb: [3, 14, 23], edge: 'outer', by: ['outer pin'] },
+      // R_out + 0.1 px moves these over ±1
+      { x: 531, y: 760, rgb: [3, 14, 22], edge: 'outer', by: ['tenth pin'] },
+      { x: 548, y: 760, rgb: [3, 14, 22], edge: 'outer', by: ['tenth pin'] },
+      // R_out − 0.1 px moves these over ±1
+      { x: 537, y: 760, rgb: [4, 14, 24], edge: 'outer', by: ['tenth pin'] },
+      { x: 538, y: 760, rgb: [4, 14, 24], edge: 'outer', by: ['tenth pin'] },
     ],
   },
   {
@@ -102,16 +114,24 @@ const DEVICE: readonly DeviceShot[] = [
       { x: 232, y: 1503, rgb: [246, 251, 251], edge: 'outer', by: ['outer pin'] },
       { x: 847, y: 887, rgb: [243, 249, 250], edge: 'outer', by: ['outer pin'] },
       { x: 232, y: 887, rgb: [243, 249, 250], edge: 'outer', by: ['outer pin'] },
+      // R_out + 0.1 px moves these over ±1
+      { x: 529, y: 760, rgb: [240, 248, 249], edge: 'outer', by: ['tenth pin'] },
+      { x: 532, y: 760, rgb: [241, 248, 248], edge: 'outer', by: ['tenth pin'] },
+      // R_out − 0.1 px moves these over ±1
+      { x: 531, y: 760, rgb: [242, 248, 249], edge: 'outer', by: ['tenth pin'] },
+      { x: 534, y: 760, rgb: [242, 248, 249], edge: 'outer', by: ['tenth pin'] },
     ],
   },
 ];
 
 /** The device's row for a shot, built by the harness's own builder (rows.ts) from what the manifest records. */
+/** The phone's GPU line as the 91d6940 manifest records it (its rows' `gl`): the backend the ring model was validated on. */
+const GL = { renderer: 'Qualcomm, Adreno (TM) 730', gles: 'OpenGL ES 3.2 V@0615.98 (GIT@0c393b63cf, I94e2bd5684, 1746191168) (Date:05/02/25)', reason: null };
 const deviceRow = (s: DeviceShot) =>
   row({
     shot: s.file.replace(/\.1\.png$/, ''), scene: s.scene, expect: { direction: 'abyss', face: s.face, hero: null, tier: null },
     file: s.file, sha256: s.sha256, screen: SCREEN, bars: BARS, stage: STAGE, density: 420,
-    shaderStatus: 'fallback-scene', shaderReason: 'the lab fallback scene: FieldFallback mounted directly',
+    shaderStatus: 'fallback-scene', shaderReason: 'the lab fallback scene: FieldFallback mounted directly', gl: GL,
   });
 const jobs = () => DEVICE.map((s) => ({ scene: s.scene, row: deviceRow(s), pixels: s.pixels.map((p) => [p.x, p.y]) }));
 
@@ -143,17 +163,41 @@ return out;`, jobs());
 
 // The plants: each changes one input of the model (or the model itself) and must turn the device pixels red under ±1
 // (C3), so a pass is the model's and not a blind fixture. The control is the same seam with nothing planted.
-type Plant = { name: string; kind: 'none' | 'canvaskit' | 'inner' | 'colour' | 'binary' | 'l2'; by?: number; channel?: number };
+// The designer's three (C3), the coordinator's R_out + 0.5 px, the architect's (iv) and (v), and two more of this task's
+// own: CanvasKit's ring itself, and the brief's R_in + 0.25 px mutation. A plant with `on` is judged on that scene's
+// pixels alone.
+type Plant = {
+  name: string;
+  kind: 'none' | 'canvaskit' | 'inner' | 'outer' | 'centre' | 'colour' | 'binary' | 'l2' | 'corner' | 'ground';
+  by?: number;
+  channel?: number;
+  dx?: number;
+  dy?: number;
+  on?: string;
+};
 const CONTROL: Plant = { name: 'nothing planted (the control)', kind: 'none' };
 const PLANTS: Plant[] = [
   { name: 'CanvasKit’s own ring (the twin before UI-272)', kind: 'canvaskit' },
   { name: 'R_in + 0.25 px', kind: 'inner', by: 0.25 },
-  { name: 'R_in + 0.5 px', kind: 'inner', by: 0.5 },
-  { name: 'plate.ring 3 LSB off in R', kind: 'colour', channel: 0 },
-  { name: 'plate.ring 3 LSB off in G', kind: 'colour', channel: 1 },
-  { name: 'plate.ring 3 LSB off in B', kind: 'colour', channel: 2 },
-  { name: 'the ring drawn without anti-aliasing', kind: 'binary' },
-  { name: 'the outer edge as an exact distance ramp, clamp(R_out + ½ − d)', kind: 'l2' },
+  { name: 'C3: R_in + 0.5 px', kind: 'inner', by: 0.5 },
+  { name: 'C3: plate.ring 3 LSB off in R', kind: 'colour', channel: 0 },
+  { name: 'C3: plate.ring 3 LSB off in G', kind: 'colour', channel: 1 },
+  { name: 'C3: plate.ring 3 LSB off in B', kind: 'colour', channel: 2 },
+  { name: 'C3: the ring drawn without anti-aliasing', kind: 'binary' },
+  { name: 'R_out + 0.5 px', kind: 'outer', by: 0.5 },
+  // The J plateau lies 105/76/36 from plate.ring, so a tenth of a pixel moves its edge pixels some 10 LSB: the model resolves it.
+  { name: '(iv) R_in + 0.1 px, on fallback-dark-one-j', kind: 'inner', by: 0.1, on: 'fallback.abyss.dark.one.J' },
+  // One formula for both edges cannot pass unnoticed: the straight-distance outer ramp left 236 dark and 411 light pixels over ±1 a scene.
+  { name: '(v) the outer edge as the straight-distance ramp, clamp(R_out + ½ − d), not the L1 form', kind: 'l2' },
+  // The resilience-auditor's (RA-64), each on the twin's ring layer; every one also turns all 44 rows of 91d6940 red.
+  { name: 'RA-64: R_in + 0.1 px', kind: 'inner', by: 0.1 },
+  { name: 'RA-64: R_in − 0.1 px', kind: 'inner', by: -0.1 },
+  { name: 'RA-64: R_out + 0.1 px', kind: 'outer', by: 0.1 },
+  { name: 'RA-64: R_out − 0.1 px', kind: 'outer', by: -0.1 },
+  { name: 'RA-64: the centre + 0.1 px in x', kind: 'centre', dx: 0.1 },
+  { name: 'RA-64: the centre + 0.1 px in y', kind: 'centre', dy: 0.1 },
+  { name: 'RA-64: the coverage taken at the pixel’s corner, not its centre', kind: 'corner' },
+  { name: 'RA-64: the lens edge blended over the ground, not over the glow', kind: 'ground' },
 ];
 
 /** The library's layers of each device row, composited by its compositeRing with each plant, read at the fixture's pixels. */
@@ -173,20 +217,33 @@ for (const job of input.jobs) {
     let planted = ring;
     let coverage;
     if (p.kind === 'inner') planted = { ...ring, inner: ring.inner + p.by };
+    if (p.kind === 'outer') planted = { ...ring, outer: ring.outer + p.by };
     if (p.kind === 'colour') { const c = hex(ring.colour); c[p.channel] += c[p.channel] + 3 > 255 ? -3 : 3; planted = { ...ring, colour: toHex(c) }; }
     if (p.kind === 'binary') coverage = (q, x, y) => { const d = Math.hypot(x + 0.5 - q.centre[0], y + 0.5 - q.centre[1]); return d >= q.inner && d <= q.outer ? 1 : 0; };
     if (p.kind === 'l2') coverage = (q, x, y) => { const d = Math.hypot(x + 0.5 - q.centre[0], y + 0.5 - q.centre[1]); return unit(d - q.inner + 0.5) * unit(q.outer + 0.5 - d); };
-    out[p.name].push(at(E.compositeRing(L.picture, L.under, planted, coverage)));
+    if (p.kind === 'centre') planted = { ...ring, centre: [ring.centre[0] + (p.dx ?? 0), ring.centre[1] + (p.dy ?? 0)] };
+    // The model's own coverage, read at the pixel's top left corner rather than its centre.
+    if (p.kind === 'corner') coverage = (q, x, y) => E.ringCoverage(q, x - 0.5, y - 0.5);
+    // Under the ring the ground's flat colour instead of the layers 1–3 the twin drew: at the lens edge, no glow.
+    let under = L.under;
+    if (p.kind === 'ground') {
+      const c = hex(L.plan.ground);
+      const rgba = new Uint8Array(L.under.rgba.length);
+      for (let i = 0; i < rgba.length; i += 4) { rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = 255; }
+      under = { width: L.under.width, height: L.under.height, rgba };
+    }
+    out[p.name].push(at(E.compositeRing(L.picture, under, planted, coverage)));
   }
 }
 return out;`, { jobs: jobs(), plants: [CONTROL, ...PLANTS] });
 
 describe('UI-272: the fallback twin’s ring against the S22+’s own pixels (91d6940 v1-field)', () => {
-  it('the guard: the fixture holds the 13 pixels the architect and the designer named, and the outer pins, on both faces and both edges', () => {
+  it('the guard: the fixture holds the 13 pixels the architect and the designer named, the outer pins and the tenth pins, on both faces and both edges', () => {
     const all = DEVICE.flatMap((s) => s.pixels.map((p) => ({ ...p, face: s.face, at: `${s.file} (${p.x}, ${p.y})` })));
     expect(all.filter((p) => p.by.includes('architect'))).toHaveLength(9);
     expect(all.filter((p) => p.by.includes('designer'))).toHaveLength(4);
     expect(all.filter((p) => p.by.includes('outer pin'))).toHaveLength(8);
+    expect(all.filter((p) => p.by.includes('tenth pin'))).toHaveLength(8);
     expect(new Set(all.map((p) => p.at)).size).toBe(all.length);
     for (const face of ['dark', 'light'] as const) for (const edge of ['inner', 'outer'] as const) expect(all.some((p) => p.face === face && p.edge === edge)).toBe(true);
     // The rows are the device's: the harness's own builder makes the app region the manifest records.
@@ -232,9 +289,14 @@ describe('UI-272: the fallback twin’s ring against the S22+’s own pixels (91
       expect(planted[CONTROL.name]).toEqual(twin.map((t) => t.pixels.map((p) => p.rgb)));
     });
 
-    it.each(PLANTS.map((p) => [p.name]))('%s turns the device pixels red under ±1', (name) => {
-      const red = deltas(planted[name]).filter((g) => g.max > 1);
+    it.each(PLANTS.map((p) => [p.name, p] as const))('%s turns the device pixels red under ±1', (name, plant) => {
+      const file = plant.on === undefined ? null : DEVICE.find((s) => s.scene === plant.on)!.file;
+      const red = deltas(planted[name]).filter((g) => g.max > 1 && (file === null || g.at.startsWith(`${file} `)));
       expect(red.length).toBeGreaterThan(0);
+    });
+
+    it('the guard: a plant judged on one scene names a scene the fixture holds', () => {
+      for (const p of PLANTS.filter((x) => x.on !== undefined)) expect(DEVICE.map((s) => s.scene)).toContain(p.on);
     });
   });
 });

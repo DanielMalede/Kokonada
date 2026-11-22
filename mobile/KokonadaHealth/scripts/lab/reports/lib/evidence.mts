@@ -26,8 +26,10 @@
 // played as the app's picture is) at the coverage the device draws (ringCoverage), an 8-bit src-over blend
 // (compositeRing); every other pixel is still FieldFallback's picture in CanvasKit, byte for byte. Every input of the
 // model is the plan's or the twin's, never a capture's. It was measured on one device backend only, the S22+ (SM-S906E,
-// Adreno 730, OpenGL ES 3.2, RN Skia 2.6.9) at 91d6940: scripts/lab/__tests__/reportsRingModel.test.ts holds it to that
-// phone's own pixels, and reportsTwin.skia.test.ts holds the rest of the twin to the app.
+// Adreno 730, OpenGL ES 3.2, RN Skia 2.6.9) at 91d6940, so readFallbackShot refuses a row recorded on any other
+// (RING_MODEL_BACKEND, the report side of UI-276), and a report's header names the model and its scope (RING_MODEL,
+// RING_MODEL_SCOPE): scripts/lab/__tests__/reportsRingModel.test.ts holds it to that phone's own pixels, and
+// reportsTwin.skia.test.ts holds the rest of the twin to the app.
 //
 // The rows' shape is the harness's (B8-5a/5b): a row carries no launch args; its px per dp is READY's `pixelRatio` (UI-240). The frame time is
 // READY's `clock` {mode, t}; the density, `device.density` (wm density), only cross-checks it; the stage is READY's stage probe in screen px,
@@ -314,6 +316,8 @@ export function readFallbackShot(row: unknown, report: string): FallbackShot {
   if (fallbackTaps(direction, fallbackScene) === undefined) refuse(r, report, 'scene', `names no fallback scene: ${JSON.stringify(fallbackScene)}`);
   const status = needString(r, report, 'shaderStatus');
   if (status !== 'fallback-scene') refuse(r, report, 'shaderStatus', `is ${JSON.stringify(status)}: a fallback.* shot must be drawn by the lab fallback scene`);
+  // The twin's ring is modelled on the one backend it was validated on (UI-272): a row recorded on any other is not its.
+  refuseOffBackend(r, report);
   const stage = readStage(r, report, cap.region);
   const pxPerDp = readPxPerDp(r, report);
   need(r, report, 'fontScale');
@@ -632,6 +636,34 @@ export function ringCoverage(ring: Ring, x: number, y: number): number {
   // At the ring's very centre the gradient is zero: the outer edge is then all ring or none.
   const outer = l1 > 0 ? unit(0.5 + (ring.outer * ring.outer - d * d) / l1) : ring.outer > 0 ? 1 : 0;
   return unit(d - ring.inner + 0.5) * outer;
+}
+
+/**
+ * The one device backend the ring model was validated on (UI-272; the report side of UI-276): the RN Skia a row records
+ * (`skiaVersion`) and its GL renderer (`gl.renderer`, as lib/device.mjs reads it from dumpsys SurfaceFlinger).
+ */
+export const RING_MODEL_BACKEND = { skiaVersion: '2.6.9', glRenderer: /\bAdreno \(TM\) 730\b/ } as const;
+
+/** The ring model as a report's header names it: each edge's coverage, and the backend it was validated on. */
+export const RING_MODEL = 'the fallback ring: inner exact clamp(d − R_in + ½), outer L1 clamp(½ + (R_out² − d²)/(2(|dx|+|dy|))), validated on Skia GL / Adreno 730 at 91d6940';
+
+/** The rows the ring model is applied to, as a report's header says it: readFallbackShot refuses every other. */
+export const RING_MODEL_SCOPE = `the fallback ring model applies only to rows recorded with skiaVersion ${RING_MODEL_BACKEND.skiaVersion} and a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}; any other fallback row is refused, with the reason`;
+
+/** A fallback row recorded on any backend but the one the ring model was validated on is refused, naming the field and why. */
+function refuseOffBackend(row: Row, report: string): void {
+  const skia = needString(row, report, 'skiaVersion');
+  if (skia !== RING_MODEL_BACKEND.skiaVersion) {
+    refuse(row, report, 'skiaVersion', `is ${JSON.stringify(skia)}: the fallback ring model (UI-272) was validated on RN Skia ${RING_MODEL_BACKEND.skiaVersion} only, so its twin's ring would not be this row's`);
+  }
+  need(row, report, 'gl');
+  const gl = row.gl as { renderer?: unknown; reason?: unknown };
+  if (gl.renderer === null || gl.renderer === undefined) {
+    refuse(row, report, 'gl.renderer', `was not recorded (${JSON.stringify(gl.reason ?? null)}): the fallback ring model (UI-272) applies only to a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}`);
+  }
+  if (typeof gl.renderer !== 'string' || !RING_MODEL_BACKEND.glRenderer.test(gl.renderer)) {
+    refuse(row, report, 'gl.renderer', `is ${JSON.stringify(gl.renderer)}: the fallback ring model (UI-272) was validated only on a GL renderer matching ${RING_MODEL_BACKEND.glRenderer}`);
+  }
 }
 
 /** plate.ring's bytes: the model draws an opaque #RRGGBB token, and refuses any other colour rather than guess one. */

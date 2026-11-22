@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { withValue, without } from '../reports/__fixtures__/rows';
 
@@ -146,8 +147,23 @@ describe('lawParity on a planted run within ±1', () => {
     const esc = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     // The tree's state is the checkout's at the run (lib/provenance.mjs, held by reportsProvenance.test.ts on planted checkouts).
     expect(lines[at + 1]).toMatch(new RegExp(`^report: commit ${head}, (a clean tree|with uncommitted changes in \\d+ paths?); the twin: canvaskit-wasm ${esc(version('canvaskit-wasm'))}, @shopify/react-native-skia ${esc(version('@shopify/react-native-skia'))}$`));
-    expect(lines[at + 2]).toMatch(/^tolerance: ±1 per channel/);
-    expect(lines[at + 3]).toBe('measured, not judged (UI-274): the signed Δ (capture − twin) of each channel, overall and by the twin\'s value of the channel (0–63, 64–127, 128–255), and the largest 8-connected group of pixels over 1');
+    // Then the fallback ring model's two lines (UI-272, the test below).
+    expect(lines[at + 4]).toMatch(/^tolerance: ±1 per channel/);
+    expect(lines[at + 5]).toBe('measured, not judged (UI-274): the signed Δ (capture − twin) of each channel, overall and by the twin\'s value of the channel (0–63, 64–127, 128–255), and the largest 8-connected group of pixels over 1');
+  });
+
+  it('UI-272: the header names the fallback ring model and the one backend it was validated on, from evidence.mts’s own exports', () => {
+    const lines = r.report!.split(/\r?\n/);
+    const at = lines.findIndex((l) => l.startsWith('report: '));
+    const lib = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `const E = await import(${JSON.stringify(pathToFileURL(path.join(APP, 'scripts/lab/reports/lib/evidence.mts')).href)}); process.stdout.write(JSON.stringify([E.RING_MODEL, E.RING_MODEL_SCOPE]));`], { cwd: APP, encoding: 'utf8' });
+    expect(lib.stderr).toBe('');
+    const [model, scope] = JSON.parse(lib.stdout) as [string, string];
+    expect(model).toBe('the fallback ring: inner exact clamp(d − R_in + ½), outer L1 clamp(½ + (R_out² − d²)/(2(|dx|+|dy|))), validated on Skia GL / Adreno 730 at 91d6940');
+    expect(scope).toBe('the fallback ring model applies only to rows recorded with skiaVersion 2.6.9 and a GL renderer matching /\\bAdreno \\(TM\\) 730\\b/; any other fallback row is refused, with the reason');
+    expect(lines.slice(at + 1, at + 3)).toEqual([model, scope]);
+    // The report prints the library's text and never spells its facts again itself: the formula, the GPU, the Skia, the commit.
+    const source = fs.readFileSync(SCRIPT, 'utf8');
+    for (const spelled of ['clamp(d − R_in', 'R_out²', 'Adreno', '2.6.9', '91d6940']) expect({ spelled, inLawParity: source.includes(spelled) }).toEqual({ spelled, inLawParity: false });
   });
 
   it.each(SHOTS)('UI-274: %s: the signed Δ per channel as planted, overall and by the band of the twin\'s value, the bands adding up to the channel; no group over 1', async (shot) => {
@@ -457,6 +473,21 @@ describe('lawParity refuses what it cannot use, and never overwrites', () => {
     const r = run(dir);
     expect(r.status).toBe(2);
     expect(r.stderr).toContain('"stage"');
+  });
+
+  // UI-272, the report side of UI-276: the fallback ring model holds only on the backend it was validated on.
+  it.each([
+    ['gl.renderer', 'ARM, Mali-G710'],
+    ['skiaVersion', '2.7.0'],
+  ])('UI-272: a fallback row whose "%s" is %s, a backend the ring model was not validated on: exit 2, naming the field and the value, no report', (field, value) => {
+    const dir = copySet('parity-pass');
+    editManifest(dir, (rows) => rows.map((x, i) => (i === 3 ? withValue(x, field, value) : x)));
+    const r = run(dir);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`"${field}"`);
+    expect(r.stderr).toContain(JSON.stringify(value));
+    expect(r.stderr).toContain('fb-light-rest.1');
+    expect(r.report).toBeNull();
   });
 
   it('a capture whose PNG is not the row’s: exit 2, naming "sha256"', () => {
