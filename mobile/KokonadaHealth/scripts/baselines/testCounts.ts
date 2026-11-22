@@ -24,6 +24,9 @@ export type PackageCounts =
   | { numTotalTestSuites: number; numTotalTests: number; numPendingTests: number; numTodoTests: number }
   | { notMeasured: string };
 
+/** One test file of the measured run: its tests (jest counts skipped and todo ones in them), pending, todo. */
+export type FileCounts = readonly [tests: number, pending: number, todo: number];
+
 export interface TestCounts {
   sha: string;
   measuredAt: string;
@@ -35,6 +38,12 @@ export interface TestCounts {
   backend: PackageCounts;
   /** Where the counts were cross-checked (a CI run on the same SHA), if anywhere. */
   crossCheck?: string;
+  /**
+   * The same mobile run per file (OPS-412): [tests, pending, todo] keyed by the path relative to the app,
+   * posix, in code unit order; the keys are exactly TEST_FLOOR.paths, so a RETIRE `file` entry discounts its
+   * own row.
+   */
+  files: { mobile: Readonly<Record<string, FileCounts>> };
 }
 
 const positiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;

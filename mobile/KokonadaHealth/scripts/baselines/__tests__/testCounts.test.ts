@@ -1,9 +1,11 @@
 /// <reference types="node" />
 import { spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
-import { readTestCounts, testCountsPath, validateTestCounts, type TestCounts } from '../testCounts';
+import { TEST_FLOOR } from '../../../src/__contracts__/testFloor.baseline';
+import { readTestCounts, testCountsPath, validateTestCounts, type FileCounts, type TestCounts } from '../testCounts';
 
 // QA-042 (Stage 0 Q2): the real mobile and backend test counts, measured with `jest --ci --json` on a clean
 // main at a recorded SHA, live in one file, scripts/baselines/test-counts.json, the one place QA-041 reads.
@@ -83,7 +85,9 @@ describe('OPS-412 · plain Node imports the module', () => {
     const script = [
       `const m = await import(${JSON.stringify(pathToFileURL(MODULE).href)});`,
       `const c = m.readTestCounts(m.testCountsPath(${JSON.stringify(APP)}));`,
-      'console.log(JSON.stringify({ exports: Object.keys(m).sort(), mobile: c.mobile }));',
+      'const rows = Object.values(c.files.mobile);',
+      'const sums = [0, 1, 2].map((i) => rows.reduce((n, r) => n + r[i], 0));',
+      'console.log(JSON.stringify({ exports: Object.keys(m).sort(), mobile: c.mobile, rows: rows.length, sums }));',
     ].join('\n');
     const r = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: os.tmpdir(), encoding: 'utf8', timeout: 60_000 });
     // stderr is shown only when the import fails; a warning on a passing run is not asserted away.
@@ -91,6 +95,35 @@ describe('OPS-412 · plain Node imports the module', () => {
     expect(JSON.parse(r.stdout.trim())).toEqual({
       exports: ['readTestCounts', 'testCountsPath', 'validateTestCounts'],
       mobile: { numTotalTestSuites: 219, numTotalTests: 3209, numPendingTests: 1, numTodoTests: 0 },
+      rows: 219,
+      sums: [3209, 1, 0],
     });
+  });
+});
+
+// OPS-412 plan decision 1: files.mobile is the 988bab3 run per file, [tests, pending, todo] for each file of
+// TEST_FLOOR.paths, so a RETIRE `file` entry discounts exactly its own file's tests. Its SHA-256 was computed by
+// the step 1 measurement from the raw run (runs/q2-mobile-jest.json, itself SHA-256 4750eb85...), never from
+// this file: one line per file, `path TAB tests TAB pending TAB todo`, joined by LF, in record order. A count,
+// key or order changed by hand fails here.
+const MEASURED_RECORD_SHA256 = 'da00ecaf03d86393827e400ee333ee3faa769ce46e9f55cbbb37990e65003a55';
+const recordSha256 = (rows: Readonly<Record<string, FileCounts>>): string =>
+  createHash('sha256').update(Object.entries(rows).map(([file, counts]) => [file, ...counts].join('\t')).join('\n')).digest('hex');
+
+describe('OPS-412 · files.mobile, the 988bab3 run per file', () => {
+  let recorded: TestCounts;
+  beforeAll(() => { recorded = readTestCounts(testCountsPath(APP)); });
+
+  it('is the measured record: its SHA-256 is the one derived from the raw run', () => {
+    expect(recordSha256(recorded.files.mobile)).toBe(MEASURED_RECORD_SHA256);
+  });
+
+  it('names exactly the files of TEST_FLOOR.paths, in code unit order, and its rows sum to the mobile totals', () => {
+    const rows = recorded.files.mobile;
+    expect(Object.keys(rows)).toEqual([...TEST_FLOOR.paths]);
+    const sum = (i: number) => Object.values(rows).reduce((n, r) => n + r[i], 0);
+    expect([Object.keys(rows).length, sum(0), sum(1), sum(2)]).toEqual([219, 3209, 1, 0]);
+    expect(rows['scripts/lab/__tests__/bundleAndBuild.test.ts']).toEqual([17, 1, 0]); // the run's one pending test
+    expect(rows['src/experience/playback/__tests__/NowPlayingScreen.test.tsx']).toEqual([57, 0, 0]);
   });
 });
