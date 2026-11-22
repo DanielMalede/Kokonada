@@ -126,7 +126,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `test/ops412-qa041-cli`
 - paths: `TASKS.md`, `mobile/KokonadaHealth/scripts/baselines/**`, `mobile/KokonadaHealth/src/testing/guards/retireRule.ts`, `mobile/KokonadaHealth/src/testing/guards/retire.ts`, `mobile/KokonadaHealth/src/testing/__tests__/retireRule.test.ts`, `docs/design-v2/registry/QA-040.md`, `docs/design-v2/registry/QA-041.md`, `docs/design-v2/registry/QA-042.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #303
 - started: 2026-11-22
 
 ### M08
