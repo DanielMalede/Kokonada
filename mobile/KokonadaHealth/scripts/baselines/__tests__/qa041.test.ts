@@ -1,5 +1,9 @@
 /// <reference types="node" />
-import type { TestCounts } from '../testCounts';
+import { CONTRACTS } from '../../../src/__contracts__/manifest';
+import { RETIRE } from '../../../src/__contracts__/retire';
+import { TEST_FLOOR } from '../../../src/__contracts__/testFloor.baseline';
+import { APP_ROOT } from '../../../src/testing/guards/productionImports';
+import { readTestCounts, testCountsPath, type TestCounts } from '../testCounts';
 import {
   asFloorList, asManifest, asRetire, checkInputs, decide, formatVerdict, isTestPath, parseArgs, RULES, USAGE,
   type Inputs, type ResultsFile, type RuleId, type Verdict,
@@ -610,5 +614,52 @@ describe('QA-041 \u00b7 --check-inputs (the data loads, or it says which part do
     const v = checkInputs({ ...loaded, counts: { value: { ...COUNTS, mobile: { notMeasured: 'jest could not start' }, files: { mobile: {} } } } });
     expect(v.exit).toBe(0);
     expect(v.lines[0]).toBe(`scripts/baselines/test-counts.json: measured at ${AT}; mobile not measured (jest could not start); backend 3209 tests (1 pending, 0 todo)`);
+  });
+});
+
+describe('QA-041 · the rules on the recorded baseline itself (in memory; no tree read, no CLI run)', () => {
+  // A run built from the real per-file record (each file's [tests, pending, todo]) and the real manifest's
+  // titles, read against the real RETIRE and TEST_FLOOR; the tree at the floor SHA is taken as the floor list.
+  const real = readTestCounts(testCountsPath(APP_ROOT));
+  const recordRun = (): Spec => {
+    const spec: Record<string, Row[]> = {};
+    for (const [file, [n, p, todo]] of Object.entries(real.files.mobile)) {
+      spec[file] = range(n).map((i) => [`${file} t${i}`, i < p ? 'pending' : i < p + todo ? 'todo' : 'passed'] as const);
+    }
+    for (const refs of Object.values(CONTRACTS)) {
+      for (const { file, fullTitle } of refs) {
+        const list = spec[file] ?? (spec[file] = []);
+        const free = list.findIndex(([n, s]) => s === 'passed' && n.startsWith(`${file} t`));
+        if (free < 0) list.push([fullTitle, 'passed']);
+        else list[free] = [fullTitle, 'passed'];
+      }
+    }
+    return spec;
+  };
+  const onRecord = (spec: Spec): Inputs => inputs({
+    results: runOf(spec),
+    locate: (name) => (name.startsWith(`${ROOT}/`) ? name.slice(ROOT.length + 1) : null),
+    counts: { value: real },
+    retire: { value: RETIRE },
+    manifest: { value: CONTRACTS },
+    floor: { value: TEST_FLOOR },
+    floorTree: { state: 'ok', paths: TEST_FLOOR.paths },
+  });
+  const first = Object.keys(real.files.mobile)[0];
+  const rea = real.sha.slice(0, 12);
+
+  it('the recorded run itself exits 0, every rule on', () => {
+    expect(real.mobile).toEqual({ numTotalTestSuites: 219, numTotalTests: 3209, numPendingTests: 1, numTodoTests: 0 });
+    const v = decide(onRecord(recordRun()));
+    expect(v.lines).toContain(`floor: mobile ran 3209 tests: 3209 >= floor 3209 (the baseline's 3209 at ${rea})`);
+    expect(v.exit).toBe(0);
+  });
+
+  it('planted: one test deleted from it exits 1 with "3208 < floor 3209"; one more skip exits 1 through RA-5', () => {
+    const run = recordRun();
+    const deleted = { ...run, [first]: run[first].slice(0, -1) };
+    expect(decide(onRecord(deleted))).toEqual({ exit: 1, lines: [`floor: mobile ran 3208 tests: 3208 < floor 3209 (the baseline's 3209 at ${rea})`] });
+    const skipped = { ...run, [first]: run[first].map(([n, s], i) => [n, i === run[first].length - 1 ? 'pending' : s] as const) };
+    expect(decide(onRecord(skipped))).toEqual({ exit: 1, lines: [`RA-5: mobile has 2 pending and todo tests (2 pending, 0 todo): 2 > bound 1 (the baseline's 1 at ${rea})`] });
   });
 });
