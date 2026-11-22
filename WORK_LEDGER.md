@@ -121,13 +121,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-22
 
 ### M07
-- task: `OPS-066` (TASKS)
-- title: Stage 0 Q2: scoped tsc and the full-project type ratchet (QA-043), the recorded test counts (QA-042), the QA-115 action-props scanner
-- branch: `test/s0-q2-tsc`
-- paths: `mobile/KokonadaHealth/scripts/tsc/**`, `mobile/KokonadaHealth/scripts/baselines/**`, `mobile/KokonadaHealth/src/testing/guards/tsProgram.ts`, `mobile/KokonadaHealth/src/testing/__tests__/tsProgram.test.ts`, `docs/design-v2/registry/QA-042.md`, `docs/design-v2/registry/QA-043.md`, `docs/design-v2/registry/QA-115.md`, `TASKS.md`
+- task: `OPS-412` (TASKS)
+- title: QA-041 proper, part A: the test-count floor CLI (per-file record, RETIRE discount, RA-5 bound, RA-7 manifest passed, RA-9 floor re-derived), no ci.yml
+- branch: `test/ops412-qa041-cli`
+- paths: `TASKS.md`, `mobile/KokonadaHealth/scripts/baselines/**`, `mobile/KokonadaHealth/src/testing/guards/retireRule.ts`, `mobile/KokonadaHealth/src/testing/guards/retire.ts`, `mobile/KokonadaHealth/src/testing/__tests__/retireRule.test.ts`, `docs/design-v2/registry/QA-040.md`, `docs/design-v2/registry/QA-041.md`, `docs/design-v2/registry/QA-042.md`
 - resources: none
 - state: claimed
-- started: 2026-11-17
+- started: 2026-11-22
 
 ### M08
 - task: `OPS-065` (TASKS)
