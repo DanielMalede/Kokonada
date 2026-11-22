@@ -9,6 +9,10 @@ const healthStore = require('../services/wearable/healthStore');
 const { ingestV2Batch } = require('../services/wearable/healthStoreV2');
 const { parseHealthBatchRequest } = require('../services/wearable/healthBatchContract');
 const garminIngest = require('../services/wearable/garminIngest');
+// BE-220: the Garmin Developer Program tier, a frozen code constant (Starter: no backfill).
+const garminTier = require('../services/wearable/garminTier');
+// BE-219: Garmin's granted permissions, parsed closed.
+const garminPermissions = require('../services/wearable/garminPermissions');
 // garminUserId is encrypted (T3.3) — resolve the webhook's plaintext gid via its blind index.
 const { resolveGarminUser } = require('../services/wearable/garminUserLookup');
 // W4-D10: the ingest receipt log names the metrics a batch touched, never their values.
@@ -492,29 +496,38 @@ exports.garminCallback = async (req, res) => {
 
     const tokens = await garmin.exchangeCode(code, payload.cv);
     const { garminUserId } = await garmin.getUserId(tokens.accessToken); // verify token works
+    // BE-219: what the user granted on Garmin's consent screen, read before anything is stored. A body
+    // that cannot be read throws, so the connect fails and no link with unknown permissions is kept.
+    const permissions = await garmin.getUserPermissions(tokens.accessToken);
 
-    // Store the OAuth2 token set (access + refresh + expiry). garminUserId is also
-    // kept in plaintext so the server-to-server webhook can route pushes.
+    // Store the OAuth2 token set (access + refresh + expiry) and the granted permissions, all inside
+    // the encrypted blob. garminUserId is also kept (encrypted, with its blind index) so the
+    // server-to-server webhook can route pushes.
     user.wearableProvider = 'garmin';
     user.garminUserId = garminUserId;
-    user.setToken('wearableToken', { ...tokens, garminUserId });
+    user.setToken('wearableToken', { ...tokens, garminUserId, permissions, permissionsAt: Math.floor(Date.now() / 1000) });
     await user.save();
     await burnState(payload); // single-use
 
-    // Art.9 consent gate (audit H-9 follow-up): the ~6-month backfill makes Garmin push 6 months
-    // of special-category history to our webhook, so it must NOT be requested for a user without a
-    // current consent grant. The webhook itself also drops unconsented data (defense in depth), but
-    // we don't even ask for it here. If/when the user consents, a later sync re-establishes the grant.
-    const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
-    if (isCurrentGrant(consent)) {
-      // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
-      // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
-      setImmediate(async () => {
-        try { await garmin.requestSixMonthBackfill(tokens.accessToken); }
-        catch (e) { console.error('[garmin] backfill kickoff failed:', e.message); }
-      });
-    } else {
-      console.info(`[garmin] backfill skipped — no current Art.9 consent for user ${user._id}`);
+    // BE-220: Starter includes no historical data, so at Starter (garminTier.js, the shipped tier) Garmin
+    // is asked for no backfill at all and the consent read below never runs.
+    if (garminTier.garminBackfillIncluded()) {
+      // Art.9 consent gate (audit H-9 follow-up): the ~6-month backfill makes Garmin push 6 months
+      // of special-category history to our webhook, so it must NOT be requested for a user without a
+      // current consent grant. The webhook itself also drops unconsented data (defense in depth), but
+      // we don't even ask for it here. If/when the user consents, a later sync re-establishes the grant.
+      const consent = await getConsentStatus(user._id, HEALTH_CONSENT_PURPOSE);
+      if (isCurrentGrant(consent)) {
+        // Kick off the ~6-month historical backfill (async, best-effort) — Garmin then
+        // pushes the historical summaries to our webhook. (garmin.requestSixMonthBackfill)
+        setImmediate(async () => {
+          try { await garmin.requestSixMonthBackfill(tokens.accessToken); }
+          catch (e) { console.error('[garmin] backfill kickoff failed:', e.message); }
+        });
+      } else {
+        // T1: count-only, never the user id.
+        console.info('[garmin] backfill skipped: no current Art.9 consent');
+      }
     }
 
     oauthRedirect(res, target, 'biometric=garmin');
@@ -541,6 +554,83 @@ exports.garminDisconnect = async (req, res, next) => {
     res.json({ message: 'Garmin disconnected' });
   } catch (err) { next(err); }
 };
+
+// ── Garmin notifications (BE-219) ───────────────────────────────────────────────
+//
+// Two keys of the webhook body are notices, not summaries:
+//   deregistrations        the user removed the app in Garmin Connect: erase the Garmin link and data.
+//   userPermissionsChange  the user changed what they share ("Post consent changes will be notified via
+//                          the User_Permission webhook", the PKCE spec of 2025-07-23): store the new list in
+//                          the encrypted token blob, which the ingest seam narrows to; a list without
+//                          HEALTH_EXPORT leaves nothing this app may ingest, so it purges like a deregistration.
+// Their entry shapes are not in the sources on file, so each is read CLOSED: `userId` must be a non-empty
+// string, `permissions` an array (garminPermissions.parsePermissionList), `changeTimeInSeconds` a finite
+// number when present. Anything else is ignored and counted as malformed; an unknown Garmin user is ignored
+// and counted. Neither notice is gated on consent: an erasure or a narrowing must run whatever the consent
+// state. Both erasures skip the call back to Garmin, which started them. One count-only line (T1).
+const GARMIN_NOTICE_TYPES = new Set(['deregistrations', 'userPermissionsChange']);
+
+const _noticeUserId = (entry) => (typeof entry?.userId === 'string' && entry.userId !== '' ? entry.userId : null);
+
+async function handleGarminNotices(body) {
+  const counts = { deregistered: 0, revoked: 0, narrowed: 0, stale: 0, unknown: 0, untracked: 0, malformed: 0 };
+  const has = (key) => Object.prototype.hasOwnProperty.call(body || {}, key);
+  if (!has('deregistrations') && !has('userPermissionsChange')) return counts;
+
+  // Deregistrations: one erasure per Garmin user, however often the notice lists them.
+  const deregister = new Set();
+  if (has('deregistrations')) {
+    const list = body.deregistrations;
+    if (!Array.isArray(list)) counts.malformed += 1;
+    else for (const entry of list) {
+      const gid = _noticeUserId(entry);
+      if (gid) deregister.add(gid); else counts.malformed += 1;
+    }
+  }
+
+  // Permission changes: the latest change per Garmin user (by changeTimeInSeconds, else the later entry).
+  const changes = new Map(); // gid -> { permissions, at }
+  if (has('userPermissionsChange')) {
+    const list = body.userPermissionsChange;
+    if (!Array.isArray(list)) counts.malformed += 1;
+    else for (const entry of list) {
+      const gid = _noticeUserId(entry);
+      const parsed = gid ? garminPermissions.parsePermissionList(entry.permissions) : null;
+      const rawAt = entry?.changeTimeInSeconds;
+      const at = rawAt === undefined ? null : (Number.isFinite(rawAt) ? rawAt : NaN);
+      if (!gid || !parsed || Number.isNaN(at)) { counts.malformed += 1; continue; }
+      const prior = changes.get(gid);
+      if (!prior || at === null || prior.at === null || at >= prior.at) changes.set(gid, { permissions: parsed.permissions, at });
+    }
+  }
+
+  for (const gid of deregister) {
+    const user = await resolveGarminUser(gid);
+    if (!user) { counts.unknown += 1; continue; }
+    await eraseWearableProvider(user, 'garmin', { deregisterWithGarmin: false });
+    counts.deregistered += 1;
+    changes.delete(gid); // nothing left to narrow
+  }
+
+  for (const [gid, { permissions, at }] of changes) {
+    const user = await resolveGarminUser(gid);
+    if (!user) { counts.unknown += 1; continue; }
+    const blob = user.getToken('wearableToken');
+    if (at !== null && Number.isFinite(blob?.permissionsAt) && at < blob.permissionsAt) { counts.stale += 1; continue; }
+    if (!garminPermissions.hasHealthPermission(permissions)) {
+      await eraseWearableProvider(user, 'garmin', { deregisterWithGarmin: false });
+      counts.revoked += 1;
+      continue;
+    }
+    if (!blob) { counts.untracked += 1; continue; } // a link with no token blob has nowhere to keep the list
+    user.setToken('wearableToken', { ...blob, permissions, permissionsAt: at ?? Math.floor(Date.now() / 1000) });
+    await user.save();
+    counts.narrowed += 1;
+  }
+
+  console.info(`[garmin] notices deregistered=${counts.deregistered} revoked=${counts.revoked} narrowed=${counts.narrowed} stale=${counts.stale} unknown=${counts.unknown} untracked=${counts.untracked} malformed=${counts.malformed}`);
+  return counts;
+}
 
 // POST /api/integrations/garmin/webhook  (PUBLIC — Garmin Health API server-to-server push)
 // Garmin posts { <summaryType>: [ { userId, ...summary }, ... ], ... }. There is no
@@ -572,8 +662,12 @@ exports.garminWebhook = async (req, res, next) => {
       return res.status(401).json({ error: 'unauthorized' });
     }
 
+    // BE-219: Garmin's notifications are routed first and never reach the seam as summary types.
+    await handleGarminNotices(req.body);
+
     const byGarminUser = new Map(); // garminUserId -> [{ type, summary }]
     for (const [type, list] of Object.entries(req.body || {})) {
+      if (GARMIN_NOTICE_TYPES.has(type)) continue;
       if (!Array.isArray(list)) continue;
       for (const summary of list) {
         const gid = summary?.userId;

@@ -41,7 +41,7 @@ jest.mock('../app/services/youtube', () => ({
   paginatePlaylistItems: jest.fn(),
   searchRecommendations: jest.fn(),
 }));
-jest.mock('../app/services/wearable/garmin',      () => ({ isConfigured: jest.fn().mockReturnValue(true), generatePKCE: jest.fn().mockReturnValue({ codeVerifier: 'cv', codeChallenge: 'cc' }), getAuthUrl: jest.fn(), exchangeCode: jest.fn(), getUserId: jest.fn(), requestSixMonthBackfill: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('../app/services/wearable/garmin',      () => ({ isConfigured: jest.fn().mockReturnValue(true), generatePKCE: jest.fn().mockReturnValue({ codeVerifier: 'cv', codeChallenge: 'cc' }), getAuthUrl: jest.fn(), exchangeCode: jest.fn(), getUserId: jest.fn(), getUserPermissions: jest.fn().mockResolvedValue(['HEALTH_EXPORT']), requestSixMonthBackfill: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('../app/services/wearable/appleHealth', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/healthStore', () => ({ ingestBatch: jest.fn() }));
 jest.mock('../app/services/wearable/suunto',      () => ({ verifyWebhookSignature: jest.fn(), handleWebhook: jest.fn() }));
@@ -447,14 +447,16 @@ describe('integrationsController — buildProfile wiring', () => {
       expect(garmin.exchangeCode).toHaveBeenCalledWith('auth-code', 'verifier');
       expect(garmin.getUserId).toHaveBeenCalledWith('gat');
       expect(user.garminUserId).toBe('garmin-99');
-      expect(user.setToken).toHaveBeenCalledWith('wearableToken', expect.objectContaining({ accessToken: 'gat', garminUserId: 'garmin-99' }));
+      expect(user.setToken).toHaveBeenCalledWith('wearableToken', expect.objectContaining({ accessToken: 'gat', garminUserId: 'garmin-99', permissions: ['HEALTH_EXPORT'] }));
       expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?biometric=garmin');
     });
 
-    it('skips the 6-month backfill when the user has no current Art.9 consent (still connects)', async () => {
+    // BE-220: Starter (garminTier.js, the shipped tier) includes no history, so no backfill is requested and the
+    // consent read that guarded it does not run. The tier switch and its non-vacuity are pinned on real Mongo in
+    // garminTierBackfill.test.js.
+    it('requests no backfill at Starter and does not read consent for it (still connects)', async () => {
       garmin.exchangeCode.mockResolvedValue({ accessToken: 'gat', refreshToken: 'grt', expiresAt: Date.now() + 3600000 });
       garmin.getUserId.mockResolvedValue({ garminUserId: 'garmin-99' });
-      getConsentStatus.mockResolvedValueOnce({ granted: false, currentVersion: 1, staleVersion: false });
       User.findById.mockResolvedValue(buildUser());
       const res = buildRes();
 
@@ -462,6 +464,7 @@ describe('integrationsController — buildProfile wiring', () => {
       await nextTick(); // let any (wrongly) scheduled setImmediate backfill run
 
       expect(garmin.requestSixMonthBackfill).not.toHaveBeenCalled(); // never asks Garmin to push history
+      expect(getConsentStatus).not.toHaveBeenCalled();
       expect(res.redirect).toHaveBeenCalledWith('kokonada://integrations?biometric=garmin'); // connection still succeeds
     });
 

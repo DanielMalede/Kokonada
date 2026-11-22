@@ -46,9 +46,11 @@ describe('garminIngest.ingestSummaries', () => {
     ]));
     // Additive (T2): every earlier field keeps its meaning; the retention count is the one new field.
     // BE-205: an admitted push says so, `refused: null`; a refusal names its code. BE-206 adds the
-    // future-cap count, passed on from the store.
+    // future-cap count, passed on from the store. BE-219 adds the count of summaries dropped as outside the
+    // user's Garmin permissions (none here: this user has no stored record, so nothing is narrowed; the
+    // narrowing is pinned on real Mongo in garminUserPermissions.integration.test.js).
     expect(res).toEqual({
-      accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0, refused: null,
+      accepted: 2, inserted: 1, profileMetrics: { sleepDeep: 60 }, droppedOutsideRetention: 0, droppedInFuture: 0, droppedNotPermitted: 0, refused: null,
     });
   });
 

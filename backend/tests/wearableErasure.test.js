@@ -287,6 +287,28 @@ describe('eraseWearableProvider — Garmin deregistration (Wave 6 T4, flag-gated
     expect(res.deregistration).toBeUndefined();
   });
 
+  // BE-219: Garmin's own deregistration (or a full permission revocation) starts this erasure from the webhook.
+  // The registration the outbound call would delete is Garmin's to drop and already gone, so the caller skips it.
+  it('skips the call back to Garmin when the caller says Garmin started it, even with the flag enabled', async () => {
+    process.env.GARMIN_DEREGISTER_ENABLED = 'true';
+    const user = makeGarminUser();
+    const res = await eraseWearableProvider(user, 'garmin', { deregisterWithGarmin: false });
+    expect(garmin.getValidToken).not.toHaveBeenCalled();
+    expect(garmin.deregisterUser).not.toHaveBeenCalled();
+    expect(res.deregistration).toEqual({ attempted: false, skipped: 'garmin_initiated' });
+    // the local erasure ran in full
+    expect(user.wearableProvider).toBeNull();
+    expect(user.save).toHaveBeenCalled();
+    expect(BiometricLog.deleteMany).toHaveBeenCalledWith({ userId: USER, source: 'garmin' });
+  });
+
+  it('the option defaults to calling Garmin (the flag still decides): an explicit true behaves as before', async () => {
+    process.env.GARMIN_DEREGISTER_ENABLED = 'true';
+    const res = await eraseWearableProvider(makeGarminUser(), 'garmin', { deregisterWithGarmin: true });
+    expect(garmin.deregisterUser).toHaveBeenCalledWith('valid-access-token');
+    expect(res.deregistration).toEqual({ attempted: true, ok: true });
+  });
+
   it('still completes the local erasure when Garmin deregistration fails (best-effort)', async () => {
     process.env.GARMIN_DEREGISTER_ENABLED = 'true';
     garmin.deregisterUser.mockRejectedValue(new Error('garmin 500'));
