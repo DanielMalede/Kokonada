@@ -438,15 +438,21 @@ function applyIntentBand(params, band) {
   return _blendTowardBand(params, band);
 }
 
+// `activity` and `tempoCategory` come from the FIRST lexicon row that matches; they shape the music
+// locally. `promptActivity` is the first row that matches AND passes promptSafeActivity — the only
+// note activity the prompt may carry (BE-261): taking the first match there let the sleep row, which
+// precedes the relaxing row, mask it, so "relax before bed" sent a keyword without its activity.
 function extractIntent(text) {
-  const out = { keywords: [], activity: null, tempoCategory: null };
+  const out = { keywords: [], activity: null, promptActivity: null, tempoCategory: null };
   if (typeof text !== 'string' || !text.trim()) return out;
   const lower = text.toLowerCase();
   const words = new Set(lower.split(/[^a-z0-9]+/).filter(Boolean));
 
   for (const a of _ACTIVITY_LEXICON) {
     const hit = a.words.some((w) => words.has(w)) || a.phrases.some((p) => lower.includes(p));
-    if (hit) { out.activity = a.activity; out.tempoCategory = a.tempo; break; }
+    if (!hit) continue;
+    if (out.activity === null) { out.activity = a.activity; out.tempoCategory = a.tempo; }
+    if (promptSafeActivity(a.activity) !== null) { out.promptActivity = a.activity; break; }
   }
 
   const kw = new Set();
