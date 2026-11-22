@@ -99,7 +99,7 @@ describe('OPS-412 · plain Node imports the module', () => {
       rows: 219,
       sums: [3209, 1, 0],
     });
-  });
+  }, 30_000); // a process start, given room under full-suite worker contention
 });
 
 // OPS-412 plan decision 1: files.mobile is the 988bab3 run per file, [tests, pending, todo] for each file of
