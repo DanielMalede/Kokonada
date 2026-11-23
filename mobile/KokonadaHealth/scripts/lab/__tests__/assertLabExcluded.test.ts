@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { findMarkers, labMarkers, labSourcesInMap, scanPath } from '../assertLabExcluded.mjs';
 import { readZipEntries } from '../lib/zip.mjs';
 import { LAB_SENTINEL } from '../../../src/design/lab/sentinel';
@@ -109,6 +110,30 @@ describe('sourcemaps', () => {
     expect(labSourcesInMap(JSON.stringify({ version: 3, sources: ['/app/index.js', '/app/App.tsx'] }))).toEqual([]);
     expect(() => labSourcesInMap(JSON.stringify({ version: 3, sources: [] }))).toThrow(/no sources/);
   });
+
+  // Metro 0.87 (React Native 0.88) writes an index map: no top-level `sources`, one section per module,
+  // each with its own map (`{version, sections: [{offset, map: {sources, ...}}]}`).
+  const section = (line: number, sources: string[]) => ({ offset: { line, column: 0 }, map: { version: 3, sources, names: [], mappings: '' } });
+
+  it('reads an index map (sections), the form Metro 0.87 writes, and flags a lab source in any section', () => {
+    const map = JSON.stringify({ version: 3, sections: [
+      section(0, ['__prelude__']), section(4, ['/app/src/navigation/AppFlow.tsx']),
+      section(9, ['/app/src/design/lab/sentinel.ts']), section(12, ['C:\\app\\index.lab.js']),
+    ] });
+    expect(labSourcesInMap(map)).toEqual(['/app/src/design/lab/sentinel.ts', 'C:\\app\\index.lab.js']);
+  });
+
+  it('passes a release index map, and refuses one whose sections list no sources', () => {
+    expect(labSourcesInMap(JSON.stringify({ version: 3, sections: [section(0, ['__prelude__']), section(3, ['/app/index.js'])] }))).toEqual([]);
+    expect(() => labSourcesInMap(JSON.stringify({ version: 3, sections: [section(0, []), section(3, [])] }))).toThrow(/no sources/);
+    expect(() => labSourcesInMap(JSON.stringify({ version: 3, sections: [] }))).toThrow(/no sources/);
+  });
+
+  it('refuses a section it cannot read (a url section, or one with no map) rather than skipping what it holds', () => {
+    expect(() => labSourcesInMap(JSON.stringify({ version: 3, sections: [section(0, ['/app/index.js']), { offset: { line: 5, column: 0 }, url: 'lab.map' }] })))
+      .toThrow(/section 1 .*no map/);
+    expect(() => labSourcesInMap(JSON.stringify({ version: 3, sections: [{ offset: { line: 0, column: 0 } }] }))).toThrow(/section 0 .*no map/);
+  });
 });
 
 describe('zip archives (APK, AAB, nested APKs)', () => {
@@ -157,6 +182,66 @@ describe('scanPath', () => {
     expect(() => scanPath(MARKERS, path.join(tmp, 'empty-dir-that-does-not-exist'))).toThrow(/not found/);
     fs.mkdirSync(path.join(tmp, 'empty-dir'));
     expect(() => scanPath(MARKERS, path.join(tmp, 'empty-dir'))).toThrow(/nothing to scan/);
+  });
+});
+
+describe('the React Native CLI the release pipeline bundles with (resolved by a real node process)', () => {
+  // React Native 0.87 narrowed the package's `exports`: 0.86's `./*` and `./*.js` catch-alls are gone,
+  // so `require.resolve('react-native/cli.js')` throws ERR_PACKAGE_PATH_NOT_EXPORTED and the full check
+  // exited 2 before Metro ran. The CLI is the file the package's own `bin` names, reached through the
+  // package.json the map still exports, as npm itself links node_modules/.bin/react-native.
+  // Node, not jest, resolves here: inside jest, module.createRequire is jest's resolver, which reads no
+  // `exports` the way node does, and CI runs the script under node.
+  const node = (source: string) => spawnSync(process.execPath, ['--input-type=module', '-e', source], { encoding: 'utf8' });
+  const resolveCli = (app: string) => node([
+    `import { reactNativeCli } from ${JSON.stringify(pathToFileURL(SCRIPT).href)};`,
+    `try { process.stdout.write(reactNativeCli(${JSON.stringify(app)})); }`,
+    'catch (e) { process.stderr.write(e.message); process.exitCode = 3; }',
+  ].join('\n'));
+  const fixtureApp = (name: string, rnPackage: Record<string, unknown>, files: Record<string, string>) => {
+    put(`${name}/package.json`, JSON.stringify({ name: 'fixture-app', private: true }));
+    put(`${name}/node_modules/react-native/package.json`, JSON.stringify({ name: 'react-native', version: '0.0.0-fixture', ...rnPackage }));
+    for (const [rel, text] of Object.entries(files)) put(`${name}/node_modules/react-native/${rel}`, text);
+    return path.join(tmp, name);
+  };
+  const EXPORTS_WITHOUT_CLI = { '.': './index.js', './package.json': './package.json' };
+
+  it('is the file the bin entry names, found through an exports map that does not list ./cli.js', () => {
+    const app = fixtureApp('rn-exports', { bin: { 'react-native': 'cli.js' }, exports: EXPORTS_WITHOUT_CLI }, {
+      'cli.js': '// the fixture CLI\n', 'index.js': 'module.exports = {};\n',
+    });
+    // The fixture reproduces the constraint under node: the file path itself cannot be resolved.
+    const direct = node(`import { createRequire } from 'node:module'; createRequire(${JSON.stringify(path.join(app, 'package.json'))}).resolve('react-native/cli.js');`);
+    expect(direct.status).not.toBe(0);
+    expect(direct.stderr).toContain('ERR_PACKAGE_PATH_NOT_EXPORTED');
+    const r = resolveCli(app);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toBe(path.join(app, 'node_modules', 'react-native', 'cli.js'));
+  });
+
+  it('reads a bin given as a single path too', () => {
+    const app = fixtureApp('rn-bin-string', { bin: './cli.js', exports: EXPORTS_WITHOUT_CLI }, {
+      'cli.js': '// the fixture CLI\n', 'index.js': 'module.exports = {};\n',
+    });
+    expect(resolveCli(app).stdout).toBe(path.join(app, 'node_modules', 'react-native', 'cli.js'));
+  });
+
+  it('refuses a package whose bin names no file, rather than handing node a path that is not there', () => {
+    const missing = resolveCli(fixtureApp('rn-bin-missing', { bin: { 'react-native': 'cli.js' }, exports: EXPORTS_WITHOUT_CLI }, { 'index.js': 'module.exports = {};\n' }));
+    expect(missing.status).toBe(3);
+    expect(missing.stderr).toMatch(/cli\.js, which is not there/);
+    const none = resolveCli(fixtureApp('rn-bin-none', { exports: EXPORTS_WITHOUT_CLI }, { 'index.js': 'module.exports = {};\n' }));
+    expect(none.status).toBe(3);
+    expect(none.stderr).toMatch(/names no react-native bin/);
+  });
+
+  it('is the installed react-native CLI: the file its bin names, on disk', () => {
+    const rnRoot = path.join(APP, 'node_modules', 'react-native');
+    const { bin } = JSON.parse(fs.readFileSync(path.join(rnRoot, 'package.json'), 'utf8'));
+    const r = resolveCli(APP);
+    expect(r.stderr).toBe('');
+    expect(r.stdout).toBe(path.join(rnRoot, typeof bin === 'string' ? bin : bin['react-native']));
+    expect(fs.statSync(r.stdout).isFile()).toBe(true);
   });
 });
 
