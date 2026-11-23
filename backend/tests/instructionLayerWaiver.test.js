@@ -178,7 +178,8 @@ describe('DEC-192 · the merge-guard agent is gone, and nothing dispatches or re
     const files = instructionFiles();
     expect(files).toContain('.claude/commands/merge.md');
     expect(files).toContain('.claude/agents/developer.md');
-    const naming = files.filter((f) => /merge[- ]?guard/i.test(read(f).replace(/MERGE-GUARD/g, '')));
+    // The agent's name, hyphenated or spaced; #234's test file `shadow.mergeGuardSkips.test.js` is not the agent.
+    const naming = files.filter((f) => /merge[- ]guard/i.test(read(f).replace(/MERGE-GUARD/g, '')));
     expect(naming).toEqual([]);
   });
 
@@ -197,7 +198,7 @@ describe('DEC-192 · the merge-guard agent is gone, and nothing dispatches or re
   test('session start step 6 sweeps for either post-merge record and runs the session\'s post-merge check', () => {
     const step6 = section(ROOT_MD, 'Session start').find((l) => l.startsWith('6. ')) || '';
     has(step6, '`POST-MERGE CHECK`', '`MERGE-GUARD post-merge`',
-      'run the post-merge check (`.claude/commands/merge.md` § Checks) on any that carries neither');
+      'Run the post-merge check (`.claude/commands/merge.md` § Checks) on any that carries neither');
   });
 
   test('every task: no hook reminds the session, so it reads CI after each push and checks after each merge itself', () => {
