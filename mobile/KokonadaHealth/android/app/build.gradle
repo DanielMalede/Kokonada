@@ -131,7 +131,7 @@ android {
             // exist yet (SEC-271-5). The JS bundle is embedded (release is NOT a debuggableVariant), so
             // the installed app runs with no Metro bundler.
             minifyEnabled enableProguardInReleaseBuilds
-            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
         // The Design Lab (MB-084): release-equivalent (not debuggable, Hermes, JS built with --dev
         // false) but a separate package that installs beside the real app, signed with the DEBUG key
