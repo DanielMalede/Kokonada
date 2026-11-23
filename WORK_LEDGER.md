@@ -130,13 +130,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M08
-- task: `OPS-065` (TASKS)
-- title: Stage 0 Q1a: the contract manifest (QA-040), the interim test floor (QA-041) and the RETIRE pins (QA-118)
-- branch: `test/s0-q1-contracts`
-- paths: `mobile/KokonadaHealth/src/__contracts__/**`, `mobile/KokonadaHealth/src/testing/guards/contracts.ts`, `mobile/KokonadaHealth/src/testing/guards/retire.ts`, `mobile/KokonadaHealth/src/testing/guards/testFloor.ts`, `mobile/KokonadaHealth/src/testing/__tests__/contracts.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/retire.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/testFloor.test.ts`, `docs/design-v2/registry/QA-040.md`, `docs/design-v2/registry/QA-041.md`, `docs/design-v2/registry/QA-118.md`, `docs/design-v2/registry/INDEX.md`, `TASKS.md`
+- task: `own:ops389-accepted-neutral` (own)
+- title: merge-guard step 3f: an owner-accepted external neutral check passes on his quoted words, the check and the head SHA (OPS-389)
+- branch: `fix/ops389-accepted-neutral`
+- paths: `.claude/agents/merge-guard.md`, `.claude/hooks/merge-guard-trigger.test.mjs`, `backend/tests/mergeGuardHook.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-17
+- started: 2026-11-23
 
 ### M09
 - task: `own:ops417-qa116-pinned-callers` (own)
