@@ -81,10 +81,14 @@ describe('DirectionProvider and useTokens', () => {
     light.unmount();
   });
 
-  it('read an unknown phone setting as the light face', () => {
-    colorScheme.mockImplementation(() => null);
+  // DEC-034 (DECIDED): when the phone reports no display mode, the face is dark. React Native's useColorScheme
+  // gives null or undefined when the platform reports none, and 'unspecified' after
+  // Appearance.setColorScheme('unspecified') on a platform that has none.
+  it.each([null, undefined, 'unspecified'])('read an unknown phone setting as the dark face (DEC-034): %p', (scheme) => {
+    colorScheme.mockImplementation(() => scheme);
     const view = render({ direction: 'abyss' });
-    expect(view.latest().face).toBe('light');
+    expect(view.latest().face).toBe('dark');
+    expect(view.latest().color).toBe(DIRECTIONS.abyss.color.dark);
     view.unmount();
   });
 

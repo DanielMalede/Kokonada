@@ -19,8 +19,8 @@ export function useTokens(): Tokens {
   const choice = useContext(DirectionContext);
   const scheme = useColorScheme();
   const id = choice?.direction;
-  // An unknown phone setting (null) reads as the light face.
-  const face: Face = choice?.face ?? (scheme === 'dark' ? 'dark' : 'light');
+  // DEC-034: a phone that reports no display mode (null, undefined or 'unspecified') reads as the dark face.
+  const face: Face = choice?.face ?? (scheme === 'light' ? 'light' : 'dark');
   const tokens = useMemo(() => {
     const direction = id !== undefined && Object.prototype.hasOwnProperty.call(DIRECTIONS, id) ? DIRECTIONS[id] : undefined;
     return id !== undefined && direction ? { id, face, base: BASE, direction, color: direction.color[face] } : null;
