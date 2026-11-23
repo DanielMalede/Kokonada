@@ -4,7 +4,9 @@
 // The unit project's global stubs (jest.setup.js) evaluate a derived value once, draw no frame and give
 // useClock a constant, so no test can see per-frame work, stillness or teardown (MB-044). These fakes
 // replace those stub members by capture-and-restore (patch.ts) for the tests that opt in, keeping the
-// semantics of the real libraries (Reanimated 4.5.1, Skia 2.6.9, read in node_modules):
+// semantics of the real libraries (Reanimated 4.7.2 with worklets 0.13.1, Skia 2.6.9, read in
+// node_modules; re-read at the RN 0.88.1 upgrade, where the frame-callback registry, useFrameCallback,
+// useSharedValue, repeat, sequence and delay are unchanged from 4.5.1):
 //   · useFrameCallback registers in an effect keyed on [callback, autostart]; a callback's first
 //     frame after (re)activation has timeSincePreviousFrame null and timeSinceFirstFrame 0, and
 //     deactivation resets its start (frameCallback/FrameCallbackRegistryUI.ts);
@@ -12,7 +14,8 @@
 //     (external/reanimated/interpolators.ts:57-68), so it is built here from the fakes below;
 //   · a write to a shared value notifies every listener, equal or not (mutables.ts `set _value`), and a
 //     derived value / animated style re-runs when a shared value in its worklet closure changes
-//     (useDerivedValue.ts: inputs = Object.values(updater.__closure)), on the next frame;
+//     (useDerivedValue.ts: inputs = updater.__closure, an array since worklets 0.13 and an
+//     object before; inputsOf reads either), on the next frame;
 //   · assigning an animation to .value starts it at the current frame time; it advances on frames;
 //     cancelAnimation stops it (callback finished=false); useSharedValue cancels its own animation on
 //     unmount (useSharedValue.ts); useReducedMotion is a static read of the system setting (with the

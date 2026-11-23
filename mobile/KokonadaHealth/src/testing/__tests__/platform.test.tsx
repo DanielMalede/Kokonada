@@ -206,7 +206,7 @@ describe('QA-044 · a mid-session emit changes rendered state (real consumers)',
     }
   });
 
-  it('I18nManager: forceRTL applies at the next start, never mid-session (no listener API in RN 0.86)', () => {
+  it('I18nManager: forceRTL applies at the next start, never mid-session (React Native has no listener API for it)', () => {
     expect(RN.I18nManager.isRTL).toBe(false);
     RN.I18nManager.forceRTL(true);
     expect(RN.I18nManager.isRTL).toBe(false); // the running process keeps its direction
