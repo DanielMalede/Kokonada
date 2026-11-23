@@ -442,9 +442,10 @@ jobs:
         working-directory: mobile/KokonadaHealth/ios
 
   # Cheap Ubuntu job that decides whether the full-resolution never-red sweeps (UI-073) and E3's full
-  # ledger-storm grid (QA-068) must run, the same pattern as ios-changes. The sweeps take minutes,
-  # and the Actions budget is a P0 resource (see ios-changes), so they never run inside the
-  # always-run mobile job.
+  # ledger-storm grid (QA-068) must run, the same pattern as ios-changes: its output gates the four
+  # mobile-sweeps-shard runners and their gate mobile-sweeps, so a PR the filter does not match shows them
+  # as skipped. The sweeps take minutes, and the Actions budget is a P0 resource (see ios-changes), so they
+  # never run inside the eight jest shards (mobile-jest-shard), which run on every PR.
   sweeps-changes:
     name: Detect changes to the never-red sweeps' inputs
     runs-on: ubuntu-24.04
