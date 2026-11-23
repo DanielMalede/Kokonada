@@ -22,6 +22,7 @@ const path = require('path');
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const read = (rel) => fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8').replace(/^﻿/, '').replace(/\r\n?/g, '\n');
 const tick = (s) => `\`${s}\``;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const unquote = (s) => (/^'.*'$/.test(s) ? s.slice(1, -1).replace(/''/g, "'") : (/^".*"$/.test(s) ? s.slice(1, -1) : s));
 const splitList = (inner) => inner.split(',').map((v) => unquote(v.trim())).filter((v) => v !== '');
 const isComment = (line) => /^\s*#/.test(line);
@@ -307,7 +308,10 @@ describe('4 · what each jest job and each gate must print (OPS-466)', () => {
       // The count the gate's script holds the results to, so the line below is the one it prints.
       expect([g.id, g.neededEnv]).toEqual([g.id, String(g.needs.length)]);
       const line = `needed jobs ended: ${g.needs.map(() => 'success').join(' ')} (${g.needs.length} expected)`;
-      expect([g.id, S4.includes(tick(g.name)), S4.includes(tick(line))]).toEqual([g.id, true, true]); // M9
+      // Each gate held to its own line in one sentence: both gates print the same line, and each is also named in
+      // a disclosure, so finding the name and the line apart would pass with either gate's rule gone.
+      const holds = new RegExp(`${escapeRe(tick(g.name))}[^.]*\\bmust read ${escapeRe(tick(line))}`);
+      expect([g.id, holds.test(S4)]).toEqual([g.id, true]); // M9
     }
     const shards = job('mobile-sweeps-shard');
     expect(shards.expanded).toHaveLength(4);
