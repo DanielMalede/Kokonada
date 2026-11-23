@@ -10,6 +10,7 @@
 | Session start, step 2 (the owner's main checkout) and step 3 (the sentinel's worktree) | Skip them |
 | The deny list in `.claude/settings.json` | Codex does not load it: read its `permissions.deny` and never run a command it lists (force pushes, any push to `main`, `git reset --hard`, `git clean`, `git stash drop` and `clear`, `--mirror`, `gh pr merge --admin`, and the rest). Run `git config core.hooksPath .githooks` once in every fresh clone (the pre-push guard against pushes to `main`) |
 | The models and `effort` lines | Not applicable |
+| Device evidence (`CLAUDE.md` § Working rules, DEC-192) | Close device work on emulator evidence whose manifest names the AVD, its API level and its GPU renderer (`.claude/commands/device-qa.md`); the one real-phone pass, `/page` G11P's list, is the owner's |
 
 When you hand work back, report the PR URL, the latest Actions run URL and the final check results.
 

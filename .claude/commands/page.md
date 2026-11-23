@@ -1,8 +1,26 @@
 ---
-description: Run one page through the design-v2 pipeline — gates G0–G14 in fixed order, no skips, every verdict recorded with its input SHA.
-argument-hint: [page id, P1–P14]
+description: Run design-v2 pages through the pipeline — in batches by default (BATCH MODE), or one page through gates G0–G14 in fixed order — every verdict recorded with its input SHA.
+argument-hint: [batch B1–B3, or page id P1–P14]
 ---
-Run page $ARGUMENTS through the page pipeline of docs/plans/DESIGN_V2_PLAN.md. ultrathink. You are the orchestrator: you dispatch and record; you never judge a gate and never build.
+Run $ARGUMENTS through the page pipeline of docs/plans/DESIGN_V2_PLAN.md: a batch (B1–B3) in BATCH MODE, the default for design v2's pages, or one page (P1–P14) in the single-page mode below. ultrathink. You are the orchestrator: you dispatch and record; you never judge a gate and never build.
+
+BATCH MODE — the default for design v2's pages (DEC-192: I do not go through each page; everything is built end to end, and at the end I review every page and answer for each gate). It changes the single-page mode below only where it says so; everything else there applies to each page of a batch as written: the record's verbatim rule, inputSha, the inputs and staleness rules, the owner gates, the re-run rules and the severities.
+- PRECONDITIONS. A batch needs its foundations on main, DEC-130 DECIDED and ADR-0017 at least Proposed. The full Stage 0 list (the single-page mode's PRECONDITIONS) is a precondition of the cutover PR only.
+- BRANCHES. Batches B1–B3, one branch per batch, `design/v2-b<k>`. Each page is built in a local lane worktree, and only the batch's checkpoints are pushed to the batch branch. Never rebase or force-push a batch branch; merge main into it.
+- THE RECORD. One docs/design-v2/pages/<batch>/gates.json, and one verdict file per gate, agent and round, with a section for each page; each entry names its page as its subject. The authoring-confirmation re-dispatch is dropped: an authoring verdict counts as returned.
+- PK — G0, G1, G4 and G5 in one parallel round per batch, at most two rounds: architect writes the charters; designer gives ONE JOB and spec.md for each page; compliance-auditor, regulatory-researcher and resilience-auditor write the briefs; sentinel once, if the batch names a provider.
+- G2. A fork that is not legal becomes an orchestrator DEC- entry under DEC-142. A law, privacy or consent fork becomes a DEC- entry for me (DEC-155): the page is built on the recommended option and stays lab-only until I rule (the PR that carries it still meets T9 of `CLAUDE.md`).
+- G3 and G6 are removed: there are no HTML boards. The first lab build is the prototype, and the designer's mid-build emulator check is the direction verdict, recorded in the batch record like any verdict.
+- G7 (contract first, additive), G8 (per F10 batch, from emulator captures), G9 (per lane) and G10 (once per batch) run as the single-page mode says.
+- G11e, per batch, on emulators: AVDs at API 28, 30, 34 and 36, each running a debug-signed release Hermes build. The captures: both faces, font 1.0 and 2.0, reduced motion, battery saver and RTL, plus a TalkBack dump, bounds in dp and contrast. The manifest records the AVD, the image, the API level, the GPU renderer and the Skia backend (`/device-qa`). Never claimed from an emulator: frame timing, thermal, the leak loop, field pixel parity.
+- G12e. The designer's measured SHIP, read from the G11e report, and compliance-auditor's check, per batch.
+- G11P, the real-phone pass: once, at the cutover head, about two hours on my phone: (1) field, ring, dither and never-red on P2 and P10; (2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling; (3) the 50-transition leak loop; (4) a 10-minute soak; (5) BLE heart rate, a Health Connect read, Google sign-in on the release client, and the Spotify temporary path; (6) deep link, predictive back, a cold start of 1000 ms or less, and the 16 KB check.
+- G12F. The designer's final SHIP and compliance-auditor's check on the integrated build.
+- G13. A batch PR is lab-only: no navigation change, no regulated copy, no path of row J12 or J18. It merges under the merge rule, with one `page-record` line per page from its batch record (row J15). The cutover PR, which puts the pages into navigation, needs every page's record fresh at its head (the single-page G13's required entries, with PK's standing for G0, G1, G4 and G5, G11e and G11P for G11, G12e and G12F for G12, and none for G3 or G6), my review and my class (c) approval.
+- G14. After the cutover.
+- RE-RUNS. A review round counts per batch: one round reviews every page of the batch together, so the cap of two rounds per gate counts across all of them, as G8's does across components.
+
+SINGLE-PAGE MODE — one page through G0–G14, as written below.
 
 PRECONDITIONS — stop and tell me if any fails:
 - Stage 0 is complete: every item of the plan's Stage 0 list (L1, V0, V1, F1–F10, Q1–Q3, server plumbing), including the V1 direction chosen and ADR-0017 accepted.
