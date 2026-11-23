@@ -383,3 +383,99 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
       expect(body).toMatch(/emulator/);
     });
 });
+
+// DEC-192, part 2 - the owner's approval of the fast-track plan, by option selection: /page runs design v2's pages
+// in batches (BATCH MODE), J15 binds when a page enters navigation (F1-B), device evidence names its emulator and
+// leaves the real phone G11P's list, and the merge checks run as a script once one exists (F4).
+const PAGE_MD = read('.claude/commands/page.md');
+const PAGE_LINES = PAGE_MD.split('\n');
+const batchAt = PAGE_LINES.findIndex((l) => l.startsWith('BATCH MODE — the default for design v2\'s pages (DEC-192'));
+const singleAt = PAGE_LINES.findIndex((l) => l.startsWith('PRECONDITIONS — stop and tell me if any fails:'));
+const BATCH = batchAt < 0 || singleAt < batchAt ? '' : PAGE_LINES.slice(batchAt, singleAt).join('\n');
+const jRow = (id) => ((ROOT_MD.split('```jurisdiction\n')[1] || '').split('```')[0].split('\n')
+  .find((l) => l.split('|')[0].trim() === id) || '');
+
+describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and the single-page mode stays', () => {
+  test('BATCH MODE comes before the single-page mode, which keeps its gates', () => {
+    expect(BATCH).not.toBe('');
+    has(PAGE_MD, 'G3 Direction —', 'G6 Prototype —', 'G11 Device evidence —', 'G13 Merge —');
+  });
+
+  test('preconditions, branches and the record', () => {
+    has(BATCH, 'DEC-130 DECIDED and ADR-0017 at least Proposed', 'The full Stage 0 list', 'is a precondition of the cutover PR only',
+      '`design/v2-b<k>`', 'local lane worktree', 'only the batch\'s checkpoints are pushed',
+      'docs/design-v2/pages/<batch>/gates.json', 'one verdict file per gate, agent and round, with a section for each page',
+      'The authoring-confirmation re-dispatch is dropped');
+  });
+
+  test('PK runs G0, G1, G4 and G5 in one round per batch; G2 splits; G3 and G6 are removed; G7 to G10 as stated', () => {
+    has(BATCH, 'PK — G0, G1, G4 and G5 in one parallel round per batch, at most two rounds',
+      'architect writes the charters', 'designer gives ONE JOB and spec.md for each page',
+      'compliance-auditor, regulatory-researcher and resilience-auditor write the briefs', 'sentinel once, if the batch names a provider',
+      'A fork that is not legal becomes an orchestrator DEC- entry under DEC-142',
+      'A law, privacy or consent fork becomes a DEC- entry for me', 'is built on the recommended option and stays lab-only until I rule',
+      'G3 and G6 are removed', 'the designer\'s mid-build emulator check is the direction verdict',
+      'G7 (contract first, additive), G8 (per F10 batch, from emulator captures), G9 (per lane) and G10 (once per batch)');
+  });
+
+  test('G11e on emulators, with its manifest and what an emulator never proves; G12e', () => {
+    has(BATCH, 'G11e', 'AVDs at API 28, 30, 34 and 36', 'debug-signed release Hermes build',
+      'both faces, font 1.0 and 2.0, reduced motion, battery saver and RTL, plus a TalkBack dump, bounds in dp and contrast',
+      'the AVD, the image, the API level, the GPU renderer and the Skia backend',
+      'Never claimed from an emulator: frame timing, thermal, the leak loop, field pixel parity.', 'G12e');
+  });
+
+  test('G11P is the one real-phone pass, at the cutover head, with its six checks; then G12F', () => {
+    has(BATCH, 'G11P', 'once, at the cutover head',
+      '(1) field, ring, dither and never-red on P2 and P10',
+      '(2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling',
+      '(3) the 50-transition leak loop', '(4) a 10-minute soak',
+      '(5) BLE heart rate, a Health Connect read, Google sign-in on the release client, and the Spotify temporary path',
+      '(6) deep link, predictive back, a cold start of 1000 ms or less, and the 16 KB check', 'G12F');
+  });
+
+  test('G13: a batch PR is lab-only; the cutover PR needs fresh records, my review and my (c); G14 after the cutover; rounds per batch', () => {
+    has(BATCH, 'A batch PR is lab-only: no navigation change, no regulated copy, no path of row J12 or J18',
+      'one `page-record` line per page from its batch record (row J15)', 'The cutover PR',
+      'my review and my class (c) approval', 'G14. After the cutover.', 'A review round counts per batch');
+  });
+});
+
+describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so', () => {
+  test('J15 names the cutover PR and pages in navigation, the batch record of a lab-only PR, and the designer for tokens no charter names', () => {
+    const j15 = jRow('J15');
+    has(j15, 'F1-B', 'the cutover PR', 'a page already in navigation', 'a lab-only batch PR, one page-record line per page from its batch record',
+      'a design-tokens/** file no charter names, designer (OPS-390)');
+    // The paths it covers do not change.
+    has(j15, '| docs/design-v2/pages/** (future), design-tokens/** (future), and every path in a page charter\'s PAGE SLICE or SHARED BASE at M or at H');
+  });
+
+  test('§ Checks 8c and /review-pr step 2 apply F1-B', () => {
+    has(sub8('c'), 'A lab-only batch PR (`/page` BATCH MODE) is reviewed like code', 'read from its batch record at H',
+      'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (OPS-390).');
+    has(read('.claude/commands/review-pr.md'), 'for a lab-only batch PR (`/page` BATCH MODE), one `page-record <Pn>: PASS|FAIL @ <H>` line per page of its batch from its batch record');
+  });
+});
+
+describe('DEC-192 · the evidence rule names the emulator\'s manifest and leaves the real phone G11P\'s list', () => {
+  const MANIFEST = 'emulator evidence whose manifest names the AVD, its API level and its GPU renderer';
+  test('§ Working rules and the developer line in § Build agents', () => {
+    const rule = section(ROOT_MD, 'Working rules').find((l) => l.startsWith('- Evidence over assertion:')) || '';
+    has(rule, MANIFEST, 'plus the owner\'s real phone for `/page` G11P\'s list', 'never a green mock (DEC-192)');
+    const dev = section(ROOT_MD, 'Build agents').find((l) => l.startsWith('- `developer` — ')) || '';
+    has(dev, `closing on ${MANIFEST}`, 'G11P');
+    expect(dev).not.toContain('real device evidence');
+  });
+
+  test('AGENTS.md mirrors it, and § Commands names BATCH MODE', () => {
+    has(read('AGENTS.md'), MANIFEST, 'G11P');
+    const page = section(ROOT_MD, 'Commands').find((l) => l.startsWith('- `/page` — ')) || '';
+    has(page, 'BATCH MODE');
+  });
+});
+
+describe('DEC-192 · F4: the merge checks run as a script once one exists', () => {
+  test('§ Checks runs `scripts/merge-check/` when main has it, and the steps by hand until then', () => {
+    has(CHECKS_TEXT, 'When `scripts/merge-check/` exists on main, the session runs it and posts its output; until it exists, the session runs the steps below by hand, as written.');
+  });
+});
