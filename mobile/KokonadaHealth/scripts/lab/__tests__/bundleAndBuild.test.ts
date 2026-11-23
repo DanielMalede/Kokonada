@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { bundleLab } from '../bundleLab.mjs';
-import { buildLabApk, gradleSpawn, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
+import { apksignerCertificate, buildLabApk, gradleSpawn, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
 import { Refused } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { zip } from '../__fixtures__/zipWriter';
@@ -214,6 +214,41 @@ describe('buildLabApk', () => {
   it('refuses an APK signed by any other certificate than the shared debug key', async () => {
     await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
+  });
+});
+
+describe('the signer apksigner prints (the lab APK must carry the shared debug certificate)', () => {
+  // Build-tools 36 prints "Signer #1 certificate …". Build-tools 37, which React Native 0.88 builds with
+  // (buildToolsVersion 37.0.0, so the newest installed), labels each line by the scheme it verified:
+  // "V2 Signer: certificate …". The output below is each version's own, on the same lab APK, with the
+  // digests replaced. Windows prints it with CRLF line ends.
+  const DIGEST = 'ab'.repeat(32);
+  const crlf = (lines: string[]) => `${lines.join('\r\n')}\r\n`;
+  const BUILD_TOOLS_36 = crlf([
+    'Signer #1 certificate DN: CN=Android Debug, O=Android, C=US',
+    `Signer #1 certificate SHA-256 digest: ${DIGEST}`,
+    `Signer #1 certificate SHA-1 digest: ${'cd'.repeat(20)}`,
+    `Signer #1 certificate MD5 digest: ${'ef'.repeat(16)}`,
+  ]);
+  const BUILD_TOOLS_37 = crlf([
+    'V2 Signer: certificate DN: CN=Android Debug, O=Android, C=US',
+    `V2 Signer: certificate SHA-256 digest: ${DIGEST}`,
+    `V2 Signer: certificate SHA-1 digest: ${'cd'.repeat(20)}`,
+    `V2 Signer: certificate MD5 digest: ${'ef'.repeat(16)}`,
+  ]);
+  const DEBUG = { dn: 'CN=Android Debug, O=Android, C=US', sha256: DIGEST };
+
+  it('reads build-tools 36 output (Signer #1 certificate …)', () => {
+    expect(apksignerCertificate(BUILD_TOOLS_36)).toEqual(DEBUG);
+  });
+
+  it('reads build-tools 37 output, labelled by the scheme it verified (V2 Signer: certificate …)', () => {
+    expect(apksignerCertificate(BUILD_TOOLS_37)).toEqual(DEBUG);
+  });
+
+  it('refuses output that names no signer, or a signer with no SHA-256 digest', () => {
+    expect(() => apksignerCertificate(crlf(['Verifies', 'Number of signers: 0']))).toThrow(/no signer/);
+    expect(() => apksignerCertificate(crlf(['V2 Signer: certificate DN: CN=Android Debug, O=Android, C=US']))).toThrow(/no signer/);
   });
 });
 
