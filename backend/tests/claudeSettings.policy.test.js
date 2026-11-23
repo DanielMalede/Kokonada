@@ -35,11 +35,15 @@
 //  - a starred deny reads free text too, so a commit message that spells a denied token is refused
 //    (`git commit -m "never git push origin main again"` matches `git *push * main *`): reword the
 //    message. Only a quote-aware matcher would lift this, and the runtime's is not;
-//  - this model and the one in `.claude/hooks/merge-guard-trigger.test.mjs` (`globMatch`) differ
+//  - this model and the strict one in `backend/tests/shadow.claudeSettings.policy.test.js` differ
 //    on one rule: here a trailing ` *` matches the bare command (`npm test` under `npm test *`),
-//    there it needs the space. At most one is the runtime's reading; the live capture's `npm test`
-//    item settles it, and a shared model is a later row. Every deny is written so that it holds
-//    under both readings (`backend/tests/shadow.claudeSettings.policy.test.js` pins that).
+//    there it does not, and every `*` needs a character. At most one is the runtime's reading; the
+//    live capture's `npm test` item settles it, and a shared model is a later row. Every deny is
+//    written so that it holds under both readings (the shadow pins that).
+//
+// DEC-192 removed the merge-guard trigger, the only hook this file registered, and its tests. The
+// deny-list pins those tests held (every Bash deny with a PowerShell twin, every git deny with a
+// `git -C *` twin, no duplicate, and H-5's push to main) are kept here, in the block that says so.
 //
 // The commands that carry the owner's absolute paths — CLAUDE.md step 2's three strings and its
 // L-check, the sentinel's five strings of step 3, the adb rules — are never quoted here:
@@ -302,6 +306,76 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
   });
 });
 
+describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a script the tree does not hold', () => {
+  const commands = Object.values(settings.hooks || {})
+    .flatMap((groups) => (Array.isArray(groups) ? groups : []))
+    .flatMap((group) => (group.hooks || []).map((h) => h.command || ''));
+
+  it('no hook registration names the deleted merge-guard trigger', () => {
+    expect(commands.filter((c) => c.includes('merge-guard-trigger'))).toEqual([]);
+    expect(fs.existsSync(path.join(ROOT, '.claude', 'hooks', 'merge-guard-trigger.mjs'))).toBe(false);
+  });
+
+  it('every hook that runs a script under the project directory runs one that exists', () => {
+    const missing = commands
+      .map((c) => (c.match(/\$CLAUDE_PROJECT_DIR\/([^"\s]+)/) || [])[1])
+      .filter(Boolean)
+      .filter((rel) => !fs.existsSync(path.join(ROOT, rel)));
+    expect(missing).toEqual([]);
+  });
+});
+
+// Moved from the merge-guard trigger's tests (`.claude/hooks/merge-guard-trigger.test.mjs`, 'wiring - the
+// committed settings'), deleted with the hook by DEC-192: they pinned the deny list, not the hook.
+describe('OPS-171 settings policy — the deny list\'s twins and H-5 (kept from the deleted hook tests)', () => {
+  it('every Bash deny rule has a PowerShell twin, every git rule a git -C twin, no duplicates', () => {
+    expect(new Set(deny).size).toBe(deny.length);
+    const bashRules = specsFor(deny, 'Bash');
+    for (const r of bashRules) expect([r, deny.includes(`PowerShell(${r})`)]).toEqual([r, true]);
+    for (const r of bashRules.filter((x) => x.startsWith('git ') && !x.startsWith('git -C '))) {
+      // `git -C * clean*` would also refuse `git -C <dir> commit -m "clean up"`; a destructive clean needs an option.
+      const twin = r === 'git clean*' ? 'git -C * clean -*' : r.replace(/^git /, 'git -C * ');
+      expect([r, bashRules.includes(twin)]).toEqual([r, true]);
+    }
+  });
+
+  const pushesToMain = [
+    'git push -u origin main',
+    'git push -u origin main --no-verify',
+    'git push -u origin main --follow-tags',
+    'git push upstream main -q',
+    'git push origin -d main -q',
+    'git push -u origin main 2>&1',
+    'git -C wt push -u origin main --no-verify',
+    'git push origin +feat/x',
+    'git push origin HEAD:refs/heads/main',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of pushesToMain) {
+      it(`H-5 · ${tool} denies a direct push to main, arguments after the bare word main included: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).toBe('deny');
+      });
+    }
+  }
+
+  const everyday = [
+    'git push -u origin feat/x',
+    'git push origin HEAD',
+    'git push -u origin chore/fast-track-process 2>&1',
+    'git push origin feat/main-fix',
+    'gh pr merge 5 --squash --delete-branch --match-head-commit abc123',
+    'git -C wt log --oneline',
+    'git -C wt commit -m "fix: tidy"',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of everyday) {
+      it(`H-5 · ${tool} does not deny an everyday command: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).not.toBe('deny');
+      });
+    }
+  }
+});
+
 describe('OPS-171 settings policy — secrets are not readable or editable, the example file stays both', () => {
   const denied = [
     'mobile/KokonadaHealth/android/keystore.properties',
@@ -495,7 +569,7 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     ...STEP2_COMMANDS,
     // CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING, the five strings (derived):
     ...SENTINEL_COMMANDS,
-    // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and merge-guard:
+    // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and its § Checks:
     'git fetch origin --prune',
     'git fetch origin',
     'git fetch --unshallow',

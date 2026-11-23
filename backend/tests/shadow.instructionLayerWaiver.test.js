@@ -65,10 +65,13 @@ describe('RA-10 · the waiver pinned by side, not by vocabulary', () => {
     expect([...new Set([...named(claudeItem), ...named(restartList)])].sort()).toEqual([...HEADINGS].sort());
     expect(named(claudeItem).filter((h) => named(restartList).includes(h))).toEqual(['Session start']);
   });
-  test('an agent body is admitted only with its whole front matter unchanged, never the three gate agents', () => {
-    expect(agentItem).toMatch(/^the body of an agent file other than `\.claude\/agents\/merge-guard\.md`, `\.claude\/agents\/security-auditor\.md` and `\.claude\/agents\/resilience-auditor\.md`, /); // M2
+  test('an agent body is admitted only with its whole front matter unchanged, never the two gate agents', () => {
+    // DEC-192: the third gate agent, merge-guard, is gone; its procedure is `.claude/commands/merge.md` § Checks,
+    // which M3 keeps on the restart side.
+    expect(agentItem).toMatch(/^the body of an agent file other than `\.claude\/agents\/security-auditor\.md` and `\.claude\/agents\/resilience-auditor\.md`, /); // M2
     expect(agentItem).toMatch(/with its whole front matter \(every line between its `---` fences\) unchanged and no agent file added, deleted or renamed$/);
-    ['`.claude/agents/merge-guard.md`', '`.claude/agents/security-auditor.md`', '`.claude/agents/resilience-auditor.md`', 'an agent file added, deleted or renamed'].forEach((s) => expect(restartList).toContain(s)); // M2
+    ['`.claude/agents/security-auditor.md`', '`.claude/agents/resilience-auditor.md`', 'an agent file added, deleted or renamed'].forEach((s) => expect(restartList).toContain(s)); // M2
+    expect(`${allowList} ${restartList}`).not.toContain('merge-guard');
   });
   test('a command file is admitted only other than merge.md and review-pr.md, with its front matter unchanged', () => {
     expect(commandItem).toMatch(/^a command file other than `\.claude\/commands\/merge\.md` and `\.claude\/commands\/review-pr\.md`, with its front matter unchanged$/); // M3
@@ -124,9 +127,19 @@ describe('RA-11 · the guards on this class (a) text need class (a) to weaken', 
   const globs = (id) => { const row = block.split('\n').find((l) => l.split('|')[0].trim() === id) || ''; return (row.split('|')[2] || '').split(',').map((g) => g.replace('(future)', '').trim()).filter((g) => g && !g.startsWith('!')); };
   const covered = (id, file) => globs(id).some((g) => matches(g, file));
   test('the row reader finds guards the rows already name', () => {
-    expect(covered('J8', 'backend/tests/mergeGuardHook.test.js')).toBe(true);
+    expect(covered('J8', 'backend/tests/ciWorkflowPermissions.test.js')).toBe(true);
     expect(covered('J16', 'backend/tests/wave4.attributionGuard.test.js')).toBe(true);
     expect(covered('J8', 'CLAUDE.md')).toBe(true);
+  });
+  // DEC-192: the merge checks' pinning test (#234's, future until it merges) takes the deleted hook test's place.
+  test.each(['J8', 'J16'])('%s names #234\'s shard-skip test of the merge checks and no longer the deleted hook test', (id) => {
+    expect(covered(id, 'backend/tests/shadow.mergeGuardSkips.test.js')).toBe(true);
+    expect(covered(id, 'backend/tests/mergeGuardHook.test.js')).toBe(false);
+  });
+  test('J1 and J19 name the session\'s pre-merge check where they named the agent', () => {
+    const who = (id) => ((block.split('\n').find((l) => l.split('|')[0].trim() === id) || '').split('|')[1] || '').trim();
+    expect(who('J1')).toBe('the pre-merge check + coordinator check --merge');
+    expect(who('J19')).toBe('the pre-merge check + coordinator only');
   });
   test.each([['J8', 'backend/tests/instructionLayerWaiver.test.js'], ['J16', 'backend/tests/instructionLayerWaiver.test.js'], ['J8', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J16', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J4', 'backend/app/utils/redact.js']])('%s covers %s', (id, file) => { expect(covered(id, file)).toBe(true); });
   test.each(['J8', 'J16'])('%s names the two waiver tests with one glob that matches nothing else in backend/tests', (id) => {

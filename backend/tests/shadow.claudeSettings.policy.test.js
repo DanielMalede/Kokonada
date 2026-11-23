@@ -5,11 +5,11 @@
 //    `git add -f x`, `git commit --no-verify -m x`, `git stash pop|apply`, and
 //    `gh pr update-branch --rebase 1`, which `Bash(gh pr update-branch *)` allows): each needs an
 //    un-starred form, as DEC-145's rules carry both `git push --force*` and `git *push --force*`,
-//    with the `git -C *` and PowerShell twins merge-guard-trigger.test.mjs requires;
+//    with the `git -C *` and PowerShell twins that claudeSettings.policy.test.js requires;
 //  - `git diff --output=`, `git diff --ext-diff`, `git ls-remote origin --exec=`, `git add --force`.
 // Green pins: attribution is the empty string, the whole DEC-145 list, no `*` as a `-c`/`-C` value,
 // no wrapper, file reader or uploader among the allows, an Edit twin for every Read deny, and the
-// flow strings of CLAUDE.md step 3 (sentinel.md § FILING), /ship, /merge and merge-guard.
+// flow strings of CLAUDE.md step 3 (sentinel.md § FILING), /ship, /merge and its § Checks.
 // `git branch -D x` expects `ask`, not `deny`: the custodian's CU270-02 on #270 moved the force
 // delete to the ask tier so that CLAUDE.md step 5's cleanup (`git branch -d`) stays possible.
 // A model only: the runtime's own reading is settled by the `claude -p --setting-sources ""
@@ -156,7 +156,7 @@ describe('shadow: the flows the policy test does not pin (green at 1f88913; red 
     // CLAUDE.md session start step 3 — .claude/agents/sentinel.md § FILING, the five strings, as
     // the allow list carries them:
     ...SENTINEL_COMMANDS,
-    // CLAUDE.md steps 1 and 6, /ship, /merge, merge-guard:
+    // CLAUDE.md steps 1 and 6, /ship, /merge and its § Checks:
     'git fetch --unshallow',
     'git fetch origin',
     'git merge origin/main',
