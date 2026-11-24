@@ -108,6 +108,8 @@ export type CopyErrorCode =
   | 'bad-spec'
   | 'unsupported-locale'
   | 'bad-option'
+  /** Copy read with no CopyProvider above: the context's default throws on every read (D2-A). */
+  | 'no-provider'
   /** A strict build's check of the spec and catalogues failed: see problems. */
   | 'invalid-copy';
 
