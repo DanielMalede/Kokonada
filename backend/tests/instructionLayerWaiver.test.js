@@ -1118,6 +1118,56 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   });
 });
 
+// DEC-192, round 5 of the owner's option selections of 2026-11-24, before the fix of the review of #307 at a196ce4:
+// rulings 10 to 13, each quoted with its question in DEC-192.md and indexed in DECISIONS.md.
+describe('DEC-192 · the owner\'s rulings 10 to 13 of 2026-11-24, recorded verbatim with the rule each sets', () => {
+  const PRIVATE = '`Kokonada-private/design-v2/rulings/owner-rulings-2026-11-24-age-step.md`';
+  test.each([
+    ['10', '10. Ruling 8\'s scope (2026-11-24).',
+      'הכלל שקבעת היום, שאין הסכמות חדשות עד הנוסח הסופי: על מה הוא חל? בשביל צילומי בדיקה של מסכים שתלויים בהסכמה צריך שתהיה הסכמה רשומה אצל משתמש בדיקה.',
+      'רק בשרת הייצור (מומלץ)',
+      '- the rule it sets: no new consent grant is recorded in production until the final text (M4); seeded fake grants for test accounts on a local backend, and automated tests, are allowed.'],
+    ['11', '11. The owner\'s current grant (2026-11-24), a statement of fact.',
+      'בדיקת הטלפון שלך בסוף קוראת נתונים מ־Health Connect על בסיס ההסכמה הקיימת שלך. האם יש לך כרגע הסכמה בריאותית פעילה באפליקציה?',
+      'כן',
+      '- the rule it sets: none; it states a fact: the owner holds an active health grant (his statement, not verified by a read), and `/page` G11P item 5 runs on it. That grant was recorded over the v1 text that ruling 8 calls not approved, and no withdrawal of it is planned before G11P (ARCH-307-22).'],
+    ['12', '12. Ruling 9\'s wording (2026-11-24).',
+      'קבעת ששום דף לא נכנס לניווט כשיש בו נוסח זמני. האם \'נוסח זמני\' כולל כל נוסח שאינו הנוסח המאושר: מקום שמור ריק, נוסח ניטרלי חלופי, או תצוגה מקדימה מסומנת?',
+      'כן, כל מה שלא מאושר (מומלץ)',
+      '- the rule it sets: a page enters navigation only when every regulated slot it renders shows the final approved text (no placeholder, neutral stand-in or marked preview).'],
+    ['13', '13. The privacy policy and ruling 6 (2026-11-24).',
+      'שתי עצירות שקשורות למדיניות הפרטיות נסגרות רק כשהמדיניות מתארחת באתר. קבעת שכל העצירות נסגרות לפני המעבר לניווט, אבל פרסום המדיניות תוכנן רק להשקה. מה עושים?',
+      'לפרסם לפני המעבר (מומלץ)',
+      '- the rule it sets: the privacy policy is hosted before the cutover, on the owner\'s approval of the exact text (DEC-189); `DAN-015`\'s hosting moves ahead of the cutover.'],
+  ])('ruling %s: its heading, its question and selected option verbatim, a gloss, and the rule it sets, in that order', (_n, heading, question, option, rule) => {
+    const at = DEC192.indexOf(`\n${heading}\n`);
+    expect([heading, at > 0]).toEqual([heading, true]);
+    const body = DEC192.slice(at).split(/\n(?=\d+\. |## |A statement of fact)/)[1] || '';
+    const parts = [`   - question: "${question}"`, `   - selected option: "${option}"`, '   - the scribe\'s English gloss: ', `   ${rule}`].map((p) => body.indexOf(p));
+    expect([heading, parts.every((p, i) => p > 0 && (i === 0 || p > parts[i - 1]))]).toEqual([heading, true]);
+  });
+
+  test('ruling 11\'s answer was not the option marked recommended, and the index carries rulings 10 to 13 and their words', () => {
+    has(DEC192, 'not the option marked recommended, "לא יודע, תבדוק (מומלץ)"');
+    has(decRow('DEC-192'), 'rulings 10 to 13 (2026-11-24): ruling 8 binds production only; the owner states he holds an active health grant; a page enters navigation only when every regulated slot it renders shows the final approved text; the privacy policy is hosted before the cutover');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-192**')) || '', '"רק בשרת הייצור (מומלץ)" (ruling 10)', '"כן" (ruling 11, a statement of fact)',
+      '"כן, כל מה שלא מאושר (מומלץ)" (ruling 12)', '"לפרסם לפני המעבר (מומלץ)" (ruling 13)');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **From the owner\'s rulings of 2026-11-23 on the fast track, DEC-192**')) || '', 'rulings 10 to 13');
+  });
+
+  test('the private excerpt is the primary record, here and in the index; the statement of fact quotes its question; the dates and M4 are stated', () => {
+    has(DEC192, `The primary record of the option selections of 2026-11-24 is ${PRIVATE}`);
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **The private primary record**')) || '', PRIVATE, 'DEC-192');
+    has(DEC192, '   - question: "שתי שאלות עובדה על השרת שלך: האם יש בשרת הייצור חשבונות של אנשים אחרים חוץ ממך? והאם לבטל עכשיו את כל החיבורים הפעילים של החשבון שלך, בגלל מפתח הגישה שדלף לכתובת הדמה?"',
+      '"ביטול" (cancellation) there is revoking his account\'s sessions, not a consent withdrawal; it was done on 2026-11-24 by clearing the AVD\'s app data (`OPS-505`).');
+    expect(DEC192).not.toContain('the question it answers is not quoted here');
+    const ruled = DEC192.split('\n---\n')[0].split('\n').find((l) => l.startsWith('ruled:')) || '';
+    has(ruled, '2026-11-23', '2026-11-24');
+    has(DEC192.split('\n').find((l) => l.startsWith('- ruled:')) || '', '2026-11-24 (rulings 6 to 13)');
+    has(DEC192, 'M4: the owner\'s (c) on all regulated copy, the consent version bump and the cutover PR, about 2026-12-18, per the approved plan (ruling 5).');
+  });
+});
+
 // The evidence runbook after the round-2 review of #307 at cc02d99: what a run may store and send (SA-9, and the
 // incident of 2026-11-24, when an emulator run sent the owner's stored token to the tracked placeholder host).
 describe('#307 round 3 · /device-qa: what an evidence run stores, signs in with and sends (SA-9)', () => {
