@@ -50,10 +50,10 @@ describe('authErrorKindForStatus — the backend statuses', () => {
 describe('signInErrorMessage — the screen\'s own words', () => {
   // Pinned word for word, so a copy change is a deliberate edit with its own review.
   it.each([
-    ['network', 'No connection. Check your network and try again.'],
-    ['playServices', 'Google Play services isn\'t available on this device.'],
+    ['network', 'Couldn\'t connect. Check your connection and try again.'],
+    ['playServices', 'Sign-in needs Google Play services. Update it, then try again.'],
     ['noEmail', 'This account didn\'t share an email address. Try another account.'],
-    ['rateLimited', 'Too many attempts. Try again in a few minutes.'],
+    ['rateLimited', 'Too many attempts. Try again in 15 minutes.'], // the authLimiter's window
     ['rejected', 'Sign-in wasn\'t accepted. Try again.'],
     ['server', 'Sign-in isn\'t available right now. Try again soon.'],
     ['unknown', 'Sign-in failed. Try again.'],
