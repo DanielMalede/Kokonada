@@ -67,8 +67,10 @@ cannot prove.
 
 1. **`node scripts/lab/bundleLab.mjs`** bundles `index.lab.js` exactly as the release task bundles `index.js`
    (Metro `--dev false`, then `hermesc -O`). It writes `android/app/src/lab/assets/index.android.bundle`
-   and `lab-stamp.json` (the commit, an empty porcelain, and the bundle's sha256). It runs from the
-   real path only: Metro breaks under a `subst` drive.
+   and `lab-stamp.json` (the commit, an empty porcelain, and the bundle's sha256). Then it copies each
+   `.ttf` of `assets/fonts` into `android/app/src/lab/assets/fonts/`, where React Native on Android
+   loads `fonts/<family>.ttf` (UI-072); that folder merges into the lab build type alone. It runs from
+   the real path only: Metro breaks under a `subst` drive.
 2. **`node scripts/lab/buildLabApk.mjs`** builds `:app:assembleLab` for arm64-v8a (the phone) and x86_64 (the API 35
    emulator, which cannot start an arm64-only lab, OPS-477). On Windows it maps the repository to
    a free drive letter (never `W:`) because the native build fails on a long path. It points

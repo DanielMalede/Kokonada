@@ -111,6 +111,57 @@ describe('bundleLab', () => {
     const git = { head: () => SHA, porcelain: () => (calls++ === 0 ? '' : '?? android/app/src/lab/assets/lab-stamp.json') };
     await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
   });
+
+  // UI-072: React Native on Android loads a family from fonts/<family>.ttf in the APK's assets, so the lab's faces ride in
+  // the lab source set's assets (android/app/src/lab/assets, merged into the lab build type alone), copied from
+  // assets/fonts by every run after the wipe of what the previous run left.
+  describe('the fonts', () => {
+    const TTF = (name: string) => Buffer.concat([Buffer.from([0x00, 0x01, 0x00, 0x00]), Buffer.from(`${name} fixture`)]);
+    const LAB_FONTS = 'android/app/src/lab/assets/fonts';
+    const run = (a: ReturnType<typeof app>, hbc: Buffer = HBC) => bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p });
+
+    it('copies each .ttf of assets/fonts byte for byte into the lab assets, where the lab APK carries fonts/<family>.ttf, and nothing else', async () => {
+      const a = app();
+      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
+      a.write('assets/fonts/Bellefair-Regular.ttf', TTF('Bellefair-Regular'));
+      a.write('assets/fonts/OFL-Heebo.txt', 'the licence');
+      a.write('assets/fonts/README.md', '# fonts');
+      a.write('assets/fonts/Heebo-Bold.otf', 'not a .ttf');
+      a.write('assets/fonts/notes.ttf/inside.txt', 'a folder, not a font');
+      const result = await run(a);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS)).sort()).toEqual(['Bellefair-Regular.ttf', 'Heebo-Regular.ttf']);
+      expect(a.read(`${LAB_FONTS}/Heebo-Regular.ttf`).equals(TTF('Heebo-Regular'))).toBe(true);
+      expect(a.read(`${LAB_FONTS}/Bellefair-Regular.ttf`).equals(TTF('Bellefair-Regular'))).toBe(true);
+      expect(result.fonts).toEqual(['Bellefair-Regular.ttf', 'Heebo-Regular.ttf']);
+      expect(a.exists('android/app/src/lab/assets/index.android.bundle')).toBe(true); // the wipe did not take the bundle with it
+    });
+
+    it('copies after the wipe: a face a previous run copied, since removed from assets/fonts, does not ride along', async () => {
+      const a = app();
+      a.write(`${LAB_FONTS}/Removed-Face.ttf`, TTF('Removed-Face'));
+      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
+      await run(a);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS))).toEqual(['Heebo-Regular.ttf']);
+    });
+
+    it.each([
+      ['assets/fonts holds no .ttf', (a: ReturnType<typeof app>) => a.write('assets/fonts/README.md', '# fonts')],
+      ['there is no assets/fonts', () => undefined],
+    ])('copies nothing and makes no fonts folder when %s', async (_label, setup) => {
+      const a = app();
+      setup(a);
+      const result = await run(a);
+      expect(result.fonts).toEqual([]);
+      expect(a.exists(LAB_FONTS)).toBe(false);
+    });
+
+    it('leaves no font behind when the bundle is refused, as it leaves no bundle', async () => {
+      const a = app();
+      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
+      await expect(run(a, Buffer.from(`var x = "${SENTINEL}"`))).rejects.toThrow(/Hermes/);
+      expect(a.exists(LAB_FONTS)).toBe(false);
+    });
+  });
 });
 
 describe('the drive letter and the autolinking paths', () => {
