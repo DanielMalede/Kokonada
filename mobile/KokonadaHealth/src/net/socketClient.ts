@@ -67,6 +67,14 @@ const DEFAULT_AUTH_WINDOW_MS = 60_000;
 const DEFAULT_BUILDING_RETRY_MS = 4_000;
 const DEFAULT_MAX_BUILDING_RETRIES = 55; // ≈220s at 4s cadence
 
+// RA-47: a connect_error is logged as a fixed code, never its own text — a release build writes every
+// console argument to logcat, and the text is the server's or the transport's, not ours.
+function connectErrorCode(err: any): 'unauthorized' | 'transport' | 'other' {
+  if (err?.message === 'unauthorized') return 'unauthorized'; // the handshake middleware's refusal (backend/app/sockets/index.js)
+  if (err?.type === 'TransportError') return 'transport'; // socket.io-client's transport failure
+  return 'other';
+}
+
 export class KokonadaSocket {
   private socket: SocketLike | null = null;
   private reqCounter = 0;
@@ -187,7 +195,7 @@ export class KokonadaSocket {
   // A failed connection attempt (bad URL, TLS, unauthorized handshake, network). The
   // library keeps retrying per its backoff; reflect the down state so the UI is honest.
   private handleConnectError = (err?: any) => {
-    console.warn('[koko] socket connect_error:', err?.message ?? String(err));
+    console.warn('[koko] socket connect_error:', connectErrorCode(err));
     this.deps.onConnectionChange?.('disconnected');
   };
 
@@ -217,7 +225,7 @@ export class KokonadaSocket {
   // and auto-retry the SAME pending request on a bounded schedule — the user never sees a
   // hard error for a brand-new account. Budget-exhausted → degrade to a soft error.
   private handleBuilding = (payload?: any) => {
-    console.log('[koko] playlist_building received:', payload?.message, 'reqId=', payload?.reqId,
+    console.log('[koko] playlist_building received: hasMessage=', typeof payload?.message === 'string', 'reqId=', payload?.reqId,
       'retries=', this.buildingRetries, 'latest=', this.latestReqId);
     // Same reqId gate as every response — a superseded request stays silent.
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
@@ -256,7 +264,7 @@ export class KokonadaSocket {
   }
 
   private handlePlaylistError = (payload: any) => {
-    console.log('[koko] playlist_error received:', payload?.message, 'reqId=', payload?.reqId, 'latest=', this.latestReqId);
+    console.log('[koko] playlist_error received: hasMessage=', typeof payload?.message === 'string', 'reqId=', payload?.reqId, 'latest=', this.latestReqId);
     // Same reqId gate as playlist responses — a superseded request stays silent.
     if (!payload || payload.reqId !== this.latestReqId || this.latestReqId === 0) return;
     if (this.pending?.reqId === payload.reqId) this.pending = null; // delivered — stop re-issuing
@@ -360,7 +368,8 @@ export class KokonadaSocket {
     this.latestReqId = this.reqCounter;
     this.pending = { kind: 'heart', reqId: this.latestReqId, heartRate };
     this.clearBuildingTimer(); this.buildingRetries = 0; // fresh request → fresh building budget
-    console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hr=', heartRate, 'hasSocket=', !!this.socket);
+    // RA-45: whether a heart rate rides along, never the value (a release build logs to logcat).
+    console.log('[koko] → request_heart_playlist reqId=', this.latestReqId, 'hasHr=', heartRate != null, 'hasSocket=', !!this.socket);
     this.socket?.emit('request_heart_playlist', { reqId: this.latestReqId, heartRate });
     return this.latestReqId;
   }

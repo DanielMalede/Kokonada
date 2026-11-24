@@ -478,6 +478,56 @@ describe('KokonadaSocket — disconnect() is terminal', () => {
   });
 });
 
+// RA-45 (S0, QA-096, trigger T1) and RA-47 (S3), the B1 QA brief: babel strips no console call, so
+// a release build writes every console argument to logcat. A heart-rate value, and the server's
+// free text (an error message can carry an upstream error's text), must never be one of them.
+describe('KokonadaSocket — the logs carry no health value and no server free text (RA-45, RA-47)', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+  function spyLogs() {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    return { log, warn, all: () => [...log.mock.calls, ...warn.mock.calls].flat().map((a) => String(a)) };
+  }
+
+  it('requestHeartPlaylist(72) logs whether a heart rate is present, never the number', () => {
+    const logs = spyLogs();
+    const { client, created } = build();
+    client.connect();
+    client.requestHeartPlaylist(72);
+    expect(created[0].clientEmits('request_heart_playlist')[0].payload.heartRate).toBe(72); // the wire still carries it
+    expect(logs.all().some((a) => a.includes('72'))).toBe(false);
+    expect(logs.log.mock.calls.some((c) => c.includes('hasHr='))).toBe(true);
+  });
+
+  it('connect_error logs a fixed code, never the error\'s own text', () => {
+    const logs = spyLogs();
+    const { client, created } = build();
+    client.connect();
+    created[0].fire('connect_error', new Error('unauthorized'));
+    created[0].fire('connect_error', Object.assign(new Error('xhr poll error: secret-host-detail'), { type: 'TransportError' }));
+    created[0].fire('connect_error', new Error('user 5f2a not found: grief on a tuesday'));
+    created[0].fire('connect_error', undefined);
+    expect(logs.all().some((a) => /secret-host-detail|5f2a|grief/.test(a))).toBe(false);
+    expect(logs.warn.mock.calls).toEqual([
+      ['[koko] socket connect_error:', 'unauthorized'],
+      ['[koko] socket connect_error:', 'transport'],
+      ['[koko] socket connect_error:', 'other'],
+      ['[koko] socket connect_error:', 'other'],
+    ]);
+  });
+
+  it('playlist_error and playlist_building log whether a message came, never its text', () => {
+    const logs = spyLogs();
+    const { client, created } = build({ onGenerationError: jest.fn(), onBuilding: jest.fn(), setTimer: jest.fn(), clearTimer: jest.fn() });
+    client.connect();
+    const building = client.requestPlaylist();
+    created[0].fire('playlist_building', { reqId: building, message: 'MARKER-building-text' });
+    const failed = client.requestPlaylist();
+    created[0].fire('playlist_error', { reqId: failed, message: 'Token refresh failed: MARKER-upstream-text' });
+    expect(logs.all().some((a) => a.includes('MARKER'))).toBe(false);
+  });
+});
+
 // C4 (B1 charter §6 item 4): a refresh that comes back null while the session still holds its
 // pair was `unavailable` (C1), not a dead session: the socket must not log the user out, and must
 // not stay wedged on its dead socket either. reconnect() is the recovery: refresh, then open.
