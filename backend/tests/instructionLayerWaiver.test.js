@@ -1206,7 +1206,12 @@ describe('#307 round 3 · /device-qa: what an evidence run stores, signs in with
     const safety = qa.split('\n').find((l) => l.startsWith('SAFETY — ')) || '';
     has(safety, 'Captures (logcat, screenshots, view-hierarchy and other dumps) are saved outside the tree, never in a worktree or the main checkout; one that holds anything personal goes to `Kokonada-private/evidence/<date>-<task>/`, beside the main checkout (`CLAUDE.md` § Working rules).',
       'The emulator signs in with a test account only, never the owner\'s.',
-      'Before the first launch of any build whose backend is the tracked placeholder (`mobile/KokonadaHealth/src/health/config.ts:2`, `https://YOUR-BACKEND.up.railway.app`, a Railway name another party holds), clear the app\'s data with `adb -s <serial> shell pm clear com.kokonadahealth`, so no stored token is sent (`OPS-504`, `OPS-505`).');
+      // RA-28 (b, c): the constant's name outlives its value (#309 changes it), and a Design Lab build is its own package.
+      'Before the first launch of any build whose `BACKEND_URL` (`mobile/KokonadaHealth/src/health/config.ts`) is still the tracked placeholder, a Railway name another party holds until `OPS-504` makes it a `.invalid` name, clear the data of the package of the build being launched with `adb -s <serial> shell pm clear <package>` (`com.kokonadahealth`, or `com.kokonadahealth.lab` for a Design Lab build), so no stored token is sent (`OPS-504`, `OPS-505`).');
+    expect(qa).not.toMatch(/YOUR-BACKEND|pm clear com\.kokonadahealth`/);
+    const gradle = read('mobile/KokonadaHealth/android/app/build.gradle');
+    expect([/applicationId "com\.kokonadahealth"/.test(gradle), /\blab \{[^}]*applicationIdSuffix "\.lab"/.test(gradle)]).toEqual([true, true]);
+    expect(read('mobile/KokonadaHealth/src/health/config.ts')).toMatch(/^export const BACKEND_URL = /m);
     expect(qa.indexOf('SAFETY — ')).toBeLessThan(qa.indexOf('EMULATOR — '));
     has(qa.split('\n').find((l) => l.startsWith('4) ')) || '', 'saved to a file outside the tree (SAFETY)');
     has(qa.split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '', 'saving to a file in `Kokonada-private/evidence/<date>-<task>/` (SAFETY)');
