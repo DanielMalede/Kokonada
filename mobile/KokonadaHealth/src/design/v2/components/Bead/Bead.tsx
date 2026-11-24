@@ -11,21 +11,21 @@
 // linearly to 0 over the same duration; onLeft reports its end, never an exit cut short.
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
-// are physical (R7, QA-088).
+// are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the halo's own centre).
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import type { DirectionTokens } from '../../tokens/tokens.generated.ts';
 import { useTokens } from '../../tokens/useTokens.ts';
-import { beadCentre, beadEntrance, beadGeometry, beadMotion, beadPaint, type BeadLook, type BeadMotion } from './beadModel.ts';
-import type { PlatePoint } from './platePoint.ts';
+import { pointToLocal, type PlateGeometry, type PlatePoint } from '../Plate/geometry.ts';
+import { beadEntrance, beadMotion, beadPaint, type BeadLook, type BeadMotion } from './beadModel.ts';
 
 export interface BeadProps {
   /** The tap on the unit disc, y up. */
   readonly point: PlatePoint;
-  /** The plate's diameter, in dp. */
-  readonly diameter: number;
+  /** The plate's shared geometry (Plate/geometry.ts plateGeometry), the one the plate and the touch layer use. */
+  readonly plate: PlateGeometry;
   readonly tier: MotionTier;
   /** Playing its exit (a fourth tap, an undo, a clear). */
   readonly leaving: boolean;
@@ -62,10 +62,10 @@ function highlight(tokens: DirectionTokens['bead']['highlight'], rb: number, fro
   };
 }
 
-export function Bead({ point, diameter, tier, leaving, initial, onLeft }: BeadProps) {
+export function Bead({ point, plate, tier, leaving, initial, onLeft }: BeadProps) {
   const { id, face, direction } = useTokens();
-  const g = beadGeometry(id, diameter);
-  const centre = beadCentre(point, g);
+  const g = { bead: plate.beadRadius, setting: direction.bead.setting.width };
+  const centre = pointToLocal(point, plate);
   const paint = beadPaint(id, face, point);
   const box = 2 * (g.bead + g.setting);
 

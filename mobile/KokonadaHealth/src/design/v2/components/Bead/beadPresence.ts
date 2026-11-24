@@ -11,7 +11,7 @@
 // The mount is the only reset: every tap present then is shown at once (initial, no entrance), as a fresh
 // ledger shows its first input at fade 1. A leaving bead stays until its exit ends (presenceGone).
 
-import type { PlatePoint } from './platePoint.ts';
+import type { PlatePoint } from '../Plate/geometry.ts';
 
 /** The cold lane's ring: at most this many taps are shown (emotionSlice MAX_TAPS, the ledger's ADMISSION.live). */
 export const MAX_BEADS = 3;

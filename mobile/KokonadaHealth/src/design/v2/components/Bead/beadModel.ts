@@ -1,9 +1,6 @@
-// The bead's pure model (F10 group A, DSN-017, DSN-029; LEDGER §5.5, §7): where a placed point sits on the
-// plate, its colours, and how it enters and leaves. The views (Bead.tsx) draw exactly this.
-//
-// Position: the plate's wheel has radius R − the bead radius (DSN-025), so a point on the rim puts the bead
-// just inside the plate's edge. The tap is read as the field builder reads it (fieldFrame.ts: a non-finite
-// coordinate is 0, a point outside the unit disc moves onto the rim), so the bead sits on its own halo.
+// The bead's pure model (F10 group A, DSN-017, DSN-029; LEDGER §5.5, §7): a placed point's colours, and how
+// it enters and leaves. The views (Bead.tsx) draw exactly this. Where it sits is the plate's shared geometry
+// (Plate/geometry.ts pointToLocal, held to the field builder there), so the bead sits on its own halo.
 //
 // Colour (DSN-017): the face's neutral bead inside placement.neutralRadius; otherwise the lightness runs
 // from the neutral bead's to the quadrant anchor's (the face's tier: core on dark, deep on light) with the
@@ -21,13 +18,16 @@ import { NODE_TIER, QUADRANT, nodeAt, placementRamp } from '../../field/fieldFra
 import { encodeSrgb8 } from '../../field/fieldLaw.ts';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
-import type { PlatePoint } from './platePoint.ts';
+import type { PlatePoint } from '../Plate/geometry.ts';
 
 const WHITE: Oklab = { L: 1, a: 0, b: 0 };
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const labOf = (c: { readonly oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
 
-/** A tap as the field builder reads it: each non-finite coordinate is 0, and a point outside the unit disc moves onto its rim. */
+/**
+ * A tap as the field builder reads it for its node and ramp: each non-finite coordinate is 0, and a point outside the
+ * unit disc moves onto its rim (fieldFrame.ts; pointToLocal reads a point for its place the same way).
+ */
 export function readPoint(p: PlatePoint): PlatePoint {
   let x = Number.isFinite(p.x) ? p.x : 0;
   let y = Number.isFinite(p.y) ? p.y : 0;
@@ -37,31 +37,6 @@ export function readPoint(p: PlatePoint): PlatePoint {
     y /= r;
   }
   return { x, y };
-}
-
-/** The plate's measures for the bead, in dp. */
-export interface BeadGeometry {
-  /** The plate radius R: half its diameter. */
-  readonly radius: number;
-  /** The bead radius (bead.diameter / 2). */
-  readonly bead: number;
-  /** The wheel's radius, R − the bead radius (DSN-025): where a point on the rim puts the bead's centre. */
-  readonly wheel: number;
-  /** The setting ring's width, drawn outside the disc (bead.setting.width). */
-  readonly setting: number;
-}
-
-export function beadGeometry(id: DirectionId, diameter: number): BeadGeometry {
-  const d = DIRECTIONS[id];
-  const radius = diameter / 2;
-  const bead = d.bead.diameter / 2;
-  return { radius, bead, wheel: radius - bead, setting: d.bead.setting.width };
-}
-
-/** The bead's centre in dp from the plate box's top-left corner: LTR, y down. */
-export function beadCentre(point: PlatePoint, g: BeadGeometry): { readonly x: number; readonly y: number } {
-  const p = readPoint(point);
-  return { x: g.radius + g.wheel * p.x, y: g.radius - g.wheel * p.y };
 }
 
 /** DSN-017: the bead's fill for a point, in OKLab. */

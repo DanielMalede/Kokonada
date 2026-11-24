@@ -9,19 +9,19 @@
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
+import type { PlateGeometry, PlatePoint } from '../Plate/geometry.ts';
 import { Bead } from './Bead.tsx';
 import { presenceGone, presenceOf, presenceUpdate, type BeadPresence } from './beadPresence.ts';
-import type { PlatePoint } from './platePoint.ts';
 
 export interface BeadLayerProps {
   /** The store's taps on the unit disc, y up, oldest first. */
   readonly taps: readonly PlatePoint[];
-  /** The plate's diameter, in dp. */
-  readonly diameter: number;
+  /** The plate's shared geometry (Plate/geometry.ts plateGeometry). */
+  readonly plate: PlateGeometry;
   readonly tier: MotionTier;
 }
 
-export function BeadLayer({ taps, diameter, tier }: BeadLayerProps) {
+export function BeadLayer({ taps, plate, tier }: BeadLayerProps) {
   const [presence, setPresence] = useState<BeadPresence>(() => presenceOf(taps));
   // A new taps array is read by value at once, in the same render (React's "adjust state on a prop change").
   const [seen, setSeen] = useState(taps);
@@ -40,10 +40,10 @@ export function BeadLayer({ taps, diameter, tier }: BeadLayerProps) {
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
-      style={[styles.layer, { width: diameter, height: diameter }]}
+      style={[styles.layer, { width: plate.diameter, height: plate.diameter }]}
     >
       {order.map((bead) => (
-        <Bead key={bead.id} point={bead.point} diameter={diameter} tier={tier} leaving={bead.leaving} initial={bead.initial} onLeft={() => gone(bead.id)} />
+        <Bead key={bead.id} point={bead.point} plate={plate} tier={tier} leaving={bead.leaving} initial={bead.initial} onLeft={() => gone(bead.id)} />
       ))}
     </View>
   );

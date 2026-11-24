@@ -5,8 +5,9 @@ import { isRed, type RedBand } from '../../../color/redBand.ts';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
+import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import { Bead } from '../Bead.tsx';
-import { beadCentre, beadEntrance, beadExit, beadGeometry, beadMotion, beadPaint, hexLab } from '../beadModel.ts';
+import { beadEntrance, beadExit, beadMotion, beadPaint, hexLab } from '../beadModel.ts';
 
 // The bead as drawn (F10 group A): views only, no Skia, no strings, no elevation (R1, R2, R9). It is purely
 // visual: never a touch target and never an accessibility node (PlateTouch owns both, so the latest bead's
@@ -17,7 +18,9 @@ jest.useFakeTimers();
 afterAll(() => jest.useRealTimers());
 
 const ABYSS = DIRECTIONS.abyss;
-const D = 296;
+const PLATE = plateGeometry({ base: BASE, direction: ABYSS }, 296, 1);
+/** The bead's measures: its radius is the plate's, its setting ring the direction's. */
+const g = { bead: PLATE.beadRadius, setting: ABYSS.bead.setting.width };
 const POINT = { x: -0.4, y: 0.5 };
 const CHECK: RedBand = { hueFrom: BASE.neverRed.check.hueStart, hueTo: BASE.neverRed.check.hueEnd, chromaFloor: BASE.neverRed.check.chromaFloor };
 
@@ -31,7 +34,7 @@ interface Options {
 }
 const element = (o: Options = {}) => (
   <DirectionProvider direction="abyss" face={o.face ?? 'dark'}>
-    <Bead point={o.point ?? POINT} diameter={D} tier={o.tier ?? 'full'} leaving={o.leaving ?? false} initial={o.initial ?? false} onLeft={o.onLeft ?? jest.fn()} />
+    <Bead point={o.point ?? POINT} plate={PLATE} tier={o.tier ?? 'full'} leaving={o.leaving ?? false} initial={o.initial ?? false} onLeft={o.onLeft ?? jest.fn()} />
   </DirectionProvider>
 );
 function mount(o: Options = {}) {
@@ -57,10 +60,9 @@ afterEach(() => {
 });
 
 describe('Bead: where it sits and what it paints', () => {
-  it('a box of the disc plus its setting ring, centred on the bead centre, absolutely placed by left and top', () => {
+  it('a box of the disc plus its setting ring, centred on the plate’s point (pointToLocal: the halo’s centre), placed by left and top', () => {
     const tree = mount();
-    const g = beadGeometry('abyss', D);
-    const c = beadCentre(POINT, g);
+    const c = pointToLocal(POINT, PLATE);
     const style = flat(host(tree, 'bead').props.style);
     const box = 2 * (g.bead + g.setting);
     expect(style).toMatchObject({ position: 'absolute', left: c.x - g.bead - g.setting, top: c.y - g.bead - g.setting, width: box, height: box });
@@ -71,7 +73,6 @@ describe('Bead: where it sits and what it paints', () => {
   it('the disc is the DSN-017 fill with the highlight’s radial gradient and the token shadow; the ring is the setting, outside the disc', () => {
     for (const face of ['dark', 'light'] as const) {
       const tree = mount({ face });
-      const g = beadGeometry('abyss', D);
       const paint = beadPaint('abyss', face, POINT);
       const disc = flat(host(tree, 'bead.disc').props.style);
       expect(disc).toMatchObject({ position: 'absolute', left: g.setting, top: g.setting, width: 2 * g.bead, height: 2 * g.bead, borderRadius: g.bead, backgroundColor: paint.fill });

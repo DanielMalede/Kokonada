@@ -1,26 +1,12 @@
 import { Easing } from 'react-native';
 import { mixOklab, srgbToOklab, type Oklab } from '../../../color/oklab.ts';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
-import { buildFieldFrame, type FieldStatics } from '../../../field/fieldFrame.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
-import {
-  alphaHex,
-  beadCentre,
-  beadEntrance,
-  beadExit,
-  beadFill,
-  beadGeometry,
-  beadHighlight,
-  beadMotion,
-  beadPaint,
-  hexLab,
-  readPoint,
-  srgbHex,
-} from '../beadModel.ts';
+import { alphaHex, beadEntrance, beadExit, beadFill, beadHighlight, beadMotion, beadPaint, hexLab, readPoint, srgbHex } from '../beadModel.ts';
 
-// The bead's pure model: where it sits, what colour it is (DSN-017), and how it moves (motion.placement,
-// the still tier's ramp). The bead is drawn over the field, so it must sit exactly on its halo, which the
-// field builder places (fieldFrame.ts): the position test reads the builder's own bead centre.
+// The bead's pure model: what colour it is (DSN-017) and how it moves (motion.placement, the still tier's
+// ramp). Where it sits is the plate's shared geometry (Plate/geometry.ts pointToLocal), which its own test
+// holds to the field builder's bead centre; Bead.test.tsx holds the drawn bead to pointToLocal.
 
 const ABYSS = DIRECTIONS.abyss;
 const FACES: readonly Face[] = ['dark', 'light'];
@@ -35,7 +21,7 @@ const close = (a: Oklab, b: Oklab, eps = 1e-12) => {
   expect(Math.abs(a.b - b.b)).toBeLessThanOrEqual(eps + 1e-10);
 };
 
-describe('readPoint: a tap as the field builder reads it', () => {
+describe('readPoint: a tap as the field builder reads it, for its node and ramp', () => {
   it('keeps a point on the disc', () => {
     expect(readPoint({ x: 0.3, y: -0.4 })).toEqual({ x: 0.3, y: -0.4 });
     expect(readPoint({ x: 1, y: 0 })).toEqual({ x: 1, y: 0 });
@@ -49,50 +35,6 @@ describe('readPoint: a tap as the field builder reads it', () => {
     expect(readPoint({ x: NaN, y: 0.5 })).toEqual({ x: 0, y: 0.5 });
     expect(readPoint({ x: 0.25, y: Infinity })).toEqual({ x: 0.25, y: 0 });
     expect(readPoint({ x: -Infinity, y: NaN })).toEqual({ x: 0, y: 0 });
-  });
-});
-
-describe('beadGeometry and beadCentre: the bead on the plate, LTR, y down', () => {
-  it('the plate radius is half the diameter; the bead radius and the wheel radius come from the tokens', () => {
-    const g = beadGeometry('abyss', 296);
-    expect(g.radius).toBe(148);
-    expect(g.bead).toBe(ABYSS.bead.diameter / 2);
-    expect(g.wheel).toBe(148 - ABYSS.bead.diameter / 2);
-    expect(g.setting).toBe(ABYSS.bead.setting.width);
-  });
-
-  it('the centre point sits at the plate centre; the rim points sit one bead radius inside the plate edge', () => {
-    const g = beadGeometry('abyss', 300);
-    expect(beadCentre({ x: 0, y: 0 }, g)).toEqual({ x: 150, y: 150 });
-    expect(beadCentre({ x: 1, y: 0 }, g)).toEqual({ x: 300 - ABYSS.bead.diameter / 2, y: 150 });
-    expect(beadCentre({ x: 0, y: 1 }, g)).toEqual({ x: 150, y: ABYSS.bead.diameter / 2 });
-    expect(beadCentre({ x: -1, y: 0 }, g)).toEqual({ x: ABYSS.bead.diameter / 2, y: 150 });
-    expect(beadCentre({ x: 0, y: -1 }, g)).toEqual({ x: 150, y: 300 - ABYSS.bead.diameter / 2 });
-  });
-
-  // The field draws the halo around the bead centre it computes; a bead drawn anywhere else floats off its halo.
-  it('equals the field builder’s own bead centre, for every tap and plate size', () => {
-    const statics: FieldStatics = {
-      restLobes: { dark: [], light: [] },
-      drift: { harmonics: [[1, 1]], phases: [[0, 0]] },
-      fallbackStops: { position: [0, 1], weight: [1, 0] },
-    };
-    const taps = [{ x: 0.566, y: 0.566 }, { x: -0.3, y: -0.8 }, { x: 0.05, y: 0.02 }, { x: 2, y: -2 }, { x: -1, y: 0 }];
-    for (const diameter of [264, 296, 340]) {
-      const g = beadGeometry('abyss', diameter);
-      for (const tap of taps) {
-        const frame = buildFieldFrame(
-          { direction: 'abyss', face: 'dark', placements: [{ x: tap.x, y: tap.y, fade: 1 }], stress: 0, confidence: null, genesis: false, tMs: 0, breathPhase: 0, tier: 'still', restFade: 0 },
-          { centrePx: [0, 0], radiusPx: diameter / 2, pxPerDp: 1, fontScale: 1 },
-          statics,
-        );
-        const node = frame.nodes.find((n) => n.bead !== null)!;
-        const R = diameter / 2;
-        const c = beadCentre(tap, g);
-        expect(c.x).toBeCloseTo(R + R * node.bead![0], 9);
-        expect(c.y).toBeCloseTo(R - R * node.bead![1], 9);
-      }
-    }
   });
 });
 
