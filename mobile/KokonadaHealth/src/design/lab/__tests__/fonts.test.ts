@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import * as fs from 'fs';
+import * as path from 'path';
 import { BASE, DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import {
   CALIBRATION_TEXT, FACE_MIN_DIFF_DP, FALLBACK_PROBE, FONT_CHECK_DEADLINE_MS, LAB_FACES, MISSING_FACE, createFontCheck,
@@ -37,6 +40,11 @@ describe('the lab faces are the faces the v2 type tokens name', () => {
   it('the voice face is never cut above 400 (CMP-125: hierarchy from size and space; Android would draw a synthetic bold)', () => {
     const voice = Object.values(LAB_FACES).filter((f) => f.family === BASE.type.face.voice);
     expect(voice.map((f) => f.weight)).toEqual([400]);
+  });
+
+  it('every face is a font file the app holds: assets/fonts/<id>.ttf, the file React Native on Android looks it up by', () => {
+    const dir = path.resolve(__dirname, '../../../../assets/fonts');
+    expect(Object.keys(LAB_FACES).filter((id) => !fs.existsSync(path.join(dir, `${id}.ttf`)))).toEqual([]);
   });
 
   it('a face id is the family without spaces and the OpenType style name of the weight, as upstream files are named', () => {
