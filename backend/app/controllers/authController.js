@@ -19,9 +19,7 @@ async function verifyGoogleToken(idToken) {
     audience: process.env.GOOGLE_CLIENT_ID,
   });
   const p = ticket.getPayload();
-  // BE-276 — `picture` is deliberately not read: the backend does not store the profile picture URL
-  // (the owner's ruling of 2026-11-24). A row written before keeps its value until BE-277 purges it.
-  return { ssoId: p.sub, email: p.email, displayName: p.name };
+  return { ssoId: p.sub, email: p.email, displayName: p.name }; // `picture` is never read (BE-276)
 }
 
 async function verifyAppleToken(identityToken) {
@@ -61,12 +59,12 @@ async function handleSso(provider, profile, { deviceToken, platform, client } = 
         error: 'Your account did not share an email address, which is required to sign up.',
       });
     }
-    // avatarUrl is left to its schema default: no provider's picture is stored (BE-276).
     user = await User.create({
       ssoProvider: provider,
       ssoId: profile.ssoId,
       email: profile.email,
       displayName: profile.displayName,
+      // no avatarUrl: it keeps its schema default, no provider's picture is stored (BE-276)
     });
   }
 
