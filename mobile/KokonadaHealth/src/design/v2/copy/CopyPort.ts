@@ -228,9 +228,15 @@ export function checkCopy(spec: CopySpec, catalogs: Catalogs): CopyProblem[] {
       problems.push(problem('regulated-text', key, 'en', 'an R key carries no text in this tree (F3-B)'));
     } else {
       const message = en[key];
-      const nodes = typeof message !== 'string' || message.trim() === '' ? 'text is a non-blank string' : tryParse(message);
-      if (typeof nodes === 'string') {
-        problems.push(problem('bad-message', key, 'en', nodes));
+      let why: string | null;
+      if (typeof message !== 'string' || message.trim() === '') {
+        why = 'text is a non-blank string';
+      } else {
+        const nodes = tryParse(message);
+        why = typeof nodes === 'string' ? nodes : styleProblem(message);
+      }
+      if (why !== null) {
+        problems.push(problem('bad-message', key, 'en', why));
       }
     }
   }
@@ -416,6 +422,32 @@ function tryParse(message: string): readonly TextNode[] | string {
     }
     throw error;
   }
+}
+
+/**
+ * Emoji, by code point, never by a Unicode property regex: the pictograph and emoticon planes
+ * (U+1F000 to U+1FAFF, flags included), the miscellaneous symbols and dingbats, the emoji
+ * presentation selector, the keycap, and the stars and squares of U+2B00. Not ™ or ©.
+ */
+const isEmoji = (point: number): boolean =>
+  (point >= 0x1f000 && point <= 0x1faff) ||
+  (point >= 0x2600 && point <= 0x27bf) ||
+  [0xfe0f, 0x20e3, 0x2b1b, 0x2b1c, 0x2b50, 0x2b55].includes(point);
+
+/** The LEDGER section 11 rules a machine can hold, or null when the text keeps them. */
+function styleProblem(message: string): string | null {
+  if (message.includes('...')) {
+    return 'an ellipsis is one character, U+2026, never three dots';
+  }
+  if (message.includes('!')) {
+    return 'copy carries no exclamation mark';
+  }
+  for (const char of message) {
+    if (isEmoji(char.codePointAt(0) ?? 0)) {
+      return 'copy carries no emoji';
+    }
+  }
+  return null;
 }
 
 /** CLDR's en rule for whole numbers: one for 1 and -1, other for every other number. */

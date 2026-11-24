@@ -108,6 +108,34 @@ describe('checkCopy', () => {
   });
 });
 
+// LEDGER §11, the rules a machine can hold: an ellipsis is the one character U+2026, no "!" and no
+// emoji. Sentence case and the truth rules stay with G1 and G12, which read the copy itself.
+describe('the copy rules a catalogue is held to', () => {
+  const check = (message: string) => checkCopy({ 'a.b': { class: 'N' } }, { en: { 'a.b': message } }).map((p) => [p.code, p.detail]);
+
+  it('three dots are refused: an ellipsis is one character', () => {
+    expect(check('Loading...')).toEqual([['bad-message', 'an ellipsis is one character, U+2026, never three dots']]);
+    expect(check('Loading…')).toEqual([]);
+  });
+
+  it('an exclamation mark is refused, in a branch as anywhere', () => {
+    expect(check('Welcome!')).toEqual([['bad-message', 'copy carries no exclamation mark']]);
+    expect(check('{n, plural, one {# step!} other {# steps}}')).toEqual([['bad-message', 'copy carries no exclamation mark']]);
+  });
+
+  it('an emoji is refused: pictographs, dingbats, keycaps, flags and the emoji presentation selector', () => {
+    for (const message of ['Great job 🎉', 'Heart ❤\uFE0F', 'Done ✓', 'Step 1\uFE0F\u20E3', 'From 🇮🇱', 'Calm ☀']) {
+      expect([message, check(message)]).toEqual([message, [['bad-message', 'copy carries no emoji']]]);
+    }
+  });
+
+  it('the marks copy does carry stay allowed: ™, ©, the dashes and typographic quotes', () => {
+    for (const message of ['Garmin™ Connect', '© Kokonada', 'Sign in – then begin', 'The “plate”', 'It’s yours']) {
+      expect([message, check(message)]).toEqual([message, []]);
+    }
+  });
+});
+
 describe('building a port', () => {
   it('a strict build throws invalid-copy with checkCopy’s problems', () => {
     const en = { 'shell.offline.title': 'You are offline' };
