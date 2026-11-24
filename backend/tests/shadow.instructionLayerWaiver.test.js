@@ -142,11 +142,30 @@ describe('RA-11 · the guards on this class (a) text need class (a) to weaken', 
     expect(who('J19')).toBe('the pre-merge check + coordinator only');
   });
   test.each([['J8', 'backend/tests/instructionLayerWaiver.test.js'], ['J16', 'backend/tests/instructionLayerWaiver.test.js'], ['J8', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J16', 'backend/tests/shadow.instructionLayerWaiver.test.js'], ['J4', 'backend/app/utils/redact.js']])('%s covers %s', (id, file) => { expect(covered(id, file)).toBe(true); });
+  // RA-1, SA-1: the script that may one day stand for § Checks' hand-run steps is merge machinery, as scripts/coord/** is.
+  test.each(['J8', 'J16'])('%s covers the future merge-check script beside scripts/coord/**', (id) => {
+    expect(covered(id, 'scripts/merge-check/index.js')).toBe(true);
+    expect(covered(id, 'scripts/coord/coord.js')).toBe(true);
+  });
   test.each(['J8', 'J16'])('%s names the two waiver tests with one glob that matches nothing else in backend/tests', (id) => {
     const testFiles = fs.readdirSync(path.join(REPO_ROOT, 'backend', 'tests'), { recursive: true }).map((f) => `backend/tests/${String(f).replace(/\\/g, '/')}`);
     const waiverGlobs = globs(id).filter((g) => matches(g, 'backend/tests/instructionLayerWaiver.test.js'));
     expect(waiverGlobs).toHaveLength(1);
     expect(testFiles.filter((f) => matches(waiverGlobs[0], f)).sort()).toEqual(['backend/tests/instructionLayerWaiver.test.js', 'backend/tests/shadow.instructionLayerWaiver.test.js']);
+  });
+});
+describe('RA-1 · the merge-check script stands for the hand-run steps only once class (a) text says so', () => {
+  const merge = read('.claude/commands/merge.md');
+  const intro = between(merge, '\n## Checks\n', '\nWHY. ');
+  test('§ Checks keys the script on the merge rule naming it and a parity test of every step, never on the directory existing', () => {
+    expect(intro).toMatch(/`scripts\/merge-check\/` \(future\) stands for the steps below only once `CLAUDE\.md` § The merge rule names it and a parity test maps every PRE-MERGE step 1–8 and POST-MERGE step 1–6 to a check the script makes;/);
+    expect(intro).toMatch(/then the session runs main's copy of it at M, never the PR's, and posts its output\./);
+    expect(intro).toMatch(/Until both hold, the session runs the steps below by hand, as written, even when the directory exists\./);
+    expect(intro).not.toMatch(/exists on main, the session runs it/);
+  });
+  test('§ The merge rule does not name the script yet, so every step runs by hand', () => {
+    // The PR that names it there replaces this case with the parity test, and this file is class (a) (J8, J16).
+    expect(sectionText(ROOT_MD, 'The merge rule')).not.toMatch(/merge-check/);
   });
 });
 describe('RA-13 · the allow-list names the root CLAUDE.md and fences every front matter', () => {

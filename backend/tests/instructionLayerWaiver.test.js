@@ -474,8 +474,10 @@ describe('DEC-192 · the evidence rule names the emulator\'s manifest and leaves
   });
 });
 
-describe('DEC-192 · F4: the merge checks run as a script once one exists', () => {
-  test('§ Checks runs `scripts/merge-check/` when main has it, and the steps by hand until then', () => {
-    has(CHECKS_TEXT, 'When `scripts/merge-check/` exists on main, the session runs it and posts its output; until it exists, the session runs the steps below by hand, as written.');
+describe('DEC-192 · F4: the merge checks run as a script only once the merge rule names it and a parity test maps every step (RA-1, SA-1)', () => {
+  test('§ Checks: the script stands for the steps only on both conditions, run from main\'s copy at M; by hand until then, even when it exists', () => {
+    has(CHECKS_TEXT, '`scripts/merge-check/` (future) stands for the steps below only once `CLAUDE.md` § The merge rule names it and a parity test maps every PRE-MERGE step 1–8 and POST-MERGE step 1–6 to a check the script makes; then the session runs main\'s copy of it at M, never the PR\'s, and posts its output. Until both hold, the session runs the steps below by hand, as written, even when the directory exists.');
+    // A directory on main is not enough: the earlier wording handed the gate to whatever first landed there, under J2 alone.
+    expect(CHECKS_TEXT).not.toMatch(/When `scripts\/merge-check\/` exists on main, the session runs it/);
   });
 });
