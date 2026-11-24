@@ -318,6 +318,58 @@ describe('AuthSession — logout and the ended signal', () => {
   });
 });
 
+// SA309-2 (S2): react-native-keychain 10.0.0 runs setGenericPassword in a coroutine on
+// Dispatchers.Default under a mutex (KeychainModule.kt:132-183) and resetGenericPassword at once,
+// without it (:318-336), so a reset issued after a save can complete BEFORE that save's write lands: a
+// sign-out right after a rotation left the pair on disk, and a sign-in as B could end with A's pair
+// stored. The fake native side completes each save only when the test lets it, in either order.
+describe('keychainSession — every Keychain call lands in the order it was issued (SA309-2)', () => {
+  const Keychain = require('react-native-keychain');
+  let slot: string | null;
+  let pendingSaves: Array<() => void>;
+  beforeEach(() => {
+    slot = null;
+    pendingSaves = [];
+    Keychain.getGenericPassword.mockImplementation(async () => (slot ? { password: slot } : false));
+    Keychain.setGenericPassword.mockImplementation((_u: string, password: string) =>
+      new Promise((resolve) => { pendingSaves.push(() => { slot = password; resolve(true); }); }));
+    Keychain.resetGenericPassword.mockImplementation(async () => { slot = null; return true; });
+  });
+  afterEach(() => {
+    Keychain.getGenericPassword.mockReset().mockResolvedValue(false);
+    Keychain.setGenericPassword.mockReset().mockResolvedValue(true);
+    Keychain.resetGenericPassword.mockReset().mockResolvedValue(true);
+  });
+  // Let the native side finish whatever it holds, oldest or newest first, until nothing is left.
+  const drain = async (order: 'oldest' | 'newest') => {
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setImmediate(r));
+      const next = order === 'oldest' ? pendingSaves.shift() : pendingSaves.pop();
+      if (next) next();
+    }
+  };
+
+  it('a sign-out issued while a save is still on the native side lands last: nothing stays on disk', async () => {
+    const session = new AuthSession(keychainSession);
+    const saving = session.setSession({ access: 'a-acc', refresh: 'a-krt' });
+    const clearing = session.clear(); // the user signs out at once
+    await drain('oldest');
+    await Promise.all([saving, clearing]);
+    expect(slot).toBeNull();
+  });
+
+  it('save A, sign out, save B, whatever order the native side finishes them in: B is what is stored', async () => {
+    const session = new AuthSession(keychainSession);
+    const a = session.setSession({ access: 'a-acc', refresh: 'a-krt' });
+    const cleared = session.clear();
+    const b = session.setSession({ access: 'b-acc', refresh: 'b-krt' });
+    await drain('newest');
+    await Promise.all([a, cleared, b]);
+    expect(JSON.parse(slot as string)).toEqual({ access: 'b-acc', refresh: 'b-krt' });
+    expect(await keychainSession.loadTokens()).toEqual({ access: 'b-acc', refresh: 'b-krt' });
+  });
+});
+
 // The production endpoint (src/auth/session.ts) against the backend's contract: POST
 // /api/auth/refresh answers 200 {token, refreshToken} or 401 {error:'Invalid refresh token'}
 // (authController.js `refresh`); it sits behind authLimiter, so it can also answer 429, and any

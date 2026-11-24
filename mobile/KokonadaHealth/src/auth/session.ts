@@ -10,16 +10,28 @@ import { BACKEND_URL } from '../health/config';
 
 const SESSION_SERVICE = 'com.kokonadahealth.session';
 
+// SA309-2: react-native-keychain 10 runs setGenericPassword in a coroutine on Dispatchers.Default under
+// a mutex and resetGenericPassword at once, without it (android KeychainModule.kt), so a reset issued
+// after a save could complete before that save's write. Every Keychain call here runs on ONE chain, in
+// the order it was issued: a sign-out after a rotation leaves nothing on disk, and a sign-in after that
+// leaves its own pair. A failed call never blocks the next.
+let keychainQueue: Promise<unknown> = Promise.resolve();
+function inIssueOrder<T>(op: () => Promise<T>): Promise<T> {
+  const run = keychainQueue.then(op, op);
+  keychainQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export const keychainSession = {
-  loadTokens: async (): Promise<TokenPair | null> => {
+  loadTokens: (): Promise<TokenPair | null> => inIssueOrder(async () => {
     const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
     if (!creds || !creds.password) return null;
     try { return JSON.parse(creds.password) as TokenPair; } catch { return null; }
-  },
-  saveTokens: async (t: TokenPair) => {
+  }),
+  saveTokens: (t: TokenPair): Promise<void> => inIssueOrder(async () => {
     await Keychain.setGenericPassword('session', JSON.stringify(t), { service: SESSION_SERVICE });
-  },
-  clearTokens: async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); },
+  }),
+  clearTokens: (): Promise<void> => inIssueOrder(async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); }),
   // C1: only the server's dead-family answer (401, authController.js `refresh`) is `dead`. A thrown
   // fetch (offline, timed out, aborted), a 5xx, a 429 from the auth limiter, any other status or an
   // unreadable 200 is `unavailable`: no verdict on the family, so the session must survive it.
