@@ -1079,3 +1079,19 @@ describe('#307 round 3 · /device-qa: what an evidence run stores, signs in with
     expect(['OPS-504', 'OPS-505'].filter((id) => !TASK_IDS.has(id))).toEqual([]);
   });
 });
+
+// RA-18: a row #307 meets says so, where and by which pin, so that it closes when #307 merges; the pin it cites exists.
+describe('#307 round 3 · the rows #307 meets say so (RA-18)', () => {
+  const rowBlock = (id) => {
+    const lines = read('TASKS.md').split('\n');
+    const at = lines.findIndex((l) => l.startsWith(`- [ ] \`${id}\``));
+    return (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
+  };
+  test.each([
+    ['OPS-186', '`.claude/commands/merge.md:5`', 'backend/tests/instructionLayerWaiver.test.js', '/merge step 4: a merge that exits non-zero is read back before anything else, and MERGED goes on to step 5'],
+    ['OPS-327', '`CLAUDE.md:62` (J8) and `:70` (J16)', 'backend/tests/shadow.instructionLayerWaiver.test.js', '%s covers the settings policy pin %s'],
+  ])('%s carries a "met by #307" line, and the case it cites as its pin exists', (id, where, file, title) => {
+    has(rowBlock(id), `met by #307 at ${where}, pinned at \`${file}\``, `"${title}"`, 'closes when #307 merges');
+    expect(read(file)).toContain(`'${title}'`);
+  });
+});
