@@ -23,6 +23,10 @@ export interface KokonadaSocketDeps {
   createSocket: (token: string) => SocketLike;
   getAccessToken: () => string | null;
   refreshToken: () => Promise<string | null>;
+  // C4: true while the session still holds its token pair. A null refresh with the session still
+  // active was `unavailable` (no verdict from the server): the socket stays down without a logout,
+  // and the next ensureOpen() or reconnect() refreshes first. Absent: every null refresh logs out.
+  isSessionActive?: () => boolean;
   getEmotionIntent: () => EmotionIntent;
   onPlaylist: (payload: any) => void;
   onLoggedOut: () => void;
@@ -68,7 +72,13 @@ export class KokonadaSocket {
   private reqCounter = 0;
   private latestReqId = 0;
   private closedByUser = false;
-  private refreshing = false;
+  // The one refresh-then-open in flight (auth_expired or reconnect()): single-flight.
+  private recovery: Promise<void> | null = null;
+  // Set when the socket's access token was refused and the refresh was unavailable: the next
+  // open must go through a refresh, never the refused token.
+  private needsRefresh = false;
+  // Bumped by disconnect(), so a recovery in flight never reopens after a manual close.
+  private closes = 0;
   private authFailures = 0;
   private lastAuthExpiredAt = -Infinity;
   // The in-flight generation request. Set on send, cleared when its response (playlist or
@@ -99,9 +109,24 @@ export class KokonadaSocket {
   // which permanently blocked reconnection once any initial open failed. Called by every
   // request path so a generation can never be emitted into a null socket. (hasSocket=false bug)
   ensureOpen(): void {
-    if (this.socket) return;
+    if (this.socket || this.recovery) return; // a live socket, or one being opened on a fresh token
+    if (this.needsRefresh) { void this.reconnect(); return; } // its token was refused: refresh first
     console.log('[koko] ensureOpen: no live socket — connecting before send');
     this.connect();
+  }
+
+  // C4: replace whatever socket there is with one opened on a REFRESHED token — the way back after a
+  // refresh that came back unavailable left the socket down (the session stands; C1). Single-flight;
+  // a refresh that is unavailable again stays down without a logout, a dead session logs out, and a
+  // disconnect() while it waits wins.
+  reconnect(): Promise<void> {
+    if (!this.recovery) {
+      const run = this.refreshAndReconnect();
+      this.recovery = run;
+      const settle = () => { if (this.recovery === run) this.recovery = null; };
+      void run.then(settle, settle);
+    }
+    return this.recovery;
   }
 
   private open(token: string): void {
@@ -253,12 +278,12 @@ export class KokonadaSocket {
     this.lastAuthExpiredAt = t;
 
     if (this.authFailures > (this.deps.maxAuthRefreshes ?? DEFAULT_MAX_AUTH_REFRESHES)) {
-      // A fresh token keeps dying immediately — stop the loop, force a clean re-auth.
-      this.socket?.disconnect();
-      this.deps.onLoggedOut();
+      // A fresh token keeps dying immediately — stop the loop. That is no proof the session is
+      // dead, so a live one stays (down) and only an ended one logs out (C4).
+      this.stopOrStayDown();
       return;
     }
-    void this.refreshAndReconnect();
+    void this.reconnect();
   };
 
   // Transient disconnects (transport close/error) are handled by the injected socket's
@@ -271,19 +296,34 @@ export class KokonadaSocket {
   };
 
   private async refreshAndReconnect(): Promise<void> {
-    if (this.refreshing) return;
-    this.refreshing = true;
+    const closes = this.closes;
     try {
       this.socket?.disconnect(); // tear the dead-token socket down first
-      const fresh = await this.deps.refreshToken();
-      if (!fresh) { this.deps.onLoggedOut(); return; }
+      let fresh: string | null = null;
+      try { fresh = await this.deps.refreshToken(); } catch { /* no verdict: as a null refresh */ }
+      if (closes !== this.closes) return; // disconnect() while the refresh was in flight: the close wins
+      if (!fresh) { this.stopOrStayDown(); return; }
+      this.needsRefresh = false;
       this.closedByUser = false; // permit the fresh session's lifecycle again
       this.open(fresh);
     } catch {
-      this.deps.onLoggedOut();
-    } finally {
-      this.refreshing = false;
+      this.stopOrStayDown();
     }
+  }
+
+  // The socket cannot authenticate now. Either way no dead socket is left listening, or trusted by
+  // ensureOpen(). A session that has ended (or never was) logs out; a live one — its refresh was
+  // unavailable (C1) — stays down, and the next ensureOpen() or reconnect() refreshes first.
+  private stopOrStayDown(): void {
+    this.teardown();
+    this.socket?.disconnect();
+    this.socket = null;
+    if (this.deps.isSessionActive?.()) {
+      this.needsRefresh = true;
+      this.deps.onConnectionChange?.('disconnected');
+      return;
+    }
+    this.deps.onLoggedOut();
   }
 
   private emitEmotion(): void {
@@ -333,6 +373,8 @@ export class KokonadaSocket {
   }
 
   disconnect(): void {
+    this.closes += 1; // a recovery in flight must not reopen after a manual close
+    this.needsRefresh = false;
     this.closedByUser = true;
     this.clearBuildingTimer(); // no building retry may outlive a manual close (D-6)
     this.teardown();          // late events after a manual close are inert

@@ -154,6 +154,32 @@ describe('QA-045 · the socket fake under the real KokonadaSocket', () => {
     expect(() => server.assertNoLiveListeners()).not.toThrow();
   });
 
+  // C4: the refresh endpoint is unreachable when the token expires. AuthSession keeps the session
+  // and answers null (C1), so the socket stays down WITHOUT a logout and without a listening dead
+  // socket; once the network is back, reconnect() refreshes, opens the new socket and re-sends.
+  it('a token that expires while the refresh endpoint is unreachable: no logout, 0 live listeners, and reconnect() re-sends the pending request on the fresh token', async () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-a'] });
+    let fresh: string | null = null;
+    const { sock, deps } = client(server, { refreshToken: async () => fresh, isSessionActive: () => true });
+    sock.connect();
+    server.flush();
+    server.expire('tok-a');
+    const reqId = sock.requestPlaylist();
+    await settle();
+    server.flush();
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(server.sockets).toHaveLength(1);
+    expect(() => server.assertNoLiveListeners()).not.toThrow();
+
+    fresh = 'tok-b'; // the network is back
+    server.accept('tok-b');
+    await sock.reconnect();
+    server.flush();
+    expect(server.sockets.map((s) => s.token)).toEqual(['tok-a', 'tok-b']);
+    expect(server.receivedOn('request_playlist', server.sockets[1])).toEqual([{ reqId }]);
+    expect(() => server.assertNoLiveListeners({ except: [server.sockets[1]] })).not.toThrow();
+  });
+
   it('a packet for a socket that is not connected is dropped, not delivered late', () => {
     const server = new FakeSocketServer({ validTokens: ['tok-a'] });
     const { sock, onPlaylist } = client(server);
