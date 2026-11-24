@@ -159,6 +159,66 @@ const sub8 = (k) => STEP8.find((l) => l.startsWith(`   ${k}. `)) || '';
 const has = (text, ...phrases) => {
   for (const p of phrases) expect([p, text.includes(p)]).toEqual([p, true]);
 };
+// ARCH-307-19: a TASKS row is read open (`- [ ]`) or closed (`- [x]`), as its first line and the indented lines
+// under it, so no pin freezes whether a row is still open. Every row pin of this file is a check on the TASKS
+// text, registered through `rowPin`, and the last case of this file runs each again on a copy with every row closed.
+const TASKS_MD = read('TASKS.md');
+function rowIn(tasks, id) {
+  const lines = tasks.split('\n');
+  const at = lines.findIndex((l) => [' ', 'x'].some((c) => l.startsWith(`- [${c}] \`${id}\``)));
+  if (at < 0) return '';
+  const end = lines.findIndex((l, i) => i > at && !l.startsWith('  '));
+  return lines.slice(at, end < 0 ? lines.length : end).join('\n');
+}
+const idsIn = (tasks) => new Set([...tasks.matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+const ROW_PINS = [];
+const rowPin = (check) => {
+  ROW_PINS.push(check);
+  return () => check(TASKS_MD);
+};
+// The prefixes whose next free ID in the TASKS header is not above every row of that prefix, open or closed, or
+// that the header's list lacks; Bedrack's block, 900–999, is his own numbering and is left aside (ARCH-307-19).
+const PREFIXES = ['BE', 'MB', 'UI', 'OPS', 'ARCH', 'DAN'];
+function nextFreeNotAbove(tasks) {
+  const list = (tasks.split('\n').find((l) => l.startsWith('**Next free IDs:**')) || '').split(' (')[0];
+  return PREFIXES.filter((p) => {
+    const free = (list.match(new RegExp(`\`${p}-(\\d+)\``)) || [])[1];
+    const ids = [...tasks.matchAll(new RegExp(`^- \\[[ x]\\] \`${p}-(\\d+)\``, 'gm'))].map((m) => Number(m[1]))
+      .filter((n) => n < 900 || n > 999);
+    return free === undefined || ids.some((n) => n >= Number(free));
+  });
+}
+// The index just past the `)` that closes the `(` at `open`, skipping string literals and line comments; -1 if none.
+function closeParen(text, open) {
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === '\'' || c === '"' || c === '`') {
+      for (i += 1; i < text.length && text[i] !== c; i += 1) if (text[i] === '\\') i += 1;
+    } else if (c === '/' && text[i + 1] === '/') {
+      i = text.indexOf('\n', i);
+      if (i < 0) return -1;
+    } else if (c === '(') {
+      depth += 1;
+    } else if (c === ')') {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+// RA-25: a test file declares a case only where the case's title, as a single-quoted literal, opens a `test(` or
+// `it(` call or follows a `test.each(…)(` call; a table or an expectation that quotes the title declares nothing,
+// and neither does a skipped case.
+function declares(text, title) {
+  const lit = `'${title.replace(/\\/g, '\\\\').replace(/'/g, '\\\'')}'`;
+  const esc = lit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(?<![\\w.])(?:test|it)\\(\\s*${esc}`).test(text)) return true;
+  return [...text.matchAll(/(?<![\w.])(?:test|it)\.each\(/g)].some((m) => {
+    const end = closeParen(text, m.index + m[0].length - 1);
+    return end > 0 && new RegExp(`^\\(\\s*${esc}`).test(text.slice(end));
+  });
+}
 // The instruction files a session or an agent loads.
 function instructionFiles() {
   const list = (dir) => fs.readdirSync(path.join(REPO_ROOT, dir), { recursive: true })
@@ -501,7 +561,7 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
   });
 
   test('every TASKS id § Checks cites is a row at this tree, or is cited as #234\'s row, and no row that exists is', () => {
-    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    const rows = idsIn(TASKS_MD);
     const cited = [...CHECKS_TEXT.matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
     expect(cited.length).toBeGreaterThan(10);
     expect(cited.filter(([, id, of234]) => rows.has(id) === Boolean(of234)).map(([, id, of234]) => `${id}${of234 || ''}`)).toEqual([]);
@@ -780,18 +840,16 @@ describe('DEC-192 · the Lab APK\'s ABI and the batch-record check are cited whe
     expect(BATCH).not.toMatch(/prove the arm64 APK/);
   });
 
-  test('OPS-477 records the run and is done only by a Lab APK that carries x86_64, with its pins and a Lab capture from an x86_64 AVD', () => {
-    const lines = read('TASKS.md').split('\n');
-    const at = lines.findIndex((l) => l.startsWith('- [ ] `OPS-477`'));
-    const block = at < 0 ? [] : lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')));
+  test('OPS-477 records the run and is done only by a Lab APK that carries x86_64, with its pins and a Lab capture from an x86_64 AVD', rowPin((tasks) => {
+    const block = rowIn(tasks, 'OPS-477').split('\n').slice(1);
     has(block.find((l) => l.startsWith('  - where:')) || '', 'done when: `buildLabApk.mjs:105` builds a Lab APK that carries x86_64',
       'its pins at `mobile/KokonadaHealth/scripts/lab/__tests__/bundleAndBuild.test.ts:169,229,232` updated', 'a Lab capture with its manifest from an x86_64 AVD');
     has(block.find((l) => l.includes('(RA-15, the run)')) || '', 'AVD `Kokonada_Pixel6`', 'API 35', '`x86_64,arm64-v8a`', '`libndk_translation.so`',
       '`SoLoaderDSONotFoundError`', '`libreactnative.so`');
-  });
+  }));
 
   test('every TASKS id /device-qa and /page cite is a row at this tree, or is cited as #234\'s row', () => {
-    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    const rows = idsIn(TASKS_MD);
     for (const [file, must] of [['.claude/commands/device-qa.md', ['OPS-477']], ['.claude/commands/page.md', ['OPS-477', 'OPS-478']]]) {
       const cited = [...read(file).matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
       expect([file, must.filter((id) => !cited.some(([, c]) => c === id))]).toEqual([file, []]);
@@ -854,7 +912,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
   });
 
   test('J15 and /review-pr cite OPS-390 as #234\'s row, which it is: no row at this tree', () => {
-    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    const rows = idsIn(TASKS_MD);
     for (const text of [jRow('J15'), read('.claude/commands/review-pr.md')]) {
       const cited = [...text.matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
       expect(cited.map(([, id]) => id)).toContain('OPS-390');
@@ -952,7 +1010,7 @@ describe('DEC-192 · F4: the merge checks run as a script only once the merge ru
 const DEC192 = read('docs/design-v2/decisions/DEC-192.md');
 const DECISIONS = read('docs/design-v2/DECISIONS.md');
 const decRow = (id) => DECISIONS.split('\n').find((l) => l.startsWith(`| [${id}](decisions/${id}.md) |`)) || '';
-const TASK_IDS = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+const TASK_IDS = idsIn(TASKS_MD);
 
 describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and written where they bind', () => {
   // CA307-2: DEC-097 made every open HALT on a page's surface block its G1; seventeen are open.
@@ -1050,13 +1108,10 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   });
 
   // ARCH-307-14: the owner's class (a) approval of #307 covers a pick only if the question that asks for it names it.
-  test('OPS-483 names every pick the class (a) question must name', () => {
-    const lines = read('TASKS.md').split('\n');
-    const at = lines.findIndex((l) => l.startsWith('- [ ] `OPS-483`'));
-    const block = (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
-    has(block, '§ Checks step 3f', 'RA-3 and SA-2', 'PK in two waves', 'F1-B\'s three kinds of PR', 'the batch PR\'s PASS set', 'G8d counted',
+  test('OPS-483 names every pick the class (a) question must name', rowPin((tasks) => {
+    has(rowIn(tasks, 'OPS-483'), '§ Checks step 3f', 'RA-3 and SA-2', 'PK in two waves', 'F1-B\'s three kinds of PR', 'the batch PR\'s PASS set', 'G8d counted',
       'G11P per item', 'the never-from-an-emulator list');
-  });
+  }));
 
   test('ruling 9 in /page: no page enters navigation while a regulated slot it renders holds a placeholder', () => {
     has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'No page enters navigation while a regulated slot it renders holds a placeholder: the held regulated-copy branch (F3-B) merges before the cutover PR or with it (DEC-192 ruling 9).');
@@ -1081,52 +1136,71 @@ describe('#307 round 3 · /device-qa: what an evidence run stores, signs in with
 });
 
 // RA-18: a row #307 meets says so, where and by which pin, so that it closes when #307 merges; the pin it cites exists.
+// RA-25: it exists only as a declaration, its quoted title opening a `test(` or `it(` call or following a
+// `test.each(…)(` call, so a renamed case fails even while a table, like the one below, still quotes its old title.
 describe('#307 round 3 · the rows #307 meets say so (RA-18)', () => {
-  const rowBlock = (id) => {
-    const lines = read('TASKS.md').split('\n');
-    const at = lines.findIndex((l) => l.startsWith(`- [ ] \`${id}\``));
-    return (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
-  };
-  test.each([
+  const MET = [
     ['OPS-186', '`.claude/commands/merge.md:5`', 'backend/tests/instructionLayerWaiver.test.js', '/merge step 4: a merge that exits non-zero is read back before anything else, and MERGED goes on to step 5'],
     ['OPS-327', '`CLAUDE.md:62` (J8) and `:70` (J16)', 'backend/tests/shadow.instructionLayerWaiver.test.js', '%s covers the settings policy pin %s'],
-  ])('%s carries a "met by #307" line, and the case it cites as its pin exists', (id, where, file, title) => {
-    has(rowBlock(id), `met by #307 at ${where}, pinned at \`${file}\``, `"${title}"`, 'closes when #307 merges');
-    expect(read(file)).toContain(`'${title}'`);
+  ];
+  const met = (tasks, id, where, file, title) => {
+    has(rowIn(tasks, id), `met by #307 at ${where}, pinned at \`${file}\``, `"${title}"`, 'closes when #307 merges');
+    expect([file, title, declares(read(file), title)]).toEqual([file, title, true]);
+  };
+  MET.forEach((row) => ROW_PINS.push((tasks) => met(tasks, ...row)));
+  test.each(MET)('%s carries a "met by #307" line, and the case it cites as its pin exists', (...row) => met(TASKS_MD, ...row));
+
+  test('a case is declared only where its quoted title opens test( or it(, or follows test.each(…)(; a table that quotes it is not', () => {
+    const title = 'a case (with a paren), and the owner\'s words';
+    const src = 'a case (with a paren), and the owner\\\'s words';
+    expect(declares(`test('${src}', () => {});`, title)).toBe(true);
+    expect(declares(`it(\n  '${src}', () => {});`, title)).toBe(true);
+    expect(declares(`test.each([['a', 'b (c'], ['d)', "e's"], // the owner's\n  [\`f\`]])(\n    '${src}', (a) => {});`, title)).toBe(true);
+    expect(declares(`test.each([['x', '${src}']])('a renamed case', () => {});`, title)).toBe(false);
+    expect(declares(`expect(text).toContain('${src}');`, title)).toBe(false);
+    expect(declares(`test.skip('${src}', () => {});`, title)).toBe(false);
+    expect(declares(`describe('${src}', () => {});`, title)).toBe(false);
   });
 });
 
 // The rows the round-2 review of #307 at cc02d99 left (item 13 of round 3): each finding has its row, and the rows it
 // extends carry an update line for it.
 describe('#307 round 3 · every finding of the round-2 review that #307 does not fix has its row', () => {
-  const rowOf = (id) => {
-    const lines = read('TASKS.md').split('\n');
-    const at = lines.findIndex((l) => l.startsWith(`- [ ] \`${id}\``));
-    return (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
-  };
-  test.each([
+  const ROWS = [
     ['OPS-506', 'ARCH-307-12'], ['OPS-507', 'ARCH-307-15'], ['OPS-508', 'ARCH-307-17'], ['OPS-509', 'CA307-3'], ['OPS-510', 'CA307-4'],
     ['OPS-511', 'CA307-5'], ['OPS-512', 'CA307-7'], ['OPS-513', 'CA307-8'], ['OPS-514', 'regulatory-researcher'], ['OPS-515', 'RA-22'],
-  ])('%s is the open row for %s, from the review at cc02d99', (id, finding) => {
-    has(rowOf(id), finding, 'the review of #307 at `cc02d99`');
-  });
+  ];
+  const isRow = (tasks, id, finding) => has(rowIn(tasks, id), finding, 'the review of #307 at `cc02d99`');
+  ROWS.forEach((row) => ROW_PINS.push((tasks) => isRow(tasks, ...row)));
+  test.each(ROWS)('%s is the row for %s, from the review at cc02d99', (...row) => isRow(TASKS_MD, ...row));
 
-  test.each([
+  const UPDATES = [
     ['OPS-478', 'ARCH-307-17', 'G8d', 'the authoring-entry ancestry test'],
     ['OPS-036', 'ARCH-307-17', '`OPS-508`'],
     ['OPS-489', 'ARCH-307-18', '`docs/plans/DESIGN_V2_PLAN.md:160`', '`:173`', '`:223`', '`:225`', '`:226`'],
     ['OPS-499', 'ARCH-307-15 (d)', '`OPS-507`'],
     ['OPS-498', 'RA-12'],
     ['OPS-482', 'RA-13'],
-  ])('%s carries an update line from the review at cc02d99 for %s', (id, finding, ...more) => {
-    const update = rowOf(id).split('\n').find((l) => l.includes('the review of #307 at `cc02d99`') && l.includes(finding)) || '';
+  ];
+  const updated = (tasks, id, finding, ...more) => {
+    const update = rowIn(tasks, id).split('\n').find((l) => l.includes('the review of #307 at `cc02d99`') && l.includes(finding)) || '';
     has(update, '**update 2026-11-24', ...more);
+  };
+  UPDATES.forEach((row) => ROW_PINS.push((tasks) => updated(tasks, ...row)));
+  test.each(UPDATES)('%s carries an update line from the review at cc02d99 for %s', (...row) => updated(TASKS_MD, ...row));
+
+  // ARCH-307-19: an invariant, not a snapshot of today's number.
+  test('the header\'s next free ID of each prefix is above every row of that prefix, open or closed, Bedrack\'s 900–999 aside', () => {
+    expect(nextFreeNotAbove(TASKS_MD)).toEqual([]);
   });
 
-  test('the header gives the next free OPS id above the rows, and names them as #307\'s', () => {
-    const header = read('TASKS.md').split('\n').find((l) => l.startsWith('**Next free IDs:**')) || '';
-    has(header, '`OPS-516`', 'and `OPS-500`–`515` from its review at `cc02d99`');
-    expect(TASK_IDS.has('OPS-516')).toBe(false);
+  test('the invariant names each prefix whose next free ID a row reaches or the header lacks, and reads no ID outside the list', () => {
+    const fixture = ['**Next free IDs:** `BE-10` · `MB-10` · `UI-10` · `OPS-10` · `ARCH-010` · `DAN-10` (`OPS-12` is a branch\'s)',
+      '- [ ] `BE-9` `P1` **a**', '- [x] `OPS-10` `P2` **b**', '- [ ] `MB-950` `P3` **Bedrack\'s block**', '- [ ] `DAN-009` `P1` **c**',
+      '  - where: `UI-12`, not a row'].join('\n');
+    expect(nextFreeNotAbove(fixture)).toEqual(['OPS']);
+    expect(nextFreeNotAbove(fixture.replace('`OPS-10` `P2`', '`OPS-9` `P2`'))).toEqual([]);
+    expect(nextFreeNotAbove(fixture.replace(' · `ARCH-010`', ''))).toEqual(['OPS', 'ARCH']);
   });
 
   // ARCH-307-12: "lab-only" holds only while nothing in navigation can reach a batch page, so it is 8c's test plus the guard.
@@ -1134,5 +1208,25 @@ describe('#307 round 3 · every finding of the round-2 review that #307 does not
     has(sub8('c'), 'and the `src/pages` boundary guard (`OPS-506`) passes at H:', 'until that guard exists, no PR is a lab-only batch PR.');
     has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'and the `src/pages` boundary guard (`OPS-506`) passes at its head:', 'until that guard exists, no PR is lab-only.');
     expect(TASK_IDS.has('OPS-506')).toBe(true);
+  });
+});
+
+// ARCH-307-19: closing a pinned row must never turn its pin red. This case closes every open row of a copy of
+// TASKS.md and runs every row pin of this file on it, with the ID set and the header invariant. Keep it last.
+describe('#307 round 4 · a row pin reads its row open or closed (ARCH-307-19)', () => {
+  test('on a copy of TASKS.md with every open row closed (`- [ ]` to `- [x]`), every row pin of this file stays green', () => {
+    const closed = TASKS_MD.replace(/^- \[ \] `/gm, '- [x] `');
+    expect(closed).not.toBe(TASKS_MD);
+    expect(closed).not.toMatch(/^- \[ \] `/m);
+    expect(ROW_PINS.length).toBeGreaterThan(10);
+    ROW_PINS.forEach((check, i) => {
+      try {
+        check(closed);
+      } catch (err) {
+        throw new Error(`row pin ${i} on the closed copy: ${err.message}`);
+      }
+    });
+    expect([...idsIn(closed)].sort()).toEqual([...TASK_IDS].sort());
+    expect(nextFreeNotAbove(closed)).toEqual([]);
   });
 });
