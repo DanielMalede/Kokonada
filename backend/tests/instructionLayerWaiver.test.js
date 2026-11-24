@@ -702,6 +702,31 @@ describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-
   });
 });
 
+// RA-5 = ARCH-307-6: what an emulator capture of the Lab waits on, and what blocks the first batch merge, are cited
+// where they block (the rows are TASKS `OPS-477` and `OPS-478`).
+describe('DEC-192 · the Lab APK\'s ABI and the batch-record check are cited where they block (RA-5, ARCH-307-6)', () => {
+  test('/device-qa step 2 cites OPS-477, claims no Lab capture on an emulator until it closes, and no longer says the AVD cannot run it', () => {
+    const step2 = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('2) ')) || '';
+    has(step2, 'is arm64-v8a only; an x86_64 AVD runs it only through the image\'s ARM translation, which no capture on record shows (`OPS-477`: build it for arm64-v8a,x86_64, or prove the arm64 APK under that translation, with a Lab capture and its manifest).',
+      'Until `OPS-477` closes, say that a lab capture on an emulator cannot be made rather than substitute another build.');
+    expect(step2).not.toContain('which an x86_64 AVD does not run');
+  });
+
+  test('/page cites OPS-477 where G8 and G8d take Lab captures on an emulator, and OPS-478 where the first batch PR merges', () => {
+    has(BATCH, 'G8\'s and G8d\'s captures come from the Design Lab APK on an emulator and wait on `OPS-477` (the Lab APK is arm64-v8a only: build it for arm64-v8a,x86_64, or prove the arm64 APK under the emulator\'s ARM translation).',
+      '`OPS-478`, the batch-record check that reads that set from the batch record at H, blocks the first batch merge.');
+  });
+
+  test('every TASKS id /device-qa and /page cite is a row at this tree, or is cited as #234\'s row', () => {
+    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    for (const [file, must] of [['.claude/commands/device-qa.md', ['OPS-477']], ['.claude/commands/page.md', ['OPS-477', 'OPS-478']]]) {
+      const cited = [...read(file).matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
+      expect([file, must.filter((id) => !cited.some(([, c]) => c === id))]).toEqual([file, []]);
+      expect(cited.filter(([, id, of234]) => rows.has(id) === Boolean(of234)).map(([, id, of234]) => `${file} ${id}${of234 || ''}`)).toEqual([]);
+    }
+  });
+});
+
 describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so', () => {
   // ARCH-307-2: three kinds of PR touch a page. One that puts a page into navigation, or touches a page already
   // there, takes the page's /page G13 check; a lab-only batch PR is code plus its batch record; any other PR that
