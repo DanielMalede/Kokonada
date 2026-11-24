@@ -247,6 +247,16 @@ describe('DEC-192 · `.claude/commands/merge.md` § Checks carries the whole pro
       'The `PRE-MERGE CHECK` and `POST-MERGE CHECK` comments on the PR, like the `MERGE-GUARD` comments posted before DEC-192, are records, never approvals.');
   });
 
+  // ARCH-307-1: the deleted hook fired after a failed call too (its H-1 rule): a merge or a push can change GitHub
+  // before the error. With no hook, the text carries that rule, and the PR's state picks the phase.
+  test('a command that counts counts even when it exits with an error, and the PR\'s state picks the phase', () => {
+    has(CHECKS_TEXT, 'These commands count, each even when it exits with an error, since GitHub can change before the error: `gh pr create`, `gh pr ready`, `gh pr update-branch`, a `git push` to a PR\'s branch, `gh pr merge`, `node scripts/coord/coord.js start|ship|rescope`, and the GitHub MCP tools that create a PR, merge one or update its branch; after any of them the session reads the PR\'s `state` (`gh pr view <n> --json state`) and runs the phase INPUT gives for that state.');
+  });
+
+  test('/merge step 4: a merge that exits non-zero is read back before anything else, and MERGED goes on to step 5', () => {
+    has(FLOW, '4) Merge with `gh pr merge <n> --squash --delete-branch --match-head-commit H`, so a push after the check refuses the merge. On a non-zero exit, read `gh pr view <n> --json state,mergeCommit` before anything else: MERGED goes on to step 5, since the merge happened whatever the error said; any other state is INPUT\'s case in § Checks.');
+  });
+
   test('the session runs main\'s copy, only reads while it checks, and runs the steps in Git Bash', () => {
     has(CHECKS_TEXT, 'It runs the copy of this section at M',
       'Never during the steps: `gh pr merge|close|reopen|edit|comment|review|ready|update-branch`',
