@@ -1,7 +1,46 @@
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, isErrorWithCode, statusCodes } from '@react-native-google-signin/google-signin';
 import { appleAuth } from '@invertase/react-native-apple-authentication';
 import { BACKEND_URL, GOOGLE_WEB_CLIENT_ID } from '../health/config';
 import { authSession } from './session';
+import { AuthError, authErrorKindForStatus } from './authErrors';
+
+// The Google Sign-In SDK rejects a network failure with CommonStatusCodes.NETWORK_ERROR (7) as its
+// code string (google-signin's ErrorDto.kt); the library exports no constant for it.
+const GOOGLE_NETWORK_ERROR = '7';
+
+// C7: a native Google failure, typed. A cancel never gets here — v16 resolves it.
+function googleFailure(e: unknown): AuthError {
+  const message = (e as { message?: string } | null)?.message ?? 'Google sign-in failed';
+  if (isErrorWithCode(e)) {
+    if (e.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) return new AuthError('playServices', message);
+    if (e.code === GOOGLE_NETWORK_ERROR) return new AuthError('network', message);
+  }
+  return new AuthError('unknown', message);
+}
+
+// The provider-token exchange both providers share. Every failure is an AuthError whose kind comes
+// from the backend's status; `message` keeps the server's text as before (never shown, C7).
+async function exchange(path: string, body: Record<string, unknown>): Promise<{ token?: string; refreshToken?: string; user: KokonadaUser }> {
+  let res: Response;
+  try {
+    res = await fetch(`${BACKEND_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (e: any) {
+    throw new AuthError('network', e?.message ?? 'Network request failed');
+  }
+  if (!res.ok) {
+    const failed = await res.json().catch(() => ({}));
+    throw new AuthError(authErrorKindForStatus(res.status), failed.error || `Auth failed (${res.status})`);
+  }
+  try {
+    return await res.json();
+  } catch (e: any) {
+    throw new AuthError('unknown', e?.message ?? 'Unreadable sign-in response');
+  }
+}
 
 export interface KokonadaUser {
   id: string;
@@ -21,32 +60,29 @@ function ensureConfigured() {
 }
 
 // Google Sign-In → backend exchange → store JWT. Mirrors the web app's
-// `POST /api/auth/google { idToken }` → `{ token, user }` contract.
-export async function signInWithGoogle(): Promise<KokonadaUser> {
+// `POST /api/auth/google { idToken }` → `{ token, user }` contract. Returns null when the user
+// CANCELS the Google sheet (C7): v16 resolves a cancel as { type: 'cancelled' }, and a cancel is a
+// normal action, not a failure, so the caller shows no error. Every failure throws an AuthError.
+export async function signInWithGoogle(): Promise<KokonadaUser | null> {
   ensureConfigured();
-  await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-
-  const result: any = await GoogleSignin.signIn();
+  let result: any;
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    result = await GoogleSignin.signIn();
+  } catch (e) {
+    throw googleFailure(e);
+  }
+  if (result?.type === 'cancelled') return null;
   // Return shape changed across versions: v13+ → { type:'success', data:{ idToken } },
   // older → { idToken }. Support both.
   const idToken: string | undefined = result?.data?.idToken ?? result?.idToken;
-  if (!idToken) throw new Error('Google sign-in returned no idToken');
+  if (!idToken) throw new AuthError('unknown', 'Google sign-in returned no idToken');
 
   // client:'mobile' makes the backend issue a short-lived access token PLUS a
   // rotating refresh token (handleSso → tokenService.issueSession). Without it the
   // backend falls back to the legacy 7-day cookie token and returns no refresh,
   // leaving AuthSession empty and the socket unauthenticated. (QA4 Suspect #1)
-  const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idToken, platform: 'android', client: 'mobile' }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Auth failed (${res.status})`);
-  }
-
-  const { token, refreshToken, user } = await res.json();
+  const { token, refreshToken, user } = await exchange('/api/auth/google', { idToken, platform: 'android', client: 'mobile' });
   // Install into the single AuthSession token plane — the socket (sync getAccessToken)
   // and the REST apiClient both read from it. client:'mobile' normally returns a
   // rotating pair; defensively, if the backend ever returns an access token WITHOUT a
@@ -80,23 +116,13 @@ export async function signInWithApple(): Promise<KokonadaUser | null> {
     // 1001 CANCELED — the user backed out. Silent no-op (no error banner, no network).
     if (e?.code === appleAuth.Error.CANCELED) return null;
     // Everything else (1000/1002/1003/1004) is an actual failure — one friendly message.
-    throw new Error('Apple sign-in could not be completed. Please try again.');
+    throw new AuthError('unknown', 'Apple sign-in could not be completed. Please try again.');
   }
 
   const identityToken = resp?.identityToken;
-  if (!identityToken) throw new Error('Apple sign-in returned no identity token');
+  if (!identityToken) throw new AuthError('unknown', 'Apple sign-in returned no identity token');
 
-  const res = await fetch(`${BACKEND_URL}/api/auth/apple`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identityToken, platform: 'ios', client: 'mobile' }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Auth failed (${res.status})`);
-  }
-
-  const { token, refreshToken, user } = await res.json();
+  const { token, refreshToken, user } = await exchange('/api/auth/apple', { identityToken, platform: 'ios', client: 'mobile' });
   if (token) {
     await authSession.setSession({ access: token, refresh: refreshToken ?? '' });
   }

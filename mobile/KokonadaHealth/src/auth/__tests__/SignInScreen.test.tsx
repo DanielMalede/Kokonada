@@ -82,7 +82,7 @@ describe('SignInScreen (Wave 2.8 reskin — logic contract preserved)', () => {
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'Sign in with Google').props.onPress(); });
     const alert = tree.root.findAll((n) => n.props.accessibilityRole === 'alert')[0];
     expect(alert).toBeTruthy();
-    expect(texts(tree.toJSON()).join(' ')).toContain('bad token');
+    expect(texts(tree.toJSON()).join(' ')).toMatch(/^(?!.*bad token).*Sign-in failed\. Try again\./); // C7: its own words, never the raw text
     expect(onSignedIn).not.toHaveBeenCalled();
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
