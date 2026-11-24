@@ -162,6 +162,85 @@ describe('buildTokenModel', () => {
   });
 });
 
+// The F1 token gaps (the designer's ledger §5.9 and F10's "Token gaps", 2026-11-23). Sizes, targets and
+// timings every direction shares are in base, beside cta.height and nav.iconSize; keylines, the pager's
+// dots and the radii that alias the direction's own radius scale are in the direction, beside cta.keyline
+// and nav.active.dot; every colour role is under color.<face>, as an alias wherever the ledger names a role.
+describe('buildTokenModel: the F1 gaps', () => {
+  const model: any = buildTokenModel(real());
+  const abyss = model.directions.abyss;
+
+  it('base holds the shared sizes, the focus ring, the content width and the components’ geometry', () => {
+    expect(model.base.target).toEqual({ min: 48 });
+    expect(model.base.row).toEqual({ min: 56, twoLine: 72 });
+    expect(model.base.icon).toEqual({ xs: 16, s: 20, m: 24, stroke: 1.5 });
+    expect(model.base.focus).toEqual({ width: 2, offset: 2 });
+    expect(model.base.content).toEqual({ maxWidth: 560 });
+    expect(model.base.pager).toEqual({ row: 48 });
+    expect(model.base.brand).toEqual({ mark: { splash: 128, page: 80 } });
+    expect(model.base.input).toEqual({ field: { minHeight: 56 } });
+    expect(model.base.toggle).toEqual({ width: 52, height: 32, thumb: 24 });
+    expect(model.base.slider).toEqual({ track: 4, thumb: 24, hit: 48 });
+    expect(model.base.skeleton).toEqual({ motion: 'static' });
+  });
+
+  it('motion.press is 100 ms on the respond curve and none under reduced motion; progress shows after 400 ms', () => {
+    expect(model.base.motion.press).toEqual({ duration: 100, easing: [0.22, 1, 0.36, 1], reducedMotion: 'none' });
+    expect(model.base.motion.press.easing).toEqual(model.base.motion.respond.easing);
+    expect(model.base.feedback).toEqual({ progressDelay: 400 });
+  });
+
+  it('Abyss holds the keylines, the radii from its own scale, the notice, the pager’s dots and the field', () => {
+    expect(abyss.button).toEqual({ keyline: 1.5 });
+    expect(abyss.sheet).toEqual({ radius: 28 });
+    expect(abyss.dialog).toEqual({ radius: 20 });
+    expect(abyss.notice).toEqual({ border: 1, radius: 14, padding: { horizontal: 16, vertical: 12 }, iconGap: 12 });
+    expect(abyss.pager).toEqual({ dot: 6, activeWidth: 16, gap: 8 });
+    expect(abyss.input).toEqual({ field: { keyline: 1.5, radius: 14 } });
+    expect([abyss.sheet.radius, abyss.dialog.radius, abyss.notice.radius, abyss.input.field.radius]).toEqual([
+      abyss.radius.xl,
+      abyss.radius.l,
+      abyss.radius.m,
+      abyss.radius.m,
+    ]);
+  });
+
+  it.each(['dark', 'light'])('Abyss %s: each new colour role is the token the ledger names', (face) => {
+    const c = abyss.color[face];
+    expect(c.focus).toEqual(c.text.primary);
+    expect(c.notice).toEqual({ surface: face === 'dark' ? c.surface2 : c.surface1, border: c.line.hairline });
+    expect(c.button).toEqual({ keyline: c.line.control });
+    expect(c.input).toEqual({ fill: c.surface1, keyline: c.line.control });
+    expect(c.skeleton).toEqual({ fill: c.surface1 });
+  });
+
+  it.each(['dark', 'light'])('Abyss %s: the scrim is the ground at α 0.72', (face) => {
+    const c = abyss.color[face];
+    expect(c.scrim).toEqual({ ...c.ground, alpha: 0.72 });
+  });
+
+  // Aliases, not copies: each follows its source when the source changes.
+  it('bites: the radii, the press curve and the colour roles follow a planted change to their source', () => {
+    const planted = real().map((s) => {
+      const json = structuredClone(s.json);
+      if (s.name === 'base.tokens.json') json.motion.respond.easing.$value = [0.3, 1, 0.4, 1];
+      if (s.name === 'direction.abyss.tokens.json') {
+        json.radius.xl.$value.value = 30;
+        json.radius.m.$value.value = 12;
+        json.color.dark.surface2.$value = '{color.dark.ground}';
+        json.color.light.line.control.$value = '{color.light.text.secondary}';
+      }
+      return { ...s, json };
+    });
+    const m: any = buildTokenModel(planted);
+    expect(m.base.motion.press.easing).toEqual([0.3, 1, 0.4, 1]);
+    expect([m.directions.abyss.sheet.radius, m.directions.abyss.notice.radius, m.directions.abyss.input.field.radius]).toEqual([30, 12, 12]);
+    expect(m.directions.abyss.color.dark.notice.surface).toEqual(m.directions.abyss.color.dark.ground);
+    expect(m.directions.abyss.color.light.button.keyline).toEqual(m.directions.abyss.color.light.text.secondary);
+    expect(m.directions.abyss.color.light.input.keyline).toEqual(m.directions.abyss.color.light.text.secondary);
+  });
+});
+
 // The close-out leaves one shipped direction, so the generator's handling of several is shown on a
 // fixture direction in a temp folder, never in design-tokens/: a copy of Abyss with a negative plate
 // depth, an inset shadow layer and a three-step alias chain, read, checked and rendered beside Abyss.

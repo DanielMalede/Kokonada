@@ -317,6 +317,56 @@
           "$type": "color",
           "$value": "{color.dark.surface1}"
         }
+      },
+      "scrim": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.15,
+            0.025,
+            240
+          ],
+          "alpha": 0.72,
+          "hex": "#030C15"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "generated"
+          }
+        }
+      },
+      "notice": {
+        "surface": {
+          "$type": "color",
+          "$value": "{color.dark.surface2}"
+        },
+        "border": {
+          "$type": "color",
+          "$value": "{color.dark.line.hairline}"
+        }
+      },
+      "button": {
+        "keyline": {
+          "$type": "color",
+          "$value": "{color.dark.line.control}"
+        }
+      },
+      "input": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.dark.surface1}"
+        },
+        "keyline": {
+          "$type": "color",
+          "$value": "{color.dark.line.control}"
+        }
+      },
+      "skeleton": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.dark.surface1}"
+        }
       }
     },
     "light": {
@@ -655,6 +705,56 @@
         }
       },
       "avatar": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.light.surface1}"
+        }
+      },
+      "scrim": {
+        "$type": "color",
+        "$value": {
+          "colorSpace": "oklch",
+          "components": [
+            0.97,
+            0.008,
+            210
+          ],
+          "alpha": 0.72,
+          "hex": "#EFF7F8"
+        },
+        "$extensions": {
+          "com.kokonada": {
+            "hex": "generated"
+          }
+        }
+      },
+      "notice": {
+        "surface": {
+          "$type": "color",
+          "$value": "{color.light.surface1}"
+        },
+        "border": {
+          "$type": "color",
+          "$value": "{color.light.line.hairline}"
+        }
+      },
+      "button": {
+        "keyline": {
+          "$type": "color",
+          "$value": "{color.light.line.control}"
+        }
+      },
+      "input": {
+        "fill": {
+          "$type": "color",
+          "$value": "{color.light.surface1}"
+        },
+        "keyline": {
+          "$type": "color",
+          "$value": "{color.light.line.control}"
+        }
+      },
+      "skeleton": {
         "fill": {
           "$type": "color",
           "$value": "{color.light.surface1}"
@@ -1406,6 +1506,131 @@
           "value": 16,
           "unit": "px"
         }
+      }
+    }
+  },
+  "button": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "keyline": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1.5,
+        "unit": "px"
+      }
+    }
+  },
+  "sheet": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.xl}"
+    }
+  },
+  "dialog": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.l}"
+    }
+  },
+  "notice": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "border": {
+      "$type": "dimension",
+      "$value": {
+        "value": 1,
+        "unit": "px"
+      }
+    },
+    "radius": {
+      "$type": "dimension",
+      "$value": "{radius.m}"
+    },
+    "padding": {
+      "horizontal": {
+        "$type": "dimension",
+        "$value": {
+          "value": 16,
+          "unit": "px"
+        }
+      },
+      "vertical": {
+        "$type": "dimension",
+        "$value": {
+          "value": 12,
+          "unit": "px"
+        }
+      }
+    },
+    "iconGap": {
+      "$type": "dimension",
+      "$value": {
+        "value": 12,
+        "unit": "px"
+      }
+    }
+  },
+  "pager": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "dot": {
+      "$type": "dimension",
+      "$value": {
+        "value": 6,
+        "unit": "px"
+      }
+    },
+    "activeWidth": {
+      "$type": "dimension",
+      "$value": {
+        "value": 16,
+        "unit": "px"
+      }
+    },
+    "gap": {
+      "$type": "dimension",
+      "$value": {
+        "value": 8,
+        "unit": "px"
+      }
+    }
+  },
+  "input": {
+    "$extensions": {
+      "com.kokonada": {
+        "lock": "designer"
+      }
+    },
+    "field": {
+      "keyline": {
+        "$type": "dimension",
+        "$value": {
+          "value": 1.5,
+          "unit": "px"
+        }
+      },
+      "radius": {
+        "$type": "dimension",
+        "$value": "{radius.m}"
       }
     }
   },

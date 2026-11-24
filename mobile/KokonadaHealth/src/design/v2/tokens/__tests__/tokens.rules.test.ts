@@ -253,6 +253,20 @@ function pairsFor(id: DirectionId, face: Face): Array<[string, ColorValue, Color
     ['CTA label on the neutral fill', c.text.onInk, c.text.primary, 4.5],
     ['nav active label on its ground', c.nav.activeLabel, navLabelGround, 4.5],
     ['nav inactive label on the nav surface', c.nav.inactive, c.nav.surface, 4.5],
+    // The F1 gaps (designer ledger §5.9): the focus ring and the control keylines are non-text UI, 3:1 against
+    // every surface they can sit on (WCAG 1.4.11); the notice's and the text field's text, 4.5:1 on their fills.
+    ...(['ground', 'surface1', 'surface2'] as const).flatMap((s) => [
+      [`focus ring on ${s}`, c.focus, c[s], 3] as [string, ColorValue, ColorValue, number],
+      [`button keyline on ${s}`, c.button.keyline, c[s], 3] as [string, ColorValue, ColorValue, number],
+      [`input keyline on ${s}`, c.input.keyline, c[s], 3] as [string, ColorValue, ColorValue, number],
+    ]),
+    ['focus ring on the notice surface', c.focus, c.notice.surface, 3],
+    ['focus ring on the input fill', c.focus, c.input.fill, 3],
+    ['input keyline against the input fill', c.input.keyline, c.input.fill, 3],
+    ['text.primary on the notice surface', c.text.primary, c.notice.surface, 4.5],
+    ['text.secondary on the notice surface', c.text.secondary, c.notice.surface, 4.5],
+    ['text.primary on the input fill', c.text.primary, c.input.fill, 4.5],
+    ['text.secondary on the input fill', c.text.secondary, c.input.fill, 4.5],
   ];
 }
 
