@@ -1004,3 +1004,20 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
     has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'No page enters navigation while a regulated slot it renders holds a placeholder: the held regulated-copy branch (F3-B) merges before the cutover PR or with it (DEC-192 ruling 9).');
   });
 });
+
+// The evidence runbook after the round-2 review of #307 at cc02d99: what a run may store and send (SA-9, and the
+// incident of 2026-11-24, when an emulator run sent the owner's stored token to the tracked placeholder host).
+describe('#307 round 3 · /device-qa: what an evidence run stores, signs in with and sends (SA-9)', () => {
+  test('captures go outside the tree, the emulator signs in with a test account only, and a placeholder build starts on cleared data', () => {
+    const qa = read('.claude/commands/device-qa.md');
+    const safety = qa.split('\n').find((l) => l.startsWith('SAFETY — ')) || '';
+    has(safety, 'Captures (logcat, screenshots, view-hierarchy and other dumps) are saved outside the tree, never in a worktree or the main checkout; one that holds anything personal goes to `Kokonada-private/evidence/<date>-<task>/`, beside the main checkout (`CLAUDE.md` § Working rules).',
+      'The emulator signs in with a test account only, never the owner\'s.',
+      'Before the first launch of any build whose backend is the tracked placeholder (`mobile/KokonadaHealth/src/health/config.ts:2`, `https://YOUR-BACKEND.up.railway.app`, a Railway name another party holds), clear the app\'s data with `adb -s <serial> shell pm clear com.kokonadahealth`, so no stored token is sent (`OPS-504`, `OPS-505`).');
+    expect(qa.indexOf('SAFETY — ')).toBeLessThan(qa.indexOf('EMULATOR — '));
+    has(qa.split('\n').find((l) => l.startsWith('4) ')) || '', 'saved to a file outside the tree (SAFETY)');
+    has(qa.split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '', 'saving to a file in `Kokonada-private/evidence/<date>-<task>/` (SAFETY)');
+    expect(qa).not.toMatch(/repo root/);
+    expect(['OPS-504', 'OPS-505'].filter((id) => !TASK_IDS.has(id))).toEqual([]);
+  });
+});
