@@ -1368,6 +1368,55 @@ describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Check
   }));
 });
 
+// The rows the review of #307 at a196ce4 left: each finding #307 does not fix has its row, or an update line on the
+// row it extends; every one is a row pin, so closing it later never turns this red.
+describe('#307 round 4 · every finding of the review at a196ce4 that #307 does not fix has its row', () => {
+  const ROWS = [
+    ['OPS-516', 'ARCH-307-21 = RA-30', '`P1`'], ['OPS-517', 'ARCH-307-24', '`P3`'], ['OPS-518', 'CA307-11', '`P3`'],
+    ['OPS-519', '`OPS-470`–`473`', '`P2`'], ['OPS-520', 'RA-17', '`P3`'], ['OPS-521', 'R-4', '`P2`'], ['OPS-522', 'Q8', '`P2`'],
+  ];
+  const isRow = (tasks, id, finding, priority) => {
+    const row = rowIn(tasks, id);
+    has(row.split('\n')[0], priority);
+    has(row, finding, 'the review of #307 at `a196ce4`');
+  };
+  ROWS.forEach((row) => ROW_PINS.push((tasks) => isRow(tasks, ...row)));
+  test.each(ROWS)('%s is the row for %s', (...row) => isRow(TASKS_MD, ...row));
+
+  const UPDATES = [
+    ['OPS-478', 'ARCH-307-25', 'lists each page\'s HALT IDs with where each closes', 'fails on an unlisted or a stray one'],
+    ['DAN-036', 'ARCH-307-26', 'the local evidence backend (`OPS-516`)', 'never production'],
+    ['OPS-501', 'CA307-12', '`docs/design-v2/registry/INDEX.md:22`', 'Next up item 4', '`ARCH-011`'],
+    ['OPS-501', 'CA307-13', 'without Spotify installed', '`DAN-046` P1', '`CMP-120`'],
+    ['ARCH-011', 'CA307-12', 'DEC-192 ruling 6', 'before P2\'s G1'],
+    ['OPS-509', 'CA307-14', '2.3.1(a)', '2.5.19'],
+    ['OPS-497', 'CU307-9', '`parseArgs`', '`.claude/hooks/merge-guard-trigger.test.mjs:227`'],
+    ['OPS-505', 'L1', '`AUTH_ACCESS_TTL`', '15 minutes', 'class (b) plan', '#309'],
+    ['OPS-503', 'L2', '`krt_[A-Za-z0-9_-]{8,}`', '`backend/app/services/auth/tokenService.js:13`'],
+    ['OPS-485', 'L3', '`push_files`', '`create_or_update_file`', '`delete_file`', 'under neither server name'],
+    ['OPS-502', 'R-2', '`POST /withdraw`', 'the deletion mark of an account (`User.deletedAt`)'],
+    ['OPS-511', 'the M1 answer', '"רק הגרסה הנוכחית, בלי חלון (מומלץ)"', '`Kokonada-private/design-v2/M1_OWNER_RULINGS_2026-11-23.md` row 9'],
+  ];
+  const updated = (tasks, id, finding, ...more) => {
+    const update = rowIn(tasks, id).split('\n').find((l) => l.includes('the review of #307 at `a196ce4`') && l.includes(finding)) || '';
+    has(update, '**update 2026-11-24', ...more);
+  };
+  UPDATES.forEach((row) => ROW_PINS.push((tasks) => updated(tasks, ...row)));
+  test.each(UPDATES)('%s carries an update line from the review at a196ce4 for %s', (...row) => updated(TASKS_MD, ...row));
+
+  test('OPS-502 cites the placeholder marks of ConsentSheet.tsx; OPS-511 no longer reads DEC-089 as unanswered; DEC-192\'s F3-B line notes the M1 answer', rowPin((tasks) => {
+    const ops502 = rowIn(tasks, 'OPS-502');
+    has(ops502.split('\n')[0], '`mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx:19` and `:38-39`');
+    expect(ops502).not.toContain('legalCopy.ts:3');
+    const sheet = read('mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx').split('\n');
+    expect([sheet[18], sheet[37]].map((l) => /PLACEHOLDER COPY/.test(l))).toEqual([true, true]);
+    const ops511 = rowIn(tasks, 'OPS-511');
+    expect(ops511).not.toContain('DEC-192 says that ruling 5 leaves `DEC-089` open');
+    has(ops511.split('\n').find((l) => l.startsWith('  - where:')) || '', 'the owner\'s M1 answer on `DEC-089`', 'awaits recording as a DEC- entry in the fast-track plan\'s L0 records step');
+    has(DEC192.split('\n').find((l) => l.startsWith('- F3-B, a held regulated-copy branch:')) || '', 'DEC-089\'s M1 answer sets the transition window to none');
+  }));
+});
+
 // ARCH-307-19: closing a pinned row must never turn its pin red. This case closes every open row of a copy of
 // TASKS.md and runs every row pin of this file on it, with the ID set and the header invariant. Jest collects every
 // describe before it runs a case, so the list of row pins is whole wherever this case sits.
