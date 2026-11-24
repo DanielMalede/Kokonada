@@ -606,6 +606,30 @@ describe('KokonadaSocket — an unavailable refresh is not a logout; reconnect()
     expect(deps.onLoggedOut).not.toHaveBeenCalled();
   });
 
+  // ARCH-309-1 = RA-1: disconnect() kept `recovery`, so after a sign-out while the socket waited on a
+  // refresh, ensureOpen() and reconnect() kept answering with that dead run: the next account got no socket.
+  it('a disconnect() while reconnect() waits on a refresh that never answers: ensureOpen() opens on the next account\'s token', () => {
+    let token = 'access-1';
+    const refreshToken = jest.fn(() => new Promise<string | null>(() => {})); // never settles
+    const { client, created } = build({ refreshToken, getAccessToken: () => token, isSessionActive: () => true });
+    client.connect();
+    created[0].fire('auth_expired'); // reconnect(): the refresh is in flight for good
+    client.disconnect(); // the user signs out
+    token = 'access-b'; // and account B signs in
+    client.ensureOpen();
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-b']);
+  });
+
+  it('reconnect() after a disconnect() starts a run of its own: it never returns the run the close abandoned', () => {
+    const refreshToken = jest.fn(() => new Promise<string | null>(() => {})); // never settles
+    const { client, created } = build({ refreshToken, isSessionActive: () => true });
+    client.connect();
+    created[0].fire('auth_expired');
+    client.disconnect();
+    void client.reconnect();
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+
   it('reconnect() on a live socket replaces it: the old one is torn down and disconnected', async () => {
     const { client, created } = buildC4(['access-3']);
     client.connect();

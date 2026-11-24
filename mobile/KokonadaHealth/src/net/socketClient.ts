@@ -383,6 +383,9 @@ export class KokonadaSocket {
 
   disconnect(): void {
     this.closes += 1; // a recovery in flight must not reopen after a manual close
+    // ARCH-309-1 = RA-1: ...nor be trusted by ensureOpen() or returned by reconnect() for the next
+    // account: the abandoned run settles on its own and its settle leaves a newer run alone.
+    this.recovery = null;
     this.needsRefresh = false;
     this.closedByUser = true;
     this.clearBuildingTimer(); // no building retry may outlive a manual close (D-6)
