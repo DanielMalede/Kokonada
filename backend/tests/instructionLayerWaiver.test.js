@@ -1100,7 +1100,7 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   // RA-20, ARCH-307-13: the orchestrator's picks shape instruction-layer text, which is the owner's (class (a)), so they
   // are not rulings under DEC-142. DEC-192 says so, and records each approver's position from the round-2 review.
   test('DEC-192 labels the orchestrator\'s picks as put to the owner under class (a), with each approver\'s round-2 position', () => {
-    has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the review of #307 at `a8e88e5` (2026-11-24).',
+    has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the reviews of #307 at `a8e88e5` and `a196ce4` (2026-11-24).',
       'https://github.com/DanielMalede/Kokonada/pull/307#issuecomment-7132764682',
       '`security-auditor` agrees with the RA-3 and SA-2 resolution and has no security objection to option A of ARCH-307-2 and ARCH-307-3',
       '`architect` agrees with option A for ARCH-307-2 and ARCH-307-3, subject to ARCH-307-11 to ARCH-307-13',
@@ -1291,8 +1291,25 @@ describe('#307 round 3 · every finding of the round-2 review that #307 does not
   });
 });
 
+// The fix of the review of #307 at a196ce4 (round 4): the evidence runbook, the page pipeline and the merge checks.
+describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Checks', () => {
+  // ARCH-307-21 = RA-30, option A (the orchestrator's pick, put to the owner under class (a)): evidence that needs
+  // sign-in runs against a local evidence backend with seeded accounts and fake grants, never production.
+  test('signed-in evidence runs against a local evidence backend, never production; until it exists, no signed-in capture on an emulator', rowPin((tasks) => {
+    const safety = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('SAFETY — ')) || '';
+    has(safety, 'Device evidence that needs sign-in runs against a local evidence backend, never production:',
+      '`adb reverse tcp:<port> tcp:<port>`', '`10.0.2.2`', 'seeded test accounts and seeded fake grants (DEC-192 ruling 10)',
+      'the backend URL and the Google client id are injected at build time from a gitignored local config read at bundle time, so the tree stays clean (`OPS-516`).',
+      'Until it exists, signed-in states are not captured on an emulator: they wait for G11P.');
+    has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the reviews of #307 at `a8e88e5` and `a196ce4` (2026-11-24).',
+      '  - ARCH-307-21 = RA-30, option A, on the review at `a196ce4`:');
+    has(rowIn(tasks, 'OPS-516'), '`P1`', 'local evidence backend', 'before the first G11e', 'never production', 'the review of #307 at `a196ce4`');
+  }));
+});
+
 // ARCH-307-19: closing a pinned row must never turn its pin red. This case closes every open row of a copy of
-// TASKS.md and runs every row pin of this file on it, with the ID set and the header invariant. Keep it last.
+// TASKS.md and runs every row pin of this file on it, with the ID set and the header invariant. Jest collects every
+// describe before it runs a case, so the list of row pins is whole wherever this case sits.
 describe('#307 round 4 · a row pin reads its row open or closed (ARCH-307-19)', () => {
   test('on a copy of TASKS.md with every open row closed (`- [ ]` to `- [x]`), every row pin of this file stays green', () => {
     const closed = TASKS_MD.replace(/^- \[ \] `/gm, '- [x] `');
