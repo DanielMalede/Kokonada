@@ -1328,6 +1328,12 @@ describe('#307 round 3 · every finding of the round-2 review that #307 does not
 
 // The fix of the review of #307 at a196ce4 (round 4): the evidence runbook, the page pipeline and the merge checks.
 describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Checks', () => {
+  // SA-11: a capture can hold a token, an id or a health value, and a quote of it in a tracked place publishes it.
+  test('/device-qa SAFETY: a quote from a capture in a PR comment, a TASKS row or a tracked file carries no token, user id, email or health value', () => {
+    has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('SAFETY — ')) || '',
+      'A quote from a capture in a PR comment, a TASKS row or any tracked file carries no token, user id, email or health value: it cites the capture\'s file under `Kokonada-private/evidence/<date>-<task>/` and the line\'s kind instead.');
+  });
+
   // RA-29: the single-page mode's HALT rules name BATCH MODE's exception, so they never contradict ruling 6.
   test('the HALT rules of the single-page mode name the BATCH MODE exception, and G1\'s HALTs give it to a lab-only batch PR only', () => {
     has(BATCH.split('\n').find((l) => l.startsWith('- G1\'s HALTs')) || '', 'For a lab-only batch PR, G13 reads a G1 entry as passing when its only HALTs are on that list.');
