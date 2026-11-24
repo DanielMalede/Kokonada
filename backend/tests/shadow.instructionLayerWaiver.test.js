@@ -147,6 +147,10 @@ describe('RA-11 · the guards on this class (a) text need class (a) to weaken', 
     expect(covered(id, 'scripts/merge-check/index.js')).toBe(true);
     expect(covered(id, 'scripts/coord/coord.js')).toBe(true);
   });
+  // ARCH-307-4: the deny-list pins moved here from the deleted hook tests, which J8 and J16 named; they stay class (a).
+  test.each([['J8', 'backend/tests/claudeSettings.policy.test.js'], ['J16', 'backend/tests/claudeSettings.policy.test.js'],
+    ['J8', 'backend/tests/shadow.claudeSettings.policy.test.js'], ['J16', 'backend/tests/shadow.claudeSettings.policy.test.js']])(
+    '%s covers the settings policy pin %s', (id, file) => { expect(covered(id, file)).toBe(true); });
   test.each(['J8', 'J16'])('%s names the two waiver tests with one glob that matches nothing else in backend/tests', (id) => {
     const testFiles = fs.readdirSync(path.join(REPO_ROOT, 'backend', 'tests'), { recursive: true }).map((f) => `backend/tests/${String(f).replace(/\\/g, '/')}`);
     const waiverGlobs = globs(id).filter((g) => matches(g, 'backend/tests/instructionLayerWaiver.test.js'));
