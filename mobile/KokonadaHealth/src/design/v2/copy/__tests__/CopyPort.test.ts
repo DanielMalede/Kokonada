@@ -65,6 +65,80 @@ describe('the copy port: an N key is text, an R key is reserved', () => {
   });
 });
 
+// D2-A, fail closed: a release build never throws at a screen, and never paints '' or the raw key.
+// A key with no text resolves to a reserved slot with no budget; text() gives one ellipsis, U+2026.
+describe('a release build fails closed', () => {
+  const release = (en: Record<string, string> = EN) => createCopyPort({ spec: SPEC, catalogs: { en }, mode: 'release' });
+  const ELLIPSIS = '…';
+
+  it('a missing key resolves to an unavailable slot, and text() to an ellipsis: never empty, never the key', () => {
+    expect(release().resolve('shell.offline.body' as never)).toEqual({ kind: 'reserved', reason: 'unavailable', budget: null });
+    const shown = release().text('shell.offline.body' as never);
+    expect(shown).toBe(ELLIPSIS);
+    expect(shown).not.toBe('');
+    expect(shown).not.toContain('shell');
+  });
+
+  it('an N key whose catalogue has no text is unavailable the same way', () => {
+    const withoutRetry = { 'shell.offline.title': 'You are offline' };
+    expect(release(withoutRetry).resolve('shell.offline.retry')).toEqual({ kind: 'reserved', reason: 'unavailable', budget: null });
+    expect(release(withoutRetry).text('shell.offline.retry')).toBe(ELLIPSIS);
+    expect(release(withoutRetry).text('shell.offline.title')).toBe('You are offline');
+  });
+
+  it('an R key stays reserved, and text() of it gives the ellipsis, never text', () => {
+    expect(release().resolve('signIn.tagline')).toEqual({ kind: 'reserved', reason: 'regulated', budget: { chars: 48, lines: 2 } });
+    expect(release().text('signIn.tagline' as never)).toBe(ELLIPSIS);
+  });
+
+  it('keys named like Object.prototype members are missing keys, not crashes or functions', () => {
+    for (const key of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(copyErrorOf(() => strict().resolve(key as never)).code).toBe('missing-key');
+      expect(release().resolve(key as never)).toEqual({ kind: 'reserved', reason: 'unavailable', budget: null });
+      expect(release().text(key as never)).toBe(ELLIPSIS);
+    }
+  });
+});
+
+// The mode is read from __DEV__ when the port is built: the jest preset sets it true, a release bundle's
+// prelude declares it false, and a script with no React Native has none, which stays strict.
+describe('the default mode follows __DEV__', () => {
+  const g = globalThis as { __DEV__?: unknown };
+  const had = Object.prototype.hasOwnProperty.call(g, '__DEV__');
+  const saved = g.__DEV__;
+  afterEach(() => {
+    if (had) {
+      g.__DEV__ = saved;
+    } else {
+      delete g.__DEV__;
+    }
+  });
+  const built = () => createCopyPort({ spec: SPEC, catalogs: { en: EN } });
+
+  it('is strict under jest, where __DEV__ is true', () => {
+    expect(g.__DEV__).toBe(true);
+    expect(copyErrorOf(() => built().resolve('shell.offline.body' as never)).code).toBe('missing-key');
+  });
+
+  it('is release when __DEV__ is false, as in a release bundle', () => {
+    g.__DEV__ = false;
+    expect(built().text('shell.offline.body' as never)).toBe('…');
+  });
+
+  it('stays strict when __DEV__ is not defined at all', () => {
+    delete g.__DEV__;
+    expect('__DEV__' in g).toBe(false);
+    expect(copyErrorOf(() => built().text('shell.offline.body' as never)).code).toBe('missing-key');
+  });
+
+  it('is decided once, when the port is built', () => {
+    g.__DEV__ = false;
+    const port = built();
+    g.__DEV__ = true;
+    expect(port.text('shell.offline.body' as never)).toBe('…');
+  });
+});
+
 // "Pure TS, no React Native import in CopyPort.ts": the port is plain logic that any root, test or
 // script can build; React lives in useCopy.ts. Read from the files themselves, with planted sources.
 describe('CopyPort.ts is pure TypeScript', () => {
