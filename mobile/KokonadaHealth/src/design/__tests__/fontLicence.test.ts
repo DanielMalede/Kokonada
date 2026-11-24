@@ -7,14 +7,20 @@ import { createHash } from 'crypto';
 // FONT LICENCE GUARD (HX-8 · CMP-120 · UI-013). A display face shipped under a licence that forbids
 // redistributing the font file, beside a file named OFL.txt that held that other licence, and a README
 // that called it OFL. Nothing checked any of it. These scans pin the rule the repository now keeps:
-//   1. a font is here only with the real SIL Open Font License text beside it;
+//   1. a font is here only with its own family's licence beside it: OFL-<family>.txt, the real SIL Open
+//      Font License, carrying the copyright notice the font itself carries (X4, CMP-117);
 //   2. a file that presents itself as the OFL is the OFL;
-//   3. a font carried inside a document (a base64 data: URI) obeys rule 1, because it is the same bytes;
+//   3. a font carried inside a document (a base64 data: URI) has the real OFL text beside it, because it
+//      is the same bytes (its family is not read from the payload);
 //   4. the app names no face it does not ship, and loads no font file the repository does not hold;
 //   5. the Xcode project bundles nothing that is not on disk (iOS cannot be built here, so this is
-//      the only evidence the project still resolves after files are removed).
+//      the only evidence the project still resolves after files are removed);
+//   6. each font file in the app is its upstream file byte for byte and each licence its upstream text
+//      (CMP-118, CMP-124), and each font file is the face its file name says (UI-072);
+//   7. each font file in the app has a glyph for every code point CMP-122 names.
 // The enumerator is `git ls-files` from the repository root, the attribution guard's idiom: "tracked"
-// is the boundary that reaches a public remote and a build, and it is the same on every machine.
+// is the boundary that reaches a public remote and a build, and it is the same on every machine. So a
+// new file is seen only once it is staged: run this after `git add`, before the commit.
 
 const REPO = path.resolve(__dirname, '../../../../..');
 const APP = 'mobile/KokonadaHealth/';
@@ -169,6 +175,126 @@ const UPSTREAM_FONTS: Readonly<Record<string, { readonly sha256: string; readonl
 const sha256 = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const APP_FONTS = TRACKED.filter((f) => f.startsWith(APP) && isFontFile(f, bytes(f)));
 
+// ---- each font's own licence (X4, CMP-117) ---------------------------------------------------------------------------
+const flat = (s: string) => s.replace(/\s+/g, ' ').trim();
+
+/**
+ * Why a font file has not its own family's licence beside it, or null when it has. `beside` reads a file in the font's
+ * folder (null when there is none). The family is the typographic family (name 16), else the family (name 1); its licence
+ * is OFL-<family, without spaces>.txt, the real OFL, carrying the copyright notice the font itself carries (name 0), as
+ * OFL condition 2 asks of every copy.
+ */
+function licenceMismatch(b: Buffer, beside: (name: string) => string | null): string | null {
+  const s = readSfnt(b);
+  if (!s) return 'not a TrueType or OpenType file this guard can read, so its family cannot be known';
+  const family = nameOf(s, 16) ?? nameOf(s, 1);
+  if (!family) return 'it names no family (name 16 or 1)';
+  const licence = `OFL-${family.replace(/\s+/g, '')}.txt`;
+  const body = beside(licence);
+  if (body === null) return `no ${licence} beside it`;
+  if (!isRealOfl(body)) return `${licence} is not the SIL Open Font License 1.1`;
+  const notice = nameOf(s, 0);
+  if (!notice) return 'it carries no copyright notice (name 0) for its licence to repeat';
+  if (!flat(body).includes(flat(notice))) return `${licence} does not carry the font's copyright notice: ${notice}`;
+  return null;
+}
+
+// Each licence in the app is its upstream OFL.txt (CMP-124), pinned by the SHA-256 of its text with LF line endings: the
+// repository stores text as LF (.gitattributes), and Heebo's upstream OFL.txt has CRLF.
+const UPSTREAM_LICENCES: Readonly<Record<string, { readonly sha256: string; readonly from: string }>> = {
+  [`${APP}assets/fonts/OFL-Heebo.txt`]: { sha256: '30b4273e07751578fc7e0e01fd2fc2d46ea5bdf65fc7cc58da854dca541da8dd', from: `${GOOGLE_FONTS}/heebo/OFL.txt` },
+  [`${APP}assets/fonts/OFL-Bellefair.txt`]: { sha256: '2348c4852e6322105d130aa2addbe24c962e330094ad6dfbfd9fbd2281d76b0b', from: `${GOOGLE_FONTS}/bellefair/OFL.txt` },
+};
+
+// ---- what a font file can draw: its cmap (CMP-122) -------------------------------------------------------------------
+
+/** The glyph a code point maps to (0: none) in the font's Unicode cmap, format 12 before format 4; null without one. */
+function cmapOf(s: Sfnt): ((cp: number) => number) | null {
+  const t = s.tables.get('cmap');
+  if (!t) return null;
+  const b = s.bytes;
+  const subtables = Array.from({ length: b.readUInt16BE(t.offset + 2) }, (_, i) => {
+    const r = t.offset + 4 + 8 * i;
+    const at = t.offset + b.readUInt32BE(r + 4);
+    return { platform: b.readUInt16BE(r), encoding: b.readUInt16BE(r + 2), at, format: b.readUInt16BE(at) };
+  });
+  const isUnicode = (x: { platform: number; encoding: number }, full: boolean) =>
+    x.platform === 0 || (x.platform === 3 && x.encoding === (full ? 10 : 1));
+  const f12 = subtables.find((x) => x.format === 12 && isUnicode(x, true));
+  if (f12) {
+    const groups = b.readUInt32BE(f12.at + 12);
+    return (cp) => {
+      for (let i = 0; i < groups; i += 1) {
+        const r = f12.at + 16 + 12 * i;
+        const start = b.readUInt32BE(r);
+        if (cp >= start && cp <= b.readUInt32BE(r + 4)) return b.readUInt32BE(r + 8) + (cp - start);
+      }
+      return 0;
+    };
+  }
+  const f4 = subtables.find((x) => x.format === 4 && isUnicode(x, false));
+  if (!f4) return null;
+  const segments = b.readUInt16BE(f4.at + 6) / 2;
+  const ends = f4.at + 14;
+  const starts = ends + 2 * segments + 2;
+  const deltas = starts + 2 * segments;
+  const rangeOffsets = deltas + 2 * segments;
+  return (cp) => {
+    if (cp > 0xffff) return 0;
+    for (let i = 0; i < segments; i += 1) {
+      if (cp > b.readUInt16BE(ends + 2 * i)) continue;
+      const start = b.readUInt16BE(starts + 2 * i);
+      if (cp < start) return 0;
+      const delta = b.readUInt16BE(deltas + 2 * i); // an int16 read as uint16: the same sum, modulo 2^16
+      const rangeOffset = b.readUInt16BE(rangeOffsets + 2 * i);
+      if (rangeOffset === 0) return (cp + delta) % 0x10000;
+      const glyph = b.readUInt16BE(rangeOffsets + 2 * i + rangeOffset + 2 * (cp - start));
+      return glyph === 0 ? 0 : (glyph + delta) % 0x10000;
+    }
+    return 0;
+  };
+}
+
+const codePointName = (cp: number) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
+
+/** The code points of `required` the font has no glyph for, by name; or why its coverage cannot be read. */
+function coverageGaps(b: Buffer, required: readonly number[]): string[] | string {
+  const s = readSfnt(b);
+  if (!s) return 'not a TrueType or OpenType file this guard can read';
+  try {
+    const glyphOf = cmapOf(s);
+    if (!glyphOf) return 'no Unicode cmap (format 4 or 12) this guard can read';
+    return required.filter((cp) => glyphOf(cp) === 0).map(codePointName);
+  } catch (e) {
+    return `its cmap cannot be read (${(e as Error).message})`;
+  }
+}
+
+const span = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const niqqudIn = (s: string) =>
+  [...new Set((s.match(/[ְ-ׇ]/g) ?? []).map((c) => c.codePointAt(0) as number))].sort((a, b) => a - b);
+const isTestFile = (f: string) => /\/__tests__\/|\.test\.[cm]?[jt]sx?$/.test(f);
+/** The niqqud the copy uses: each point of U+05B0–U+05C7 the app's own source holds, its tests left out. */
+const COPY_NIQQUD = niqqudIn(TEXT_FILES.filter((f) => f.startsWith(`${APP}src/`) && !isTestFile(f)).map(text).join('\n'));
+/** The punctuation right-to-left strings use, with the copy rules' ellipsis (U+2026); the copy has no "!". */
+const RTL_PUNCTUATION = [...' .,:;?()-\'"/%…'].map((c) => c.codePointAt(0) as number);
+/** CMP-122's code points, in order. */
+const CMP122_REQUIRED: readonly number[] = [...new Set([
+  ...span(0x05d0, 0x05ea), // the letters, finals included
+  0x05be, 0x05f3, 0x05f4, // maqaf, geresh, gershayim
+  0x20aa, // the sheqel sign
+  ...COPY_NIQQUD,
+  ...span(0x30, 0x39), // the Latin digits
+  ...RTL_PUNCTUATION,
+])].sort((a, b) => a - b);
+
+// The one gap the shipped files have, pinned exactly so it can neither grow nor close unnoticed: Bellefair 1.003 has no
+// gershayim (U+05F4); every other code point CMP-122 names is in every file. Android draws a code point a face lacks from
+// another font, mid-word, so until the compliance-auditor rules on CMP-122 for the voice face, no voice line may hold ״.
+const KNOWN_GAPS: Readonly<Record<string, readonly string[]>> = {
+  [`${APP}assets/fonts/Bellefair-Regular.ttf`]: ['U+05F4'],
+};
+
 // ---- fixtures: the exact shapes that shipped, and the licence they should have carried -----------
 
 const OFL_TEXT = `This Font Software is licensed under the SIL Open Font License, Version 1.1.
@@ -188,9 +314,50 @@ Free Font - End User License Agreement (FF EULA)
 02. Limitations of usage
 The Fonts may not ... be distributed ... uploading them in a public server`;
 
-/** A minimal sfnt laid out as a font file lays out its tables: a name table (Windows, Unicode, English) and an OS/2. */
-function makeSfnt({ names = {}, weight, macNames = {} }: {
+/** A cmap of one Windows Unicode subtable mapping `codePoints` to glyphs 1, 2, 3…: format 4 (the BMP) or 12 (full). */
+function makeCmap(format: 4 | 12, codePoints: readonly number[]): Buffer {
+  const sorted = [...new Set(codePoints)].sort((a, b) => a - b);
+  const runs: Array<[number, number, number]> = []; // [start, end, glyph of start]
+  sorted.forEach((cp, i) => {
+    const last = runs[runs.length - 1];
+    if (last && cp === last[1] + 1) last[1] = cp;
+    else runs.push([cp, cp, i + 1]);
+  });
+  const header = Buffer.alloc(12);
+  header.writeUInt16BE(1, 2);
+  header.writeUInt16BE(3, 4);
+  header.writeUInt16BE(format === 12 ? 10 : 1, 6);
+  header.writeUInt32BE(12, 8);
+  if (format === 12) {
+    const sub = Buffer.alloc(16 + 12 * runs.length);
+    sub.writeUInt16BE(12, 0);
+    sub.writeUInt32BE(sub.length, 4);
+    sub.writeUInt32BE(runs.length, 12);
+    runs.forEach(([start, end, glyph], i) => {
+      sub.writeUInt32BE(start, 16 + 12 * i);
+      sub.writeUInt32BE(end, 20 + 12 * i);
+      sub.writeUInt32BE(glyph, 24 + 12 * i);
+    });
+    return Buffer.concat([header, sub]);
+  }
+  const segments = [...runs, [0xffff, 0xffff, 0] as [number, number, number]]; // the closing segment every format 4 has
+  const n = segments.length;
+  const sub = Buffer.alloc(16 + 8 * n);
+  sub.writeUInt16BE(4, 0);
+  sub.writeUInt16BE(sub.length, 2);
+  sub.writeUInt16BE(2 * n, 6);
+  segments.forEach(([start, end, glyph], i) => {
+    sub.writeUInt16BE(end, 14 + 2 * i);
+    sub.writeUInt16BE(start, 16 + 2 * n + 2 * i);
+    sub.writeUInt16BE((((glyph - start) % 0x10000) + 0x10000) % 0x10000, 16 + 4 * n + 2 * i); // idDelta, mod 2^16
+  });
+  return Buffer.concat([header, sub]); // idRangeOffset is all zero: every glyph is start's plus the offset
+}
+
+/** A minimal sfnt laid out as a font file lays out its tables: a name table (Windows, Unicode, English), an OS/2, a cmap. */
+function makeSfnt({ names = {}, weight, macNames = {}, cmap }: {
   names?: Readonly<Record<number, string>>; weight?: number; macNames?: Readonly<Record<number, string>>;
+  cmap?: { readonly format: 4 | 12; readonly codePoints: readonly number[] };
 }): Buffer {
   const records = [
     ...Object.entries(macNames).map(([id, s]) => ({ platform: 1, encoding: 0, language: 0, id: Number(id), raw: Buffer.from(s, 'latin1') })),
@@ -216,6 +383,7 @@ function makeSfnt({ names = {}, weight, macNames = {} }: {
     os2.writeUInt16BE(weight, 4);
     tables.push(['OS/2', os2]);
   }
+  if (cmap) tables.push(['cmap', makeCmap(cmap.format, cmap.codePoints)]);
   const directory = Buffer.alloc(12 + 16 * tables.length);
   directory.writeUInt32BE(0x00010000, 0);
   directory.writeUInt16BE(tables.length, 4);
@@ -313,9 +481,111 @@ describe('each font file in the app is its upstream file, byte for byte (CMP-118
   });
 });
 
+// X4 (compliance-auditor) and CMP-117: "a font is here only with the real OFL text beside it" accepted any OFL text in
+// the folder, so with two families in one folder each font passed on the other's licence. A font's licence is now its
+// own family's: OFL-<family>.txt beside it, the real OFL, carrying the copyright notice the font itself carries (name 0).
+describe('each font file maps to its own family\'s licence (X4, CMP-117)', () => {
+  const HEEBO_NOTICE = 'Copyright 2014 The Heebo Project Authors (https://github.com/OdedEzer/heebo)';
+  const BELLEFAIR_NOTICE = 'Copyright 2015 The Bellefair Project Authors (https://github.com/shinntype/bellefair)';
+  const heebo = makeSfnt({ names: { 0: HEEBO_NOTICE, 1: 'Heebo Medium', 16: 'Heebo', 6: 'Heebo-Medium' }, weight: 500 });
+  const folder = (files: Readonly<Record<string, string>>) => (name: string) => files[name] ?? null;
+
+  it('passes a font beside OFL-<its family>.txt: the real OFL, with the copyright notice the font carries', () => {
+    expect(licenceMismatch(heebo, folder({ 'OFL-Heebo.txt': `${HEEBO_NOTICE}\n\n${OFL_TEXT}` }))).toBeNull();
+  });
+
+  it('refuses a font beside only another family\'s licence: an OFL in the folder is not its licence', () => {
+    const bellefair = `${BELLEFAIR_NOTICE}\n\n${OFL_TEXT}`;
+    expect(licenceMismatch(heebo, folder({ 'OFL-Bellefair.txt': bellefair, 'OFL.txt': bellefair }))).toBe('no OFL-Heebo.txt beside it');
+  });
+
+  it('refuses a licence named for the family that carries another family\'s copyright line', () => {
+    expect(licenceMismatch(heebo, folder({ 'OFL-Heebo.txt': `${BELLEFAIR_NOTICE}\n\n${OFL_TEXT}` })))
+      .toBe(`OFL-Heebo.txt does not carry the font's copyright notice: ${HEEBO_NOTICE}`);
+  });
+
+  it('refuses the shape General Sans shipped in: the Fontshare EULA beside it, under OFL.txt or under its family\'s name', () => {
+    const generalSans = makeSfnt({ names: { 0: 'Copyright the General Sans authors', 1: 'General Sans', 6: 'GeneralSans-Semibold' }, weight: 600 });
+    expect(licenceMismatch(generalSans, folder({ 'OFL.txt': EULA_AS_OFL }))).toBe('no OFL-GeneralSans.txt beside it');
+    expect(licenceMismatch(generalSans, folder({ 'OFL-GeneralSans.txt': EULA_AS_OFL }))).toBe('OFL-GeneralSans.txt is not the SIL Open Font License 1.1');
+  });
+
+  it('takes the family from the typographic family (name 16) before name 1, without spaces in the file name', () => {
+    // A static Light cut is the family "Heebo Light" (name 1) in the typographic family "Heebo" (name 16): one licence.
+    const light = makeSfnt({ names: { 0: HEEBO_NOTICE, 1: 'Heebo Light', 16: 'Heebo', 6: 'Heebo-Light' }, weight: 300 });
+    expect(licenceMismatch(light, folder({ 'OFL-Heebo.txt': `${HEEBO_NOTICE}\n${OFL_TEXT}` }))).toBeNull();
+    const spaced = makeSfnt({ names: { 0: 'Copyright 2019 The Frank Ruhl Libre Project Authors', 1: 'Frank Ruhl Libre', 6: 'FrankRuhlLibre-Light' } });
+    expect(licenceMismatch(spaced, folder({}))).toBe('no OFL-FrankRuhlLibre.txt beside it');
+  });
+
+  it('refuses a font it cannot read, one that names no family, and one that carries no copyright notice', () => {
+    expect(licenceMismatch(Buffer.from('wOF2\u0000\u0001', 'latin1'), folder({})))
+      .toBe('not a TrueType or OpenType file this guard can read, so its family cannot be known');
+    expect(licenceMismatch(makeSfnt({ names: { 0: HEEBO_NOTICE, 6: 'Heebo-Regular' } }), folder({}))).toBe('it names no family (name 16 or 1)');
+    expect(licenceMismatch(makeSfnt({ names: { 1: 'Heebo', 6: 'Heebo-Regular' } }), folder({ 'OFL-Heebo.txt': OFL_TEXT })))
+      .toBe('it carries no copyright notice (name 0) for its licence to repeat');
+  });
+
+  it('every licence in the app is its upstream text, line endings aside, and every pin is a file in the tree (CMP-124)', () => {
+    const licences = TRACKED.filter((f) => f.startsWith(APP) && /^OFL-[\w.-]+\.txt$/.test(base(f)));
+    expect(licences.length).toBeGreaterThan(0);
+    const lf = (f: string) => sha256(Buffer.from(text(f).replace(/\r\n/g, '\n'), 'utf8'));
+    const unpinned = licences.filter((f) => !(f in UPSTREAM_LICENCES));
+    const changed = licences.filter((f) => f in UPSTREAM_LICENCES && lf(f) !== UPSTREAM_LICENCES[f].sha256);
+    const stale = Object.keys(UPSTREAM_LICENCES).filter((f) => !licences.includes(f));
+    expect({ unpinned, changed, stale }).toEqual({ unpinned: [], changed: [], stale: [] });
+  });
+});
+
+// CMP-122: before a face is used, each shipped file's cmap is checked for the Hebrew letters U+05D0–U+05EA, maqaf,
+// geresh, gershayim, the sheqel sign, the niqqud the copy uses, and the Latin digits and punctuation of right-to-left
+// strings. A code point a face lacks is drawn by Android from another font, mid-word.
+describe('each font file in the app covers the Hebrew the copy needs (CMP-122)', () => {
+  it('the set is CMP-122\'s: 27 letters, maqaf, geresh, gershayim, the sheqel sign, the copy\'s niqqud, digits, RTL punctuation', () => {
+    const hex = CMP122_REQUIRED.map(codePointName);
+    expect(hex.filter((h) => h >= 'U+05D0' && h <= 'U+05EA')).toHaveLength(27);
+    expect(hex).toEqual(expect.arrayContaining(['U+05BE', 'U+05F3', 'U+05F4', 'U+20AA', 'U+0030', 'U+0039', 'U+0020', 'U+002E', 'U+002C', 'U+003F', 'U+0022', 'U+0027', 'U+2026']));
+    expect(hex).not.toContain('U+0021'); // the copy has no "!" (the design ledger's copy rules)
+  });
+
+  it('the copy\'s niqqud is what the app\'s own source holds of U+05B0–U+05C7, its tests left out: none today', () => {
+    expect(COPY_NIQQUD).toEqual([]);
+    // shalom with its points: shin, qamats, shin dot, lamed, vav, holam, final mem. The scan finds the three points.
+    expect(niqqudIn('שָׁלוֹם')).toEqual([0x05b8, 0x05b9, 0x05c1]);
+  });
+
+  it('reads coverage from a format 4 and a format 12 cmap alike, and names each code point missing', () => {
+    for (const format of [4, 12] as const) {
+      expect(coverageGaps(makeSfnt({ cmap: { format, codePoints: CMP122_REQUIRED } }), CMP122_REQUIRED)).toEqual([]);
+      const holed = CMP122_REQUIRED.filter((c) => c !== 0x05d0 && c !== 0x20aa);
+      expect(coverageGaps(makeSfnt({ cmap: { format, codePoints: holed } }), CMP122_REQUIRED)).toEqual(['U+05D0', 'U+20AA']);
+    }
+    expect(coverageGaps(makeSfnt({ cmap: { format: 12, codePoints: [0x1f600] } }), [0x1f600])).toEqual([]); // past the BMP
+    expect(coverageGaps(makeSfnt({ cmap: { format: 4, codePoints: [0x05d0] } }), [0x1f600])).toEqual(['U+1F600']); // format 4 is the BMP
+  });
+
+  it('refuses a font with no cmap it can read', () => {
+    expect(coverageGaps(makeSfnt({ names: { 6: 'X-Regular' } }), [0x05d0])).toBe('no Unicode cmap (format 4 or 12) this guard can read');
+    expect(coverageGaps(Buffer.from('wOF2\u0000\u0001', 'latin1'), [0x05d0])).toBe('not a TrueType or OpenType file this guard can read');
+  });
+
+  it('every font file in the app has a glyph for each code point CMP-122 names, but the gap pinned in KNOWN_GAPS', () => {
+    const gaps = Object.fromEntries(
+      APP_FONTS.map((f) => [f, coverageGaps(bytes(f), CMP122_REQUIRED)] as const).filter(([, g]) => g.length > 0),
+    );
+    expect(gaps).toEqual(KNOWN_GAPS);
+  });
+});
+
 describe('fonts in the repository carry the real OFL text (HX-8)', () => {
-  it('every font file has the real OFL text beside it', () => {
-    const offenders = TRACKED.filter((f) => isFontFile(f, bytes(f))).filter((f) => !hasRealOflBeside(f));
+  it('every font file has its own family\'s licence beside it (X4: no longer any OFL text in the folder)', () => {
+    const beside = (f: string) => (name: string) => {
+      const g = `${dir(f)}/${name}`;
+      return TRACKED.includes(g) ? text(g) : null;
+    };
+    const offenders = TRACKED.filter((f) => isFontFile(f, bytes(f)))
+      .map((f) => [f, licenceMismatch(bytes(f), beside(f))])
+      .filter(([, why]) => why !== null);
     expect(offenders).toEqual([]);
   });
 

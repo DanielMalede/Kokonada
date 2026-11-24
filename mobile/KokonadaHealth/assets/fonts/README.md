@@ -49,6 +49,29 @@ upstream `OFL.txt` ships it; the repository stores its line endings as LF. Neith
 Font Name. Before the fonts ship in a build anyone else installs, the app must show each family's
 copyright line and licence to the user (CMP-117, the P14 licences page).
 
+## What the build checks
+
+`src/design/__tests__/fontLicence.test.ts` fails the build when:
+
+- a font file has no `OFL-<family>.txt` beside it, named for the family its own name table gives (the
+  typographic family, without spaces), holding the real OFL text and the copyright notice the font itself
+  carries. Another family's licence in the same folder does not count (X4);
+- a file named as the OFL is not the OFL, or a document embeds a font without the real OFL text beside it;
+- a font file in the app is not its upstream file byte for byte, or a licence is not its upstream text
+  (line endings aside);
+- a font file's PostScript name is not its file name, or its weight class is not the weight its style
+  name says;
+- a font file in the app has no glyph for a code point CMP-122 names: the Hebrew letters U+05D0–U+05EA,
+  maqaf, geresh, gershayim, the sheqel sign, any niqqud the app's source uses, the digits, and the
+  punctuation of right-to-left strings.
+
+One gap is known and pinned in the test: Bellefair has no gershayim (U+05F4). Android would draw it from
+another font mid-word, so no voice line may hold ״ until the compliance-auditor rules on CMP-122 for the
+voice face.
+
+To add a font, put the file and its family's `OFL-<family>.txt` here, pin both to their upstream in
+`fontLicence.test.ts`, and name the face in `src/design/lab/fonts.ts` if the lab draws it.
+
 ## Not linked into the app
 
 `react-native.config.js` lists this folder for `npx react-native-asset`, and it has not been run.
