@@ -488,17 +488,24 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
     expect(cited.filter(([, id, of234]) => rows.has(id) === Boolean(of234)).map(([, id, of234]) => `${id}${of234 || ''}`)).toEqual([]);
   });
 
+  // The jobs a job-level `if:` can skip, by the name their check run reports, with the condition: each job block
+  // read whole by `ciJobs`.
+  const skippableJobs = (yml) => ciJobs(yml).filter((j) => j.if).map((j) => ({ name: j.name, cond: j.if }));
+
+  // RA-6: a job block is read whole, so its `if:` counts above its `name:` too, and a job with no `name:` reports
+  // its check run under its id.
+  test('the skippable-job reader takes if: and name: in either order, and a job\'s id when it has no name', () => {
+    const fixture = ['jobs:',
+      '  above:', '    if: needs.x.outputs.a == \'true\'', '    name: If above name', '    runs-on: x',
+      '  nameless:', '    runs-on: x', '    if: needs.x.outputs.b == \'true\'',
+      '  usual:', '    name: Usual', '    needs: x', '    if: always()',
+      '  never:', '    name: Never skipped', '    runs-on: x'].join('\n');
+    expect(skippableJobs(fixture)).toEqual([{ name: 'If above name', cond: 'needs.x.outputs.a == \'true\'' },
+      { name: 'nameless', cond: 'needs.x.outputs.b == \'true\'' }, { name: 'Usual', cond: 'always()' }]);
+  });
+
   test('3e names every job of ci.yml that a job-level if: can skip, with its condition', () => {
-    const lines = read('.github/workflows/ci.yml').split('\n');
-    const skippable = [];
-    let name = null;
-    for (const line of lines) {
-      if (/^ {2}[\w-]+:\s*$/.test(line)) name = null;
-      const n = line.match(/^ {4}name: (.*)$/);
-      if (n) name = n[1].trim();
-      const cond = line.match(/^ {4}if: (.*)$/);
-      if (cond && name) skippable.push({ name, cond: cond[1].trim() });
-    }
+    const skippable = skippableJobs(read('.github/workflows/ci.yml'));
     expect(skippable.length).toBeGreaterThan(0);
     const e = sub3('e');
     const missing = skippable.filter(({ name: n, cond }) => !e.includes(`\`${n}\``) || !(e.includes(`\`if: ${cond}\``) || e.includes(`\`${cond}\``)));
