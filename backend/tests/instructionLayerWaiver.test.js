@@ -208,15 +208,23 @@ describe('DEC-192 · the merge-guard agent is gone, and nothing dispatches or re
     has(FLOW, 'unless the latest such comment by `DanielMalede` on the PR already names this H and M.');
   });
 
-  // ARCH-307-8, RA-11: the three texts that say when the session runs the checks say it in one wording.
-  const WHEN = 'PRE-MERGE steps 3 and 4 after every push; the whole PRE-MERGE before every merge; POST-MERGE after every merge';
+  // ARCH-307-8, RA-11: the texts that say when the session runs the checks say it in one wording. SA-7, RA-19 and
+  // ARCH-307-14: after a PR is opened and after every push, step 7 runs too, since it holds the secrets grep (the
+  // `whr_` device token among its patterns), and PRE-MERGE's own header says the same.
+  const WHEN_PRE = 'PRE-MERGE (the whole of it before every merge; steps 3, 4 and 7 after a PR is opened and after every push to it)';
+  const WHEN = `${WHEN_PRE}; POST-MERGE after every merge`;
   test.each([
     ['CLAUDE.md § Every task step 4', () => section(ROOT_MD, 'Every task').find((l) => l.startsWith('4. ')) || ''],
     ['/ship step 6', () => read('.claude/commands/ship.md').split('\n').find((l) => l.startsWith('6. ')) || ''],
     ['merge.md § Checks, before WHY', () => read('.claude/commands/merge.md').split('\n## Checks\n')[1]?.split('\nWHY. ')[0] || ''],
   ])('no hook reminds the session, and %s says when it runs the checks in the one wording', (_name, text) => {
     has(text(), 'No hook reminds', WHEN);
-    expect(text()).not.toMatch(/after every push to a PR it reads CI|runs PRE-MERGE after a PR is opened|after every push of this flow/);
+    expect(text()).not.toMatch(/after every push to a PR it reads CI|runs PRE-MERGE after a PR is opened|after every push of this flow|steps 3 and 4 after every push/);
+  });
+
+  test('the PRE-MERGE header says when it runs in the same wording, and step 7 holds the `whr_` pattern it runs after every push for', () => {
+    expect(MERGE_LINES.find((l) => l.startsWith('PRE-MERGE (')) || '').toBe(`${WHEN_PRE}:`);
+    has(STEP7, '`whr_[A-Za-z0-9_-]{8,}`');
   });
 
   test('every task: a red is fixed before the next task', () => {
