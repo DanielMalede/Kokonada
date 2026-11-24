@@ -69,7 +69,8 @@ cannot prove.
    (Metro `--dev false`, then `hermesc -O`). It writes `android/app/src/lab/assets/index.android.bundle`
    and `lab-stamp.json` (the commit, an empty porcelain, and the bundle's sha256). It runs from the
    real path only: Metro breaks under a `subst` drive.
-2. **`node scripts/lab/buildLabApk.mjs`** builds `:app:assembleLab` for arm64-v8a. On Windows it maps the repository to
+2. **`node scripts/lab/buildLabApk.mjs`** builds `:app:assembleLab` for arm64-v8a (the phone) and x86_64 (the API 35
+   emulator, which cannot start an arm64-only lab, OPS-477). On Windows it maps the repository to
    a free drive letter (never `W:`) because the native build fails on a long path. It points
    `autolinking.json` at that drive, then puts the file back byte for byte and removes the drive,
    even when the build fails. It checks that the APK carries the stamped bundle, and it never

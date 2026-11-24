@@ -11,7 +11,7 @@
 //      sessions use), because the native CMake build fails on the long worktree path ("build.ninja
 //      still dirty"), and points autolinking.json at that drive; otherwise the RN CLI would
 //      regenerate it under the drive and drop the local spotify-remote module;
-//   3. it runs :app:assembleLab for arm64-v8a through the drive;
+//   3. it runs :app:assembleLab for arm64-v8a (the phone) and x86_64 (the emulator) through the drive;
 //   4. ALWAYS, success or failure: it puts autolinking.json back byte for byte and removes the drive;
 //   5. it checks the APK carries the stamped bundle and stamp, and that it is signed with the one shared
 //      debug keystore (the main checkout's android/app/debug.keystore, read in place, never copied), so a
@@ -32,6 +32,11 @@ const LAB_ASSETS = 'android/app/src/lab/assets';
 const APK = 'android/app/build/outputs/apk/lab/app-lab.apk';
 const AUTOLINKING = 'android/build/generated/autolinking/autolinking.json';
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+
+// OPS-477: the lab carries arm64-v8a for the phone and x86_64 for the API 35 emulator. That emulator also runs arm64
+// code through its translator, but an arm64-only lab dies there at launch: the native libraries stay uncompressed in
+// the APK, and SoLoader looks for them only under base.apk!/lib/x86_64, the process's own ABI.
+const LAB_ABIS = ['arm64-v8a', 'x86_64'];
 
 /** Letters to try for the subst drive. W is left out on purpose: other sessions map it. */
 export const DEFAULT_DRIVES = ['L', 'K', 'J', 'M', 'N', 'P', 'Q', 'R', 'T', 'U', 'V', 'X', 'Y', 'Z'];
@@ -186,7 +191,7 @@ async function buildCapped({ repo, app, head, stamp, git, gradle, subst, exists,
     // The shared keystore reaches build.gradle as the project property kokonadaDebugKeystore.
     gradle({
       cwd,
-      args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain', ...capArgs],
+      args: [':app:assembleLab', `-PreactNativeArchitectures=${LAB_ABIS.join(',')}`, '--console=plain', ...capArgs],
       env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore },
     });
   } finally {

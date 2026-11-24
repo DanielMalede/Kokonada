@@ -179,7 +179,8 @@ describe('buildLabApk', () => {
     const [regen, assemble] = r.calls;
     expect(regen.args[0]).toBe('help');
     expect(regen.cwd).toBe(path.join(r.appRoot, 'android')); // regenerated from the real path
-    expect(assemble.args).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+    // OPS-477: arm64-v8a for the phone and x86_64 for the API 35 emulator, whose SoLoader looks only under lib/x86_64.
+    expect(assemble.args).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64', '--console=plain']);
     expect(assemble.cwd).toBe(`L:\\${path.join('mobile', 'App', 'android')}`);
     // relinkAutolinking swaps the repository root for the drive and keeps the rest of each path in this
     // platform's separators (L:\mobile\App on Windows, L:/mobile/App on Linux), JSON-escaped in the file.
@@ -236,7 +237,7 @@ describe('buildLabApk', () => {
       const r = rig();
       await r.run(cleanGit, { limits: { maxWorkers: 2 } });
       expect(r.calls.map((c) => c.args.slice(-1))).toEqual([['--max-workers=2'], ['--max-workers=2']]);
-      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64', '--console=plain']);
     });
 
     it('caps the ninja job pools of every CMake module through an init script, which it removes after the build', async () => {
@@ -310,15 +311,16 @@ describe('the real Gradle wrapper call', () => {
   // Found on the first real run: with NoDefaultCurrentDirectoryInExePath set (it is in some shells),
   // cmd.exe does not look in the current directory, so a bare `gradlew.bat` "is not recognized". The
   // wrapper is named by its absolute path, quoted, and the call runs through the real cmd.exe here.
+  // The ABI list keeps its comma: cmd.exe splits a batch file's %1..%9 on commas, but the real gradlew.bat passes %*.
   const onWindows = process.platform === 'win32' ? it : it.skip;
   onWindows('runs the wrapper in cwd by its absolute path, even where cmd.exe does not search the current directory', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab gradle '));
     fs.writeFileSync(path.join(dir, 'gradlew.bat'), '@echo off\r\necho WRAPPER %* KEY=%ORG_GRADLE_PROJECT_kokonadaDebugKeystore%\r\n');
     const keystore = String.raw`C:\k\debug.keystore`;
-    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore } });
+    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore } });
     const r = spawnSync(command, args, { ...options, env: { ...options.env, NoDefaultCurrentDirectoryInExePath: '1' }, encoding: 'utf8' });
     expect(r.stderr).toBe('');
-    expect(r.stdout.trim()).toBe(`WRAPPER :app:assembleLab -PreactNativeArchitectures=arm64-v8a KEY=${keystore}`);
+    expect(r.stdout.trim()).toBe(`WRAPPER :app:assembleLab -PreactNativeArchitectures=arm64-v8a,x86_64 KEY=${keystore}`);
     expect(r.status).toBe(0);
   });
 
