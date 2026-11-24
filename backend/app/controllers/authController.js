@@ -30,7 +30,7 @@ async function verifyAppleToken(identityToken) {
     ignoreExpiration: false,
   });
   // Apple only sends name on first sign-in; email may be a relay address
-  return { ssoId: p.sub, email: p.email || '', displayName: '', avatarUrl: '' };
+  return { ssoId: p.sub, email: p.email || '', displayName: '' };
 }
 
 function publicUser(user) {
