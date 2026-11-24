@@ -1130,8 +1130,13 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
       'G11P per item', 'the never-from-an-emulator list');
   }));
 
-  test('ruling 9 in /page: no page enters navigation while a regulated slot it renders holds a placeholder', () => {
-    has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'No page enters navigation while a regulated slot it renders holds a placeholder: the held regulated-copy branch (F3-B) merges before the cutover PR or with it (DEC-192 ruling 9).');
+  // Ruling 12 words ruling 9: any copy that is not the approved copy keeps a page out of navigation, not only a placeholder.
+  test('rulings 9 and 12 in /page and DEC-192: a page enters navigation only when every regulated slot it renders shows the final approved text', () => {
+    const g13 = BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '';
+    has(g13, 'A page enters navigation only when every regulated slot it renders shows the final approved text, never a placeholder, a neutral stand-in or a marked preview (DEC-192 ruling 9, as ruling 12 words it): the held regulated-copy branch (F3-B) merges before the cutover PR or with it.');
+    has(DEC192, '   - the rule it sets: a page enters navigation only when every regulated slot it renders shows the final approved text (no placeholder, neutral stand-in or marked preview, as ruling 12 words it): the held regulated-copy branch (F3-B) merges before the cutover PR or with it.',
+      '`/page` BATCH MODE\'s G13 keeps a page out of navigation until every regulated slot it renders shows the final approved text (ruling 9, as ruling 12 words it)');
+    for (const text of [g13, DEC192]) expect(text).not.toMatch(/while a regulated slot it renders holds a placeholder|whose regulated slot holds a placeholder/);
   });
 });
 
