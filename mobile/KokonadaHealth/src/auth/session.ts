@@ -40,6 +40,24 @@ async function fetchWithDeadline(url: string, init: RequestInit, ms: number): Pr
   }
 }
 
+// RA-2: how long a 429 from the authLimiter asks the phone to wait. express-rate-limit 8 with
+// standardHeaders (draft-6) sends RateLimit-Reset, and on a 429 Retry-After, both in seconds
+// (backend/app/middleware/rateLimiter.js); Retry-After may also be an HTTP date. Undefined when the
+// answer names no usable wait.
+function serverWaitMs(res: Response): number | undefined {
+  const headers = (res as { headers?: { get?: (name: string) => string | null } }).headers;
+  const read = (name: string): string => (typeof headers?.get === 'function' ? (headers.get(name) ?? '').trim() : '');
+  const retryAfter = read('Retry-After');
+  if (/^\d+$/.test(retryAfter)) return Number(retryAfter) * 1000;
+  if (retryAfter) {
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
+  const reset = read('RateLimit-Reset');
+  if (/^\d+$/.test(reset)) return Number(reset) * 1000;
+  return undefined;
+}
+
 export const keychainSession = {
   loadTokens: (): Promise<TokenPair | null> => inIssueOrder(async () => {
     const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
@@ -61,6 +79,10 @@ export const keychainSession = {
         body: JSON.stringify({ refreshToken }),
       }, REFRESH_TIMEOUT_MS);
       if (res.status === 401) return { kind: 'dead' };
+      if (res.status === 429) {
+        const retryAfterMs = serverWaitMs(res);
+        return retryAfterMs === undefined ? { kind: 'unavailable' } : { kind: 'unavailable', retryAfterMs };
+      }
       if (!res.ok) return { kind: 'unavailable' };
       const { token, refreshToken: nextRefresh } = await res.json();
       if (typeof token !== 'string' || !token || typeof nextRefresh !== 'string' || !nextRefresh) {

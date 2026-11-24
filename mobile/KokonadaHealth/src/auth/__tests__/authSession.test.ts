@@ -25,6 +25,7 @@ function build(overrides: any = {}) {
     clearTokens: jest.fn(async () => { stored.value = null; }),
     refreshEndpoint: overrides.refreshEndpoint
       ?? jest.fn(async (_refresh: string): Promise<RefreshOutcome> => ok('access-2', 'krt-2')),
+    ...('now' in overrides ? { now: overrides.now } : {}),
   };
   const session = new AuthSession(deps);
   return { session, deps, saved, stored };
@@ -153,7 +154,8 @@ describe('AuthSession — refresh (rotating token)', () => {
 
   it('C1: an unavailable answer (offline, timeout, 5xx, 429) returns null and KEEPS the session in memory and storage', async () => {
     const refreshEndpoint = jest.fn(async (): Promise<RefreshOutcome> => ({ kind: 'unavailable' }));
-    const { session, deps, stored } = build({ refreshEndpoint });
+    const clock = { t: 0 };
+    const { session, deps, stored } = build({ refreshEndpoint, now: () => clock.t });
     await session.bootstrap();
     const events: SessionEvent[] = [];
     session.subscribe((e) => events.push(e));
@@ -164,7 +166,9 @@ describe('AuthSession — refresh (rotating token)', () => {
     expect(stored.value).toEqual({ access: 'access-1', refresh: 'krt-1' });
     expect(events).toEqual([]);
 
-    // The network comes back: the same refresh token still rotates.
+    // The network comes back: the same refresh token still rotates, once the backoff after the
+    // unavailable answer has passed (RA-2; its ceiling is 60 s).
+    clock.t = 60_000;
     refreshEndpoint.mockResolvedValueOnce(ok('access-2', 'krt-2'));
     expect(await session.refresh()).toBe('access-2');
     expect(refreshEndpoint).toHaveBeenLastCalledWith('krt-1');
@@ -398,6 +402,36 @@ describe('keychainSession.refreshEndpoint — the server answer, classified', ()
   it.each([500, 502, 503, 504, 429, 400, 403, 404])('%i is unavailable: no proof the family is dead', async (status) => {
     answer(status, { error: 'x' });
     await expect(keychainSession.refreshEndpoint('krt-1')).resolves.toEqual({ kind: 'unavailable' });
+  });
+
+  // RA-2: the authLimiter's 429 says how long to wait (express-rate-limit 8, standardHeaders draft-6:
+  // Retry-After and RateLimit-Reset, in seconds); the answer carries it so the session holds that long.
+  describe('a 429 carries the server\'s wait (RA-2)', () => {
+    const NOW = Date.UTC(2026, 10, 24, 12, 0, 0);
+    beforeEach(() => { jest.useFakeTimers({ now: NOW }); });
+    afterEach(() => { jest.useRealTimers(); });
+    const limited = (headers: Record<string, string>) => {
+      (globalThis as any).fetch = jest.fn(async () => ({ ok: false, status: 429, headers: new Headers(headers), json: async () => ({ error: 'x' }) }));
+    };
+
+    it.each([
+      ['Retry-After in seconds', { 'Retry-After': '120', 'RateLimit-Reset': '120' }, 120_000],
+      ['Retry-After as an HTTP date', { 'Retry-After': new Date(NOW + 30_000).toUTCString() }, 30_000],
+      ['RateLimit-Reset alone', { 'RateLimit-Reset': '90' }, 90_000],
+    ])('%s', async (_l, headers, retryAfterMs) => {
+      limited(headers);
+      await expect(keychainSession.refreshEndpoint('krt-1')).resolves.toEqual({ kind: 'unavailable', retryAfterMs });
+    });
+
+    it.each([
+      ['no header', {}],
+      ['a Retry-After that is not a wait', { 'Retry-After': 'soon' }],
+    ])('%s: unavailable with no wait of its own', async (_l, headers) => {
+      limited(headers);
+      const outcome = await keychainSession.refreshEndpoint('krt-1');
+      expect(outcome).toEqual({ kind: 'unavailable' });
+      expect('retryAfterMs' in outcome).toBe(false);
+    });
   });
 
   it.each([

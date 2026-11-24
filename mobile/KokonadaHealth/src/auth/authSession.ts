@@ -11,11 +11,12 @@ export interface TokenPair {
 
 // The refresh endpoint's answer (C1). Only the server's dead-family answer is `dead`; anything
 // that is not a verdict — a thrown fetch, a timeout, a 5xx, a 429, an unreadable body — is
-// `unavailable`, and the session survives it.
+// `unavailable`, and the session survives it. RA-2: an unavailable answer can carry the server's own
+// wait (a 429's Retry-After or RateLimit-Reset), in milliseconds.
 export type RefreshOutcome =
   | { kind: 'ok'; tokens: TokenPair }
   | { kind: 'dead' }
-  | { kind: 'unavailable' };
+  | { kind: 'unavailable'; retryAfterMs?: number };
 
 // `dead`: the server refused the refresh family (or an access-only session's access was refused);
 // `cleared`: clear() ended it (sign-out, account deletion, a withdrawal teardown).
@@ -35,8 +36,21 @@ function readOutcome(answer: unknown): RefreshOutcome {
     const refresh = a.tokens?.refresh;
     if (isToken(access) && isToken(refresh)) return { kind: 'ok', tokens: { access, refresh } };
   }
+  const wait = (a as { retryAfterMs?: unknown } | null | undefined)?.retryAfterMs;
+  if (a?.kind === 'unavailable' && typeof wait === 'number' && Number.isFinite(wait) && wait >= 0) {
+    return { kind: 'unavailable', retryAfterMs: wait };
+  }
   return { kind: 'unavailable' };
 }
+
+// RA-2: after an unavailable answer, how long refresh() sends nothing. Every trigger (each REST 401,
+// each socket open) used to retry at once, against an endpoint that shares the authLimiter (10 per
+// 15 min per IP) with sign-in itself. The server's own wait is honoured up to that limiter's window
+// (authLimiter.windowMs, backend/app/middleware/rateLimiter.js:24): a longer one is not ours to trust.
+// Anything else backs off exponentially from 2 s, with equal jitter, capped at 60 s.
+const BACKOFF_FIRST_MS = 2_000;
+const BACKOFF_CAP_MS = 60_000;
+const MAX_SERVER_WAIT_MS = 15 * 60_000;
 
 export interface AuthSessionDeps {
   loadTokens: () => Promise<TokenPair | null>;
@@ -44,6 +58,9 @@ export interface AuthSessionDeps {
   clearTokens: () => Promise<void>;
   // POST /api/auth/refresh { refreshToken } → ok with the rotated pair, dead on a 401, else unavailable.
   refreshEndpoint: (refreshToken: string) => Promise<RefreshOutcome>;
+  // Injectable for deterministic tests: the clock and the jitter (a number in [0, 1]).
+  now?: () => number;
+  random?: () => number;
 }
 
 export class AuthSession {
@@ -53,8 +70,33 @@ export class AuthSession {
   // sign-out (or a sign-in as another account) can never install or clear the newer session.
   private epoch = 0;
   private readonly listeners = new Set<(event: SessionEvent) => void>();
+  // RA-2: no refresh request goes out before this time, and how many unavailable answers came in a row.
+  private holdUntil = 0;
+  private unavailableInARow = 0;
 
   constructor(private readonly deps: AuthSessionDeps) {}
+
+  private now(): number {
+    return this.deps.now ? this.deps.now() : Date.now();
+  }
+
+  private holdAfterUnavailable(retryAfterMs?: number): void {
+    this.unavailableInARow += 1;
+    let wait: number;
+    if (retryAfterMs !== undefined) {
+      wait = Math.min(retryAfterMs, MAX_SERVER_WAIT_MS);
+    } else {
+      const ceiling = Math.min(BACKOFF_CAP_MS, BACKOFF_FIRST_MS * 2 ** (this.unavailableInARow - 1));
+      const jitter = Math.min(1, Math.max(0, this.deps.random ? this.deps.random() : Math.random()));
+      wait = ceiling / 2 + jitter * (ceiling / 2);
+    }
+    this.holdUntil = this.now() + wait;
+  }
+
+  private endHold(): void {
+    this.holdUntil = 0;
+    this.unavailableInARow = 0;
+  }
 
   // Recovers the stored session at launch. SA309-3: a held session is newer than anything the Keychain
   // can give back (a rotation's save is best-effort), so it is never replaced — a reload would
@@ -93,6 +135,7 @@ export class AuthSession {
   async setSession(pair: TokenPair): Promise<void> {
     this.epoch += 1;
     this.inFlightRefresh = null; // a new session never joins the old one's refresh
+    this.endHold(); // ...nor waits out the old one's hold
     this.tokens = pair;
     await this.deps.saveTokens(pair);
   }
@@ -107,6 +150,9 @@ export class AuthSession {
     // An access-only session is refreshed only after its access was refused; with no refresh
     // token it can never recover, so it is dead.
     if (!refreshToken) { await this.endQuietly('dead'); return null; }
+    // RA-2: inside the hold after an unavailable answer, nothing is sent: the session stands, and a call
+    // after the hold asks again.
+    if (this.now() < this.holdUntil) return null;
 
     const flight = this.rotate(refreshToken, this.epoch);
     this.inFlightRefresh = flight;
@@ -128,7 +174,8 @@ export class AuthSession {
     }
     if (epoch !== this.epoch) return null; // the session changed while this answer was in flight
     if (outcome.kind === 'dead') { await this.endQuietly('dead'); return null; }
-    if (outcome.kind !== 'ok') return null;
+    if (outcome.kind !== 'ok') { this.holdAfterUnavailable(outcome.retryAfterMs); return null; }
+    this.endHold();
     this.tokens = outcome.tokens; // the rotated pair IS the live session from here on
     try { await this.deps.saveTokens(outcome.tokens); } catch { /* it works this run; persistence is best-effort */ }
     return outcome.tokens.access;
@@ -142,6 +189,7 @@ export class AuthSession {
     const held = this.tokens !== null;
     this.epoch += 1;
     this.inFlightRefresh = null;
+    this.endHold();
     this.tokens = null;
     try {
       await this.deps.clearTokens();

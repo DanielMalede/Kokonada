@@ -276,6 +276,9 @@ describe('Q4 — the playback socket over the real session: an offline refresh i
     expect(Keychain.resetGenericPassword).not.toHaveBeenCalled();
     expect(() => server.assertNoLiveListeners()).not.toThrow();
 
+    // The network is back a minute later: past the backoff an unavailable refresh holds (RA-2, at most 60 s).
+    const later = Date.now() + 60_000;
+    jest.spyOn(Date, 'now').mockReturnValue(later);
     (globalThis as any).fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ token: 'acc-b', refreshToken: 'krt-b' }) }));
     server.accept('acc-b');
     await svc.kokoSocket.reconnect();
