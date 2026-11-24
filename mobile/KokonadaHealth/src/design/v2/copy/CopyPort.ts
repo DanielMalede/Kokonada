@@ -65,16 +65,19 @@ export type NeutralKeyOf<S extends CopySpec> = string extends keyof S
   ? string
   : { [K in KeyOf<S>]: S[K] extends NeutralKeySpec ? K : never }[KeyOf<S>];
 
+/** The values an ICU message takes, by argument name: a count is a number, a select a string. */
+export type CopyArgs = { readonly [name: string]: string | number };
+
 export interface CopyPort<S extends CopySpec = CopySpec> {
   /** The locale this port resolves in. */
   readonly locale: CopyLocale;
   /** Any key: its text, or a reserved slot for an R key. */
-  resolve(key: KeyOf<S>): CopyResult;
+  resolve(key: KeyOf<S>, args?: CopyArgs): CopyResult;
   /**
    * An N key's text. An R key is never text: resolve() it and render a ReservedSlot. Where a
    * release build has no text, this gives one ellipsis (U+2026), never '' and never the key.
    */
-  text(key: NeutralKeyOf<S>): string;
+  text(key: NeutralKeyOf<S>, args?: CopyArgs): string;
 }
 
 export type CopyErrorCode =
@@ -86,8 +89,12 @@ export type CopyErrorCode =
   | 'regulated-key'
   /** Text given for an R key: in a batch tree an R key has none (F3-B). */
   | 'regulated-text'
-  /** Text that is not a non-blank string. */
+  /** Text that is not a non-blank string, or an ICU message outside the subset. */
   | 'bad-message'
+  /** A value missing, or of the wrong kind, for one of the message's arguments. */
+  | 'bad-args'
+  /** A message that, with these values, leaves nothing visible. */
+  | 'empty-text'
   /** A malformed key name or spec entry. */
   | 'bad-spec'
   | 'unsupported-locale'
@@ -221,13 +228,247 @@ export function checkCopy(spec: CopySpec, catalogs: Catalogs): CopyProblem[] {
       problems.push(problem('regulated-text', key, 'en', 'an R key carries no text in this tree (F3-B)'));
     } else {
       const message = en[key];
-      if (typeof message !== 'string' || message.trim() === '') {
-        problems.push(problem('bad-message', key, 'en', 'text is a non-blank string'));
+      const nodes = typeof message !== 'string' || message.trim() === '' ? 'text is a non-blank string' : tryParse(message);
+      if (typeof nodes === 'string') {
+        problems.push(problem('bad-message', key, 'en', nodes));
       }
     }
   }
   return problems;
 }
+
+// ---------------------------------------------------------------------------------------------
+// The ICU subset. No message-format engine is installed (Stage 0 D3 names FormatJS behind this port,
+// and package.json is held), so the port formats the forms copy needs: an argument {name}, plural
+// (with # and =N) and select, nested. It refuses everything else, including every form where ICU
+// quoting or FormatJS tags would read the same text differently, so each accepted message selects
+// the same branch and the same words under FormatJS. Plural selection and the grouping of # are plain
+// code, never Intl, so jest and a Hermes release build select alike.
+// ---------------------------------------------------------------------------------------------
+
+/** First-strong isolate and pop: each value put into a message sits in its own bidi run (LEDGER section 9). */
+const FSI = '\u2068';
+const PDI = '\u2069';
+
+/** Message text outside a plural branch, where # has no number to stand for. */
+type TextNode =
+  | { readonly type: 'literal'; readonly value: string }
+  | { readonly type: 'argument'; readonly name: string }
+  | { readonly type: 'plural'; readonly name: string; readonly branches: ReadonlyMap<string, readonly PluralNode[]> }
+  | { readonly type: 'select'; readonly name: string; readonly branches: ReadonlyMap<string, readonly TextNode[]> };
+
+/** Inside a plural branch, # stands for the plural's number. */
+type PluralNode = TextNode | { readonly type: 'pound' };
+
+/** A message outside the subset. Its message says what and where. */
+class MessageSyntaxError extends Error {}
+
+/** A value the message cannot take: missing, or of the wrong kind. */
+class MessageArgsError extends Error {}
+
+const ARGUMENT_NAME = /[A-Za-z_][A-Za-z0-9_]*/y;
+const PLURAL_SELECTOR = /[=]\d+|[a-z]+/y;
+const SELECT_SELECTOR = /[A-Za-z][A-Za-z0-9_]*/y;
+const PLURAL_CATEGORIES: readonly string[] = ['zero', 'one', 'two', 'few', 'many', 'other'];
+
+/** After an ASCII apostrophe, these start ICU quoting (FormatJS adds < and >), so the subset refuses them. */
+const QUOTE_STARTERS = "'{}#<>|";
+
+function parseMessage(source: string): readonly TextNode[] {
+  let at = 0;
+  const fail = (why: string): never => {
+    throw new MessageSyntaxError(`${why}, at character ${at + 1}`);
+  };
+  const skipSpace = () => {
+    while (at < source.length && /\s/.test(source[at])) {
+      at += 1;
+    }
+  };
+  const read = (pattern: RegExp, what: string): string => {
+    pattern.lastIndex = at;
+    const match = pattern.exec(source);
+    if (match === null) {
+      return fail(`expected ${what}`);
+    }
+    at += match[0].length;
+    return match[0];
+  };
+
+  /** Text and arguments up to the end, or, inside a branch, up to its closing brace. */
+  function sequence(inPlural: true, inBranch: boolean): PluralNode[];
+  function sequence(inPlural: false, inBranch: boolean): TextNode[];
+  function sequence(inPlural: boolean, inBranch: boolean): PluralNode[] {
+    const nodes: PluralNode[] = [];
+    let text = '';
+    const flush = () => {
+      if (text !== '') {
+        nodes.push({ type: 'literal', value: text });
+        text = '';
+      }
+    };
+    while (at < source.length) {
+      const char = source[at];
+      if (char === '}') {
+        if (inBranch) {
+          break;
+        }
+        fail('a } with no {');
+      } else if (char === '{') {
+        flush();
+        nodes.push(argument());
+        continue;
+      } else if (char === '#') {
+        if (!inPlural) {
+          fail('a # outside a plural branch');
+        }
+        flush();
+        nodes.push({ type: 'pound' });
+        at += 1;
+        continue;
+      } else if (char === '<') {
+        fail('a < (FormatJS reads it as a tag)');
+      } else if (char === "'" && at + 1 < source.length && QUOTE_STARTERS.includes(source[at + 1])) {
+        fail(`an apostrophe before ${source[at + 1]} (ICU reads it as quoting)`);
+      }
+      text += char;
+      at += 1;
+    }
+    flush();
+    return nodes;
+  }
+
+  function argument(): TextNode {
+    at += 1;
+    skipSpace();
+    const name = read(ARGUMENT_NAME, 'an argument name');
+    skipSpace();
+    if (source[at] === '}') {
+      at += 1;
+      return { type: 'argument', name };
+    }
+    if (source[at] !== ',') {
+      return fail('expected , or } after the argument name');
+    }
+    at += 1;
+    skipSpace();
+    const type = read(ARGUMENT_NAME, 'plural or select');
+    if (type !== 'plural' && type !== 'select') {
+      return fail(`${type} is outside the copy subset, which has plural and select only`);
+    }
+    skipSpace();
+    if (source[at] !== ',') {
+      return fail(`expected , after ${type}`);
+    }
+    at += 1;
+    const pluralBranches = new Map<string, readonly PluralNode[]>();
+    const selectBranches = new Map<string, readonly TextNode[]>();
+    for (;;) {
+      skipSpace();
+      if (at >= source.length) {
+        return fail('a { with no }');
+      }
+      if (source[at] === '}') {
+        at += 1;
+        break;
+      }
+      let selector = read(type === 'plural' ? PLURAL_SELECTOR : SELECT_SELECTOR, `a ${type} selector`);
+      if (type === 'plural') {
+        if (selector.startsWith('=')) {
+          selector = `=${Number(selector.slice(1))}`;
+        } else if (!PLURAL_CATEGORIES.includes(selector)) {
+          return fail(`${selector} is not a plural category`);
+        }
+      }
+      if (pluralBranches.has(selector) || selectBranches.has(selector)) {
+        return fail(`the selector ${selector} appears twice`);
+      }
+      skipSpace();
+      if (source[at] !== '{') {
+        return fail(`expected { after ${selector}`);
+      }
+      at += 1;
+      if (type === 'plural') {
+        pluralBranches.set(selector, sequence(true, true));
+      } else {
+        selectBranches.set(selector, sequence(false, true));
+      }
+      if (source[at] !== '}') {
+        return fail('a { with no }');
+      }
+      at += 1;
+    }
+    if (!pluralBranches.has('other') && !selectBranches.has('other')) {
+      return fail(`a ${type} needs an other branch`);
+    }
+    return type === 'plural' ? { type, name, branches: pluralBranches } : { type, name, branches: selectBranches };
+  }
+
+  return sequence(false, false);
+}
+
+/** A message's nodes, or why it is outside the subset. */
+function tryParse(message: string): readonly TextNode[] | string {
+  try {
+    return parseMessage(message);
+  } catch (error) {
+    if (error instanceof MessageSyntaxError) {
+      return error.message;
+    }
+    throw error;
+  }
+}
+
+/** CLDR's en rule for whole numbers: one for 1 and -1, other for every other number. */
+const enPluralCategory = (n: number): string => (Math.abs(n) === 1 ? 'one' : 'other');
+
+/** A whole number as FormatJS writes # in en: digits grouped in threes with commas. */
+function groupDigits(n: number): string {
+  const grouped = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return n < 0 ? `-${grouped}` : grouped;
+}
+
+function argumentValue(args: CopyArgs | undefined, name: string): unknown {
+  if (!isRecord(args) || !has(args, name)) {
+    throw new MessageArgsError(`no value for ${name}`);
+  }
+  return args[name];
+}
+
+/** One node's text. A # is written by its own plural, the one place its number is known. */
+function renderNode(node: TextNode, args: CopyArgs | undefined): string {
+  if (node.type === 'literal') {
+    return node.value;
+  }
+  if (node.type === 'argument') {
+    const value = argumentValue(args, node.name);
+    if (typeof value === 'string') {
+      return FSI + value + PDI;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return FSI + String(value) + PDI;
+    }
+    throw new MessageArgsError(`${node.name} is a string or a finite number`);
+  }
+  if (node.type === 'plural') {
+    const count = argumentValue(args, node.name);
+    if (typeof count !== 'number' || !Number.isSafeInteger(count)) {
+      throw new MessageArgsError(`${node.name} is a whole number, for its plural`);
+    }
+    const branch = node.branches.get(`=${count}`) ?? node.branches.get(enPluralCategory(count)) ?? node.branches.get('other') ?? [];
+    return branch.map((part) => (part.type === 'pound' ? FSI + groupDigits(count) + PDI : renderNode(part, args))).join('');
+  }
+  const value = argumentValue(args, node.name);
+  if (typeof value !== 'string') {
+    throw new MessageArgsError(`${node.name} is a string, for its select`);
+  }
+  const branch = node.branches.get(value) ?? node.branches.get('other') ?? [];
+  return branch.map((part) => renderNode(part, args)).join('');
+}
+
+/** White space and the bidi marks and isolates: text made only of these shows nothing. */
+const INVISIBLE = /[\s\u200E\u200F\u061C\u2066-\u2069]/g;
+
+const showsNothing = (text: string): boolean => text.replace(INVISIBLE, '') === '';
 
 /** What a release build shows where it has no text: one ellipsis, never '' and never the key. */
 const NO_TEXT = '\u2026';
@@ -296,7 +537,18 @@ export function createCopyPort<S extends CopySpec>(options: CopyPortOptions<S>):
     return UNAVAILABLE;
   };
 
-  const resolve = (key: string): CopyResult => {
+  /** Each message is parsed once; a message outside the subset is remembered as its reason. */
+  const parsed = new Map<string, readonly TextNode[] | string>();
+  const parse = (message: string): readonly TextNode[] | string => {
+    let nodes = parsed.get(message);
+    if (nodes === undefined) {
+      nodes = tryParse(message);
+      parsed.set(message, nodes);
+    }
+    return nodes;
+  };
+
+  const resolve = (key: string, args?: CopyArgs): CopyResult => {
     const entry = own(spec, key);
     if (entry === undefined) {
       return fail('missing-key', `no copy key ${key}`, key);
@@ -304,15 +556,34 @@ export function createCopyPort<S extends CopySpec>(options: CopyPortOptions<S>):
     if (entry.class === 'R') {
       return { kind: 'reserved', reason: 'regulated', budget: entry.budget };
     }
-    const message = own(catalogs.en, key);
+    const message: unknown = own(catalogs.en, key);
     if (message === undefined) {
       return fail('missing-text', `no en text for ${key}`, key);
     }
-    return { kind: 'text', text: message };
+    if (typeof message !== 'string') {
+      return fail('bad-message', `${key}: text is a non-blank string`, key);
+    }
+    const nodes = parse(message);
+    if (typeof nodes === 'string') {
+      return fail('bad-message', `${key}: ${nodes}`, key);
+    }
+    let shown: string;
+    try {
+      shown = nodes.map((node) => renderNode(node, args)).join('');
+    } catch (error) {
+      if (error instanceof MessageArgsError) {
+        return fail('bad-args', `${key}: ${error.message}`, key);
+      }
+      throw error;
+    }
+    if (showsNothing(shown)) {
+      return fail('empty-text', `${key} leaves nothing visible with these values`, key);
+    }
+    return { kind: 'text', text: shown };
   };
 
-  const text = (key: string): string => {
-    const result = resolve(key);
+  const text = (key: string, args?: CopyArgs): string => {
+    const result = resolve(key, args);
     if (result.kind === 'text') {
       return result.text;
     }
