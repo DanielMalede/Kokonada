@@ -562,7 +562,8 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
 
   // RA-4 = ARCH-307-5: one list of what an emulator never proves, G11P's, word for word wherever it is stated, and
   // a hop on it stays NOT VERIFIED until G11P; the files that do not state it point to it.
-  const NEVER = 'Never claimed from an emulator, only from the owner\'s real-phone pass (`/page` G11P): frame timing, thermal, the leak loop, field pixel parity, BLE heart rate, a Health Connect read, Google sign-in on the release client, the Spotify temporary path, a cold start of 1000 ms or less and the 16 KB check; a hop on one of them stays NOT VERIFIED until G11P.';
+  // CA307-1 = ARCH-307-16: the 16 KB check left the list; the owner's phone cannot boot 16 KB pages (the case below).
+  const NEVER = 'Never claimed from an emulator, only from the owner\'s real-phone pass (`/page` G11P): frame timing, thermal, the leak loop, field pixel parity, BLE heart rate, a Health Connect read, Google sign-in on the release client, the Spotify temporary path and a cold start of 1000 ms or less; a hop on one of them stays NOT VERIFIED until G11P.';
   const POINTER = 'what an emulator never proves (`/device-qa`\'s list, `/page` G11P\'s), where a hop stays NOT VERIFIED until G11P';
   test.each(['.claude/commands/device-qa.md', '.claude/agents/designer.md', '.claude/agents/resilience-auditor.md'])(
     '%s states the one never-claimed list, word for word', (file) => { has(read(file), NEVER); });
@@ -577,10 +578,30 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
       const g11p = read('.claude/commands/page.md').split('\n').find((l) => l.startsWith('- G11P,')) || '';
       const stated = (read(file).match(/Never claimed from an emulator[^.]*\./) || [''])[0];
       for (const item of ['BLE heart rate', 'a Health Connect read', 'Google sign-in on the release client', 'the Spotify temporary path',
-        'a cold start of 1000 ms or less', 'the 16 KB check']) {
+        'a cold start of 1000 ms or less']) {
         expect([item, g11p.includes(item), stated.includes(item)]).toEqual([item, true, true]);
       }
     });
+
+  // CA307-1 = ARCH-307-16: the owner's phone cannot boot 16 KB pages, so the 16 KB check is not G11P's. It is static
+  // on the exact release artefact, before every upload and at the cutover head's release build, and runtime at G11e
+  // on a 16 KB-page emulator image whose manifest records the page size.
+  test('the 16 KB check is static on the release artefact and runtime at G11e on a 16 KB-page image, and G11P does not carry it', () => {
+    const pageLine = (prefix) => read('.claude/commands/page.md').split('\n').find((l) => l.startsWith(prefix)) || '';
+    for (const file of ['.claude/commands/device-qa.md', '.claude/commands/page.md', '.claude/agents/designer.md', '.claude/agents/resilience-auditor.md']) {
+      const stated = (read(file).match(/Never claimed from an emulator[^.]*\./) || [''])[0];
+      expect([file, stated !== '', /16 KB/.test(stated)]).toEqual([file, true, false]);
+    }
+    expect(pageLine('- G11P,')).not.toMatch(/16 KB/);
+    const check = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE 16 KB CHECK')) || '';
+    has(check, 'The owner\'s phone (a Galaxy S22+) cannot boot with 16 KB pages, so `/page` G11P never carries it',
+      'Static, on the exact release artefact, before every upload and on the cutover head\'s release build:',
+      '`zipalign -c -P 16 -v 4 <apk>`', 'aligned at `2**14` or more', 'its `GNU_RELRO` segment ends on a 16 KB boundary',
+      '`PAGE_ALIGNMENT_16K`', 'Runtime, at `/page` G11e:', '`system-images;android-35;google_apis_ps16k;x86_64`',
+      '`adb -s <serial> shell getconf PAGE_SIZE` prints 16384');
+    has(pageLine('- G11e,'), 'the runtime 16 KB check on one more AVD made from the 16 KB-page image, whose manifest records `getconf PAGE_SIZE` = 16384 (`/device-qa`)');
+    has(pageLine('- G12F.'), 'the static 16 KB check (`/device-qa`) on the cutover head\'s release build');
+  });
 
   test('no instruction file keeps a shorter list of what an emulator never proves', () => {
     const short = instructionFiles().filter((f) => /frame timing, thermal, the leak loop(,| and) field pixel parity(?!, BLE heart rate)/i
@@ -648,7 +669,7 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
       '(2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling',
       '(3) the 50-transition leak loop', '(4) a 10-minute soak',
       '(5) BLE heart rate, a Health Connect read, Google sign-in on the release client, and the Spotify temporary path',
-      '(6) deep link, predictive back, a cold start of 1000 ms or less, and the 16 KB check', 'G12F');
+      '(6) deep link, predictive back and a cold start of 1000 ms or less', 'G12F');
   });
 
   test('G13: a batch PR is lab-only; the cutover PR needs fresh records, my review and my (c); G14 after the cutover; rounds per batch', () => {
