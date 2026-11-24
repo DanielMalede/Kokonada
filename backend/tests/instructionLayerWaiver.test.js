@@ -1157,7 +1157,11 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   // ARCH-307-14: the owner's class (a) approval of #307 covers a pick only if the question that asks for it names it.
   test('OPS-483 names every pick the class (a) question must name', rowPin((tasks) => {
     has(rowIn(tasks, 'OPS-483'), '§ Checks step 3f', 'RA-3 and SA-2', 'PK in two waves', 'F1-B\'s three kinds of PR', 'the batch PR\'s PASS set', 'G8d counted',
-      'G11P per item', 'the never-from-an-emulator list');
+      'G11P per item', 'the never-from-an-emulator list',
+      // ARCH-307-23: two more of ARCH-307-3's option A; ARCH-307-21: the pick on the review at a196ce4.
+      'an authoring entry counts without the confirmation re-dispatch', 'each page\'s own D under its batch (`docs/design-v2/pages/<batch>/<Pn>/`)',
+      'the local evidence backend for signed-in evidence (ARCH-307-21 = RA-30, option A; `OPS-516`)');
+    has(DEC192.split('\n').find((l) => l.startsWith('  - ARCH-307-3, option A:')) || '', 'an authoring entry counts without the confirmation re-dispatch');
   }));
 
   // Ruling 12 words ruling 9: any copy that is not the approved copy keeps a page out of navigation, not only a placeholder.
