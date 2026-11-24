@@ -32,6 +32,8 @@ const { allow = [], ask = [], deny = [] } = SETTINGS.permissions || {};
 const esc = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
 const specs = (list, tool) =>
   list.filter((r) => r.startsWith(`${tool}(`) && r.endsWith(')')).map((r) => r.slice(tool.length + 1, -1));
+// RA-10: a permission entry's shape, `Tool` or `Tool(<spec>)`, the spec starting and ending with a non-space.
+const wellShaped = (r) => /^[A-Za-z_][\w-]*(?:\(\S(?:.*\S)?\))?$/s.test(r);
 
 // lenient: `*` matches any text and a trailing ` *` (the only wildcard) also matches the bare
 // command — the policy test's reading. strict: `*` needs one character and the bare command is not
@@ -167,6 +169,25 @@ describe('shadow: structure pins the policy test leaves loose', () => {
   it('every Read deny has an Edit twin, and no Read allow is home-relative', () => {
     for (const r of specs(deny, 'Read')) expect(deny).toContain(`Edit(${r})`);
     expect(specs(allow, 'Read').filter((r) => r.startsWith('~'))).toEqual([]);
+  });
+
+  // RA-10 (#307): `specs` reads only `Tool(<spec>)` entries, so a malformed one (`Bash(git push --force*` without
+  // its parenthesis) would drop out of the model unseen while every case still passed.
+  it('the shape reader accepts `Tool` and `Tool(<spec>)` only', () => {
+    expect(['Bash(git status)', 'Read(//c/x/**)', 'mcp__plugin_github_github__merge_pull_request',
+      'PowerShell(gh pr merge *--auto)', 'Bash(node -e "f(1)")', 'Bash(*)'].filter((r) => !wellShaped(r))).toEqual([]);
+    expect(['Bash(git push --force*', 'Bash git push', 'Bash()', 'Bash( git status)', 'Bash(git status )', '(git status)',
+      'Bash(x) y', ' Bash(x)', 'Bash(x)\n'].filter((r) => wellShaped(r))).toEqual([]);
+  });
+
+  it('every allow, ask and deny entry is `Tool` or `Tool(<spec>)`, and the model reads every entry of the tools it models', () => {
+    for (const [name, list] of Object.entries({ allow, ask, deny })) {
+      expect([name, list.filter((r) => typeof r !== 'string' || !wellShaped(r))]).toEqual([name, []]);
+      for (const tool of ['Bash', 'PowerShell', 'Read', 'Edit']) {
+        const named = list.filter((r) => r === tool || r.startsWith(`${tool}(`)).length;
+        expect([name, tool, named]).toEqual([name, tool, specs(list, tool).length]);
+      }
+    }
   });
 
   it('the derived flow strings are the sentinel\'s five exact allows and one adb binary', () => {
