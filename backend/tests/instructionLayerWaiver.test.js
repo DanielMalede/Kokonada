@@ -608,18 +608,65 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
 });
 
 describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so', () => {
-  test('J15 names the cutover PR and pages in navigation, the batch record of a lab-only PR, and the designer for tokens no charter names', () => {
+  // ARCH-307-2: three kinds of PR touch a page. One that puts a page into navigation, or touches a page already
+  // there, takes the page's /page G13 check; a lab-only batch PR is code plus its batch record; any other PR that
+  // touches a lab-only page is code alone, and the staleness it causes waits in the batch record for the cutover.
+  test('J15 names the three kinds of PR, never a G0–G12 range, and the designer for tokens no charter names', () => {
     const j15 = jRow('J15');
-    has(j15, 'F1-B', 'the cutover PR', 'a page already in navigation', 'a lab-only batch PR, one page-record line per page from its batch record',
-      'a design-tokens/** file no charter names, designer (OPS-390)');
+    has(j15, 'F1-B',
+      'a PR that puts a page into navigation (the cutover PR, a single-page /page PR) or touches a page already in navigation needs each such page\'s /page G13 check passing at H',
+      'a lab-only batch PR, one page-record line per page of its batch from its batch record, its other rows read as code',
+      'any other PR touching a lab-only page\'s PAGE SLICE or SHARED BASE, its code rows alone: the staleness it causes stays in the batch record and is cleared before the cutover at the latest',
+      'a design-tokens/** file no charter names, designer (OPS-390, #234\'s row)');
+    expect(j15).not.toMatch(/G0–G12/);
     // The paths it covers do not change.
     has(j15, '| docs/design-v2/pages/** (future), design-tokens/** (future), and every path in a page charter\'s PAGE SLICE or SHARED BASE at M or at H');
   });
 
-  test('§ Checks 8c and /review-pr step 2 apply F1-B', () => {
-    has(sub8('c'), 'A lab-only batch PR (`/page` BATCH MODE) is reviewed like code', 'read from its batch record at H',
+  test('/merge step 3 checks each page a PR touches by where the page stands, and never by whether it merged', () => {
+    has(FLOW, 'a page PR, a batch PR, the cutover PR, a /fix-bug PR, a token or component sweep, a backend contract change',
+      'check each page it touches by where the page stands (row J15, F1-B)',
+      'a page the PR puts into navigation (the cutover PR, a single-page /page PR) takes the /page G13 check at H, required agent by required agent',
+      'a page already in navigation, the same check with only G7–G12 re-checked (in /page BATCH MODE: G7, G8, G9, G10, G11e, G11P, G12e and G12F)',
+      'the pages of a lab-only batch PR (§ Checks step 8c), the batch record\'s set that /page BATCH MODE\'s G13 gives a batch PR',
+      'a lab-only page that any other PR touches, no check here: that PR is reviewed by its code rows, and the staleness it causes stays in the batch record until /page clears it, before the cutover at the latest',
+      'The ancestry rule above applies to every such PR even after `DAN-053` closes.');
+    expect(FLOW).not.toMatch(/a page already merged/);
+  });
+
+  test('PRE-MERGE step 5 re-runs, at the new head, the page check flow step 3 gives each page, not G13 for every page', () => {
+    const step5 = blockOf(PRE, '5. CONFLICTS.', '6. MERGE WINDOW.').join('\n');
+    has(step5, 'also re-runs, at the new head, the page check step 3 of the flow above gives each page it touches: the /page G13 check for a page in navigation or one the PR puts there, the batch record\'s set for the pages of a lab-only batch PR, and none for a lab-only page that any other PR touches, whose staleness stays in the batch record until /page clears it.');
+    expect(step5).not.toMatch(/also re-runs G13\./);
+  });
+
+  test('§ Checks 8c names the three kinds of PR for J15', () => {
+    has(sub8('c'), 'Row J15 binds when a page enters navigation (F1-B, DEC-192), and a PR that touches a page is one of three kinds for it.',
+      '(1) A PR that puts a page into navigation (the cutover PR, a single-page `/page` PR) or touches a page already in navigation is covered',
+      '(2) A lab-only batch PR (`/page` BATCH MODE) is reviewed like code', 'read from its batch record at H',
+      '(3) Any other PR that touches a lab-only page\'s PAGE SLICE or SHARED BASE (a `/fix-bug` PR, a token or component sweep, a backend contract change) puts no `page-record` line in the record: it is reviewed by its code rows alone, and the page verdicts it makes stale stay stale in the batch record until `/page` clears them, before the cutover at the latest.',
       'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (`OPS-390`, #234\'s row).');
-    has(read('.claude/commands/review-pr.md'), 'for a lab-only batch PR (`/page` BATCH MODE), one `page-record <Pn>: PASS|FAIL @ <H>` line per page of its batch from its batch record');
+  });
+
+  test('/review-pr step 2 reads the same three kinds', () => {
+    has(read('.claude/commands/review-pr.md'), 'for a lab-only batch PR (`/page` BATCH MODE), one `page-record <Pn>: PASS|FAIL @ <H>` line per page of its batch from its batch record',
+      'for a PR that puts a page into navigation (the cutover PR, a single-page `/page` PR) or touches a page already in navigation, one line per such page from its /page G13 record',
+      'for any other PR that touches a lab-only page, no `page-record` line, only the approvers its code rows require');
+  });
+
+  test('/fix-bug step 5 keys the re-run on a page in navigation versus a lab-only page', () => {
+    const s5 = read('.claude/commands/fix-bug.md').split('\n').find((l) => l.startsWith('5. ')) || '';
+    has(s5, 'For a page already in navigation, re-run them through /page before merge (/merge step 3).',
+      'For a lab-only page (/page BATCH MODE, not yet in navigation), the fix merges on its code rows (row J15): the stale verdicts stay in the batch record, and /page re-runs them before the cutover at the latest.');
+  });
+
+  test('J15 and /review-pr cite OPS-390 as #234\'s row, which it is: no row at this tree', () => {
+    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    for (const text of [jRow('J15'), read('.claude/commands/review-pr.md')]) {
+      const cited = [...text.matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
+      expect(cited.map(([, id]) => id)).toContain('OPS-390');
+      expect(cited.filter(([, id, of234]) => rows.has(id) === Boolean(of234)).map(([, id, of234]) => `${id}${of234 || ''}`)).toEqual([]);
+    }
   });
 });
 
