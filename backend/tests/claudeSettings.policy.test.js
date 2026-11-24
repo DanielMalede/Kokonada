@@ -651,3 +651,31 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     expect(['allow', 'prompt']).toContain(shellDecision(coord, 'Bash'));
   });
 });
+
+// RA-3, SA-2 (#307): with no hook left to remind the session, a merge or a branch update through the GitHub MCP
+// (the plugin `github`, server `github`) is refused outright, so each goes through /merge's `gh pr merge` form or
+// `gh pr update-branch`, whose output the session reads back. Deny only (DEC-145). An MCP rule names the tool
+// exactly, or its whole server as `mcp__<server>` or `mcp__<server>__*`.
+function toolDecision(name) {
+  const server = (name.match(/^(mcp__.+?)__/) || [])[1];
+  const hits = (list) => list.includes(name) || (Boolean(server) && (list.includes(server) || list.includes(`${server}__*`)));
+  if (hits(deny)) return 'deny';
+  if (hits(ask)) return 'ask';
+  if (hits(allow)) return 'allow';
+  return 'prompt';
+}
+
+describe('RA-3 · the GitHub MCP tools that merge a PR or update its branch are denied', () => {
+  const DENIED = ['mcp__plugin_github_github__merge_pull_request', 'mcp__plugin_github_github__update_pull_request_branch'];
+  for (const tool of DENIED) {
+    it(`denied, by its exact name: ${tool}`, () => {
+      expect(toolDecision(tool)).toBe('deny');
+      expect(deny).toContain(tool);
+      expect([...allow, ...ask].filter((r) => r === tool || r.startsWith(`${tool}(`))).toEqual([]);
+    });
+  }
+
+  it('the deny reaches no other tool of the server: opening a PR through it stays possible', () => {
+    expect(toolDecision('mcp__plugin_github_github__create_pull_request')).not.toBe('deny');
+  });
+});

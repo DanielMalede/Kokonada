@@ -202,6 +202,12 @@ describe('DEC-192 · the merge-guard agent is gone, and nothing dispatches or re
       'Run the post-merge check (`.claude/commands/merge.md` § Checks) on any that carries neither');
   });
 
+  test('only `DanielMalede`\'s records count: session start step 6\'s sweep and /merge step 3\'s GREEN (RA-3, SA-2)', () => {
+    const step6 = section(ROOT_MD, 'Session start').find((l) => l.startsWith('6. ')) || '';
+    has(step6, 'must carry a post-merge record posted by `DanielMalede`: a `POST-MERGE CHECK` comment or, from before DEC-192, a `MERGE-GUARD post-merge` one; a record by any other author does not count.');
+    has(FLOW, 'unless the latest such comment by `DanielMalede` on the PR already names this H and M.');
+  });
+
   test('every task: no hook reminds the session, so it reads CI after each push and checks after each merge itself', () => {
     const step4 = section(ROOT_MD, 'Every task').find((l) => l.startsWith('4. ')) || '';
     has(step4, 'No hook reminds the session: after every push to a PR it reads CI on the new head to the end itself, and after every merge it runs the post-merge check (`.claude/commands/merge.md` § Checks); a red is fixed before the next task (DEC-143, DEC-192).');
