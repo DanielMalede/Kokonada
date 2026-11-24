@@ -12,6 +12,11 @@
 // named in an ERROR too, never a READY held until the harness times out.
 // READY also says which Skia backend draws the lab (UI-276, skiaBackend.ts): read once from react-native-skia when the
 // session mounts, the same on every READY of the run; one that cannot be read is null with the reason, never an ERROR.
+// READY waits for the scene's fonts (UI-072, fonts.ts): the faces the scene declares, each judged from the width React
+// Native drew a hidden calibration line at, against its fallback face. React Native has no font-loading event on
+// Android and draws a family it cannot find in its default face, so a face that drew at the fallback's width, a face the
+// lab does not have, or a probe that never lays out by the deadline is an ERROR naming it. A scene that declares no face
+// waits for none.
 //
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
@@ -27,6 +32,10 @@ import { useLabPowerSaveSource } from './adapters/labPowerSaveSource';
 import { fixedClockTime } from './clock/fixedClock';
 import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
+import { FontProbes } from './FontProbes';
+import {
+  createFontCheck, FALLBACK_PROBE, FONT_CHECK_DEADLINE_MS, unknownFaces, type FontProbeId, type FontVerdict, type LabFaceId,
+} from './fonts';
 import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
 import type { ProbeRect } from './probe/geometry';
@@ -52,8 +61,6 @@ export type LabDeps = {
   emit(line: string): void;
   frames: FrameSource;
   events: LabEventSource;
-  /** The scene's fonts are loaded (there are none yet; UI-069 adds them). */
-  fontsReady: boolean;
   reduceMotion: ReduceMotionSource;
   scenes: Readonly<Record<string, Scene>>;
   /** The Skia whose backend READY names (UI-276): react-native-skia's own, or a test's. */
@@ -79,7 +86,6 @@ const DEFAULT_DEPS: LabDeps = {
   emit: (line) => console.log(line),
   frames: animationFrames,
   events: DeviceEventEmitter as unknown as LabEventSource,
-  fontsReady: true,
   reduceMotion: accessibilityReduceMotion,
   scenes: SCENES,
   skia: Skia,
@@ -91,6 +97,8 @@ type LabRootProps = {
   powerSave?: boolean;
   deps?: Partial<LabDeps>;
 };
+
+const NO_FACES: readonly LabFaceId[] = [];
 
 /** A reason short enough that READY stays one logcat line (a shader compile error can be long). */
 const MAX_REASON = 300;
@@ -184,6 +192,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
 
   // The Skia backend that draws this run (UI-276), read once as the session mounts: a build fact, never one that changes.
   const [skiaBackend] = useState(() => readSkiaBackend(deps.skia));
+
+  // The faces the scene draws text in (UI-072), and their judgement, made once for the session.
+  const faces = scene.fonts ?? NO_FACES;
+  const [fontCheck] = useState(() => createFontCheck(faces));
 
   // What READY reports is what was committed last.
   const latest = useRef({ seq: step.seq, t: step.t, powerSave });
@@ -369,11 +381,50 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     pump();
   }, [gate, fail, pump]);
 
-  useEffect(() => {
-    if (!deps.fontsReady) return;
+  // The fonts READY waits for (UI-072): the scene's own faces, judged from the widths React Native drew the probes at
+  // (fonts.ts, FontProbes.tsx). A scene that declares none is judged at once. A face that fell back, a face the lab does
+  // not have, or a probe that never lays out by the deadline is one ERROR, naming it; never a READY over the fallback face.
+  const judged = useRef(false);
+  const fontDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const judgeFonts = useCallback((verdict: FontVerdict) => {
+    if (!verdict.settled || judged.current) return;
+    judged.current = true;
+    if (fontDeadline.current !== null) {
+      clearTimeout(fontDeadline.current);
+      fontDeadline.current = null;
+    }
+    if (verdict.error !== null) {
+      fail(verdict.error);
+      return;
+    }
     gate.fontsReady();
     pump();
-  }, [deps, gate, pump]);
+  }, [fail, gate, pump]);
+  const onFontWidth = useCallback((probe: FontProbeId, width: number) => {
+    judgeFonts(fontCheck.measure(probe, width));
+  }, [fontCheck, judgeFonts]);
+  useEffect(() => {
+    const unknown = unknownFaces(faces);
+    if (unknown.length > 0) {
+      judged.current = true;
+      fail(`the scene declares a font that is not a lab face (fonts.ts LAB_FACES): ${unknown.map((f) => `"${f}"`).join(', ')}`);
+      return undefined;
+    }
+    judgeFonts(fontCheck.verdict());
+    if (judged.current) return undefined;
+    const timer = setTimeout(() => {
+      fontDeadline.current = null;
+      if (judged.current) return;
+      judged.current = true;
+      const missing = fontCheck.unmeasured().map((p) => (p === FALLBACK_PROBE ? 'the fallback' : `"${p}"`));
+      fail(`the font probes did not lay out within ${FONT_CHECK_DEADLINE_MS} ms: ${missing.join(', ')}`);
+    }, FONT_CHECK_DEADLINE_MS);
+    fontDeadline.current = timer;
+    return () => {
+      clearTimeout(timer);
+      fontDeadline.current = null;
+    };
+  }, [faces, fontCheck, fail, judgeFonts]);
 
   // A command's READY counts only frames drawn after the new time was committed.
   useEffect(() => {
@@ -435,6 +486,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
           <LabMotionPortsContext.Provider value={motionPorts}>
             <CostReportContext.Provider value={costReport}>
               <SceneComponent clock={clock} t={step.t} params={params} />
+              {faces.length > 0 ? <FontProbes faces={faces} onWidth={onFontWidth} /> : null}
             </CostReportContext.Provider>
           </LabMotionPortsContext.Provider>
         </SceneFactsContext.Provider>

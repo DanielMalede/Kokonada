@@ -169,8 +169,11 @@ describe('READY', () => {
     expect(h.lines.join('\n')).toContain(LAB_SENTINEL);
   });
 
-  it('waits for the fonts, however many frames go by', () => {
-    const h = setup(FIXED, { fontsReady: false });
+  // UI-072: the fonts are the scene's own, judged from what React Native drew (labFontGate.test.tsx has the whole gate).
+  it('waits for the fonts a scene declares, however many frames go by', () => {
+    const Page = () => <Probe id="stage"><Text style={{ fontFamily: 'Heebo-Regular' }}>שלום</Text></Probe>;
+    const scenes: Record<string, Scene> = { smoke: { periodMs: 6000, probes: ['stage'], fonts: ['Heebo-Regular'], Component: Page } };
+    const h = setup(FIXED, { scenes });
     h.layout();
     h.tick(50);
     expect(h.of('READY')).toEqual([]);
