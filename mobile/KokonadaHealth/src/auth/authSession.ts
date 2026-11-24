@@ -56,8 +56,15 @@ export class AuthSession {
 
   constructor(private readonly deps: AuthSessionDeps) {}
 
+  // Recovers the stored session at launch. SA309-3: a held session is newer than anything the Keychain
+  // can give back (a rotation's save is best-effort), so it is never replaced — a reload would
+  // re-present a spent refresh token, and the server revokes the family on that. A load that answers
+  // after a sign-in or a sign-out (the epoch moved) installs nothing either.
   async bootstrap(): Promise<boolean> {
-    this.tokens = await this.deps.loadTokens();
+    if (this.tokens) return true;
+    const epoch = this.epoch;
+    const loaded = await this.deps.loadTokens();
+    if (epoch === this.epoch && !this.tokens) this.tokens = loaded;
     return this.tokens !== null;
   }
 

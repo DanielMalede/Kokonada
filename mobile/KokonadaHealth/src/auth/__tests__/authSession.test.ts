@@ -53,6 +53,49 @@ describe('AuthSession — bootstrap & sync access', () => {
   });
 });
 
+// SA309-3 (S3): bootstrap() reloaded the Keychain over whatever it held. A held pair is newer than the
+// stored one (a rotation's save is best-effort), so a reload re-presents a spent refresh token and the
+// server revokes the family; and a slow load that answers after a sign-in installed the old account.
+describe('AuthSession — bootstrap never replaces a session it did not load (SA309-3)', () => {
+  it('bootstrap() while a session is held keeps it, and the refresh in flight still installs its answer', async () => {
+    const answer = deferred<RefreshOutcome>();
+    const { session, deps, stored } = build({ refreshEndpoint: jest.fn(() => answer.promise) });
+    await session.bootstrap();
+    const flight = session.refresh(); // the server is rotating krt-1
+    stored.value = { access: 'access-0', refresh: 'krt-0' }; // an older pair still on disk
+    expect(await session.bootstrap()).toBe(true);
+    expect(session.getAccessToken()).toBe('access-1');
+    answer.resolve(ok('access-2', 'krt-2'));
+    expect(await flight).toBe('access-2');
+    expect(session.getAccessToken()).toBe('access-2');
+    expect(deps.loadTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it('a Keychain load that answers after a sign-in never replaces the new session', async () => {
+    const load = deferred<{ access: string; refresh: string } | null>();
+    const { session, deps } = build();
+    deps.loadTokens.mockImplementationOnce(() => load.promise);
+    const booting = session.bootstrap();
+    await session.setSession({ access: 'b-acc', refresh: 'b-krt' }); // the user signs in meanwhile
+    load.resolve({ access: 'a-acc', refresh: 'a-krt' });
+    expect(await booting).toBe(true);
+    expect(session.getAccessToken()).toBe('b-acc');
+  });
+
+  it('a Keychain load that answers after a sign-in and a sign-out leaves the phone signed out', async () => {
+    const load = deferred<{ access: string; refresh: string } | null>();
+    const { session, deps } = build();
+    deps.loadTokens.mockImplementationOnce(() => load.promise);
+    const booting = session.bootstrap();
+    await session.setSession({ access: 'b-acc', refresh: 'b-krt' });
+    await session.clear();
+    load.resolve({ access: 'a-acc', refresh: 'a-krt' });
+    expect(await booting).toBe(false);
+    expect(session.getAccessToken()).toBeNull();
+    expect(session.hasSession()).toBe(false);
+  });
+});
+
 describe('AuthSession — refresh (rotating token)', () => {
   it('rotates the token, updates the in-memory access, and persists the new pair', async () => {
     const { session, deps, saved } = build();
