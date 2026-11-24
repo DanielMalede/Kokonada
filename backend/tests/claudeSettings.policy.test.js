@@ -695,7 +695,9 @@ function toolDecision(name) {
 }
 
 describe('RA-3 · the GitHub MCP tools that merge a PR or update its branch are denied', () => {
-  const DENIED = ['mcp__plugin_github_github__merge_pull_request', 'mcp__plugin_github_github__update_pull_request_branch'];
+  // RA-17 = CU307-7: the same tools under a GitHub MCP server registered as `github` rather than through the plugin.
+  const DENIED = ['mcp__plugin_github_github__merge_pull_request', 'mcp__plugin_github_github__update_pull_request_branch',
+    'mcp__github__merge_pull_request', 'mcp__github__update_pull_request_branch'];
   for (const tool of DENIED) {
     it(`denied, by its exact name: ${tool}`, () => {
       expect(toolDecision(tool)).toBe('deny');
@@ -706,5 +708,6 @@ describe('RA-3 · the GitHub MCP tools that merge a PR or update its branch are 
 
   it('the deny reaches no other tool of the server: opening a PR through it stays possible', () => {
     expect(toolDecision('mcp__plugin_github_github__create_pull_request')).not.toBe('deny');
+    expect(toolDecision('mcp__github__create_pull_request')).not.toBe('deny');
   });
 });

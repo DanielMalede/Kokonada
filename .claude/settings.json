@@ -509,7 +509,9 @@
       "PowerShell(gh pr merge *--auto*)",
       "PowerShell(gh pr merge *--auto)",
       "mcp__plugin_github_github__merge_pull_request",
-      "mcp__plugin_github_github__update_pull_request_branch"
+      "mcp__plugin_github_github__update_pull_request_branch",
+      "mcp__github__merge_pull_request",
+      "mcp__github__update_pull_request_branch"
     ],
     "additionalDirectories": [
       "\\tmp"
