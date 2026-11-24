@@ -54,4 +54,12 @@ describe('only the lab, scripts and tests import tokens.extensions.generated.ts'
     expect(offenders([{ file: 'design/v2/preview/FieldPreview.tsx', source: importLine }])).toEqual([]);
     expect(offenders([{ file: 'design/v2/previewer/X.tsx', source: importLine }])).toEqual(['design/v2/previewer/X.tsx']);
   });
+
+  // DEC-172: the field's runtime statics live in their own module so that app code can read them; the ban
+  // must not reach it.
+  it('the runtime statics module is not under the ban: an app module may import it', () => {
+    const staticsLine = "import { STATICS } from '../tokens/tokens.statics.generated.ts';";
+    expect(offenders([{ file: 'design/v2/field/FieldView.tsx', source: staticsLine }])).toEqual([]);
+    expect(fs.existsSync(path.join(SRC, 'design/v2/tokens/tokens.statics.generated.ts'))).toBe(true);
+  });
 });
