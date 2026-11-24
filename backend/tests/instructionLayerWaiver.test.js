@@ -1138,6 +1138,14 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
       '`/page` BATCH MODE\'s G13 keeps a page out of navigation until every regulated slot it renders shows the final approved text (ruling 9, as ruling 12 words it)');
     for (const text of [g13, DEC192]) expect(text).not.toMatch(/while a regulated slot it renders holds a placeholder|whose regulated slot holds a placeholder/);
   });
+
+  // Ruling 13: ruling 6 closes every HALT before the cutover, and some close only on the hosted policy.
+  test('ruling 13 in /page G13 and on DAN-015: the privacy policy is hosted before the cutover, on the owner\'s approval of its exact text', rowPin((tasks) => {
+    has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'Before the cutover PR merges, the privacy policy is hosted, on my approval of its exact text (DEC-189, `DAN-015`), so every HALT that closes only on the hosted policy closes before the cutover (DEC-192 ruling 13).');
+    const update = rowIn(tasks, 'DAN-015').split('\n').find((l) => l.includes('DEC-192 ruling 13')) || '';
+    has(update, '**update 2026-11-24', '"לפרסם לפני המעבר (מומלץ)"', 'moves ahead of the cutover PR', 'owner class (c)', 'DEC-189', '`DAN-104`');
+    has(DEC192, '- Ruling 13: `/page` BATCH MODE\'s G13 makes the hosted privacy policy a precondition of the cutover PR');
+  }));
 });
 
 // DEC-192, round 5 of the owner's option selections of 2026-11-24, before the fix of the review of #307 at a196ce4:
