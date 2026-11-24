@@ -52,8 +52,12 @@ const HC_GRANT = { accessType: 'read', recordType: 'HeartRate' };
 // The Keychain, by service — it outlives a process the way the real one does.
 const keychainSlots = new Map<string, string>();
 
+type Answer = 'ok' | 'offline' | number; // 'offline': the request throws, as RN's fetch does with no network
+
 interface FakeBackend {
   me: { id: string; displayName: string; email: string };
+  meAnswer: Answer; // how GET /api/auth/me answers the boot's stored access token
+  refreshAnswer: Answer; // how POST /api/auth/refresh answers (ok rotates to access-2/refresh-2)
   spotifyConnected: boolean;
   consent: { granted: boolean; staleVersion: boolean };
   mints: number;
@@ -65,6 +69,8 @@ let backend: FakeBackend;
 function installFakeBackend(): void {
   backend = {
     me: { id: 'u1', displayName: 'Dan', email: 'd@x.io' },
+    meAnswer: 'ok',
+    refreshAnswer: 'ok',
     spotifyConnected: false,
     consent: { granted: false, staleVersion: false },
     mints: 0,
@@ -78,7 +84,17 @@ function installFakeBackend(): void {
     mockEvents.push(`${method} ${path}`);
     const json = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body });
     const current = backend.consent.granted && !backend.consent.staleVersion;
-    if (path === '/api/auth/me') return json(200, backend.me);
+    if (path === '/api/auth/me') {
+      // A rotated token is always accepted; the stored one answers as the test says.
+      if (auth === 'Bearer access-2' || backend.meAnswer === 'ok') return json(200, backend.me);
+      if (backend.meAnswer === 'offline') throw new TypeError('Network request failed');
+      return json(backend.meAnswer, { error: 'x' });
+    }
+    if (method === 'POST' && path === '/api/auth/refresh') {
+      if (backend.refreshAnswer === 'offline') throw new TypeError('Network request failed');
+      if (backend.refreshAnswer === 'ok') return json(200, { token: 'access-2', refreshToken: 'refresh-2' });
+      return json(backend.refreshAnswer, { error: 'Invalid refresh token' });
+    }
     if (path === '/api/integrations/status') return json(200, { spotifyConnected: backend.spotifyConnected });
     if (path === '/api/consent/status') return json(200, { ...backend.consent, currentVersion: 1 });
     if (method === 'POST' && path === '/api/integrations/watch/token') {
@@ -123,11 +139,12 @@ let lane: { stop: () => Promise<void> } | null = null;
 
 // Fresh module graph per test (or per simulated process): prodBootstrap holds singletons (session,
 // current user, stores, lane). The Keychain and the encrypted disk carry over, as they do on a phone.
-function load(opts: { signedIn: boolean }) {
+// signedIn 'as-left': the session slot is whatever the previous process left in the Keychain.
+function load(opts: { signedIn: boolean | 'as-left' }) {
   jest.resetModules();
   const Keychain = require('react-native-keychain');
-  if (opts.signedIn) keychainSlots.set(SESSION_SLOT, JSON.stringify({ access: 'access-1', refresh: 'refresh-1' }));
-  else keychainSlots.delete(SESSION_SLOT);
+  if (opts.signedIn === true) keychainSlots.set(SESSION_SLOT, JSON.stringify({ access: 'access-1', refresh: 'refresh-1' }));
+  else if (opts.signedIn === false) keychainSlots.delete(SESSION_SLOT);
   Keychain.getGenericPassword.mockImplementation(async ({ service }: { service: string }) =>
     (keychainSlots.has(service) ? { password: keychainSlots.get(service) } : false));
   Keychain.setGenericPassword.mockImplementation(async (_u: string, password: string, { service }: { service: string }) => {
@@ -421,5 +438,84 @@ describe('prodBootstrap — a fresh sign-in starts the health lane from nothing 
     expect(w.healthLane.status()).toBe('idle');
     expect(keychainSlots.has(WATCH_SLOT)).toBe(false);
     expect(HEALTH_PATHS.map(hits)).toEqual([0, 0, 0]);
+  });
+});
+
+// C2 (B1 charter §6 item 2): the boot used to clear the stored session on ANY failed /me — an
+// airplane-mode cold start or a 5xx signed the user out for good. Only a dead session is cleared
+// now: a 401 whose refresh the server answers 401 (AuthSession ends it). Everything else keeps the
+// session, so the next launch with a network recovers the user without a new sign-in.
+describe('prodBootstrap — identity recovery at boot (C2)', () => {
+  const STORED = JSON.stringify({ access: 'access-1', refresh: 'refresh-1' });
+
+  it.each([
+    ['an offline cold start (the /me request throws)', 'offline' as Answer, 'ok' as Answer],
+    ['a 5xx from /me', 503 as Answer, 'ok' as Answer],
+    ['a 401 whose refresh cannot reach the server', 401 as Answer, 'offline' as Answer],
+    ['a 401 whose refresh gets a 5xx', 401 as Answer, 503 as Answer],
+    ['a 401 whose refresh hits the auth rate limit (429)', 401 as Answer, 429 as Answer],
+  ])('%s keeps the session in memory and in the Keychain', async (_l, meAnswer, refreshAnswer) => {
+    const { prod, authSession, currentUserStore } = load({ signedIn: true });
+    backend.meAnswer = meAnswer;
+    backend.refreshAnswer = refreshAnswer;
+    await prod.startApp();
+    await settle();
+    expect(keychainSlots.get(SESSION_SLOT)).toBe(STORED);
+    expect(authSession.getAccessToken()).toBe('access-1');
+    expect(currentUserStore.getState().user).toBeNull(); // no identity recovered on this launch
+  });
+
+  // v1 routes on the recovered identity only (AppFlow), so a kept session with no user shows SignIn.
+  // Nothing may run under that hidden session: a socket opened here would be the one a sign-in as
+  // ANOTHER account inherits (onSignedIn's ensureConnected leaves a live socket alone).
+  it('a kept session with no recovered identity starts nothing: no socket, no player, no health or integrations request', async () => {
+    mockSecure = linkedDisk({ u1: 'on' });
+    const { prod, player, syncMedicalProfile } = load({ signedIn: true });
+    const { playbackSocket } = require('../experience/playback/playbackServices');
+    mockHc.granted = [HC_GRANT];
+    backend.consent = { granted: true, staleVersion: false };
+    backend.spotifyConnected = true;
+    backend.meAnswer = 'offline';
+    await prod.startApp();
+    await settle();
+    expect(playbackSocket.ensureConnected).not.toHaveBeenCalled();
+    expect(player.connect).not.toHaveBeenCalled();
+    expect(hits('/api/integrations/status')).toBe(0);
+    expect(HEALTH_PATHS.map(hits)).toEqual([0, 0, 0]);
+    expect(syncMedicalProfile).not.toHaveBeenCalled();
+  });
+
+  it('the next launch with a network recovers the same account from the kept session — no new sign-in', async () => {
+    const first = load({ signedIn: true });
+    backend.meAnswer = 'offline';
+    await first.prod.startApp();
+    await settle();
+
+    backend.meAnswer = 'ok';
+    const second = load({ signedIn: 'as-left' }); // a new process over the Keychain the first one left
+    await second.prod.startApp();
+    await settle();
+    expect(second.currentUserStore.getState().user).toEqual(backend.me);
+  });
+
+  it('a 401 whose refresh the server refuses (401: the family is dead) ends the session: memory and Keychain cleared', async () => {
+    const { prod, authSession, currentUserStore } = load({ signedIn: true });
+    backend.meAnswer = 401;
+    backend.refreshAnswer = 401;
+    await prod.startApp();
+    await settle();
+    expect(keychainSlots.has(SESSION_SLOT)).toBe(false);
+    expect(authSession.getAccessToken()).toBeNull();
+    expect(currentUserStore.getState().user).toBeNull();
+  });
+
+  it('a 401 whose refresh rotates: /me is retried on the fresh token and the user is recovered', async () => {
+    const { prod, authSession, currentUserStore } = load({ signedIn: true });
+    backend.meAnswer = 401;
+    await prod.startApp();
+    await settle();
+    expect(currentUserStore.getState().user).toEqual(backend.me);
+    expect(authSession.getAccessToken()).toBe('access-2');
+    expect(keychainSlots.get(SESSION_SLOT)).toBe(JSON.stringify({ access: 'access-2', refresh: 'refresh-2' }));
   });
 });

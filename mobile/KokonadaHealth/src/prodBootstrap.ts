@@ -56,12 +56,14 @@ export async function startApp(): Promise<void> {
   }
 
   // Recover the logged-in identity from a stored session (currentUser is in-memory and
-  // does not survive a restart; the token does).
+  // does not survive a restart; the token does). C2: a failed /me signs out only a DEAD session,
+  // and AuthSession has already ended that one itself (a 401 whose refresh the server refused).
+  // An offline or 5xx /me, or a refresh the server could not answer, keeps the session, so the
+  // next launch with a network recovers the user without a new sign-in.
   try {
     if (await authSession.bootstrap()) {
       const me = await apiGet<KokonadaUser>('/api/auth/me');
       if (me.ok) currentUserStore.getState().setUser(me.data);
-      else await authSession.clear(); // dead token → land on SignIn
     }
   } catch {
     /* degrade to signed-out */
@@ -80,7 +82,9 @@ export async function startApp(): Promise<void> {
   let laneBoot: Promise<boolean> = Promise.resolve(false);
 
   await bootstrapApp({
-    bootstrapSession: async () => authSession.getAccessToken() !== null,
+    // A kept session with no recovered identity starts nothing: v1 shows SignIn for it, and a
+    // socket opened under it is the one a sign-in as another account would inherit.
+    bootstrapSession: async () => authSession.getAccessToken() !== null && getCurrentUserId() !== null,
     getUserId: getCurrentUserId,
     connectSocket: () => playbackSocket.ensureConnected(),
     // H2: only a signed-in account whose Spotify link the server confirms now (fail closed).
