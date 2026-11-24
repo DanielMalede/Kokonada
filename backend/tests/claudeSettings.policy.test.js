@@ -317,9 +317,11 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
   });
 
   // The repository scripts a hook command runs, as paths relative to the repository root: under
-  // `$CLAUDE_PROJECT_DIR` or `${CLAUDE_PROJECT_DIR}` before either slash, or a relative `.claude/` path.
+  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, PowerShell's `$env:CLAUDE_PROJECT_DIR` or cmd's
+  // `%CLAUDE_PROJECT_DIR%`, with a closing quote before the slash or not, before either slash; or a
+  // relative `.claude/` path.
   const hookScripts = (command) => [...new Set([
-    ...[...command.matchAll(/\$\{?CLAUDE_PROJECT_DIR\}?[\\/]([^"'\s]+)/g)].map((m) => m[1]),
+    ...[...command.matchAll(/(?:\$\{?|\$env:|%)CLAUDE_PROJECT_DIR(?:\}|%)?"?[\\/]([^"'\s]+)/g)].map((m) => m[1]),
     ...[...command.matchAll(/(?:^|[\s"'=])(?:\.[\\/])?(\.claude[\\/][^"'\s]+)/g)].map((m) => m[1]),
   ].map((p) => p.replace(/\\/g, '/')))];
 
@@ -328,8 +330,9 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
     expect(missing).toEqual([]);
   });
 
-  // CU307-4: a half-wired hook hides behind any spelling the reader misses, so it reads them all.
-  it('the script reader finds $CLAUDE_PROJECT_DIR braced or bare, before either slash, and a relative .claude/ path', () => {
+  // CU307-4: a half-wired hook hides behind any spelling the reader misses, so it reads them all. RA-16 and CU307-6:
+  // a quote closed before the slash (`"$CLAUDE_PROJECT_DIR"/…`), PowerShell's `$env:` form and cmd's `%…%` form too.
+  it('the script reader finds $CLAUDE_PROJECT_DIR braced or bare, quoted before the slash, as $env: and %…%, before either slash, and a relative .claude/ path', () => {
     expect([
       'node "$CLAUDE_PROJECT_DIR/.claude/hooks/a.mjs"',
       'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/b.mjs" --flag',
@@ -338,8 +341,16 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
       'node ./.claude/hooks/e.mjs',
       'node "$CLAUDE_PROJECT_DIR/scripts/f.js"',
       'echo "no script here"',
+      'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/g.mjs',
+      'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/h.mjs',
+      'powershell -File $env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\i.ps1',
+      'powershell -File "$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\j.ps1"',
+      'cmd /c %CLAUDE_PROJECT_DIR%\\.claude\\hooks\\k.cmd',
+      'cmd /c "%CLAUDE_PROJECT_DIR%"\\scripts\\l.cmd',
     ].map(hookScripts)).toEqual([['.claude/hooks/a.mjs'], ['.claude/hooks/b.mjs'], ['.claude/hooks/c.mjs'],
-      ['.claude/hooks/d.mjs'], ['.claude/hooks/e.mjs'], ['scripts/f.js'], []]);
+      ['.claude/hooks/d.mjs'], ['.claude/hooks/e.mjs'], ['scripts/f.js'], [],
+      ['.claude/hooks/g.mjs'], ['.claude/hooks/h.mjs'], ['.claude/hooks/i.ps1'], ['.claude/hooks/j.ps1'],
+      ['.claude/hooks/k.cmd'], ['scripts/l.cmd']]);
   });
 });
 
