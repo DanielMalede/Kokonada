@@ -4,7 +4,7 @@
 // socket may reach account B: not a refresh A was waiting on, not a request A sent. The server is
 // the QA-045 fake (src/testing/socket.ts), which refuses an expired token the way the backend does.
 
-import { KokonadaSocket, type KokonadaSocketDeps } from '../net/socketClient';
+import { KokonadaSocket, type KokonadaSocketDeps, type SocketLike } from '../net/socketClient';
 import { FakeSocketServer } from '../testing/socket';
 
 jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -28,6 +28,42 @@ function appSocket(server: FakeSocketServer, over: Partial<KokonadaSocketDeps> =
   };
   return { sock: new KokonadaSocket(deps), account, onPlaylist, onLoggedOut };
 }
+
+// A transport that never comes back: socket.io's Manager retries `reconnectionAttempts` times, then
+// gives up (manager.js:365-369), and the port carries that as 'reconnect_failed' (socketFactory.ts).
+class GiveUpSocket implements SocketLike {
+  private handlers = new Map<string, Array<(p?: any) => void>>();
+  emitted: string[] = [];
+  constructor(readonly token: string) {}
+  on(event: string, cb: (p?: any) => void) { this.handlers.set(event, [...(this.handlers.get(event) ?? []), cb]); }
+  off(event: string, cb: (p?: any) => void) { this.handlers.set(event, (this.handlers.get(event) ?? []).filter((h) => h !== cb)); }
+  emit(event: string) { this.emitted.push(event); }
+  connect() { this.fire('connect'); }
+  disconnect() {}
+  giveUp() { this.fire('disconnect', 'transport close'); this.fire('reconnect_failed'); }
+  listeners() { return [...this.handlers.values()].reduce((n, l) => n + l.length, 0); }
+  private fire(event: string, payload?: unknown) { for (const h of [...(this.handlers.get(event) ?? [])]) h(payload); }
+}
+
+describe('a socket socket.io gave up on (RA-6)', () => {
+  it('the Manager gave up after its last reconnect: the dead socket is dropped and the next ensureOpen() opens a second one', () => {
+    const sockets: GiveUpSocket[] = [];
+    const sock = new KokonadaSocket({
+      createSocket: (token) => { const s = new GiveUpSocket(token); sockets.push(s); return s; },
+      getAccessToken: () => 'tok-a',
+      refreshToken: async () => null,
+      isSessionActive: () => true,
+      getEmotionIntent: () => ({ taps: [], textPrompt: '', activity: null }),
+      onPlaylist: jest.fn(),
+      onLoggedOut: jest.fn(),
+    });
+    sock.connect();
+    sockets[0].giveUp();
+    sock.ensureOpen();
+    expect(sockets).toHaveLength(2);
+    expect(sockets[0].listeners()).toBe(0);
+  });
+});
 
 describe('the app socket across a sign-out and a sign-in as another account', () => {
   // ARCH-309-1 = RA-1 (S2): disconnect() kept the recovery run, so ensureOpen() went on trusting it.

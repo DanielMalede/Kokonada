@@ -117,8 +117,9 @@ describe('KokonadaSocket — delivery guarantee (re-send pending request on reco
     const sock = created[0];
     const reqId = client.requestPlaylist();
     sock.emitted.length = 0; // clear the send-time emits
-    // A token-expiry gate or churn: disconnect + reconnect with NO response having arrived.
-    sock.fire('disconnect', 'io server disconnect');
+    // A churn: disconnect + reconnect with NO response having arrived. Only a transient drop brings the
+    // SAME socket back; a server disconnect destroys it (socket.io-client socket.js:639-643), RA-6.
+    sock.fire('disconnect', 'transport close');
     sock.fire('connect');
     const resent = sock.clientEmits('request_playlist');
     expect(resent).toHaveLength(1);
@@ -447,6 +448,35 @@ describe('KokonadaSocket — transient reconnects delegate to the socket (no man
   });
 });
 
+// RA-6 (S1): a socket socket.io will never bring back must not stay in this.socket, where ensureOpen()
+// trusts it. The Manager's give-up reaches the port as 'reconnect_failed' (socketFactory.ts).
+describe('KokonadaSocket — a socket that will never come back is dropped (RA-6)', () => {
+  const listening = (s: FakeSocket) => [...s.handlers.values()].some((l) => l.length > 0);
+
+  it('reconnect_failed (the Manager spent its attempts): the socket is dropped, and the next request opens a new one on the current token, no refresh', () => {
+    const statuses: string[] = [];
+    const { client, created, deps } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    created[0].fire('disconnect', 'transport close');
+    created[0].fire('reconnect_failed');
+    expect(listening(created[0])).toBe(false);
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+    const reqId = client.requestPlaylist();
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-1']);
+    expect(created[1].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+    expect(deps.refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('a transport connect_error is transient: the socket stays (the Manager retries it) and nothing reopens', () => {
+    const { client, created } = build();
+    client.connect();
+    created[0].fire('connect_error', Object.assign(new Error('xhr poll error'), { type: 'TransportError' }));
+    client.requestPlaylist();
+    expect(created).toHaveLength(1);
+    expect(listening(created[0])).toBe(true);
+  });
+});
+
 describe('KokonadaSocket — auth-refresh loop cap (self-DoS on a dying fresh token)', () => {
   it('gives up and logs out if a refreshed token keeps auth-expiring immediately', async () => {
     // refresh always yields a token that the server rejects again on connect
@@ -530,16 +560,16 @@ describe('KokonadaSocket — the logs carry no health value and no server free t
     const logs = spyLogs();
     const { client, created } = build();
     client.connect();
-    created[0].fire('connect_error', new Error('unauthorized'));
     created[0].fire('connect_error', Object.assign(new Error('xhr poll error: secret-host-detail'), { type: 'TransportError' }));
     created[0].fire('connect_error', new Error('user 5f2a not found: grief on a tuesday'));
     created[0].fire('connect_error', undefined);
+    created[0].fire('connect_error', new Error('unauthorized')); // last: a refusal drops the socket (RA-6)
     expect(logs.all().some((a) => /secret-host-detail|5f2a|grief/.test(a))).toBe(false);
     expect(logs.warn.mock.calls).toEqual([
-      ['[koko] socket connect_error:', 'unauthorized'],
       ['[koko] socket connect_error:', 'transport'],
       ['[koko] socket connect_error:', 'other'],
       ['[koko] socket connect_error:', 'other'],
+      ['[koko] socket connect_error:', 'unauthorized'],
     ]);
   });
 

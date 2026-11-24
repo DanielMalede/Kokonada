@@ -149,6 +149,7 @@ export class KokonadaSocket {
     socket.on('live_assembling', this.handleAssembling);
     socket.on('auth_expired', this.handleAuthExpired);
     socket.on('disconnect', this.handleDisconnect);
+    socket.on('reconnect_failed', this.handleReconnectFailed);
     this.deps.onConnectionChange?.('connecting');
     console.log('[koko] socket opening (connecting)…');
     socket.connect();
@@ -168,6 +169,15 @@ export class KokonadaSocket {
     s.off('live_assembling', this.handleAssembling);
     s.off('auth_expired', this.handleAuthExpired);
     s.off('disconnect', this.handleDisconnect);
+    s.off('reconnect_failed', this.handleReconnectFailed);
+  }
+
+  // RA-6: forget a socket socket.io will never bring back, so ensureOpen() opens a new one instead of
+  // trusting it for the rest of the process. No listener is left on it, and it is closed.
+  private dropSocket(): void {
+    this.teardown();
+    this.socket?.disconnect();
+    this.socket = null;
   }
 
   // Bound handlers so on/off pair up and `this` is stable.
@@ -195,7 +205,24 @@ export class KokonadaSocket {
   // A failed connection attempt (bad URL, TLS, unauthorized handshake, network). The
   // library keeps retrying per its backoff; reflect the down state so the UI is honest.
   private handleConnectError = (err?: any) => {
-    console.warn('[koko] socket connect_error:', connectErrorCode(err));
+    const code = connectErrorCode(err);
+    console.warn('[koko] socket connect_error:', code);
+    this.deps.onConnectionChange?.('disconnected');
+    // RA-6 / MB-183: the handshake middleware refused the token, and socket.io destroyed the socket on
+    // that refusal (socket.js:520-527): it never retries it. Drop it, and refresh before the next open,
+    // never reusing the refused token. A transport error stays: the Manager retries that socket.
+    if (code === 'unauthorized') {
+      this.dropSocket();
+      this.needsRefresh = true;
+    }
+  };
+
+  // RA-6: the Manager spent its reconnection attempts (manager.js:365-369, through socketFactory's
+  // port): this socket is dead for good. Its token was never refused, so the next ensureOpen() opens a
+  // new socket on the current token, no refresh first.
+  private handleReconnectFailed = () => {
+    console.warn('[koko] socket reconnect_failed: the socket is dropped');
+    this.dropSocket();
     this.deps.onConnectionChange?.('disconnected');
   };
 
@@ -296,11 +323,13 @@ export class KokonadaSocket {
 
   // Transient disconnects (transport close/error) are handled by the injected socket's
   // own reconnection — we do NOT replace the socket here, so we never fight the library's
-  // backoff or spawn a parallel one (auth_expired and manual closes are the only paths
-  // that swap it). We only reflect the down state to the UI badge.
+  // backoff or spawn a parallel one. We reflect the down state to the UI badge.
+  // RA-6: a server disconnect is not transient: socket.io destroys the socket the server closed
+  // (socket.js:639-643) and never reconnects it, so it is dropped and the next ensureOpen() opens anew.
   private handleDisconnect = (reason?: any) => {
     console.log('[koko] socket DISCONNECTED:', reason);
     this.deps.onConnectionChange?.('disconnected');
+    if (reason === 'io server disconnect') this.dropSocket();
   };
 
   private async refreshAndReconnect(): Promise<void> {
@@ -323,9 +352,7 @@ export class KokonadaSocket {
   // ensureOpen(). A session that has ended (or never was) logs out; a live one — its refresh was
   // unavailable (C1) — stays down, and the next ensureOpen() or reconnect() refreshes first.
   private stopOrStayDown(): void {
-    this.teardown();
-    this.socket?.disconnect();
-    this.socket = null;
+    this.dropSocket();
     if (this.deps.isSessionActive?.()) {
       this.needsRefresh = true;
       this.deps.onConnectionChange?.('disconnected');
