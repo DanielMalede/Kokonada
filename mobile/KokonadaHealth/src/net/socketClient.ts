@@ -51,8 +51,9 @@ export interface KokonadaSocketDeps {
   // Surface the live socket lifecycle so the UI can show a truthful connection badge
   // (the Pulse indicator was previously hardcoded to 'disconnected' — nothing wired it).
   onConnectionChange?: (status: 'connected' | 'connecting' | 'disconnected') => void;
-  // Cap on auth_expired→refresh cycles within the window before we give up and log
-  // out — the guard against a fresh-but-immediately-dead token looping forever.
+  // Cap on auth_expired→refresh cycles within the window before we give up — the guard against a
+  // fresh-but-immediately-dead token looping forever. Giving up keeps a live session down and logs
+  // out only an ended one (the architect's ruling B on #309).
   maxAuthRefreshes?: number;
   authWindowMs?: number;
   now?: () => number;
@@ -123,10 +124,12 @@ export class KokonadaSocket {
     this.connect();
   }
 
-  // C4: replace whatever socket there is with one opened on a REFRESHED token — the way back after a
-  // refresh that came back unavailable left the socket down (the session stands; C1). Single-flight;
-  // a refresh that is unavailable again stays down without a logout, a dead session logs out, and a
-  // disconnect() while it waits wins.
+  // C4: the refusal path (the architect's ruling B on #309): refresh, then open on the fresh token — the
+  // way back after a refused token left the socket down (the session stands; C1). Single-flight. Only a
+  // fresh token replaces a socket: a live one whose token was never refused stays when the refresh is
+  // unavailable (RA-10), a dead session logs out, and a disconnect() while it waits wins. Nothing here
+  // retries on its own: refresh-if-needed with backoff and Retry-After, and the triggers that call it
+  // (foreground, network back), are design/v2-b1's.
   reconnect(): Promise<void> {
     if (!this.recovery) {
       const run = this.refreshAndReconnect();
@@ -319,7 +322,8 @@ export class KokonadaSocket {
 
     if (this.authFailures > (this.deps.maxAuthRefreshes ?? DEFAULT_MAX_AUTH_REFRESHES)) {
       // A fresh token keeps dying immediately — stop the loop. That is no proof the session is
-      // dead, so a live one stays (down) and only an ended one logs out (C4).
+      // dead, so a live one stays (down) and only an ended one logs out (C4; the architect's ruling B
+      // on #309 withdraws the charter's "an auth storm ends the session").
       this.stopOrStayDown();
       return;
     }
