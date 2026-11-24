@@ -1404,6 +1404,14 @@ describe('#307 round 4 · every finding of the review at a196ce4 that #307 does 
   UPDATES.forEach((row) => ROW_PINS.push((tasks) => updated(tasks, ...row)));
   test.each(UPDATES)('%s carries an update line from the review at a196ce4 for %s', (...row) => updated(TASKS_MD, ...row));
 
+  test('DEC-192\'s "TASKS rows named" line names every row at this tree that the entry cites', () => {
+    const lines = DEC192.split('\n');
+    const named = new Set(((lines.find((l) => l.startsWith('- TASKS rows named:')) || '').match(/\b(?:OPS|DAN|BE|MB|UI|ARCH)-\d+\b/g)) || []);
+    const cited = [...new Set(lines.filter((l) => !l.startsWith('- TASKS rows named:')).join('\n').match(/\b(?:OPS|DAN|BE|MB|UI|ARCH)-\d+\b/g) || [])];
+    expect(named.size).toBeGreaterThan(10);
+    expect(cited.filter((id) => TASK_IDS.has(id) && !named.has(id))).toEqual([]);
+  });
+
   test('OPS-502 cites the placeholder marks of ConsentSheet.tsx; OPS-511 no longer reads DEC-089 as unanswered; DEC-192\'s F3-B line notes the M1 answer', rowPin((tasks) => {
     const ops502 = rowIn(tasks, 'OPS-502');
     has(ops502.split('\n')[0], '`mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx:19` and `:38-39`');
