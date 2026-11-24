@@ -674,13 +674,30 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
     expect(pageLine('- G11P,')).not.toMatch(/16 KB/);
     const check = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE 16 KB CHECK')) || '';
     has(check, 'The owner\'s phone (a Galaxy S22+) cannot boot with 16 KB pages, so `/page` G11P never carries it',
-      'Static, on the exact release artefact, before every upload and on the cutover head\'s release build:',
-      '`zipalign -c -P 16 -v 4 <apk>`', 'aligned at `2**14` or more', 'its `GNU_RELRO` segment ends on a 16 KB boundary',
+      'Static, on the exact release artefact, before every upload and on the cutover head\'s release build, run by the developer, whose raw output, with the artefact\'s SHA-256 (`sha256sum <artefact>`), is among G12F\'s inputs:',
+      '`zipalign -c -P 16 -v 4 <apk>`',
+      // RA-26 = CA307-9 + CA307-10: every 64-bit library of the artefact, an app bundle's too, and Google's RELRO rule.
+      'the ELF checks run on every 64-bit native library: an APK\'s `lib/arm64-v8a/*.so` and `lib/x86_64/*.so`',
+      'an app bundle is checked through `bundletool build-apks --mode=universal --bundle=<aab> --output=<apks>` and the universal APK it holds, or through its `<module>/lib/arm64-v8a/*.so` and `<module>/lib/x86_64/*.so` paths, `base/` included',
+      'a run that reads zero `.so` files for a 64-bit ABI the artefact ships is RED',
+      'every ELF `LOAD` segment aligned at `2**14` or more (`llvm-objdump -p <so>`)',
+      'Google\'s RELRO rule, read with `llvm-readelf -Wl <so>`: the library has no `GNU_RELRO` segment, or that segment\'s `VirtAddr` plus its `MemSiz` is a multiple of 16384, or it ends exactly where the `LOAD` segment that holds it ends',
       '`PAGE_ALIGNMENT_16K`', 'Runtime, at `/page` G11e:', '`system-images;android-35;google_apis_ps16k;x86_64`',
-      '`adb -s <serial> shell getconf PAGE_SIZE` prints 16384');
+      '`adb -s <serial> shell getconf PAGE_SIZE` prints 16384',
+      '`adb -s <serial> shell setprop bionic.linker.16kb.app_compat.enabled false`', '`adb -s <serial> shell setprop pm.16kb.app_compat.disabled true`',
+      'the check passes only if each page opens and logcat shows no `dlopen` or `SoLoader` error');
+    expect(check).not.toMatch(/every `lib\/\*\/\*\.so`|ends on a 16 KB boundary/);
     has(pageLine('- G11e,'), 'the runtime 16 KB check on one more AVD made from the 16 KB-page image, whose manifest records `getconf PAGE_SIZE` = 16384 (`/device-qa`)');
-    has(pageLine('- G12F.'), 'the static 16 KB check (`/device-qa`) on the cutover head\'s release build');
+    has(pageLine('- G12F.'), 'the static 16 KB check (`/device-qa`) on the cutover head\'s release build',
+      'its inputs are G12\'s inputs with the G11e and G11P manifests and the static 16 KB check\'s raw output, with the artefact\'s SHA-256');
   });
+
+  test('OPS-500\'s done-when reads the static 16 KB check as /device-qa states it since the review at a196ce4 (RA-26)', rowPin((tasks) => {
+    const row = rowIn(tasks, 'OPS-500');
+    has(row, '`lib/arm64-v8a/*.so` and `lib/x86_64/*.so`', 'zero `.so` files for a 64-bit ABI the build ships is RED', 'Google\'s RELRO rule',
+      '`llvm-readelf -Wl`', 'its raw output, with the artefact\'s SHA-256, recorded here before any upload', 'RA-26 = CA307-9 + CA307-10');
+    expect(row).not.toMatch(/each `GNU_RELRO` segment ending on a 16 KB boundary/);
+  }));
 
   test('no instruction file keeps a shorter list of what an emulator never proves', () => {
     const short = instructionFiles().filter((f) => /frame timing, thermal, the leak loop(,| and) field pixel parity(?!, BLE heart rate)/i
@@ -816,7 +833,7 @@ describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-
 
   test('every batch gate names its inputs', () => {
     has(BATCH, 'G11e, per batch, on emulators, with G11\'s inputs:', 'its inputs are G12\'s inputs with the G11e manifest.',
-      'its inputs are G12\'s inputs with the G11e and G11P manifests.');
+      'its inputs are G12\'s inputs with the G11e and G11P manifests and the static 16 KB check\'s raw output, with the artefact\'s SHA-256.');
   });
 });
 
