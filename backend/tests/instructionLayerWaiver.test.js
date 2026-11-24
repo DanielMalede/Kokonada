@@ -756,16 +756,31 @@ describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-
 // RA-5 = ARCH-307-6: what an emulator capture of the Lab waits on, and what blocks the first batch merge, are cited
 // where they block (the rows are TASKS `OPS-477` and `OPS-478`).
 describe('DEC-192 · the Lab APK\'s ABI and the batch-record check are cited where they block (RA-5, ARCH-307-6)', () => {
-  test('/device-qa step 2 cites OPS-477, claims no Lab capture on an emulator until it closes, and no longer says the AVD cannot run it', () => {
+  // RA-15: the run of 2026-11-24 disproved the ARM-translation route the earlier wording offered: an x86_64 AVD lists
+  // arm64-v8a, yet the arm64-only Lab APK died at start. Only an APK that carries x86_64 gives a Lab capture there.
+  test('/device-qa step 2 cites OPS-477 and the run: the arm64-only Lab APK does not start on an x86_64 AVD, so no Lab capture there until it carries x86_64', () => {
     const step2 = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('2) ')) || '';
-    has(step2, 'is arm64-v8a only; an x86_64 AVD runs it only through the image\'s ARM translation, which no capture on record shows (`OPS-477`: build it for arm64-v8a,x86_64, or prove the arm64 APK under that translation, with a Lab capture and its manifest).',
-      'Until `OPS-477` closes, say that a lab capture on an emulator cannot be made rather than substitute another build.');
-    expect(step2).not.toContain('which an x86_64 AVD does not run');
+    has(step2, 'The Design Lab APK of `mobile/KokonadaHealth/scripts/lab/buildLabApk.mjs` is arm64-v8a only, and it does not start on an x86_64 AVD, although an API 35 x86_64 image lists `x86_64,arm64-v8a` (its ARM translation, `libndk_translation.so`): on 2026-11-24 it died with `SoLoaderDSONotFoundError` for `libreactnative.so`, since the APK\'s uncompressed native libraries are looked up under `lib/x86_64` (`OPS-477`).',
+      'No Lab capture on an emulator until `buildLabApk.mjs:105` builds x86_64 too; until `OPS-477` closes, say that a lab capture on an emulator cannot be made rather than substitute another build.',
+      'A /page evidence pack needs a debug-signed release Hermes build, not this debug build, built with `-PreactNativeArchitectures=x86_64` (or `arm64-v8a,x86_64`).');
+    expect(step2).not.toMatch(/prove the arm64 APK|runs it only through the image's ARM translation|which an x86_64 AVD does not run/);
   });
 
-  test('/page cites OPS-477 where G8 and G8d take Lab captures on an emulator, and OPS-478 where the first batch PR merges', () => {
-    has(BATCH, 'G8\'s and G8d\'s captures come from the Design Lab APK on an emulator and wait on `OPS-477` (the Lab APK is arm64-v8a only: build it for arm64-v8a,x86_64, or prove the arm64 APK under the emulator\'s ARM translation).',
+  test('/page cites OPS-477 where G8 and G8d take Lab captures on an emulator, G11e builds for x86_64, and OPS-478 blocks the first batch merge', () => {
+    has(BATCH, 'G8\'s and G8d\'s captures come from the Design Lab APK on an emulator and wait on `OPS-477`: the Lab APK is arm64-v8a only and does not start on an x86_64 AVD, its ARM translation notwithstanding, so no Lab capture on an emulator until `buildLabApk.mjs:105` builds x86_64.',
       '`OPS-478`, the batch-record check that reads that set from the batch record at H, blocks the first batch merge.');
+    has(BATCH.split('\n').find((l) => l.startsWith('- G11e,')) || '', 'each running a debug-signed release Hermes build for x86_64 (`-PreactNativeArchitectures=x86_64`, or `arm64-v8a,x86_64`)');
+    expect(BATCH).not.toMatch(/prove the arm64 APK/);
+  });
+
+  test('OPS-477 records the run and is done only by a Lab APK that carries x86_64, with its pins and a Lab capture from an x86_64 AVD', () => {
+    const lines = read('TASKS.md').split('\n');
+    const at = lines.findIndex((l) => l.startsWith('- [ ] `OPS-477`'));
+    const block = at < 0 ? [] : lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')));
+    has(block.find((l) => l.startsWith('  - where:')) || '', 'done when: `buildLabApk.mjs:105` builds a Lab APK that carries x86_64',
+      'its pins at `mobile/KokonadaHealth/scripts/lab/__tests__/bundleAndBuild.test.ts:169,229,232` updated', 'a Lab capture with its manifest from an x86_64 AVD');
+    has(block.find((l) => l.includes('(RA-15, the run)')) || '', 'AVD `Kokonada_Pixel6`', 'API 35', '`x86_64,arm64-v8a`', '`libndk_translation.so`',
+      '`SoLoaderDSONotFoundError`', '`libreactnative.so`');
   });
 
   test('every TASKS id /device-qa and /page cite is a row at this tree, or is cited as #234\'s row', () => {
