@@ -31,7 +31,7 @@ Every task is executed by a squad: one `developer` paired with the reviewers its
 **The iron law. No exceptions.**
 - No production code is written without a **failing test watched first**. RED → GREEN → REFACTOR.
 - Code written before its test is deleted and rewritten test-first.
-- Backend and mobile logic is **pure behind ports**; native modules (Skia, Reanimated, gesture-handler, socket.io, Spotify Remote, MMKV, Keychain, BLE, Health Connect) are thin adapters verified **on a device**: an Android emulator by default, the owner's real phone for the one quick pass before his final review of a release (DEC-192); never fake-snapshotted.
+- Backend and mobile logic is **pure behind ports**; native modules (Skia, Reanimated, gesture-handler, socket.io, Spotify Remote, MMKV, Keychain, BLE, Health Connect) are thin adapters verified **on a device**, never fake-snapshotted: on an Android emulator by default, and only on the owner's real phone, in `/page` G11P, for what an emulator never proves (`/device-qa`'s list, DEC-192). BLE heart rate, a Health Connect read, Google sign-in on the release client and the Spotify temporary path are on that list, so the BLE, Health Connect and Spotify Remote adapters are never verified on an emulator, and a hop through one stays NOT VERIFIED until G11P.
 - Resilience tests use **stateful fakes with real semantics** (in-memory MMKV, real ZSET/Mongo/vector behaviour, EventEmitter sockets, flaky Spotify remotes) — **never stub theater**.
 - **Top-down for end-to-end features:** backend and DTOs/contracts first, then the mobile UI against the *real* contract — never mocked data on the mobile side.
 </iron_law_tdd>

@@ -548,6 +548,46 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
       const body = read(file).split('\n---\n').slice(1).join('\n---\n');
       expect(body).toMatch(/emulator/);
     });
+
+  // RA-4 = ARCH-307-5: one list of what an emulator never proves, G11P's, word for word wherever it is stated, and
+  // a hop on it stays NOT VERIFIED until G11P; the files that do not state it point to it.
+  const NEVER = 'Never claimed from an emulator, only from the owner\'s real-phone pass (`/page` G11P): frame timing, thermal, the leak loop, field pixel parity, BLE heart rate, a Health Connect read, Google sign-in on the release client, the Spotify temporary path, a cold start of 1000 ms or less and the 16 KB check; a hop on one of them stays NOT VERIFIED until G11P.';
+  const POINTER = 'what an emulator never proves (`/device-qa`\'s list, `/page` G11P\'s), where a hop stays NOT VERIFIED until G11P';
+  test.each(['.claude/commands/device-qa.md', '.claude/agents/designer.md', '.claude/agents/resilience-auditor.md'])(
+    '%s states the one never-claimed list, word for word', (file) => { has(read(file), NEVER); });
+
+  test('/page states it in G11e', () => {
+    has(read('.claude/commands/page.md').split('\n').find((l) => l.startsWith('- G11e,')) || '', NEVER);
+  });
+
+  // Each file's own statement, read from the file: the sentence that opens "Never claimed from an emulator".
+  test.each(['.claude/commands/device-qa.md', '.claude/commands/page.md', '.claude/agents/designer.md', '.claude/agents/resilience-auditor.md'])(
+    'each of G11P\'s hardware items is in G11P and in %s\'s never-claimed list', (file) => {
+      const g11p = read('.claude/commands/page.md').split('\n').find((l) => l.startsWith('- G11P,')) || '';
+      const stated = (read(file).match(/Never claimed from an emulator[^.]*\./) || [''])[0];
+      for (const item of ['BLE heart rate', 'a Health Connect read', 'Google sign-in on the release client', 'the Spotify temporary path',
+        'a cold start of 1000 ms or less', 'the 16 KB check']) {
+        expect([item, g11p.includes(item), stated.includes(item)]).toEqual([item, true, true]);
+      }
+    });
+
+  test('no instruction file keeps a shorter list of what an emulator never proves', () => {
+    const short = instructionFiles().filter((f) => /frame timing, thermal, the leak loop(,| and) field pixel parity(?!, BLE heart rate)/i
+      .test(read(f).split(NEVER).join('')));
+    expect(short).toEqual([]);
+  });
+
+  test.each(['.claude/agents/developer.md', '.claude/commands/fix-bug.md', 'AGENTS.md'])('%s points to the one list', (file) => {
+    has(read(file), POINTER);
+  });
+
+  test('ORCHESTRATOR_FABLE never has the BLE, Health Connect or Spotify Remote adapter verified on an emulator', () => {
+    const line = read('docs/ORCHESTRATOR_FABLE.md').split('\n').find((l) => l.includes('Health Connect) are thin adapters')) || '';
+    has(line, 'on an Android emulator by default, and only on the owner\'s real phone, in `/page` G11P, for what an emulator never proves',
+      'BLE heart rate, a Health Connect read, Google sign-in on the release client and the Spotify temporary path are on that list',
+      'so the BLE, Health Connect and Spotify Remote adapters are never verified on an emulator, and a hop through one stays NOT VERIFIED until G11P');
+    expect(line).not.toContain('an Android emulator by default, the owner\'s real phone for the one quick pass');
+  });
 });
 
 // DEC-192, part 2 - the owner's approval of the fast-track plan, by option selection: /page runs design v2's pages
@@ -588,7 +628,7 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
     has(BATCH, 'G11e', 'AVDs at API 28, 30, 34 and 36', 'debug-signed release Hermes build',
       'both faces, font 1.0 and 2.0, reduced motion, battery saver and RTL, plus a TalkBack dump, bounds in dp and contrast',
       'the AVD, the image, the API level, the GPU renderer and the Skia backend',
-      'Never claimed from an emulator: frame timing, thermal, the leak loop, field pixel parity.', 'G12e');
+      'Never claimed from an emulator, only from the owner\'s real-phone pass (`/page` G11P):', 'G12e');
   });
 
   test('G11P is the one real-phone pass, at the cutover head, with its six checks; then G12F', () => {
