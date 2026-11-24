@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { appleAuth, AppleButton } from '@invertase/react-native-apple-authentication';
 import { signInWithGoogle, signInWithApple, type KokonadaUser } from './auth';
-import { signInErrorMessage } from './authErrors';
+import { signInErrorMessage } from './signInWords';
 import { currentUserStore } from './currentUser';
 import { onSignedIn } from '../prodBootstrap';
 import { useTheme, useMotion } from '../design/theme';

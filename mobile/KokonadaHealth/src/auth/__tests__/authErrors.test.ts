@@ -5,9 +5,19 @@
 // provider does not verify (via the error handler), 422 an account that shared no email, 429 the
 // rate limit, 5xx a fault.
 
-import { AuthError, authErrorKindForStatus, signInErrorMessage, type AuthErrorKind } from '../authErrors';
+import * as authErrors from '../authErrors';
+import { AuthError, authErrorKindForStatus, type AuthErrorKind } from '../authErrors';
+import { signInErrorMessage } from '../signInWords';
 
 const KINDS: AuthErrorKind[] = ['network', 'playServices', 'noEmail', 'rateLimited', 'rejected', 'server', 'unknown'];
+
+// ARCH-309-5: the kind, the class and the status mapping are shared by v1 and v2; the words are the v1
+// sign-in screen's own, in src/auth/signInWords.ts, so a v2 screen brings words of its own.
+describe('authErrors holds no screen\'s words', () => {
+  it('exports the class and the status mapping, and nothing a screen shows', () => {
+    expect(Object.keys(authErrors).sort()).toEqual(['AuthError', 'authErrorKindForStatus']);
+  });
+});
 
 describe('AuthError', () => {
   it('is an Error that carries its kind and keeps its message', () => {

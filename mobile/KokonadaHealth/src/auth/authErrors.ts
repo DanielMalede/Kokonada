@@ -1,4 +1,5 @@
-// C7: a sign-in failure, typed. `kind` is what the sign-in screen reads to choose its own words;
+// C7: a sign-in failure, typed. `kind` is what a sign-in screen reads to choose its own words (v1's are
+// in ./signInWords, ARCH-309-5: this module holds no screen's words);
 // `message` keeps what the failure carried (the server's text, for diagnostics) and is never shown.
 //
 // The kinds follow the backend's answers to POST /api/auth/google and /apple
@@ -24,20 +25,4 @@ export function authErrorKindForStatus(status: number): AuthErrorKind {
   if (status === 400 || status === 401) return 'rejected';
   if (status >= 500) return 'server';
   return 'unknown';
-}
-
-// The sign-in screen's own words, one per kind: short, neutral, and never the server's text.
-const SIGN_IN_WORDS: Record<AuthErrorKind, string> = {
-  network: 'No connection. Check your network and try again.',
-  playServices: 'Google Play services isn\'t available on this device.',
-  noEmail: 'This account didn\'t share an email address. Try another account.',
-  rateLimited: 'Too many attempts. Try again in a few minutes.',
-  rejected: 'Sign-in wasn\'t accepted. Try again.',
-  server: 'Sign-in isn\'t available right now. Try again soon.',
-  unknown: 'Sign-in failed. Try again.',
-};
-
-export function signInErrorMessage(error: unknown): string {
-  const kind = error instanceof AuthError ? error.kind : 'unknown';
-  return Object.prototype.hasOwnProperty.call(SIGN_IN_WORDS, kind) ? SIGN_IN_WORDS[kind] : SIGN_IN_WORDS.unknown;
 }
