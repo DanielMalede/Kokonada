@@ -312,6 +312,11 @@ export class KokonadaSocket {
       : 1;
     this.lastAuthExpiredAt = t;
 
+    // This socket's token is dead: it is never trusted again, and the refresh below never waits on it
+    // (reconnect() keeps only a socket whose token stands, RA-10).
+    this.dropSocket();
+    this.deps.onConnectionChange?.('disconnected');
+
     if (this.authFailures > (this.deps.maxAuthRefreshes ?? DEFAULT_MAX_AUTH_REFRESHES)) {
       // A fresh token keeps dying immediately — stop the loop. That is no proof the session is
       // dead, so a live one stays (down) and only an ended one logs out (C4).
@@ -335,13 +340,19 @@ export class KokonadaSocket {
   private async refreshAndReconnect(): Promise<void> {
     const closes = this.closes;
     try {
-      this.socket?.disconnect(); // tear the dead-token socket down first
       let fresh: string | null = null;
       try { fresh = await this.deps.refreshToken(); } catch { /* no verdict: as a null refresh */ }
       if (closes !== this.closes) return; // disconnect() while the refresh was in flight: the close wins
-      if (!fresh) { this.stopOrStayDown(); return; }
+      if (!fresh) {
+        // RA-10: a socket still here was never refused (auth_expired and a refused handshake drop theirs),
+        // so an unavailable refresh is no reason to lose it. An ended session still logs out.
+        if (this.socket && this.deps.isSessionActive?.()) return;
+        this.stopOrStayDown();
+        return;
+      }
       this.needsRefresh = false;
       this.closedByUser = false; // permit the fresh session's lifecycle again
+      this.dropSocket(); // the old socket goes only now, for one on the fresh token
       this.open(fresh);
     } catch {
       this.stopOrStayDown();

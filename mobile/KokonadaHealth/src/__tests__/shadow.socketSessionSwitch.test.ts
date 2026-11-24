@@ -65,6 +65,22 @@ describe('a socket socket.io gave up on (RA-6)', () => {
   });
 });
 
+describe('reconnect() on a socket whose token still stands (RA-10)', () => {
+  it('the refresh is unavailable: the live socket stays connected and the next request reaches the server on it', async () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-a'] });
+    const { sock, onLoggedOut } = appSocket(server); // refreshToken answers null: unavailable
+    sock.connect();
+    server.flush();
+    await sock.reconnect();
+    server.flush();
+    expect(server.sockets).toHaveLength(1);
+    expect(server.sockets[0].state).toBe('connected');
+    const reqId = sock.requestPlaylist();
+    expect(server.receivedOn('request_playlist', server.sockets[0])).toEqual([{ reqId }]);
+    expect(onLoggedOut).not.toHaveBeenCalled();
+  });
+});
+
 describe('the app socket across a sign-out and a sign-in as another account', () => {
   // ARCH-309-1 = RA-1 (S2): disconnect() kept the recovery run, so ensureOpen() went on trusting it.
   it('A signs out while the socket waits on A\'s refresh: B\'s ensureOpen() opens B\'s socket, and A\'s late answer neither reopens nor logs out', async () => {

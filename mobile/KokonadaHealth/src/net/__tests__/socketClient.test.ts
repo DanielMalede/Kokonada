@@ -687,6 +687,30 @@ describe('KokonadaSocket — an unavailable refresh is not a logout; reconnect()
     expect(refreshToken).toHaveBeenCalledTimes(2);
   });
 
+  // RA-10 (S3): reconnect() tore a live socket down BEFORE its refresh, so an unavailable refresh left the
+  // phone with no socket although that socket's token was never refused. Refresh first; replace on a fresh token.
+  it('reconnect() on a live socket whose refresh is unavailable keeps that socket: still listening, still the one requests ride, no logout', async () => {
+    const { client, created, deps } = buildC4([null]);
+    client.connect();
+    await client.reconnect();
+    expect(created).toHaveLength(1);
+    expect(created[0].disconnectCalls).toBe(0);
+    expect(noListeners(created[0])).toBe(false);
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    const reqId = client.requestPlaylist();
+    expect(created).toHaveLength(1);
+    expect(created[0].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+  });
+
+  it('reconnect() on a live socket whose session is dead logs out once and leaves that socket closed and unheard', async () => {
+    const { client, created, deps } = buildC4([null], false);
+    client.connect();
+    await client.reconnect();
+    expect(deps.onLoggedOut).toHaveBeenCalledTimes(1);
+    expect(noListeners(created[0])).toBe(true);
+    expect(created[0].disconnectCalls).toBeGreaterThan(0);
+  });
+
   it('reconnect() on a live socket replaces it: the old one is torn down and disconnected', async () => {
     const { client, created } = buildC4(['access-3']);
     client.connect();
