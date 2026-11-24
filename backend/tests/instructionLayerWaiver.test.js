@@ -543,6 +543,17 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
     expect(qa.indexOf('EMULATOR')).toBeLessThan(qa.indexOf('THE REAL PHONE'));
   });
 
+  // SA-6: a build runs a tree's scripts, so it runs only in the task's own worktree, and installs the lockfile exactly.
+  test('/device-qa builds only in the task\'s own worktree, never a PR under review, and with npm ci, never npm install', () => {
+    const qa = read('.claude/commands/device-qa.md');
+    const step2 = qa.split('\n').find((l) => l.startsWith('2) ')) || '';
+    has(step2, '2) The build, only in the task\'s own worktree, never in a PR under review (its tree is untrusted: `CLAUDE.md` § Working rules), with its own `node_modules`, never a junction to another tree\'s, since `npm ci` deletes the folder it installs into:',
+      'cd mobile/KokonadaHealth && npm ci;');
+    const phone = qa.split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '';
+    has(phone, '1) build steps, in the task\'s own worktree (git pull; cd mobile/KokonadaHealth && npm ci;');
+    expect(qa).not.toMatch(/npm install/);
+  });
+
   test.each(['.claude/agents/developer.md', '.claude/agents/designer.md', '.claude/agents/resilience-auditor.md', '.claude/commands/fix-bug.md'])(
     '%s names the emulator as where device evidence closes', (file) => {
       const body = read(file).split('\n---\n').slice(1).join('\n---\n');
