@@ -668,7 +668,7 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
       '(1) field, ring, dither and never-red on P2 and P10',
       '(2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling',
       '(3) the 50-transition leak loop', '(4) a 10-minute soak',
-      '(5) BLE heart rate, a Health Connect read, Google sign-in on the release client, and the Spotify temporary path',
+      '(5) BLE heart rate, a Health Connect read on my existing consent grant (DEC-192 ruling 8: no new grant until the final text), Google sign-in on the release client, and the Spotify temporary path',
       '(6) deep link, predictive back and a cold start of 1000 ms or less', 'G12F');
   });
 
@@ -779,7 +779,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
     has(FLOW, 'a page PR, a batch PR, the cutover PR, a /fix-bug PR, a token or component sweep, a backend contract change',
       'check each page it touches by where the page stands (row J15, F1-B)',
       'a page the PR puts into navigation (the cutover PR, a single-page /page PR) takes the /page G13 check at H, required agent by required agent',
-      'a page already in navigation, the same check with only G7–G12 re-checked (in /page BATCH MODE: G7, G8, G9, G10, G11e, G11P, G12e and G12F)',
+      'a page already in navigation, the same check with only G7–G12 re-checked (in /page BATCH MODE: G7, G8, G9, G10, G11e, G12e and G12F\'s emulator part)',
       'the pages of a lab-only batch PR (§ Checks step 8c), the batch record\'s set that /page BATCH MODE\'s G13 gives a batch PR',
       'a lab-only page that any other PR touches, no check here: that PR is reviewed by its code rows, and the staleness it causes stays in the batch record until /page clears it, before the cutover at the latest',
       'The ancestry rule above applies to every such PR even after `DAN-053` closes.');
@@ -808,7 +808,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
 
   test('/fix-bug step 5 keys the re-run on a page in navigation versus a lab-only page', () => {
     const s5 = read('.claude/commands/fix-bug.md').split('\n').find((l) => l.startsWith('5. ')) || '';
-    has(s5, 'For a page already in navigation, re-run them through /page before merge (/merge step 3).',
+    has(s5, 'For a page already in navigation, re-run them through /page before merge (/merge step 3):',
       'For a lab-only page (/page BATCH MODE, not yet in navigation), the fix merges on its code rows (row J15): the stale verdicts stay in the batch record, and /page re-runs them before the cutover at the latest.');
   });
 
@@ -939,5 +939,49 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   test('ruling 6 in /device-qa: a HALT proof that needs a hop on G11P\'s list closes at G11P, on his phone', () => {
     has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '',
       'A HALT whose proof needs a hop on G11P\'s list closes at G11P, on his phone, before any build reaches anyone else (DEC-192 ruling 6).');
+  });
+
+  test('rulings 7 to 9 and the statement of fact, each quoted with its date, and the entry\'s owner classes (a) and (c) (CA307-6)', () => {
+    has(DEC192, '7. A page already in navigation (2026-11-24; ARCH-307-11).',
+      '- question: "אחרי המעבר לניווט: כשמשנים דף שכבר נמצא בניווט (תיקון באג, שדרוג ספריה), מה בודקים מחדש? השאלה העיקרית היא אם כל שינוי כזה מחזיר בדיקה על הטלפון שלך."',
+      '- selected option: "הטלפון רק בגרסה הבאה (מומלץ)"',
+      '8. The v1 consent text (2026-11-24).',
+      '- question: "נוסח ההסכמה לעיבוד מידע בריאותי שרץ היום באפליקציה מסומן בקוד כטיוטה, ולא מצאתי שאישרת אותו. הוא גם לא נוקב בשם האחראי ובזכויות העיון והתיקון שהחוק הישראלי דורש. הכלל שאישרת קובע שלא נרשמת אף פעם הסכמה על נוסח לא מאושר. מה עושים עד הנוסח הסופי בדצמבר?"',
+      '- selected option: "אין הסכמות חדשות עד אז (מומלץ)"',
+      '9. The held regulated-copy branch and the cutover (2026-11-24).',
+      '- question: "הענף שמחזיק את הנוסחים המפוקחים (הסכמה, הודעת AI, הערות משפטיות): האם הוא חייב להימזג לפני המעבר לניווט, או יחד איתו, כך שאף דף לא ייכנס לניווט כשיש עליו נוסח זמני?"',
+      '- selected option: "כן, לפני המעבר או יחד איתו (מומלץ)"',
+      'A statement of fact (2026-11-24), not a ruling: production holds only the owner\'s account.',
+      '- selected option: "רק אני, תכין מדריך לביטול (מומלץ)"',
+      'no new consent grant is recorded by anyone until the final text (M4)', 'the v1 consent text is not approved', '`OPS-502`');
+    has(DEC192.split('\n').find((l) => l.startsWith('- decided by: the owner.')) || '', 'owner classes (a) and (c) under DEC-155 (CA307-6)', 'the session applies row J18 to it');
+    expect(TASK_IDS.has('OPS-502')).toBe(true);
+    has(decRow('DEC-192'), 'rulings 7 to 9 (2026-11-24): a page already in navigation re-checks G7–G12 on emulators, the phone only at the next release; no new consent grant until the final text; the regulated-copy branch merges before the cutover or with it');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-192**')) || '', '"הטלפון רק בגרסה הבאה (מומלץ)" (ruling 7)',
+      '"אין הסכמות חדשות עד אז (מומלץ)" (ruling 8)', '"כן, לפני המעבר או יחד איתו (מומלץ)" (ruling 9)', '"רק אני, תכין מדריך לביטול (מומלץ)" (a statement of fact)');
+  });
+
+  // ARCH-307-11, ruling 7: after the cutover, a change to a page in navigation re-checks G7–G12 on emulators, and the
+  // phone waits for the owner's pass before his next release. The five texts that say what such a PR re-checks say it so.
+  const RECHECK = 'G7–G12 re-checked (in /page BATCH MODE: G7, G8, G9, G10, G11e, G12e and G12F\'s emulator part)';
+  const G11P_STALE = 'a G11P item it makes stale stays NOT VERIFIED until the owner\'s real-phone pass before his next release';
+  test.each([
+    ['/merge step 3', () => FLOW.split('Check whether the PR changes any path')[1] || ''],
+    ['§ Checks step 8c, kind (1)', () => (sub8('c').split('(1) ')[1] || '').split('(2) ')[0]],
+    ['/fix-bug step 5', () => read('.claude/commands/fix-bug.md').split('\n').find((l) => l.startsWith('5. ')) || ''],
+    ['CLAUDE.md row J15', () => jRow('J15')],
+    ['/page BATCH MODE, IN NAVIGATION', () => BATCH.split('\n').find((l) => l.startsWith('- IN NAVIGATION')) || ''],
+  ])('ruling 7: %s re-checks G7–G12 for a page in navigation, and leaves a stale G11P item NOT VERIFIED until the owner\'s next pass', (_name, text) => {
+    has(text(), RECHECK, G11P_STALE, 'DEC-192 ruling 7');
+    expect(text()).not.toMatch(/G11e, G11P, G12e/);
+  });
+
+  test('ruling 8 in /page G11P and /device-qa: no evidence run creates a consent grant; the phone reads Health Connect on his existing grant', () => {
+    has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', '(5) BLE heart rate, a Health Connect read on my existing consent grant (DEC-192 ruling 8: no new grant until the final text)');
+    has(read('.claude/commands/device-qa.md'), 'No evidence run creates a consent grant: until the final consent text, nobody records a new grant (DEC-192 ruling 8; `OPS-502` enforces it in code), and the v1 text is not approved. The owner\'s real-phone pass reads Health Connect on his existing grant.');
+  });
+
+  test('ruling 9 in /page: no page enters navigation while a regulated slot it renders holds a placeholder', () => {
+    has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'No page enters navigation while a regulated slot it renders holds a placeholder: the held regulated-copy branch (F3-B) merges before the cutover PR or with it (DEC-192 ruling 9).');
   });
 });

@@ -4,6 +4,7 @@ argument-hint: [rows/features to test]
 ---
 Produce a copy-ready capture runbook for: $ARGUMENTS
 Device work closes on an emulator (DEC-192); the owner's real phone takes only the one quick pass at the end. Every command below runs in Git Bash, with the SDK's own tools (`emulator`, `adb`, `sdkmanager`, `avdmanager`) and the emulator's serial (`adb devices`, e.g. `emulator-5554`).
+No evidence run creates a consent grant: until the final consent text, nobody records a new grant (DEC-192 ruling 8; `OPS-502` enforces it in code), and the v1 text is not approved. The owner's real-phone pass reads Health Connect on his existing grant.
 
 EMULATOR — the default; the session or the developer runs it, no one waits on the owner. Include exactly:
 1) The AVD: each API level the work needs (a /page evidence pack: 28, 30, 34 and 36), made once with `sdkmanager "system-images;android-<api>;google_apis;x86_64"` and `avdmanager create avd -n kokonada-api<api> -k "system-images;android-<api>;google_apis;x86_64" -d pixel_6`. Start it with `emulator -avd <name> -gpu host` (`-gpu swiftshader_indirect` where the host GPU cannot serve it, `-no-window` for a run with no screen), wait with `adb -s <serial> wait-for-device`, then poll `adb -s <serial> shell getprop sys.boot_completed` until it prints 1; a "System UI isn't responding" dialog right after a cold boot is dismissed, not a finding.
