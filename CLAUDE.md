@@ -24,7 +24,7 @@ Fable plans: the session start, plans, conflicts between documents or agents. Op
 1. `/claim` — `coordinator` derives the path set, checks the partner's live work, and on CLEAR (or a WARN it has reported) creates the task's worktree from `origin/main` under `.claude/worktrees/<slug>`, a ledger slot and a draft PR. Never work around a HALT.
 2. Work only in that worktree, only on the declared paths; `node scripts/coord/coord.js rescope` before touching any other file.
 3. Test first (`docs/ORCHESTRATOR_FABLE.md` `<iron_law_tdd>`): `developer` builds; the approvers the jurisdiction table names review.
-4. `/ship`, then `/review-pr`, then `/merge` under the merge rule. No hook reminds the session: after every push to a PR it reads CI on the new head to the end itself, and after every merge it runs the post-merge check (`.claude/commands/merge.md` § Checks); a red is fixed before the next task (DEC-143, DEC-192).
+4. `/ship`, then `/review-pr`, then `/merge` under the merge rule. No hook reminds the session, which runs `.claude/commands/merge.md` § Checks on its own: PRE-MERGE steps 3 and 4 after every push; the whole PRE-MERGE before every merge; POST-MERGE after every merge. A red is fixed before the next task (DEC-143, DEC-192).
 5. After the merge: `git worktree remove` the task's worktree and delete its local branch.
 
 Read-only work (a status report, research, a review) needs no claim and no worktree.

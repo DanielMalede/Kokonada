@@ -208,9 +208,23 @@ describe('DEC-192 · the merge-guard agent is gone, and nothing dispatches or re
     has(FLOW, 'unless the latest such comment by `DanielMalede` on the PR already names this H and M.');
   });
 
-  test('every task: no hook reminds the session, so it reads CI after each push and checks after each merge itself', () => {
-    const step4 = section(ROOT_MD, 'Every task').find((l) => l.startsWith('4. ')) || '';
-    has(step4, 'No hook reminds the session: after every push to a PR it reads CI on the new head to the end itself, and after every merge it runs the post-merge check (`.claude/commands/merge.md` § Checks); a red is fixed before the next task (DEC-143, DEC-192).');
+  // ARCH-307-8, RA-11: the three texts that say when the session runs the checks say it in one wording.
+  const WHEN = 'PRE-MERGE steps 3 and 4 after every push; the whole PRE-MERGE before every merge; POST-MERGE after every merge';
+  test.each([
+    ['CLAUDE.md § Every task step 4', () => section(ROOT_MD, 'Every task').find((l) => l.startsWith('4. ')) || ''],
+    ['/ship step 6', () => read('.claude/commands/ship.md').split('\n').find((l) => l.startsWith('6. ')) || ''],
+    ['merge.md § Checks, before WHY', () => read('.claude/commands/merge.md').split('\n## Checks\n')[1]?.split('\nWHY. ')[0] || ''],
+  ])('no hook reminds the session, and %s says when it runs the checks in the one wording', (_name, text) => {
+    has(text(), 'No hook reminds', WHEN);
+    expect(text()).not.toMatch(/after every push to a PR it reads CI|runs PRE-MERGE after a PR is opened|after every push of this flow/);
+  });
+
+  test('every task: a red is fixed before the next task', () => {
+    has(section(ROOT_MD, 'Every task').find((l) => l.startsWith('4. ')) || '', 'A red is fixed before the next task (DEC-143, DEC-192).');
+  });
+
+  test('§ Checks names every run that posts its record, the step 6 sweep and the owner side\'s check after a partner\'s merge among them', () => {
+    has(CHECKS_TEXT, '/review-pr step 6, steps 3 and 5 of the flow above, the session start step 6 sweep (`CLAUDE.md`) and the owner side\'s post-merge check after the partner merges his own PR (`AGENTS.md`) post the result on the PR as a comment, with its evidence (THE RECORD); after any other run the session acts on it as ON RED says.');
   });
 
   test('/review-pr runs the pre-merge check itself and posts PRE-MERGE CHECK; AGENTS.md reads the same records', () => {
