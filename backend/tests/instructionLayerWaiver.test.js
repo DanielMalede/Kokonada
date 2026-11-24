@@ -131,9 +131,10 @@ describe('OPS-244 · § Two partners lets a waived session\'s statement onto his
 // itself, from `.claude/commands/merge.md` § Checks, and the merge-guard agent and the hook that dispatched it are
 // gone. These cases pin what replaced them: nothing names the agent any more; the procedure it carried keeps every
 // rule, with OPS-389's owner-accepted neutral (#306's clause and pins, moved here with the procedure), step 8d's
-// filter that gh's jq parses from Git Bash (OPS-374), step 7's whole commit list (OPS-464) and #234's shard-aware
-// steps 3a, 3e and 4; and the records the session posts. #234's `shadow.mergeGuardSkips.test.js` pins 3a, 3e and 4
-// against its sharded ci.yml once it merges.
+// filter that gh's jq parses from Git Bash (OPS-374), step 7's whole commit list (#234's OPS-464) and steps 3a, 3e
+// and 4 as they read today's ci.yml, with #234's shard-aware wording kept for once its ci.yml is on main; and the
+// records the session posts. #234's `shadow.mergeGuardSkips.test.js` pins 3a, 3e and 4 against its sharded ci.yml
+// once it merges.
 const MERGE_MD = read('.claude/commands/merge.md');
 const MERGE_LINES = MERGE_MD.split('\n');
 const checksAt = MERGE_LINES.indexOf('## Checks');
@@ -311,25 +312,140 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
   });
 
   test('step 7 reads the message of every commit of B..H with git log, never gh\'s capped commit list', () => {
-    has(STEP7, 'git log --format=%B "$B..$H"', 'never `gh pr view --json commits`, which returns at most 100 commits (`OPS-464`)');
+    has(STEP7, 'git log --format=%B "$B..$H"', 'never `gh pr view --json commits`, which returns at most 100 commits (`OPS-464`, #234\'s row)');
     expect(CHECKS_TEXT).not.toContain('.commits[]');
   });
 });
 
-describe('DEC-192 · § Checks steps 3a, 3e and 4 read the sharded ci.yml (#234\'s wording, OPS-465, OPS-466)', () => {
-  test('3a expands a matrix name over its values, and lists the check runs of #234\'s ci.yml', () => {
+// The jobs of a workflow file, each block under `jobs:` read whole, so a job's `name:` (its id when it has none), its
+// job-level `if:` and its matrix lists are found in any order. Inline lists only, as 3a's grep reads them.
+function ciJobs(yml) {
+  const lines = yml.split('\n');
+  const at = lines.findIndex((l) => /^jobs:\s*$/.test(l));
+  const jobs = [];
+  let job = null;
+  let key4 = null;
+  let key6 = null;
+  for (const line of at < 0 ? [] : lines.slice(at + 1)) {
+    if (/^[A-Za-z_]/.test(line)) break; // the next top-level key ends `jobs:`
+    const id = line.match(/^ {2}([\w-]+):\s*$/);
+    if (id) {
+      job = { id: id[1], name: id[1], if: null, matrix: {} };
+      jobs.push(job);
+      key4 = null;
+      key6 = null;
+    } else if (job) {
+      const k4 = line.match(/^ {4}([\w-]+):\s*(.*)$/);
+      const k6 = line.match(/^ {6}([\w-]+):/);
+      const list = line.match(/^ {8}([\w-]+): \[(.*)\]\s*$/);
+      if (k4) {
+        [, key4] = k4;
+        key6 = null;
+        const value = k4[2].trim().replace(/^(['"])(.*)\1$/, '$2');
+        if (key4 === 'name') job.name = value;
+        if (key4 === 'if') job.if = value;
+      } else if (k6) {
+        [, key6] = k6;
+      } else if (list && key4 === 'strategy' && key6 === 'matrix') {
+        job.matrix[list[1]] = list[2].split(',').map((v) => v.trim()).filter(Boolean);
+      }
+    }
+  }
+  return jobs;
+}
+// The check runs a job reports (3a): one per matrix value, standing where its `${{ matrix.<key> }}` stood in the
+// name; a matrix job whose name holds no such expression reports `<name> (<values>)`.
+function checkRuns(job) {
+  const keys = Object.keys(job.matrix);
+  let combos = [{}];
+  for (const k of keys) combos = combos.flatMap((c) => job.matrix[k].map((v) => ({ ...c, [k]: v })));
+  if (keys.length === 0) return [job.name];
+  if (!/\$\{\{\s*matrix\./.test(job.name)) return combos.map((c) => `${job.name} (${keys.map((k) => c[k]).join(', ')})`);
+  return combos.map((c) => job.name.replace(/\$\{\{\s*matrix\.([\w-]+)\s*\}\}/g, (_m, k) => c[k]));
+}
+// The names a list in § Checks gives, each `<a> 1/8` to `<a> 8/8` read as every value between them.
+function namesIn(list) {
+  const out = [];
+  for (const [, first, last] of list.matchAll(/`([^`]+)`(?: to `([^`]+)`)?/g)) {
+    let p = 0;
+    while (last && p < first.length && first[p] === last[p]) p += 1;
+    while (p > 0 && /\d/.test(first[p - 1])) p -= 1;
+    const a = last ? first.slice(p).match(/^(\d+)(.*)$/) : null;
+    const b = last ? last.slice(p).match(/^(\d+)(.*)$/) : null;
+    if (!last) out.push(first);
+    else if (!a || !b || a[2] !== b[2]) out.push(first, last);
+    else for (let i = Number(a[1]); i <= Number(b[1]); i += 1) out.push(`${first.slice(0, p)}${i}${a[2]}`);
+  }
+  return out;
+}
+const CI_JOBS = ciJobs(read('.github/workflows/ci.yml'));
+
+describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234\'s sharded one only once it is on main (RA-2, CU307-1, CU307-2, ARCH-307-7, SA-5)', () => {
+  test('the job reader takes a job\'s name (its id when absent) and if: in either order, and expands a matrix name over its list', () => {
+    const fixture = ['name: CI', 'on: [push]', 'jobs:',
+      '  first:', '    if: needs.a.outputs.x == \'true\'', '    name: First job', '    runs-on: x',
+      '  second:', '    runs-on: x', '    if: always()',
+      '  shards:', '    name: Shard ${{ matrix.shard }}/3', '    strategy:', '      fail-fast: false', '      matrix:', '        shard: [1, 2, 3]',
+      '    steps:', '      - name: not a job', '        with: [a]',
+      '# a comment at column 0', '  last:', '    name: "Quoted name"',
+      'concurrency: x', '  not-a-job:'].join('\n');
+    const jobs = ciJobs(fixture);
+    expect(jobs.map((j) => [j.id, j.name, j.if])).toEqual([['first', 'First job', 'needs.a.outputs.x == \'true\''],
+      ['second', 'second', 'always()'], ['shards', 'Shard ${{ matrix.shard }}/3', null], ['last', 'Quoted name', null]]);
+    expect(jobs.flatMap(checkRuns)).toEqual(['First job', 'second', 'Shard 1/3', 'Shard 2/3', 'Shard 3/3', 'Quoted name']);
+    expect(checkRuns({ name: 'Plain', matrix: { os: ['a', 'b'] } })).toEqual(['Plain (a)', 'Plain (b)']);
+    expect(namesIn('`A`, `Shard 1/3` to `Shard 3/3`, `B 9/10` to `B 10/10`')).toEqual(['A', 'Shard 1/3', 'Shard 2/3', 'Shard 3/3', 'B 9/10', 'B 10/10']);
+  });
+
+  test('3a\'s today list is the check runs ci.yml at this tree reports, its matrices expanded', () => {
+    const today = sub3('a').match(/Today `ci\.yml` has (\d+) jobs, [^:]*?(\d+) check runs: (.*?)\.(?: |$)/);
+    expect(today).not.toBeNull();
+    const runs = CI_JOBS.flatMap(checkRuns);
+    expect(runs.length).toBeGreaterThan(0);
+    expect([Number(today[1]), Number(today[2])]).toEqual([CI_JOBS.length, runs.length]);
+    expect(namesIn(today[3]).sort()).toEqual([...runs].sort());
+  });
+
+  test('3a expands a matrix name over its values, and gives #234\'s 21 check runs only for once #234\'s ci.yml is on main', () => {
     has(sub3('a'), 'grep -E \'^    name: |^        [a-z0-9_-]+: \\[\'', 'expand it over the matrix list the grep prints after it',
-      'Today, at H, 11 jobs report 21 check runs once both matrices expand');
+      '(#234\'s `shard: [1, 2, 3, 4, 5, 6, 7, 8]` makes `Mobile — jest shard 1/8` to `Mobile — jest shard 8/8`)',
+      'Once #234\'s `ci.yml` is on main, 11 jobs report 21 check runs once both matrices expand');
     expect(sub3('a')).not.toContain('${{');
+    expect(sub3('a')).not.toContain('Today, at H, 11 jobs');
+  });
+
+  test('3e: while ci.yml has no sweeps job the sweeps rule is inert, and its text is #234\'s, for once #234\'s ci.yml is on main or at H', () => {
+    // #234 adds the sweeps jobs; that change fails this case, and 3e changes with it.
+    expect(CI_JOBS.filter((j) => /sweeps/i.test(`${j.id} ${j.name}`))).toEqual([]);
+    has(sub3('e'), 'While no sweeps job is in `ci.yml` at M or at H (before #234 merges), this sweeps rule is inert: their absence is not RED.',
+      'Once #234\'s `ci.yml` is on main or at H, the never-red sweeps:');
   });
 
   test('3e accepts the sweep shards\' skip under both names, and holds them and the gate to success when the filter fired', () => {
     const e = sub3('e');
     has(e, '`Mobile — never-red sweeps shard ${{ matrix.shard }}/4`',
       '`Mobile — never-red sweeps shard 1/4` to `Mobile — never-red sweeps shard 4/4`',
-      'If the PR\'s changed paths match the `sweeps:` filter in `ci.yml` at H, every `Mobile — never-red sweeps shard <i>/4` and the gate must be `success`: a skip, a run under the template name or any other conclusion is `RED (FAILING)`.',
-      '`backend/tests/shadow.mergeGuardSkips.test.js` fails while this step leaves out a job that a job-level `if:` in `ci.yml` can skip.');
-    expect(e).not.toMatch(/\binert\b/);
+      'If the PR\'s changed paths match the `sweeps:` filter in `ci.yml` at H, every `Mobile — never-red sweeps shard <i>/4` and the gate must be `success`: a skip, a run under the template name or any other conclusion is `RED (FAILING)`.');
+  });
+
+  test('3e names the guard that exists, and #234\'s gate and test only as #234\'s', () => {
+    has(sub3('e'), '`backend/tests/instructionLayerWaiver.test.js` fails while this step leaves out a job that a job-level `if:` in `ci.yml` can skip',
+      '`backend/tests/shadow.mergeGuardSkips.test.js` (future, #234)',
+      'once #234\'s `ci.yml` is on main or at H, that includes its gate `Mobile — jest` (job `mobile`, `if: always()`), which runs whatever its needed jobs did and is never skipped.');
+    expect(sub3('e')).not.toContain('Any other skip is `RED (UNVERIFIED)`: the gate `Mobile — jest`');
+  });
+
+  test('every repo path § Checks names exists at this tree, or is marked future, and none that exists is marked future', () => {
+    const named = [...CHECKS_TEXT.matchAll(/`((?:\.github|\.githooks|\.claude|backend|mobile|scripts|docs)\/[^`\s*<>$]+?)(?::\d+)?`( \(future\b[^)]*\))?/g)];
+    expect(named.length).toBeGreaterThan(10);
+    expect(named.filter(([, p, future]) => fs.existsSync(path.join(REPO_ROOT, p)) === Boolean(future)).map(([, p, f]) => `${p}${f || ''}`)).toEqual([]);
+  });
+
+  test('every TASKS id § Checks cites is a row at this tree, or is cited as #234\'s row, and no row that exists is', () => {
+    const rows = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+    const cited = [...CHECKS_TEXT.matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];
+    expect(cited.length).toBeGreaterThan(10);
+    expect(cited.filter(([, id, of234]) => rows.has(id) === Boolean(of234)).map(([, id, of234]) => `${id}${of234 || ''}`)).toEqual([]);
   });
 
   test('3e names every job of ci.yml that a job-level if: can skip, with its condition', () => {
@@ -349,14 +465,17 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read the sharded ci.yml (#234\
     expect(missing).toEqual([]);
   });
 
-  test('step 4 holds each jest shard and each gate to its own line, and the single jest job of an unsharded ci.yml to a summary', () => {
-    has(STEP4, '`mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`',
-      'grep -E \'Test Suites: |Tests: |needed jobs ended: \'',
-      'Each of the eight `Mobile — jest shard <i>/8` must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed',
-      'The gate `Mobile — jest` runs no tests since OPS-456: its log must read `needed jobs ended: success success (2 expected)`',
+  test('step 4 holds today\'s single jest job to a summary first, and #234\'s shards and gates only where the run\'s commit has them', () => {
+    has(STEP4, 'grep -E \'Test Suites: |Tests: |needed jobs ended: \'',
+      'While `ci.yml` at the run\'s commit has no `mobile-jest-shard` matrix (today, and main before #234), `Mobile — jest` is the single jest job: it must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed (`Test Suites: <n> passed, <n> total`; a failed or skipped suite is not passed), and no gate line.',
+      'Where the run\'s commit has #234\'s `mobile-jest-shard` matrix (once #234\'s `ci.yml` is on main or at H), each of the eight `Mobile — jest shard <i>/8` must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed.',
+      '`mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts` (future, #234)',
+      'Its gate `Mobile — jest` runs no tests (`OPS-456`, #234\'s row): its log must read `needed jobs ended: success success (2 expected)`.',
       'When the sweeps filter fired (3e), each of the four `Mobile — never-red sweeps shard <i>/4` must print a `Tests:` line',
       'the gate `Mobile — never-red sweeps at full resolution` must read `needed jobs ended: success success (2 expected)`',
-      'When `ci.yml` at the run\'s commit has no `mobile-jest-shard` matrix (main before #234), `Mobile — jest` is the single jest job instead: it must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed, and no gate line.');
+      '· Once #234\'s `ci.yml` is on main or at H, the sweep shards and their gate `Mobile — never-red sweeps at full resolution` skipped:');
+    // The case that holds at M today comes before #234's.
+    expect(STEP4.indexOf('While `ci.yml` at the run\'s commit has no')).toBeLessThan(STEP4.indexOf('Where the run\'s commit has #234\'s'));
     expect(STEP4).not.toMatch(/add up to/);
   });
 });
@@ -452,7 +571,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
 
   test('§ Checks 8c and /review-pr step 2 apply F1-B', () => {
     has(sub8('c'), 'A lab-only batch PR (`/page` BATCH MODE) is reviewed like code', 'read from its batch record at H',
-      'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (OPS-390).');
+      'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (`OPS-390`, #234\'s row).');
     has(read('.claude/commands/review-pr.md'), 'for a lab-only batch PR (`/page` BATCH MODE), one `page-record <Pn>: PASS|FAIL @ <H>` line per page of its batch from its batch record');
   });
 });
