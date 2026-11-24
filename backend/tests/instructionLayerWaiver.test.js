@@ -743,8 +743,15 @@ describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-
   });
 
   test('G11P: each item is its own entry with its own inputs, so a later change re-runs only the items it touches', () => {
-    has(BATCH, 'Each item is its own entry, its subject the item (`G11P-1` to `G11P-6`), recorded in the record of every batch whose pages it covers, with its own inputs: (1) the PAGE SLICE and SHARED BASE of P2 and P10; (2) those of P2, P8 and P10; (3) and (4) those of every page the cutover puts into navigation; (5) and (6) the SHARED BASE of every such page.',
+    has(BATCH, 'Each item is its own entry, its subject the item (`G11P-1` to `G11P-6`, and `G11P-<row ID>` for each row of (7)), recorded in the record of every batch whose pages it covers, with its own inputs: (1) the PAGE SLICE and SHARED BASE of P2 and P10; (2) those of P2, P8 and P10; (3) and (4) those of every page the cutover puts into navigation; (5) and (6) the SHARED BASE of every such page; (7) the paths its row\'s `where:` names.',
       'A later change re-runs only the items whose inputs it changed, as the staleness rule decides: the single-page mode\'s "G11 re-captures" applies to G11e and to each stale G11P item, never to G11P as a whole.');
+  });
+
+  // RA-21: a hop on G11P's list that a change leaves open must not live only in a conversation: its TASKS row names the
+  // G11P capture that closes it, and G11P takes every such row as an item of its own.
+  test('G11P takes every open TASKS row whose done-when names a G11P capture, and /device-qa makes a change that leaves such a hop open write one', () => {
+    has(BATCH.split('\n').find((l) => l.startsWith('- G11P,')) || '', '(7) every open TASKS row whose done-when names a G11P capture, each its own entry, closed by that capture.');
+    has(read('.claude/commands/device-qa.md'), 'A change that leaves a hop on that list open writes the G11P capture that would close it as its TASKS row\'s done-when (`/page` G11P item 7).');
   });
 
   test('every batch gate names its inputs', () => {
