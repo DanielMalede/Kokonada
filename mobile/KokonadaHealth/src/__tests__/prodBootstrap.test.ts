@@ -113,14 +113,14 @@ const HEALTH_PATHS = ['/api/consent/status', '/api/integrations/watch/token', '/
 
 // A REAL SecureStore over an in-memory encrypted backend (identity cipher), so the boot's KV
 // bindings read and write through the same class production uses.
-function makeSecureStore(seed: Record<string, string> = {}) {
+function makeSecureStore(seed: Record<string, string> = {}, writes?: string[]) {
   const { SecureStore } = require('../storage/secureStore');
   const map = new Map<string, string>(Object.entries(seed));
   return new SecureStore({
     backend: {
       encrypted: true,
       getString: (k: string) => map.get(k),
-      set: (k: string, v: string) => { map.set(k, v); },
+      set: (k: string, v: string) => { writes?.push(k); map.set(k, v); },
       delete: (k: string) => { map.delete(k); },
       getAllKeys: () => [...map.keys()],
       clearAll: () => map.clear(),
@@ -445,6 +445,30 @@ describe('prodBootstrap — a fresh sign-in starts the health lane from nothing 
 // airplane-mode cold start or a 5xx signed the user out for good. Only a dead session is cleared
 // now: a 401 whose refresh the server answers 401 (AuthSession ends it). Everything else keeps the
 // session, so the next launch with a network recovers the user without a new sign-in.
+// RA-3 (S2): a session that ends without a logout (a dead refresh: the teardown that wipes the cold
+// writer never runs) left its ColdPersistence attached, and the next sign-in attached a second one beside
+// it: every change was written twice, and a write still pending from the old account could land under
+// the new account's key. makeColdPersistence detaches the previous writer first.
+describe('prodBootstrap — one cold-persistence writer at a time (RA-3)', () => {
+  it('a session that died without a logout, then a sign-in as B: one change is one write, under the key of B', async () => {
+    jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick'] });
+    const writes: string[] = [];
+    mockSecure = makeSecureStore({}, writes);
+    const w = load({ signedIn: true });
+    await w.prod.startApp(); // u1's boot attaches its writer
+    await settle();
+    await w.authSession.clear(); // u1's session dies: no logout, so no teardown
+    await w.signIn('account-b');
+    await settle();
+    const { store } = require('../state/store');
+    const { setTextPrompt } = require('../state/cold/emotionSlice');
+    writes.length = 0;
+    store.dispatch(setTextPrompt('after the switch'));
+    jest.advanceTimersByTime(500);
+    expect(writes.filter((k) => k.startsWith('cold.'))).toEqual(['cold.emotion.account-b']);
+  });
+});
+
 describe('prodBootstrap — identity recovery at boot (C2)', () => {
   const STORED = JSON.stringify({ access: 'access-1', refresh: 'refresh-1' });
 

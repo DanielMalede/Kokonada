@@ -96,6 +96,36 @@ describe('AuthSession — bootstrap never replaces a session it did not load (SA
   });
 });
 
+// RA-4: the boot reads the epoch before GET /api/auth/me; a change by the time /me answers means a
+// sign-in or a sign-out landed meanwhile and owns the session.
+describe('AuthSession — the session epoch (RA-4)', () => {
+  it('moves when a session is installed or ended, and stays through a rotation', async () => {
+    const { session } = build();
+    await session.bootstrap();
+    const booted = session.sessionEpoch();
+    expect(await session.refresh()).toBe('access-2');
+    expect(session.sessionEpoch()).toBe(booted); // a rotation is the same session
+    await session.setSession({ access: 'b-acc', refresh: 'b-krt' });
+    expect(session.sessionEpoch()).toBe(booted + 1);
+    await session.clear();
+    expect(session.sessionEpoch()).toBe(booted + 2);
+  });
+
+  it('an unavailable refresh keeps the epoch, and a dead one moves it', async () => {
+    const kept = build({ refreshEndpoint: jest.fn(async (): Promise<RefreshOutcome> => ({ kind: 'unavailable' })) });
+    await kept.session.bootstrap();
+    const e = kept.session.sessionEpoch();
+    await kept.session.refresh();
+    expect(kept.session.sessionEpoch()).toBe(e);
+
+    const ended = build({ refreshEndpoint: jest.fn(async (): Promise<RefreshOutcome> => ({ kind: 'dead' })) });
+    await ended.session.bootstrap();
+    const d = ended.session.sessionEpoch();
+    await ended.session.refresh();
+    expect(ended.session.sessionEpoch()).toBe(d + 1);
+  });
+});
+
 describe('AuthSession — refresh (rotating token)', () => {
   it('rotates the token, updates the in-memory access, and persists the new pair', async () => {
     const { session, deps, saved } = build();

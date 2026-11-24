@@ -25,10 +25,15 @@ import type { SecureStore } from './storage/secureStore';
 // into React's render.
 
 let secureStore: SecureStore | null = null;
+let coldPersistence: ColdPersistence | null = null;
 
 function makeColdPersistence(): ColdPersistenceLike {
   if (!secureStore) return { rehydrate() {}, attach() {} };
+  // RA-3: one writer at a time. A session that ended without a logout (a dead refresh) never had its
+  // writer wiped, and a write it still had pending would land under the next account's key.
+  coldPersistence?.detach();
   const cp = new ColdPersistence({ store, secure: secureStore, getUserId: getCurrentUserId, throttleMs: 400 });
+  coldPersistence = cp;
   setColdPersistence(cp);
   return cp;
 }
@@ -60,10 +65,17 @@ export async function startApp(): Promise<void> {
   // and AuthSession has already ended that one itself (a 401 whose refresh the server refused).
   // An offline or 5xx /me, or a refresh the server could not answer, keeps the session, so the
   // next launch with a network recovers the user without a new sign-in.
+  //
+  // RA-4 (S0), RA-3: /me has no deadline, and the splash stops waiting after 8 s (AppFlow), so the user
+  // can sign in as ANOTHER account while it is in flight. A sign-in or a sign-out moves the session
+  // epoch (a rotation does not); once it moved, onSignedIn owns the session, and this boot sets no
+  // identity and starts nothing under it.
+  const bootEpoch = authSession.sessionEpoch();
+  const superseded = () => authSession.sessionEpoch() !== bootEpoch;
   try {
-    if (await authSession.bootstrap()) {
+    if (await authSession.bootstrap() && !superseded()) {
       const me = await apiGet<KokonadaUser>('/api/auth/me');
-      if (me.ok) currentUserStore.getState().setUser(me.data);
+      if (me.ok && !superseded()) currentUserStore.getState().setUser(me.data);
     }
   } catch {
     /* degrade to signed-out */
@@ -84,7 +96,8 @@ export async function startApp(): Promise<void> {
   await bootstrapApp({
     // A kept session with no recovered identity starts nothing: v1 shows SignIn for it, and a
     // socket opened under it is the one a sign-in as another account would inherit.
-    bootstrapSession: async () => authSession.getAccessToken() !== null && getCurrentUserId() !== null,
+    // RA-4/RA-3: nor does a boot whose session a sign-in or a sign-out replaced meanwhile.
+    bootstrapSession: async () => !superseded() && authSession.getAccessToken() !== null && getCurrentUserId() !== null,
     getUserId: getCurrentUserId,
     connectSocket: () => playbackSocket.ensureConnected(),
     // H2: only a signed-in account whose Spotify link the server confirms now (fail closed).

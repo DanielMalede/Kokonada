@@ -77,6 +77,13 @@ export class AuthSession {
     return this.tokens !== null;
   }
 
+  // RA-4: which session this is. It moves when a session is installed (setSession) or ended (a dead
+  // refresh, clear()), never on a rotation: a caller that read it before an await can tell whether a
+  // sign-in or a sign-out landed meanwhile.
+  sessionEpoch(): number {
+    return this.epoch;
+  }
+
   // Listen for the session ending. Returns the unsubscribe.
   subscribe(listener: (event: SessionEvent) => void): () => void {
     this.listeners.add(listener);
