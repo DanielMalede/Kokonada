@@ -116,32 +116,35 @@ describe('bundleLab', () => {
   // the lab source set's assets (android/app/src/lab/assets, merged into the lab build type alone), copied from
   // assets/fonts by every run after the wipe of what the previous run left.
   describe('the fonts', () => {
-    const TTF = (name: string) => Buffer.concat([Buffer.from([0x00, 0x01, 0x00, 0x00]), Buffer.from(`${name} fixture`)]);
+    // Every fixture's file name is built from its face id: fontLicence.test.ts (HX-8) reads each literal font file name
+    // in tracked code as a font the app loads, and these are temporary files, never fonts the repository holds.
+    const file = (id: string, ext = 'ttf') => `${id}.${ext}`;
+    const TTF = (id: string) => Buffer.concat([Buffer.from([0x00, 0x01, 0x00, 0x00]), Buffer.from(`${id} fixture`)]);
     const LAB_FONTS = 'android/app/src/lab/assets/fonts';
     const run = (a: ReturnType<typeof app>, hbc: Buffer = HBC) => bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p });
 
     it('copies each .ttf of assets/fonts byte for byte into the lab assets, where the lab APK carries fonts/<family>.ttf, and nothing else', async () => {
       const a = app();
-      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
-      a.write('assets/fonts/Bellefair-Regular.ttf', TTF('Bellefair-Regular'));
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
+      a.write(`assets/fonts/${file('Bellefair-Regular')}`, TTF('Bellefair-Regular'));
       a.write('assets/fonts/OFL-Heebo.txt', 'the licence');
       a.write('assets/fonts/README.md', '# fonts');
-      a.write('assets/fonts/Heebo-Bold.otf', 'not a .ttf');
-      a.write('assets/fonts/notes.ttf/inside.txt', 'a folder, not a font');
+      a.write(`assets/fonts/${file('Heebo-Bold', 'otf')}`, 'not a .ttf');
+      a.write(`assets/fonts/${file('notes')}/inside.txt`, 'a folder, not a font');
       const result = await run(a);
-      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS)).sort()).toEqual(['Bellefair-Regular.ttf', 'Heebo-Regular.ttf']);
-      expect(a.read(`${LAB_FONTS}/Heebo-Regular.ttf`).equals(TTF('Heebo-Regular'))).toBe(true);
-      expect(a.read(`${LAB_FONTS}/Bellefair-Regular.ttf`).equals(TTF('Bellefair-Regular'))).toBe(true);
-      expect(result.fonts).toEqual(['Bellefair-Regular.ttf', 'Heebo-Regular.ttf']);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS)).sort()).toEqual([file('Bellefair-Regular'), file('Heebo-Regular')]);
+      expect(a.read(`${LAB_FONTS}/${file('Heebo-Regular')}`).equals(TTF('Heebo-Regular'))).toBe(true);
+      expect(a.read(`${LAB_FONTS}/${file('Bellefair-Regular')}`).equals(TTF('Bellefair-Regular'))).toBe(true);
+      expect(result.fonts).toEqual([file('Bellefair-Regular'), file('Heebo-Regular')]);
       expect(a.exists('android/app/src/lab/assets/index.android.bundle')).toBe(true); // the wipe did not take the bundle with it
     });
 
     it('copies after the wipe: a face a previous run copied, since removed from assets/fonts, does not ride along', async () => {
       const a = app();
-      a.write(`${LAB_FONTS}/Removed-Face.ttf`, TTF('Removed-Face'));
-      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
+      a.write(`${LAB_FONTS}/${file('Removed-Face')}`, TTF('Removed-Face'));
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
       await run(a);
-      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS))).toEqual(['Heebo-Regular.ttf']);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS))).toEqual([file('Heebo-Regular')]);
     });
 
     it.each([
@@ -157,7 +160,7 @@ describe('bundleLab', () => {
 
     it('leaves no font behind when the bundle is refused, as it leaves no bundle', async () => {
       const a = app();
-      a.write('assets/fonts/Heebo-Regular.ttf', TTF('Heebo-Regular'));
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
       await expect(run(a, Buffer.from(`var x = "${SENTINEL}"`))).rejects.toThrow(/Hermes/);
       expect(a.exists(LAB_FONTS)).toBe(false);
     });
