@@ -1306,6 +1306,14 @@ describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Check
     expect(PAGE_MD).not.toContain('For a batch PR, G13 reads a G1 entry');
   });
 
+  // RA-24: after the cutover, what a merged PR left NOT VERIFIED on the phone is re-run before each release, or listed.
+  test('after the cutover, the pass before each release re-runs stale G11P items and open item-7 rows, the report lists the rest; G12F\'s emulator part is defined', () => {
+    const RELEASE = 'After the cutover, the real-phone pass before each release re-runs every G11P item a merged PR made stale and every open row of G11P item 7, and the release report lists any still open as NOT VERIFIED (DEC-192 ruling 7).';
+    has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '', RELEASE);
+    has(BATCH.split('\n').find((l) => l.startsWith('- G11P,')) || '', RELEASE);
+    has(BATCH.split('\n').find((l) => l.startsWith('- G12F.')) || '', 'G12F\'s emulator part, which a PR on a page in navigation re-checks (IN NAVIGATION), is G12F on the G11e manifest plus the static 16 KB check, without the G11P manifest.');
+  });
+
   // ARCH-307-21 = RA-30, option A (the orchestrator's pick, put to the owner under class (a)): evidence that needs
   // sign-in runs against a local evidence backend with seeded accounts and fake grants, never production.
   test('signed-in evidence runs against a local evidence backend, never production; until it exists, no signed-in capture on an emulator', rowPin((tasks) => {
