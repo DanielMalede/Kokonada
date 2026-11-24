@@ -747,7 +747,7 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
       '(1) field, ring, dither and never-red on P2 and P10',
       '(2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling',
       '(3) the 50-transition leak loop', '(4) a 10-minute soak',
-      '(5) BLE heart rate, a Health Connect read on my existing consent grant (DEC-192 ruling 8: no new grant until the final text), Google sign-in on the release client, and the Spotify temporary path',
+      '(5) BLE heart rate, a Health Connect read on my existing consent grant, which I hold (DEC-192 ruling 11; ruling 8, as ruling 10 scopes it: no new grant in production until the final text), Google sign-in on the release client, and the Spotify temporary path',
       '(6) deep link, predictive back and a cold start of 1000 ms or less', 'G12F');
   });
 
@@ -1075,9 +1075,26 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
     expect(text()).not.toMatch(/G11e, G11P, G12e/);
   });
 
-  test('ruling 8 in /page G11P and /device-qa: no evidence run creates a consent grant; the phone reads Health Connect on his existing grant', () => {
-    has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', '(5) BLE heart rate, a Health Connect read on my existing consent grant (DEC-192 ruling 8: no new grant until the final text)');
-    has(read('.claude/commands/device-qa.md'), 'No evidence run creates a consent grant: until the final consent text, nobody records a new grant (DEC-192 ruling 8; `OPS-502` enforces it in code), and the v1 text is not approved. The owner\'s real-phone pass reads Health Connect on his existing grant.');
+  // Rulings 10 and 11: ruling 8 binds production, a local evidence backend may hold seeded fake grants for test
+  // accounts, and the owner's phone reads Health Connect on the grant he states he holds.
+  test('rulings 8, 10 and 11 in /page G11P and /device-qa: no new grant in production; seeded fake grants on a local backend; the phone reads on his grant', () => {
+    has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', '(5) BLE heart rate, a Health Connect read on my existing consent grant, which I hold (DEC-192 ruling 11; ruling 8, as ruling 10 scopes it: no new grant in production until the final text)');
+    has(read('.claude/commands/device-qa.md').split('\n')[6] || '',
+      'No new consent grant is recorded in production until the final consent text (M4; DEC-192 ruling 8, as ruling 10 scopes it), so no evidence run creates one there, and the v1 text is not approved.',
+      'Nothing in code holds this rule yet: the consent route records any grant (`backend/app/services/privacy/consent.js:41-55`), and whether code will hold it is `OPS-502`, open.',
+      'On a local evidence backend, seeded fake grants for test accounts are allowed, and so are the grants automated tests record (ruling 10).',
+      'The owner\'s real-phone pass reads Health Connect on his existing grant, which he states he holds (ruling 11).');
+    has(DEC192, '- Rulings 10 and 11: `/device-qa`\'s consent line and `/page` G11P item 5');
+  });
+
+  // ARCH-307-20 = RA-28(a) = SA-13: nothing in code holds ruling 8 while `OPS-502` is open (the consent route records
+  // any grant), so no text may say that code does.
+  test('while OPS-502 is open, neither /device-qa nor DEC-192 says that code holds ruling 8', () => {
+    const open = TASKS_MD.split('\n').some((l) => l.startsWith('- [ ] `OPS-502`'));
+    for (const [name, text] of [['device-qa.md', read('.claude/commands/device-qa.md')], ['DEC-192.md', DEC192]]) {
+      expect([name, open && /enforces it in code|`OPS-502` is the code|`OPS-502` \(ruling 8 in code\)/.test(text)]).toEqual([name, false]);
+    }
+    expect(read('backend/app/services/privacy/consent.js').split('\n')[40]).toMatch(/^async function recordConsent\(/);
   });
 
   // RA-20, ARCH-307-13: the orchestrator's picks shape instruction-layer text, which is the owner's (class (a)), so they
