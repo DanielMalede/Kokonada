@@ -1022,6 +1022,42 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
     has(read('.claude/commands/device-qa.md'), 'No evidence run creates a consent grant: until the final consent text, nobody records a new grant (DEC-192 ruling 8; `OPS-502` enforces it in code), and the v1 text is not approved. The owner\'s real-phone pass reads Health Connect on his existing grant.');
   });
 
+  // RA-20, ARCH-307-13: the orchestrator's picks shape instruction-layer text, which is the owner's (class (a)), so they
+  // are not rulings under DEC-142. DEC-192 says so, and records each approver's position from the round-2 review.
+  test('DEC-192 labels the orchestrator\'s picks as put to the owner under class (a), with each approver\'s round-2 position', () => {
+    has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the review of #307 at `a8e88e5` (2026-11-24).',
+      'https://github.com/DanielMalede/Kokonada/pull/307#issuecomment-7132764682',
+      '`security-auditor` agrees with the RA-3 and SA-2 resolution and has no security objection to option A of ARCH-307-2 and ARCH-307-3',
+      '`architect` agrees with option A for ARCH-307-2 and ARCH-307-3, subject to ARCH-307-11 to ARCH-307-13',
+      '`resilience-auditor` accepts option A of ARCH-307-2 and of ARCH-307-3 and the RA-3 and SA-2 resolution, with RA-17 and `OPS-479` as residuals',
+      '`compliance-auditor` has no compliance objection to any of the three',
+      'RA-4 = ARCH-307-5, the never-from-an-emulator list');
+    expect(DEC192).not.toMatch(/The orchestrator's rulings under DEC-142 on the review|No agent's agreement is quoted here yet/);
+  });
+
+  test('DEC-192\'s stale lines follow the files: the push wording, PK\'s two waves in every round, OPS-479 named, the GitHub MCP denies', () => {
+    has(DEC192, 'no hook reminds the session, which runs PRE-MERGE (the whole of it before every merge; steps 3, 4 and 7 after a PR is opened and after every push to it); POST-MERGE after every merge',
+      'G5 and G4\'s co-signs in wave 2 of every round', '`mcp__github__merge_pull_request`', '`mcp__github__update_pull_request_branch`');
+    has(DEC192.split('\n').find((l) => l.startsWith('- TASKS rows named:')) || '', '`OPS-479`');
+    expect(DEC192).not.toMatch(/after every push to a PR it reads CI on the new head|in its second round/);
+  });
+
+  test('the plan\'s BATCH MODE note runs PK in two waves, and /vision-frame lets a batch start on its foundations', () => {
+    const plan = read('docs/plans/DESIGN_V2_PLAN.md').split('\n').find((l) => l.includes('(`BATCH MODE` ב-`.claude/commands/page.md`)')) || '';
+    has(plan, '`PK` רץ בשני גלים, עד שני סבבים');
+    expect(plan).not.toContain('סבב `PK` אחד');
+    has(read('.claude/commands/vision-frame.md'), 'No page starts in /page\'s single-page mode until Stage 0 is complete; a BATCH MODE batch starts on its foundations, as `/page` BATCH MODE\'s PRECONDITIONS say.');
+  });
+
+  // ARCH-307-14: the owner's class (a) approval of #307 covers a pick only if the question that asks for it names it.
+  test('OPS-483 names every pick the class (a) question must name', () => {
+    const lines = read('TASKS.md').split('\n');
+    const at = lines.findIndex((l) => l.startsWith('- [ ] `OPS-483`'));
+    const block = (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
+    has(block, '§ Checks step 3f', 'RA-3 and SA-2', 'PK in two waves', 'F1-B\'s three kinds of PR', 'the batch PR\'s PASS set', 'G8d counted',
+      'G11P per item', 'the never-from-an-emulator list');
+  });
+
   test('ruling 9 in /page: no page enters navigation while a regulated slot it renders holds a placeholder', () => {
     has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'No page enters navigation while a regulated slot it renders holds a placeholder: the held regulated-copy branch (F3-B) merges before the cutover PR or with it (DEC-192 ruling 9).');
   });
