@@ -79,3 +79,46 @@ describe('a sign-in failure is an AuthError of its status\'s kind, whatever its 
     setSession.mockRestore();
   });
 });
+
+// Security L2 (S2): the sign-out sent no refresh token, so the server never revoked the session's
+// refresh family (backend/app/controllers/authController.js `logout`: a presented refresh token takes
+// its whole rotation family down with it): a refresh token copied off the phone went on minting access
+// tokens after the sign-out. The logout carries the held refresh token, read before the local wipe.
+describe('a sign-out revokes the refresh family on the server (security L2)', () => {
+  const signOutThroughProfile = async (pair: { access: string; refresh: string }) => {
+    jest.doMock('../experience/playback/playbackServices', () => ({
+      player: { dispose: jest.fn(async () => {}) },
+      kokoSocket: { disconnect: jest.fn() },
+      orchestrator: { clear: jest.fn(), resume: jest.fn() },
+    }));
+    let profile: any;
+    let session: any;
+    jest.isolateModules(() => {
+      profile = require('../experience/profile/profileServices');
+      session = require('../auth/session');
+    });
+    await session.authSession.setSession(pair);
+    const sent: Array<{ method: string; path: string; body: unknown; heldAtSend: boolean }> = [];
+    (globalThis as any).fetch = jest.fn(async (url: string, init: { method?: string; body?: string } = {}) => {
+      const path = String(url).replace(/^https?:\/\/[^/]+/, '').split('?')[0];
+      sent.push({ method: init.method ?? 'GET', path, body: init.body ? JSON.parse(init.body) : undefined, heldAtSend: session.authSession.hasSession() });
+      return { ok: true, status: 200, json: async () => ({ message: 'Logged out successfully' }) };
+    });
+    await profile.profileController.logout();
+    jest.dontMock('../experience/playback/playbackServices');
+    return { logout: sent.find((r) => r.method === 'POST' && r.path === '/api/auth/logout'), session: session.authSession };
+  };
+
+  it('POST /api/auth/logout carries the held refresh token, sent while the session is still held, and the session is cleared after it', async () => {
+    const { logout, session } = await signOutThroughProfile({ access: 'acc-1', refresh: 'krt-1' });
+    expect(logout?.body).toEqual({ refreshToken: 'krt-1' });
+    expect(logout?.heldAtSend).toBe(true);
+    expect(session.hasSession()).toBe(false);
+  });
+
+  it('an access-only session (no refresh token) sends no refresh token field', async () => {
+    const { logout } = await signOutThroughProfile({ access: 'acc-only', refresh: '' });
+    expect(logout).toBeDefined();
+    expect(logout?.body).toBeUndefined();
+  });
+});

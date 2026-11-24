@@ -119,6 +119,12 @@ export class AuthSession {
     return this.tokens !== null;
   }
 
+  // Security L2: the sign-out hands the held refresh token to POST /api/auth/logout, which revokes its
+  // whole family on the server. Null for an access-only session, and once the session has ended.
+  getRefreshToken(): string | null {
+    return this.tokens?.refresh || null;
+  }
+
   // RA-4: which session this is. It moves when a session is installed (setSession) or ended (a dead
   // refresh, clear()), never on a rotation: a caller that read it before an await can tell whether a
   // sign-in or a sign-out landed meanwhile.
