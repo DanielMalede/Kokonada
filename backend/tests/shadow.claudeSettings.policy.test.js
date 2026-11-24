@@ -95,6 +95,30 @@ describe('shadow: denies that must not depend on `*` matching nothing (RED at 1f
   }
 });
 
+// CU307-3 (#307): the nine pushes to main of claudeSettings.policy.test.js's H-5 block, under the strict reading. There
+// a starred deny such as `git *push * main *` matches with an empty `*` and can stand in for a missing
+// `git push * main *`; here every `*` needs a character, so each push must meet a deny that holds without that.
+describe('shadow: every push to main is denied under the strict reading too (CU307-3)', () => {
+  const pushesToMain = [
+    'git push -u origin main',
+    'git push -u origin main --no-verify',
+    'git push -u origin main --follow-tags',
+    'git push upstream main -q',
+    'git push origin -d main -q',
+    'git push -u origin main 2>&1',
+    'git -C wt push -u origin main --no-verify',
+    'git push origin +feat/x',
+    'git push origin HEAD:refs/heads/main',
+  ];
+  for (const tool of ['Bash', 'PowerShell']) {
+    for (const cmd of pushesToMain) {
+      it(`${tool}: denied under the strict reading: ${cmd}`, () => {
+        expect(decide(cmd, tool, true)).toBe('deny');
+      });
+    }
+  }
+});
+
 describe('shadow: allowed commands with an escape hatch (RED at 1f88913)', () => {
   const gaps = [
     'git diff --output=/tmp/x HEAD', // writes any file, .claude/settings.json included
