@@ -692,7 +692,7 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
   });
 
   test('G13: a batch PR is lab-only; the cutover PR needs fresh records, my review and my (c); G14 after the cutover; rounds per batch', () => {
-    has(BATCH, 'A batch PR is lab-only by § Checks step 8c\'s test in `.claude/commands/merge.md`: its head is `design/v2-b<k>`, and it changes no navigation file, not `App.tsx` and no path of row J12 or J18, and fires no T11 (no regulated copy).',
+    has(BATCH, 'A batch PR is lab-only by § Checks step 8c\'s test in `.claude/commands/merge.md`: its head is `design/v2-b<k>`, it changes no navigation file, not `App.tsx` and no path of row J12 or J18, it fires no T11 (no regulated copy), and the `src/pages` boundary guard (`OPS-506`) passes at its head: the import graph from `App.tsx` reaches no batch page entry outside the Design Lab route, proven on a planted import; until that guard exists, no PR is lab-only.',
       'one `page-record <Pn>: PASS @ <H>` line per page of its batch from its batch record (row J15)', 'The cutover PR',
       'my review and my class (c) approval', 'G14. After the cutover.', 'A review round counts per batch');
   });
@@ -738,7 +738,7 @@ describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-
   });
 
   test('§ Checks 8c holds the lab-only test, and a batch branch\'s PR that fails it is read as entering navigation', () => {
-    has(sub8('c'), 'A PR is a lab-only batch PR only when its head branch (`headRefName`, step 1) is `design/v2-b<k>`, it changes no `mobile/KokonadaHealth/src/navigation/**` file and not `mobile/KokonadaHealth/App.tsx`, no path of row J12 or J18, and its changed lines fire no T11; a batch branch\'s PR that fails this test is kind (1) for every page of its batch.',
+    has(sub8('c'), 'A PR is a lab-only batch PR only when its head branch (`headRefName`, step 1) is `design/v2-b<k>`, it changes no `mobile/KokonadaHealth/src/navigation/**` file and not `mobile/KokonadaHealth/App.tsx`, no path of row J12 or J18, its changed lines fire no T11, and the `src/pages` boundary guard (`OPS-506`) passes at H: the import graph from `mobile/KokonadaHealth/App.tsx` reaches no batch page entry outside the Design Lab route, proven on a planted import; until that guard exists, no PR is a lab-only batch PR. A batch branch\'s PR that fails this test is kind (1) for every page of its batch.',
       'read from its batch record at H, by the set /page BATCH MODE\'s G13 gives a batch PR.');
   });
 
@@ -1093,5 +1093,46 @@ describe('#307 round 3 · the rows #307 meets say so (RA-18)', () => {
   ])('%s carries a "met by #307" line, and the case it cites as its pin exists', (id, where, file, title) => {
     has(rowBlock(id), `met by #307 at ${where}, pinned at \`${file}\``, `"${title}"`, 'closes when #307 merges');
     expect(read(file)).toContain(`'${title}'`);
+  });
+});
+
+// The rows the round-2 review of #307 at cc02d99 left (item 13 of round 3): each finding has its row, and the rows it
+// extends carry an update line for it.
+describe('#307 round 3 · every finding of the round-2 review that #307 does not fix has its row', () => {
+  const rowOf = (id) => {
+    const lines = read('TASKS.md').split('\n');
+    const at = lines.findIndex((l) => l.startsWith(`- [ ] \`${id}\``));
+    return (at < 0 ? [] : lines.slice(at, at + 1 + lines.slice(at + 1).findIndex((l) => !l.startsWith('  ')))).join('\n');
+  };
+  test.each([
+    ['OPS-506', 'ARCH-307-12'], ['OPS-507', 'ARCH-307-15'], ['OPS-508', 'ARCH-307-17'], ['OPS-509', 'CA307-3'], ['OPS-510', 'CA307-4'],
+    ['OPS-511', 'CA307-5'], ['OPS-512', 'CA307-7'], ['OPS-513', 'CA307-8'], ['OPS-514', 'regulatory-researcher'], ['OPS-515', 'RA-22'],
+  ])('%s is the open row for %s, from the review at cc02d99', (id, finding) => {
+    has(rowOf(id), finding, 'the review of #307 at `cc02d99`');
+  });
+
+  test.each([
+    ['OPS-478', 'ARCH-307-17', 'G8d', 'the authoring-entry ancestry test'],
+    ['OPS-036', 'ARCH-307-17', '`OPS-508`'],
+    ['OPS-489', 'ARCH-307-18', '`docs/plans/DESIGN_V2_PLAN.md:160`', '`:173`', '`:223`', '`:225`', '`:226`'],
+    ['OPS-499', 'ARCH-307-15 (d)', '`OPS-507`'],
+    ['OPS-498', 'RA-12'],
+    ['OPS-482', 'RA-13'],
+  ])('%s carries an update line from the review at cc02d99 for %s', (id, finding, ...more) => {
+    const update = rowOf(id).split('\n').find((l) => l.includes('the review of #307 at `cc02d99`') && l.includes(finding)) || '';
+    has(update, '**update 2026-11-24', ...more);
+  });
+
+  test('the header gives the next free OPS id above the rows, and names them as #307\'s', () => {
+    const header = read('TASKS.md').split('\n').find((l) => l.startsWith('**Next free IDs:**')) || '';
+    has(header, '`OPS-516`', 'and `OPS-500`–`515` from its review at `cc02d99`');
+    expect(TASK_IDS.has('OPS-516')).toBe(false);
+  });
+
+  // ARCH-307-12: "lab-only" holds only while nothing in navigation can reach a batch page, so it is 8c's test plus the guard.
+  test('lab-only is § Checks 8c\'s test plus the src/pages boundary guard, in 8c and in /page G13, and the guard is a row', () => {
+    has(sub8('c'), 'and the `src/pages` boundary guard (`OPS-506`) passes at H:', 'until that guard exists, no PR is a lab-only batch PR.');
+    has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '', 'and the `src/pages` boundary guard (`OPS-506`) passes at its head:', 'until that guard exists, no PR is lab-only.');
+    expect(TASK_IDS.has('OPS-506')).toBe(true);
   });
 });
