@@ -32,14 +32,23 @@ async function exchange(path: string, body: Record<string, unknown>): Promise<{ 
     throw new AuthError('network', e?.message ?? 'Network request failed');
   }
   if (!res.ok) {
-    const failed = await res.json().catch(() => ({}));
-    throw new AuthError(authErrorKindForStatus(res.status), failed.error || `Auth failed (${res.status})`);
+    // RA-11: the kind comes from the status whatever the body is (JSON null, a string, HTML).
+    const failed: unknown = await res.json().catch(() => null);
+    const serverText = (failed as { error?: unknown } | null)?.error;
+    throw new AuthError(authErrorKindForStatus(res.status), (typeof serverText === 'string' && serverText) || `Auth failed (${res.status})`);
   }
+  let answer: unknown;
   try {
-    return await res.json();
+    answer = await res.json();
   } catch (e: any) {
     throw new AuthError('unknown', e?.message ?? 'Unreadable sign-in response');
   }
+  // RA-11: a 200 that names no account is no sign-in, so nothing is installed for it.
+  const user = (answer as { user?: { id?: unknown } } | null)?.user;
+  if (!user || typeof user !== 'object' || typeof user.id !== 'string' || !user.id) {
+    throw new AuthError('unknown', 'Sign-in returned no account');
+  }
+  return answer as { token?: string; refreshToken?: string; user: KokonadaUser };
 }
 
 export interface KokonadaUser {

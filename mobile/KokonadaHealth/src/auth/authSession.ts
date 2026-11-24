@@ -22,6 +22,22 @@ export type RefreshOutcome =
 export type SessionEndReason = 'dead' | 'cleared';
 export interface SessionEvent { type: 'ended'; reason: SessionEndReason }
 
+const isToken = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+// RA-11: whatever the endpoint hands back, refresh() reads a verdict it can use, or `unavailable` —
+// never a throw (refresh() promises never to reject), and never a malformed `ok` installed as the
+// live session.
+function readOutcome(answer: unknown): RefreshOutcome {
+  const a = answer as { kind?: unknown; tokens?: { access?: unknown; refresh?: unknown } } | null | undefined;
+  if (a?.kind === 'dead') return { kind: 'dead' };
+  if (a?.kind === 'ok') {
+    const access = a.tokens?.access;
+    const refresh = a.tokens?.refresh;
+    if (isToken(access) && isToken(refresh)) return { kind: 'ok', tokens: { access, refresh } };
+  }
+  return { kind: 'unavailable' };
+}
+
 export interface AuthSessionDeps {
   loadTokens: () => Promise<TokenPair | null>;
   saveTokens: (t: TokenPair) => Promise<void>;
@@ -92,7 +108,7 @@ export class AuthSession {
   private async rotate(refreshToken: string, epoch: number): Promise<string | null> {
     let outcome: RefreshOutcome;
     try {
-      outcome = await this.deps.refreshEndpoint(refreshToken);
+      outcome = readOutcome(await this.deps.refreshEndpoint(refreshToken));
     } catch {
       outcome = { kind: 'unavailable' }; // a throw is not the server's verdict
     }
