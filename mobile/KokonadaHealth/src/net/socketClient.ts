@@ -388,6 +388,15 @@ export class KokonadaSocket {
     this.recovery = null;
     this.needsRefresh = false;
     this.closedByUser = true;
+    // RA-5 = MB-016: a disconnect() is the account boundary. An unanswered request belongs to the
+    // session that sent it (a heart request carries its heart rate), so the next connect re-sends
+    // nothing and a late reply to it is dropped by the gate. reqCounter is NOT reset: reqIds never
+    // repeat, so no reply of the old session can pass for a request of the next one.
+    this.pending = null;
+    this.latestReqId = 0;
+    this.buildingRetries = 0;
+    this.authFailures = 0; // one account's auth storm never spends the next account's refresh budget
+    this.lastAuthExpiredAt = -Infinity;
     this.clearBuildingTimer(); // no building retry may outlive a manual close (D-6)
     this.teardown();          // late events after a manual close are inert
     this.socket?.disconnect();

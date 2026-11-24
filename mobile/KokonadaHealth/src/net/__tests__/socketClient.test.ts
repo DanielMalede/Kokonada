@@ -476,6 +476,33 @@ describe('KokonadaSocket — disconnect() is terminal', () => {
     created[0].fire('disconnect', 'transport close');
     expect(created.length).toBe(n); // no reconnect after an intentional close
   });
+
+  // RA-5 = MB-016: a disconnect() is the account boundary, so the request state ends with it.
+  it('ends the pending heart request and the reqId gate: the next connect re-sends nothing, and a late reply is dropped', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const reqA = client.requestHeartPlaylist(88);
+    client.disconnect();
+    client.connect();
+    expect(created[1].clientEmits('request_heart_playlist')).toEqual([]);
+    created[1].fire('playlist_ready', { reqId: reqA, tracks: ['late'] });
+    expect(deps.onPlaylist).not.toHaveBeenCalled();
+  });
+
+  // The auth-refresh cap counts one account's storm: the next account starts with its own budget.
+  it('ends the auth-refresh window: a storm that hit the cap before the close does not stop the next session\'s first refresh', async () => {
+    const { client, created, deps } = build({ refreshToken: jest.fn(async () => 'access-fresh'), isSessionActive: () => true, maxAuthRefreshes: 2, now: () => 0 });
+    client.connect();
+    for (let i = 0; i < 3; i++) { created[created.length - 1].fire('auth_expired'); await flush(); } // the third is over the cap
+    expect(created).toHaveLength(3);
+    client.disconnect();
+    client.connect();
+    const opened = created.length;
+    created[opened - 1].fire('auth_expired');
+    await flush();
+    expect(created).toHaveLength(opened + 1); // refreshed and reopened, not capped
+    expect(deps.refreshToken).toHaveBeenCalledTimes(3);
+  });
 });
 
 // RA-45 (S0, QA-096, trigger T1) and RA-47 (S3), the B1 QA brief: babel strips no console call, so

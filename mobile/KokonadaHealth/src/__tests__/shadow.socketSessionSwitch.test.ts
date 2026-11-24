@@ -57,4 +57,33 @@ describe('the app socket across a sign-out and a sign-in as another account', ()
     expect(onLoggedOut).not.toHaveBeenCalled();
     expect(() => server.assertNoLiveListeners({ except: [server.sockets[1]] })).not.toThrow();
   });
+
+  // RA-5 (S0) = MB-016: disconnect() kept `pending` and `latestReqId`, so B's first connect re-sent A's
+  // heart request, A's heart rate in it, and the server would answer, and store it, for B (BE-017).
+  it('A\'s unanswered heart request is never re-sent on B\'s socket, A\'s heart rate never leaves on it, and a late reply to it is dropped', () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-a', 'tok-b'] });
+    const { sock, account, onPlaylist } = appSocket(server);
+    sock.connect();
+    server.flush();
+    const reqA = sock.requestHeartPlaylist(88); // the server has not answered A yet
+    expect(server.receivedOn('request_heart_playlist', server.sockets[0])).toEqual([{ reqId: reqA, heartRate: 88 }]);
+
+    sock.disconnect(); // A signs out
+    account.token = 'tok-b'; // B signs in
+    sock.connect();
+    server.flush();
+    const onB = server.received.filter((p) => p.socket === server.sockets[1]);
+    expect(onB.map((p) => p.event)).not.toContain('request_heart_playlist');
+    expect(JSON.stringify(onB.map((p) => p.payload))).not.toContain('88');
+
+    server.send('playlist_ready', { reqId: reqA, tracks: [{ id: 'for-a' }] }, server.sockets[1]);
+    server.deliver();
+    expect(onPlaylist).not.toHaveBeenCalled();
+
+    const reqB = sock.requestPlaylist(); // B's own request is answered as before
+    expect(reqB).toBeGreaterThan(reqA); // reqIds never repeat, so no reply of A's can pass for B's
+    server.send('playlist_ready', { reqId: reqB, tracks: [] }, server.sockets[1]);
+    server.deliver();
+    expect(onPlaylist).toHaveBeenCalledTimes(1);
+  });
 });
