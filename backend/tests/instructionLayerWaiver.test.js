@@ -905,3 +905,39 @@ describe('DEC-192 · F4: the merge checks run as a script only once the merge ru
     expect(CHECKS_TEXT).not.toMatch(/When `scripts\/merge-check\/` exists on main, the session runs it/);
   });
 });
+
+// DEC-192, the owner's rulings of 2026-11-24: option selections in the session that fixed the round-2 review of #307
+// at cc02d99. Each is quoted with its question in DEC-192.md, indexed in DECISIONS.md, and written where it binds.
+const DEC192 = read('docs/design-v2/decisions/DEC-192.md');
+const DECISIONS = read('docs/design-v2/DECISIONS.md');
+const decRow = (id) => DECISIONS.split('\n').find((l) => l.startsWith(`| [${id}](decisions/${id}.md) |`)) || '';
+const TASK_IDS = new Set([...read('TASKS.md').matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
+
+describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and written where they bind', () => {
+  // CA307-2: DEC-097 made every open HALT on a page's surface block its G1; seventeen are open.
+  test('ruling 6: the HALT closure, quoted with its question and dated, refines DEC-097, and the index carries it', () => {
+    has(DEC192, '- question: "ב־29 בספטמבר פסקת שכל עצירה פתוחה (HALT) על שטח של דף חוסמת את שער G1 שלו (DEC-097). עדיין פתוחות 17 עצירות, וחלקן תלויות בעבודה על נתוני הפרודקשן ובאירוח מדיניות הפרטיות. בלי שינוי הן חוסמות את הדפים של B1 ושל B2 למשך שבועות. איך ממשיכים?"',
+      '- selected option: "סגירה חלקית והשאר במעבר (מומלץ)"', '## The owner\'s rulings of 2026-11-24, by option selection',
+      '6. The HALT closure (2026-11-24; refines DEC-097).', '`CMP-008`', '`CMP-021`', '`OPS-501`');
+    has(DEC192.split('\n').find((l) => l.startsWith('- refines:')) || '', 'DEC-143 (merges)', 'DEC-155 (the merge rule)', 'DEC-097 (the HALT closure, ruling 6)');
+    expect(TASK_IDS.has('OPS-501')).toBe(true);
+    has(decRow('DEC-192'), 'ruling 6 (2026-11-24): a lab-only batch passes G1 with its open HALTs listed per page, closed by the cutover (refines DEC-097)');
+    has(decRow('DEC-097'), '(refined 2026-11-24 by DEC-192 ruling 6:');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-192**')) || '', '"סגירה חלקית והשאר במעבר (מומלץ)" (ruling 6, the HALT closure)');
+  });
+
+  test('ruling 6 in /page: a lab-only batch passes G1 with its open HALTs listed per page, and they close by the cutover', () => {
+    const g1 = BATCH.split('\n').find((l) => l.startsWith('- G1\'s HALTs (DEC-192 ruling 6, refining DEC-097).')) || '';
+    has(g1, 'A HALT whose fix is already on main closes on DEC-101\'s evidence when compliance-auditor re-issues its status (`OPS-501`: `CMP-008`, `CMP-021`).',
+      'A lab-only batch passes G1 with every other HALT open on a page\'s surfaces listed under that page in the batch\'s gates.json, and the list binds at the cutover: the cutover PR\'s G1 refresh and G12F pass only when each listed HALT is closed, before anyone but me receives a build.',
+      'A HALT whose proof needs a hop on G11P\'s list closes at G11P, on my phone, before any build reaches anyone else.',
+      'While a HALT is open, nothing goes to a store submission or a provider review, and no release build reaches anyone but me (the HALT legend, `docs/design-v2/registry/INDEX.md`, unchanged).',
+      'For a batch PR, G13 reads a G1 entry as passing when its only HALTs are on that list.');
+    has(PAGE_LINES.find((l) => l.startsWith('G1 Constraint brief')) || '', 'Exit: no HALT open on the page\'s surfaces. A HALT stops the page, except in BATCH MODE, where a lab-only batch passes G1 with its open HALTs listed (G1\'s HALTs, DEC-192 ruling 6).');
+  });
+
+  test('ruling 6 in /device-qa: a HALT proof that needs a hop on G11P\'s list closes at G11P, on his phone', () => {
+    has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '',
+      'A HALT whose proof needs a hop on G11P\'s list closes at G11P, on his phone, before any build reaches anyone else (DEC-192 ruling 6).');
+  });
+});
