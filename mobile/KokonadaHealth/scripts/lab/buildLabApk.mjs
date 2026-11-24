@@ -257,6 +257,29 @@ export function gradleSpawn({ cwd, args, env = {} }, platform = process.platform
   return ['cmd.exe', ['/d', '/s', '/c', `""${wrapper}" ${args.join(' ')}"`], { ...options, windowsVerbatimArguments: true }];
 }
 
+/**
+ * The one signer certificate in `apksigner verify --print-certs` output. Each version names its signers its own way:
+ * up to build-tools 36.0.0 "Signer #1 certificate DN: ...", from 37.0.0 "V2 Signer: certificate DN: ..." (by scheme).
+ * So every "<signer> certificate DN" and "<signer> certificate SHA-256 digest" pair counts, whatever the signer is called,
+ * and all of them must be one certificate: the lab is signed by one key alone.
+ * @param {string} output
+ * @returns {{ dn: string, sha256: string }}
+ */
+export function apkSignerCertificate(output) {
+  const signers = new Map();
+  for (const line of output.split(/\r?\n/)) {
+    const m = /^(.+?) certificate (DN|SHA-256 digest): (.+)$/.exec(line.trim());
+    if (m) signers.set(m[1], { ...signers.get(m[1]), [m[2] === 'DN' ? 'dn' : 'sha256']: m[3].trim() });
+  }
+  const certs = [...signers.values()];
+  if (certs.length === 0 || certs.some((c) => !c.dn || !/^[0-9a-f]{64}$/.test(c.sha256 ?? ''))) {
+    throw new Error('apksigner printed no signer certificate (a DN and its SHA-256 digest)');
+  }
+  const distinct = [...new Set(certs.map((c) => `${c.dn} (sha256 ${c.sha256})`))];
+  if (distinct.length > 1) throw new Error(`the APK is signed by more than one certificate: ${distinct.join('; ')}`);
+  return { dn: certs[0].dn, sha256: certs[0].sha256 };
+}
+
 // apksigner from the Android SDK that android/local.properties names (or ANDROID_HOME), newest build-tools.
 function apksignerCommand(appRoot, args) {
   const props = path.join(appRoot, 'android/local.properties');
@@ -297,11 +320,7 @@ function realTools(appRoot) {
     signer: {
       apkCertificate: (apk) => {
         const [command, args] = apksignerCommand(appRoot, ['verify', '--print-certs', apk]);
-        const out = run(command, args);
-        const dn = /Signer #1 certificate DN: (.*)/.exec(out);
-        const digest = /Signer #1 certificate SHA-256 digest: ([0-9a-f]+)/.exec(out);
-        if (!dn || !digest) throw new Error(`apksigner printed no signer for ${apk}`);
-        return { dn: dn[1].trim(), sha256: digest[1] };
+        return apkSignerCertificate(run(command, args));
       },
       // The standard debug keystore's public password; this reads the certificate, not the key.
       keystoreCertificate: (keystore) => {

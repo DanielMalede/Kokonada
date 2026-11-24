@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { bundleLab } from '../bundleLab.mjs';
-import { buildLabApk, gradleSpawn, nativeJobPoolsInitScript, parseBuildArgs, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
+import { apkSignerCertificate, buildLabApk, gradleSpawn, nativeJobPoolsInitScript, parseBuildArgs, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
 import { Refused } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { zip } from '../__fixtures__/zipWriter';
@@ -322,6 +322,45 @@ describe('the command line of buildLabApk', () => {
     [['--jobs', '3'], /unknown argument: --jobs/],
   ])('refuses %j', (argv, why) => {
     expect(() => parseBuildArgs(argv)).toThrow(why);
+  });
+});
+
+// OPS-477's first real build: apksigner from build-tools 37.0.0 (installed 2026-11-23, and the newest, so the one the
+// route runs) names each signer by its scheme, where 35.0.0 and 36.0.0 number it, and the parser that knew only
+// "Signer #1" reported no signer for a correctly signed APK. The lines below are what each printed for that lab APK,
+// with the digests replaced.
+describe('the signer certificate apksigner prints', () => {
+  const DN = 'CN=Android Debug, O=Android, C=US';
+  const KEY = 'a'.repeat(64);
+  const OTHER = 'b'.repeat(64);
+  const lines = (prefix: string, sha256: string, dn = DN) => [
+    `${prefix} certificate DN: ${dn}`,
+    `${prefix} certificate SHA-256 digest: ${sha256}`,
+    `${prefix} certificate SHA-1 digest: ${'c'.repeat(40)}`,
+    `${prefix} certificate MD5 digest: ${'d'.repeat(32)}`,
+  ];
+  const out = (...blocks: string[][]) => `${blocks.flat().join('\r\n')}\r\n`;
+
+  it.each([
+    ['build-tools 36.0.0 (a numbered signer)', out(lines('Signer #1', KEY))],
+    ['build-tools 37.0.0 (a signer named by its scheme)', out(lines('V2 Signer:', KEY))],
+    ['one certificate under two schemes', out(lines('V2 Signer:', KEY), lines('V3.0 Signer:', KEY))],
+  ])('reads the one certificate from %s', (_label, text) => {
+    expect(apkSignerCertificate(text)).toEqual({ dn: DN, sha256: KEY });
+  });
+
+  it.each([
+    ['no output', ''],
+    ['no certificate line', 'WARNING: META-INF/x.txt not protected by signature.\r\n'],
+    ['a DN without its SHA-256 digest', `V2 Signer: certificate DN: ${DN}\r\n`],
+  ])('refuses %s', (_label, text) => {
+    expect(() => apkSignerCertificate(text)).toThrow(/apksigner printed no signer certificate/);
+  });
+
+  it('refuses an APK signed by more than one certificate, whatever the signers are called', () => {
+    expect(() => apkSignerCertificate(out(lines('Signer #1', KEY), lines('Signer #2', OTHER)))).toThrow(/more than one certificate/);
+    expect(() => apkSignerCertificate(out(lines('V2 Signer:', KEY), lines('V3.0 Signer:', OTHER)))).toThrow(/more than one certificate/);
+    expect(() => apkSignerCertificate(out(lines('V2 Signer:', KEY), lines('Source Stamp Signer:', OTHER, 'CN=Stamp')))).toThrow(/more than one certificate/);
   });
 });
 
