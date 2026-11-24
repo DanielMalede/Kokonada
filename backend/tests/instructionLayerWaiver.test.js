@@ -1031,7 +1031,7 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
       'A lab-only batch passes G1 with every other HALT open on a page\'s surfaces listed under that page in the batch\'s gates.json, and the list binds at the cutover: the cutover PR\'s G1 refresh and G12F pass only when each listed HALT is closed, before anyone but me receives a build.',
       'A HALT whose proof needs a hop on G11P\'s list closes at G11P, on my phone, before any build reaches anyone else.',
       'While a HALT is open, nothing goes to a store submission or a provider review, and no release build reaches anyone but me (the HALT legend, `docs/design-v2/registry/INDEX.md`, unchanged).',
-      'For a batch PR, G13 reads a G1 entry as passing when its only HALTs are on that list.');
+      'For a lab-only batch PR, G13 reads a G1 entry as passing when its only HALTs are on that list.');
     has(PAGE_LINES.find((l) => l.startsWith('G1 Constraint brief')) || '', 'Exit: no HALT open on the page\'s surfaces. A HALT stops the page, except in BATCH MODE, where a lab-only batch passes G1 with its open HALTs listed (G1\'s HALTs, DEC-192 ruling 6).');
   });
 
@@ -1298,6 +1298,14 @@ describe('#307 round 3 · every finding of the round-2 review that #307 does not
 
 // The fix of the review of #307 at a196ce4 (round 4): the evidence runbook, the page pipeline and the merge checks.
 describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Checks', () => {
+  // RA-29: the single-page mode's HALT rules name BATCH MODE's exception, so they never contradict ruling 6.
+  test('the HALT rules of the single-page mode name the BATCH MODE exception, and G1\'s HALTs give it to a lab-only batch PR only', () => {
+    has(BATCH.split('\n').find((l) => l.startsWith('- G1\'s HALTs')) || '', 'For a lab-only batch PR, G13 reads a G1 entry as passing when its only HALTs are on that list.');
+    has(PAGE_LINES.find((l) => l.startsWith('- A HALT is terminal until resolved')) || '', 'A HALT is terminal until resolved, except in BATCH MODE, where a lab-only batch passes G1 with its open HALTs listed per page, each closed by the cutover (G1\'s HALTs, DEC-192 ruling 6).');
+    has(PAGE_LINES.find((l) => l.startsWith('REPORT after each gate')) || '', 'every HALT, except one that a lab-only batch lists at G1 (BATCH MODE, G1\'s HALTs, DEC-192 ruling 6), which the report names');
+    expect(PAGE_MD).not.toContain('For a batch PR, G13 reads a G1 entry');
+  });
+
   // ARCH-307-21 = RA-30, option A (the orchestrator's pick, put to the owner under class (a)): evidence that needs
   // sign-in runs against a local evidence backend with seeded accounts and fake grants, never production.
   test('signed-in evidence runs against a local evidence backend, never production; until it exists, no signed-in capture on an emulator', rowPin((tasks) => {
