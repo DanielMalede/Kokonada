@@ -38,7 +38,16 @@ export type Catalog = { readonly [key: string]: string };
  */
 export const SUPPORTED_LOCALES = ['en'] as const;
 
-export type CopyLocale = (typeof SUPPORTED_LOCALES)[number];
+export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
+
+/**
+ * The pseudo-locale (QA-082), for lab and RTL evidence: the en text with every Latin letter
+ * accented, at least 40% longer, in brackets. It is never a catalogue and never a user's locale:
+ * the lab root passes it in, in a debug or a release build alike.
+ */
+export const PSEUDO_LOCALE = 'en-XA';
+
+export type CopyLocale = SupportedLocale | typeof PSEUDO_LOCALE;
 
 /** One catalogue per supported locale. */
 export type Catalogs = { readonly en: Catalog };
@@ -466,10 +475,13 @@ function argumentValue(args: CopyArgs | undefined, name: string): unknown {
   return args[name];
 }
 
-/** One node's text. A # is written by its own plural, the one place its number is known. */
-function renderNode(node: TextNode, args: CopyArgs | undefined): string {
+/**
+ * One node's text, with `literal` applied to the catalogue's own words (the pseudo-locale accents
+ * them), never to a value. A # is written by its own plural, the one place its number is known.
+ */
+function renderNode(node: TextNode, args: CopyArgs | undefined, literal: (text: string) => string): string {
   if (node.type === 'literal') {
-    return node.value;
+    return literal(node.value);
   }
   if (node.type === 'argument') {
     const value = argumentValue(args, node.name);
@@ -487,20 +499,45 @@ function renderNode(node: TextNode, args: CopyArgs | undefined): string {
       throw new MessageArgsError(`${node.name} is a whole number, for its plural`);
     }
     const branch = node.branches.get(`=${count}`) ?? node.branches.get(enPluralCategory(count)) ?? node.branches.get('other') ?? [];
-    return branch.map((part) => (part.type === 'pound' ? FSI + groupDigits(count) + PDI : renderNode(part, args))).join('');
+    return branch.map((part) => (part.type === 'pound' ? FSI + groupDigits(count) + PDI : renderNode(part, args, literal))).join('');
   }
   const value = argumentValue(args, node.name);
   if (typeof value !== 'string') {
     throw new MessageArgsError(`${node.name} is a string, for its select`);
   }
   const branch = node.branches.get(value) ?? node.branches.get('other') ?? [];
-  return branch.map((part) => renderNode(part, args)).join('');
+  return branch.map((part) => renderNode(part, args, literal)).join('');
 }
 
-/** White space and the bidi marks and isolates: text made only of these shows nothing. */
-const INVISIBLE = /[\s\u200E\u200F\u061C\u2066-\u2069]/g;
+const unchanged = (text: string): string => text;
 
-const showsNothing = (text: string): boolean => text.replace(INVISIBLE, '') === '';
+/** The bidi marks and isolates: they take no room and show nothing. */
+const BIDI_CONTROLS = /[\u200E\u200F\u061C\u2066-\u2069]/g;
+
+const showsNothing = (text: string): boolean => text.replace(BIDI_CONTROLS, '').trim() === '';
+
+const visibleLength = (text: string): number => [...text.replace(BIDI_CONTROLS, '')].length;
+
+// The pseudo-locale's letters: each Latin letter has its own accented look-alike, one to one, so a
+// capture's text can be read back to the en catalogue (QA-039). All are single BMP code points.
+const PLAIN_LETTERS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const ACCENTED_LETTERS = '\u00E1\u0180\u00E7\u010F\u00E9\u0192\u011D\u0125\u00ED\u0135\u0137\u013A\u1E3F\u00F1\u00F3\u1E55\u024B\u0155\u0161\u0165\u00FA\u1E7D\u0175\u1E8B\u00FD\u017E\u00C1\u0181\u00C7\u010E\u00C9\u0191\u011C\u0124\u00CD\u0134\u0136\u0139\u1E3E\u00D1\u00D3\u1E54\u024A\u0154\u0160\u0164\u00DA\u1E7C\u0174\u1E8A\u00DD\u017D';
+const ACCENT = new Map([...PLAIN_LETTERS].map((letter, i) => [letter, ACCENTED_LETTERS[i]]));
+
+const accent = (text: string): string => text.replace(/[A-Za-z]/g, (letter) => ACCENT.get(letter) ?? letter);
+
+/** Words to lengthen pseudo text with, accented like the rest, so they wrap as words do. */
+const FILLER = accent(' one two three four five six seven eight nine ten');
+
+/** The pseudo-locale's shape: at least 40% longer, then bracketed, so a cut-off end shows. */
+function lengthen(text: string): string {
+  const extra = Math.ceil(visibleLength(text) * 0.4);
+  let filler = '';
+  while (filler.length < extra) {
+    filler += FILLER;
+  }
+  return `[${text}${filler.slice(0, extra)}]`;
+}
 
 /** What a release build shows where it has no text: one ellipsis, never '' and never the key. */
 const NO_TEXT = '\u2026';
@@ -519,6 +556,9 @@ function defaultMode(): CopyMode {
 function chooseLocale(asked: unknown, mode: CopyMode): CopyLocale {
   if (asked === undefined) {
     return 'en';
+  }
+  if (asked === PSEUDO_LOCALE) {
+    return PSEUDO_LOCALE;
   }
   const supported: readonly unknown[] = SUPPORTED_LOCALES;
   if (supported.includes(asked)) {
@@ -569,6 +609,9 @@ export function createCopyPort<S extends CopySpec>(options: CopyPortOptions<S>):
     return UNAVAILABLE;
   };
 
+  /** The pseudo-locale reads the en catalogue and changes only how its words look. */
+  const pseudo = locale === PSEUDO_LOCALE;
+
   /** Each message is parsed once; a message outside the subset is remembered as its reason. */
   const parsed = new Map<string, readonly TextNode[] | string>();
   const parse = (message: string): readonly TextNode[] | string => {
@@ -601,7 +644,7 @@ export function createCopyPort<S extends CopySpec>(options: CopyPortOptions<S>):
     }
     let shown: string;
     try {
-      shown = nodes.map((node) => renderNode(node, args)).join('');
+      shown = nodes.map((node) => renderNode(node, args, pseudo ? accent : unchanged)).join('');
     } catch (error) {
       if (error instanceof MessageArgsError) {
         return fail('bad-args', `${key}: ${error.message}`, key);
@@ -611,7 +654,7 @@ export function createCopyPort<S extends CopySpec>(options: CopyPortOptions<S>):
     if (showsNothing(shown)) {
       return fail('empty-text', `${key} leaves nothing visible with these values`, key);
     }
-    return { kind: 'text', text: shown };
+    return { kind: 'text', text: pseudo ? lengthen(shown) : shown };
   };
 
   const text = (key: string, args?: CopyArgs): string => {
