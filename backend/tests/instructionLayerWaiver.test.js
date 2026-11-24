@@ -574,10 +574,10 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
       'The authoring-confirmation re-dispatch is dropped');
   });
 
-  test('PK runs G0, G1, G4 and G5 in one round per batch; G2 splits; G3 and G6 are removed; G7 to G10 as stated', () => {
-    has(BATCH, 'PK — G0, G1, G4 and G5 in one parallel round per batch, at most two rounds',
-      'architect writes the charters', 'designer gives ONE JOB and spec.md for each page',
-      'compliance-auditor, regulatory-researcher and resilience-auditor write the briefs', 'sentinel once, if the batch names a provider',
+  test('PK runs G0, G1, G4 and G5 per batch; G2 splits; G3 and G6 are removed; G7 to G10 as stated', () => {
+    has(BATCH, 'PK — G0, G1, G4 and G5 for every page of a batch, in two waves, at most two rounds.',
+      'architect writes the charters (G0)', 'designer gives ONE JOB (G0) and spec.md (G4) for each page',
+      'compliance-auditor, regulatory-researcher and resilience-auditor write the briefs (G1)', 'sentinel once, if the batch names a provider',
       'A fork that is not legal becomes an orchestrator DEC- entry under DEC-142',
       'A law, privacy or consent fork becomes a DEC- entry for me', 'is built on the recommended option and stays lab-only until I rule',
       'G3 and G6 are removed', 'the designer\'s mid-build emulator check is the direction verdict',
@@ -601,9 +601,64 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
   });
 
   test('G13: a batch PR is lab-only; the cutover PR needs fresh records, my review and my (c); G14 after the cutover; rounds per batch', () => {
-    has(BATCH, 'A batch PR is lab-only: no navigation change, no regulated copy, no path of row J12 or J18',
-      'one `page-record` line per page from its batch record (row J15)', 'The cutover PR',
+    has(BATCH, 'A batch PR is lab-only by § Checks step 8c\'s test in `.claude/commands/merge.md`: its head is `design/v2-b<k>`, and it changes no navigation file, not `App.tsx` and no path of row J12 or J18, and fires no T11 (no regulated copy).',
+      'one `page-record <Pn>: PASS @ <H>` line per page of its batch from its batch record (row J15)', 'The cutover PR',
       'my review and my class (c) approval', 'G14. After the cutover.', 'A review round counts per batch');
+  });
+});
+
+// ARCH-307-3: what BATCH MODE inherits from the single-page mode must be satisfiable for a batch. Each case pins one
+// resolution the orchestrator ruled (option A, under DEC-142).
+describe('DEC-192 · /page BATCH MODE resolves what it inherits from the single-page mode (ARCH-307-3)', () => {
+  test('each page has its own D under its batch, and the record stays at the batch root', () => {
+    has(BATCH, 'Each page\'s own files sit in its own D = `docs/design-v2/pages/<batch>/<Pn>/` (row.md, charter.md, brief.md, spec.md), so every D/ of the inputs rule is that page\'s; the record\'s paths and the staleness rule\'s exclusions read the batch for $ARGUMENTS.',
+      'each entry names its page as its subject (a G8 entry its component, a G11P entry its item)');
+  });
+
+  test('an authoring entry counts as returned, its inputSha the scribe\'s commit that holds its artefact, its quoted SHA an ancestor', () => {
+    has(BATCH, 'an authoring entry (G0 architect, each G1 agent, G4 designer) counts as returned, and its inputSha is the scribe\'s commit that holds its artefact.',
+      'The scribe commits a page\'s charter.md no later than its brief.md, and both no later than its spec.md, and records each entry in a later commit than its artefact\'s, so every input the inputs rule names is tracked at its inputSha.',
+      'Its verdict quotes the SHA it was dispatched at, which must be an ancestor of that inputSha with only PK\'s artefacts (charter.md, brief.md, spec.md) and the record between them, and G13 reads that as quoting its inputSha.');
+  });
+
+  test('PK: wave 1 authors, G2 takes its forks, wave 2 is G5 and G4\'s co-signs on the committed artefacts', () => {
+    has(BATCH, 'Wave 1 authors, in parallel: architect writes the charters (G0); designer gives ONE JOB (G0) and spec.md (G4) for each page; compliance-auditor, regulatory-researcher and resilience-auditor write the briefs (G1); sentinel once, if the batch names a provider.',
+      'G2 then takes the forks wave 1 names.',
+      'Wave 2, on the committed artefacts: G5 (compliance-auditor and regulatory-researcher on each spec.md) and G4\'s co-signs (architect on feasibility, resilience-auditor on state coverage against its G1 brief).',
+      'Wave 2 reads each page\'s charter, briefs and spec together: a brief or a spec that misses what the charter states is a finding on its own gate.',
+      'A round runs both waves; a second round re-runs what failed and what the staleness rule marks stale.');
+    expect(BATCH).not.toMatch(/in one parallel round per batch/);
+  });
+
+  test('no D/board/ input: G4 and G5 take G2\'s inputs plus D/spec.md', () => {
+    has(BATCH, 'there are no HTML boards, so batch inputs carry no `D/board/`: G4 and G5 take G2\'s inputs plus D/spec.md.');
+  });
+
+  test('the direction verdict has a gate key, inputs, a reading, and a place in the batch PR\'s set and the cutover\'s', () => {
+    has(BATCH, 'the designer\'s mid-build emulator check is the direction verdict, gate `G8d`: the designer\'s check of each page\'s first lab build on an emulator, midway through G9, with G9\'s inputs, recorded in the batch record and counted like any verdict, passing on SHIP (in the single-page mode the same check is a note).',
+      'G8d stands where the single-page mode has G3 and G6, and G9\'s counted entry comes only after it passes.',
+      'PK (G0, G1, G4 and G5), G2, G7, G8, G8d, G9 and G10', 'G8d for G3 and G6');
+  });
+
+  test('a batch PR\'s page-record line: PK, G2 and G7 to G10 at H; G11e, G12e, G11P and G12F only at the cutover; no G0–G12 range', () => {
+    has(BATCH, 'a page\'s line passes when PK (G0, G1, G4 and G5), G2, G7, G8, G8d, G9 and G10 each pass and are not stale at H, each entry read as the single-page G13 reads it; G11e, G12e, G11P and G12F are required only at the cutover.',
+      'G11e and every G11P item that covers the page for G11, and G12e and G12F for G12');
+    expect(BATCH).not.toMatch(/G0–G12/);
+  });
+
+  test('§ Checks 8c holds the lab-only test, and a batch branch\'s PR that fails it is read as entering navigation', () => {
+    has(sub8('c'), 'A PR is a lab-only batch PR only when its head branch (`headRefName`, step 1) is `design/v2-b<k>`, it changes no `mobile/KokonadaHealth/src/navigation/**` file and not `mobile/KokonadaHealth/App.tsx`, no path of row J12 or J18, and its changed lines fire no T11; a batch branch\'s PR that fails this test is kind (1) for every page of its batch.',
+      'read from its batch record at H, by the set /page BATCH MODE\'s G13 gives a batch PR.');
+  });
+
+  test('G11P: each item is its own entry with its own inputs, so a later change re-runs only the items it touches', () => {
+    has(BATCH, 'Each item is its own entry, its subject the item (`G11P-1` to `G11P-6`), recorded in the record of every batch whose pages it covers, with its own inputs: (1) the PAGE SLICE and SHARED BASE of P2 and P10; (2) those of P2, P8 and P10; (3) and (4) those of every page the cutover puts into navigation; (5) and (6) the SHARED BASE of every such page.',
+      'A later change re-runs only the items whose inputs it changed, as the staleness rule decides: the single-page mode\'s "G11 re-captures" applies to G11e and to each stale G11P item, never to G11P as a whole.');
+  });
+
+  test('every batch gate names its inputs', () => {
+    has(BATCH, 'G11e, per batch, on emulators, with G11\'s inputs:', 'its inputs are G12\'s inputs with the G11e manifest.',
+      'its inputs are G12\'s inputs with the G11e and G11P manifests.');
   });
 });
 
