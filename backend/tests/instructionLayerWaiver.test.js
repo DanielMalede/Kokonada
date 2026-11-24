@@ -425,9 +425,22 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
     const secrets = STEP7.split('\n').find((l) => l.startsWith('   · Secrets:')) || '';
     has(secrets, 'A hit is judged from its path and the match\'s length, with the value masked, and the session never reads the value or its line:',
       'it runs that hit\'s pattern on that one file:line of the list and prints only the match\'s first four characters and its length (`grep -oE \'<pattern>\' | awk \'{print substr($0, 1, 4) "… " length($0)}\'`).',
-      'A hit in a test-fixture path (under `backend/tests/`, a `__tests__/` or `__fixtures__/` directory, or a `*.test.*` file) is reported, with its masked value and its length, not RED.',
+      'Any other hit in a test-fixture path (under `backend/tests/`, a `__tests__/` or `__fixtures__/` directory, or a `*.test.*` file; a `.env*` file name never counts as one) is reported, with its masked value and its length, not RED.',
       'A hit anywhere else is `RED (DIFF)`, and the session treats it as leaked once pushed: it is rotated, not only deleted.');
     expect(secrets).not.toContain('An obvious test fake is reported');
+  });
+
+  // RA-27 + SA-10: CI's scan knows neither token the backend mints (`OPS-503`), so neither is ever a fixture here; a
+  // `.env*` file is never a fixture; a URI's credentials are judged by their host, masked; and 8b's greps never read a
+  // secret's line either.
+  test('step 7: krt_ joins whr_, both RED in every path until OPS-503; .env* is never a fixture; a URI is judged by its masked host; 8b greps the same way', () => {
+    const secrets = STEP7.split('\n').find((l) => l.startsWith('   · Secrets:')) || '';
+    has(secrets, '`krt_[A-Za-z0-9_-]{8,}` (the refresh token the backend mints, `backend/app/services/auth/tokenService.js:13`)',
+      'Until `OPS-503` lands, a `whr_` or `krt_` hit is `RED (DIFF)` in every path, test fixtures included, since CI\'s scan has a rule for neither.',
+      'A credentials-in-URI hit is judged by its host, printed with the user and the password masked',
+      'only a loopback host (`localhost`, `127.0.0.1`, `[::1]`), a `.invalid` host or an `example.` host counts as a fake; any other host is `RED (DIFF)`');
+    expect(read('backend/app/services/auth/tokenService.js').split('\n')[12]).toBe('const REFRESH_PREFIX = \'krt_\';');
+    has(sub8('b'), 'The greps run as step 7\'s do: both lists are piped straight in and never printed, every hit prints only its file:line and kind, and a line a Secrets pattern of step 7 matches is judged without reading the line, as step 7\'s Secrets bullet says.');
   });
 
   test('step 7 reads the message of every commit of B..H with git log, never gh\'s capped commit list', () => {
