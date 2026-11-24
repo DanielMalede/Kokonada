@@ -317,12 +317,12 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
   });
 
   // The repository scripts a hook command runs, as paths relative to the repository root: under
-  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, PowerShell's `$env:CLAUDE_PROJECT_DIR` or cmd's
-  // `%CLAUDE_PROJECT_DIR%`, with a closing quote before the slash or not, before either slash; or a
-  // relative `.claude/` path.
+  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, PowerShell's `$env:`, `$Env:` or `${env:…}` form or cmd's
+  // `%CLAUDE_PROJECT_DIR%`, in any case, with a closing double or single quote before the slash or not, before
+  // either slash; or a relative path under `.claude/`, `scripts/`, `backend/` or `mobile/`, with `./` or not.
   const hookScripts = (command) => [...new Set([
-    ...[...command.matchAll(/(?:\$\{?|\$env:|%)CLAUDE_PROJECT_DIR(?:\}|%)?"?[\\/]([^"'\s]+)/g)].map((m) => m[1]),
-    ...[...command.matchAll(/(?:^|[\s"'=])(?:\.[\\/])?(\.claude[\\/][^"'\s]+)/g)].map((m) => m[1]),
+    ...[...command.matchAll(/(?:\$\{env:|\$env:|\$\{?|%)CLAUDE_PROJECT_DIR(?:\}|%)?["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
+    ...[...command.matchAll(/(?:^|[\s"'=])(?:\.[\\/])?((?:\.claude|scripts|backend|mobile)[\\/][^"'\s]+)/gi)].map((m) => m[1]),
   ].map((p) => p.replace(/\\/g, '/')))];
 
   it('every hook that runs a script under the project directory runs one that exists', () => {
@@ -330,9 +330,12 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
     expect(missing).toEqual([]);
   });
 
-  // CU307-4: a half-wired hook hides behind any spelling the reader misses, so it reads them all. RA-16 and CU307-6:
-  // a quote closed before the slash (`"$CLAUDE_PROJECT_DIR"/…`), PowerShell's `$env:` form and cmd's `%…%` form too.
-  it('the script reader finds $CLAUDE_PROJECT_DIR braced or bare, quoted before the slash, as $env: and %…%, before either slash, and a relative .claude/ path', () => {
+  // CU307-4: a half-wired hook hides behind any spelling the reader misses. It reads the spellings listed in this case,
+  // and only those: a hook command written another way is not read, so a new spelling gets its case here first.
+  // RA-16 and CU307-6: a quote closed before the slash (`"$CLAUDE_PROJECT_DIR"/…`), PowerShell's `$env:` form and
+  // cmd's `%…%` form. RA-23 = SA-12 = CU307-8: `${env:…}` and `$Env:`, any case, a closing `'`, and relative scripts
+  // under scripts/, backend/ and mobile/.
+  it('the script reader finds $CLAUDE_PROJECT_DIR braced or bare, quoted before the slash, as $env:, $Env:, ${env:…} and %…% in any case, before either slash, and a relative path under .claude/, scripts/, backend/ or mobile/', () => {
     expect([
       'node "$CLAUDE_PROJECT_DIR/.claude/hooks/a.mjs"',
       'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/b.mjs" --flag',
@@ -347,10 +350,22 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
       'powershell -File "$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\j.ps1"',
       'cmd /c %CLAUDE_PROJECT_DIR%\\.claude\\hooks\\k.cmd',
       'cmd /c "%CLAUDE_PROJECT_DIR%"\\scripts\\l.cmd',
+      // RA-23 = SA-12 = CU307-8: PowerShell's braced and capitalised env forms, any case, a closing single quote, and a
+      // relative script under scripts/, backend/ or mobile/ as well as .claude/.
+      'powershell -File ${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\m.ps1',
+      'powershell -File $Env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\n.ps1',
+      'cmd /c %claude_project_dir%\\.claude\\hooks\\o.cmd',
+      'node \'$CLAUDE_PROJECT_DIR\'/.claude/hooks/p.mjs',
+      'node scripts/q.js',
+      'node ./backend/scripts/r.js --dry-run',
+      'node "mobile/KokonadaHealth/scripts/s.mjs"',
+      'node .Claude/hooks/t.mjs',
     ].map(hookScripts)).toEqual([['.claude/hooks/a.mjs'], ['.claude/hooks/b.mjs'], ['.claude/hooks/c.mjs'],
       ['.claude/hooks/d.mjs'], ['.claude/hooks/e.mjs'], ['scripts/f.js'], [],
       ['.claude/hooks/g.mjs'], ['.claude/hooks/h.mjs'], ['.claude/hooks/i.ps1'], ['.claude/hooks/j.ps1'],
-      ['.claude/hooks/k.cmd'], ['scripts/l.cmd']]);
+      ['.claude/hooks/k.cmd'], ['scripts/l.cmd'],
+      ['.claude/hooks/m.ps1'], ['.claude/hooks/n.ps1'], ['.claude/hooks/o.cmd'], ['.claude/hooks/p.mjs'],
+      ['scripts/q.js'], ['backend/scripts/r.js'], ['mobile/KokonadaHealth/scripts/s.mjs'], ['.Claude/hooks/t.mjs']]);
   });
 });
 
