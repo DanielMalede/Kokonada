@@ -132,7 +132,7 @@ export class KokonadaSocket {
       const run = this.refreshAndReconnect();
       this.recovery = run;
       const settle = () => { if (this.recovery === run) this.recovery = null; };
-      void run.then(settle, settle);
+      run.then(settle, settle); // both paths handled: this promise cannot reject
     }
     return this.recovery;
   }

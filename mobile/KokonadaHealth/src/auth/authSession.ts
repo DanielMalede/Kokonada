@@ -81,7 +81,7 @@ export class AuthSession {
     const flight = this.rotate(refreshToken, this.epoch);
     this.inFlightRefresh = flight;
     const settle = () => { if (this.inFlightRefresh === flight) this.inFlightRefresh = null; };
-    void flight.then(settle, settle);
+    flight.then(settle, settle); // both paths handled: this promise cannot reject
     return flight;
   }
 
