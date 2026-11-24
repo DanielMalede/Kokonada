@@ -42,7 +42,7 @@ describe('a refresh the network never answers (RA-7)', () => {
     void session.refresh().then(settled);
     await jest.advanceTimersByTimeAsync(30_000);
     expect(settled).toHaveBeenCalledWith(null);
-    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
     expect(session.hasSession()).toBe(true);
     expect(session.getAccessToken()).toBe('acc-1');
   });
@@ -132,7 +132,7 @@ describe('an unavailable refresh is not retried by every next trigger (RA-2)', (
 
   it('a rotation ends the backoff: the next failure waits the first step again', async () => {
     jest.useFakeTimers();
-    const fetch = jest.fn(async () => { throw new TypeError('Network request failed'); });
+    const fetch = jest.fn(async (): Promise<unknown> => { throw new TypeError('Network request failed'); });
     (globalThis as any).fetch = fetch;
     const session = new AuthSession({ ...keychainSession, random: () => 1 });
     await session.setSession({ access: 'acc-1', refresh: 'krt-1' });
@@ -140,7 +140,7 @@ describe('an unavailable refresh is not retried by every next trigger (RA-2)', (
     await jest.advanceTimersByTimeAsync(2_000);
     await session.refresh(); // 2nd failure: 4 s
     await jest.advanceTimersByTimeAsync(4_000);
-    fetch.mockImplementationOnce(async () => rotated() as any);
+    fetch.mockImplementationOnce(async () => rotated());
     expect(await session.refresh()).toBe('acc-2');
     await session.refresh(); // a failure after the rotation
     const requests = fetch.mock.calls.length;
