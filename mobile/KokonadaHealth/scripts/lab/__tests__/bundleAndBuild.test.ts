@@ -133,7 +133,9 @@ describe('the drive letter and the autolinking paths', () => {
 
 describe('buildLabApk', () => {
   const DEBUG_CERT = { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'a'.repeat(64) };
-  function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT } = {}) {
+  // The native libraries a two-ABI lab APK carries: the same files under each ABI (OPS-477).
+  const NATIVE_LIBS = ['lib/arm64-v8a/libreactnative.so', 'lib/arm64-v8a/libappmodules.so', 'lib/x86_64/libreactnative.so', 'lib/x86_64/libappmodules.so'];
+  function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT, apkLibs = NATIVE_LIBS } = {}) {
     const a = app();
     const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', createdAt: NOW().toISOString() });
     a.write('android/app/src/lab/assets/index.android.bundle', HBC);
@@ -165,6 +167,7 @@ describe('buildLabApk', () => {
       fs.writeFileSync(apk, zip([
         { name: 'assets/index.android.bundle', data: apkBundle, deflate: true },
         { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(stamp, null, 2)) },
+        ...apkLibs.map((name) => ({ name, data: Buffer.from(`\x7fELF ${name}`) })), // stored, as the real APK keeps them
       ]));
     };
     const run = (git = cleanGit, extra: Record<string, unknown> = {}) => buildLabApk({
@@ -228,6 +231,21 @@ describe('buildLabApk', () => {
   it('refuses an APK signed by any other certificate than the shared debug key', async () => {
     await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
+  });
+
+  // OPS-477 (RA-5, 2026-11-24): an arm64-only lab died at launch on the x86_64 emulator, so the APK is checked to carry
+  // exactly the ABIs it was built for, each with the same libraries: a library one ABI lacks is a crash on that device.
+  it.each([
+    ['no x86_64 libraries (the emulator cannot start it)', ['lib/arm64-v8a/libreactnative.so', 'lib/arm64-v8a/libappmodules.so'], /no lib\/x86_64\//],
+    ['no arm64-v8a libraries (the phone cannot start it)', ['lib/x86_64/libreactnative.so', 'lib/x86_64/libappmodules.so'], /no lib\/arm64-v8a\//],
+    ['no native libraries at all', [], /no lib\/arm64-v8a\/[\s\S]*no lib\/x86_64\//],
+    ['an ABI it was not built for', [...NATIVE_LIBS, 'lib/armeabi-v7a/libreactnative.so'], /lib\/armeabi-v7a\/, an ABI the lab is not built for/],
+    ['a library under one ABI only', [...NATIVE_LIBS, 'lib/arm64-v8a/libworklets.so'], /libworklets\.so is missing from lib\/x86_64\//],
+  ])('refuses an APK with %s, and still restores autolinking.json and removes the drive', async (_label, apkLibs, why) => {
+    const r = rig({ apkLibs });
+    await expect(r.run()).rejects.toThrow(why);
+    expect(fs.readFileSync(r.autolinking, 'utf8')).toBe(r.real);
+    expect(r.drives.size).toBe(0);
   });
 
   // The dry run on a 14 GB machine needed Gradle's workers and the native build's ninja jobs capped (28m51s through an

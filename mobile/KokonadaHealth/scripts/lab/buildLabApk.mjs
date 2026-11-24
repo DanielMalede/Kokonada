@@ -13,9 +13,10 @@
 //      regenerate it under the drive and drop the local spotify-remote module;
 //   3. it runs :app:assembleLab for arm64-v8a (the phone) and x86_64 (the emulator) through the drive;
 //   4. ALWAYS, success or failure: it puts autolinking.json back byte for byte and removes the drive;
-//   5. it checks the APK carries the stamped bundle and stamp, and that it is signed with the one shared
-//      debug keystore (the main checkout's android/app/debug.keystore, read in place, never copied), so a
-//      lab APK from any worktree installs over another with adb install -r.
+//   5. it checks the APK carries the stamped bundle and stamp, native libraries for exactly those two ABIs
+//      (the same files under each), and that it is signed with the one shared debug keystore (the main
+//      checkout's android/app/debug.keystore, read in place, never copied), so a lab APK from any
+//      worktree installs over another with adb install -r.
 // It never installs anything: that is a separate, explicit `adb install -r`.
 //
 // Exit codes: 0 built · 1 the build or its check failed · 2 refused.
@@ -37,6 +38,23 @@ const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex'
 // code through its translator, but an arm64-only lab dies there at launch: the native libraries stay uncompressed in
 // the APK, and SoLoader looks for them only under base.apk!/lib/x86_64, the process's own ABI.
 const LAB_ABIS = ['arm64-v8a', 'x86_64'];
+
+/** Every problem with an APK's native libraries: it must carry exactly LAB_ABIS, each with the same .so files. */
+function abiProblems(entries) {
+  const byAbi = new Map();
+  for (const { name } of entries) {
+    const m = /^lib\/([^/]+)\/([^/]+\.so)$/.exec(name);
+    if (m) byAbi.set(m[1], (byAbi.get(m[1]) ?? new Set()).add(m[2]));
+  }
+  const problems = LAB_ABIS.filter((abi) => !byAbi.has(abi)).map((abi) => `it carries no lib/${abi}/ libraries`);
+  for (const abi of byAbi.keys()) if (!LAB_ABIS.includes(abi)) problems.push(`it carries lib/${abi}/, an ABI the lab is not built for`);
+  const built = LAB_ABIS.filter((abi) => byAbi.has(abi));
+  for (const lib of [...new Set(built.flatMap((abi) => [...byAbi.get(abi)]))].sort()) {
+    const lacking = built.filter((abi) => !byAbi.get(abi).has(lib));
+    if (lacking.length) problems.push(`${lib} is missing from ${lacking.map((abi) => `lib/${abi}/`).join(' and ')}`);
+  }
+  return problems;
+}
 
 /** Letters to try for the subst drive. W is left out on purpose: other sessions map it. */
 export const DEFAULT_DRIVES = ['L', 'K', 'J', 'M', 'N', 'P', 'Q', 'R', 'T', 'U', 'V', 'X', 'Y', 'Z'];
@@ -213,6 +231,8 @@ async function buildCapped({ repo, app, head, stamp, git, gradle, subst, exists,
     apk: { bundleSha256: bundle ? sha256(bundle.data) : null, stamp: stampEntry ? JSON.parse(stampEntry.data.toString('utf8')) : null },
   });
   if (apkProblems.length) throw new Error(`the built APK fails the stamp chain:\n  ${apkProblems.join('\n  ')}`);
+  const abiErrors = abiProblems(entries);
+  if (abiErrors.length) throw new Error(`the built APK does not carry the lab's ABIs (${LAB_ABIS.join(', ')}):\n  ${abiErrors.join('\n  ')}`);
   const cert = signer.apkCertificate(apkPath);
   if (!/CN=Android Debug\b/.test(cert.dn)) throw new Error(`the lab APK is signed by ${cert.dn}, not the debug key`);
   if (cert.sha256 !== signer.keystoreCertificate(keystore).sha256) throw new Error('the lab APK is not signed with the shared debug keystore');

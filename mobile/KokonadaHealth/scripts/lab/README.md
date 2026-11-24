@@ -73,8 +73,8 @@ cannot prove.
    emulator, which cannot start an arm64-only lab, OPS-477). On Windows it maps the repository to
    a free drive letter (never `W:`) because the native build fails on a long path. It points
    `autolinking.json` at that drive, then puts the file back byte for byte and removes the drive,
-   even when the build fails. It checks that the APK carries the stamped bundle, and it never
-   installs anything.
+   even when the build fails. It checks that the APK carries the stamped bundle and native libraries
+   for exactly those two ABIs, the same files under each, and it never installs anything.
 3. **Install it yourself,** beside the real app: `adb install -r android/app/build/outputs/apk/lab/app-lab.apk`.
    The package is `com.kokonadahealth.lab` and it is debug-signed, so the real app and its data are
    untouched. Every worktree signs the lab with the main checkout's debug keystore. If `install -r`
