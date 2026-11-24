@@ -818,6 +818,65 @@ describe('DEC-192 · the evidence rule names the emulator\'s manifest and leaves
   });
 });
 
+// ARCH-307-9: the leftovers of the old device and board wording say what DEC-192 rules: emulator evidence, the owner's
+// real phone for G11P, BATCH MODE's gates.
+describe('DEC-192 · the leftovers say emulator evidence plus G11P, and BATCH MODE\'s gates (ARCH-307-9)', () => {
+  const front = (file) => read(file).split('\n---\n')[0];
+  test('designer.md\'s front matter: no live HTML boards and no on-device captures, but emulator evidence plus G11P', () => {
+    const fm = front('.claude/agents/designer.md');
+    expect(fm).not.toMatch(/live HTML boards|on-device/);
+    has(fm, 'reviews every built page before ship from emulator evidence, plus the owner\'s real-phone pass (G11P) for what an emulator never proves',
+      'gates G0, G4, G8, G8d and G12 of /page');
+  });
+
+  test('developer.md\'s front matter: emulator evidence, and the phone only for G11P\'s list', () => {
+    const fm = front('.claude/agents/developer.md');
+    expect(fm).not.toMatch(/on-device proof/);
+    has(fm, 'emulator evidence for device work, the owner\'s real phone only for /page G11P\'s list');
+  });
+
+  test('designer.md: G4 waits for G1 in the single-page mode, and BATCH MODE\'s PK takes the spec beside the briefs and holds it to them', () => {
+    const body = read('.claude/agents/designer.md');
+    has(body, 'per page in the single-page mode, G3 and G4 never before the page\'s G1 constraint brief is recorded, while G0 comes before G1 by design; in /page BATCH MODE, PK\'s first wave takes your spec.md beside the G1 briefs and its second wave holds it to them, through G4\'s co-signs and G5, so a spec that misses a brief\'s must is revised in PK\'s second round',
+      'G3 (the single-page mode only) — at most two compositions', 'PK\'s first wave takes ONE JOB and spec.md for each page of a batch',
+      'your mid-build emulator check is the direction verdict, gate G8d, recorded and counted, not a note, passing on SHIP');
+    expect(body).not.toMatch(/on device/);
+  });
+
+  test('/vision-frame proves the directions on an emulator per DEC-192, not on the S22+', () => {
+    const vf = read('.claude/commands/vision-frame.md');
+    expect(vf).not.toMatch(/S22/);
+    has(vf, 'developer proves them on an emulator, per DEC-192 (`/device-qa`: its manifest names the AVD, its API level and its GPU renderer; field pixel parity, which an emulator never proves, only on my phone):');
+  });
+
+  test('/page single-page G9, G11 and G12 say emulator and phone as DEC-192 does', () => {
+    const g = (k) => PAGE_LINES.find((l) => l.startsWith(`G${k} `)) || '';
+    has(g(9), 'designer checks once on an emulator about halfway');
+    has(g(11), 'the capture matrix (both faces, font 1.0 and 2.0, reduced motion, battery saver, RTL) and TalkBack on emulators (DEC-192, `/device-qa`); on my phone, Perfetto frame timing, thermal and a 50-transition leak loop, with the rest of what an emulator never proves (`/device-qa`\'s list) that the page touches.',
+      '(commit SHA, the AVD with its API level and GPU renderer or the phone, hash per capture)');
+    has(g(12), 'compliance-auditor checks the built result from the G11 evidence pack');
+    for (const k of [9, 11, 12]) expect([k, g(k)]).not.toEqual([k, expect.stringMatching(/on device|\(commit SHA, device, hash per capture\)/)]);
+  });
+
+  test('DESIGN_V2_PLAN\'s rows on the approval surface and on new data shapes carry a DEC-192 note like its role row', () => {
+    const plan = read('docs/plans/DESIGN_V2_PLAN.md').split('\n');
+    // The marker as the role row writes it, so the new notes are held to that row's characters, not to their own.
+    const role = plan.find((l) => l.startsWith('| המעורבות שלך |')) || '';
+    const marker = (role.match(/\*\*[^*]*\(`DEC-192`\):\*\*/) || [''])[0];
+    expect(marker).toMatch(/^\*\*\S+ \S+2026-11-23 \(`DEC-192`\):\*\*$/);
+    const surface = plan.find((l) => l.startsWith('| משטח האישור |')) || '';
+    const shapes = plan.find((l) => l.includes('`G6` של הדף שלהם')) || '';
+    has(surface, marker, '`G8d`', '`G12e`', '`G12F`', '`G11P`');
+    has(shapes, marker, '`G7`');
+  });
+
+  test('CLAUDE.md\'s designer line: emulator evidence plus G11P, and BATCH MODE\'s gates without G3', () => {
+    const d = section(ROOT_MD, 'Build agents').find((l) => l.startsWith('- `designer` — ')) || '';
+    has(d, 'SHIP/REVISE from emulator evidence plus the owner\'s real-phone pass (`/page` G11P)', '/page G0, G4, G8, G8d and G12.');
+    expect(d).not.toMatch(/G3|device evidence/);
+  });
+});
+
 describe('DEC-192 · F4: the merge checks run as a script only once the merge rule names it and a parity test maps every step (RA-1, SA-1)', () => {
   test('§ Checks: the script stands for the steps only on both conditions, run from main\'s copy at M; by hand until then, even when it exists', () => {
     has(CHECKS_TEXT, '`scripts/merge-check/` (future) stands for the steps below only once `CLAUDE.md` § The merge rule names it and a parity test maps every PRE-MERGE step 1–8 and POST-MERGE step 1–6 to a check the script makes; then the session runs main\'s copy of it at M, never the PR\'s, and posts its output. Until both hold, the session runs the steps below by hand, as written, even when the directory exists.');

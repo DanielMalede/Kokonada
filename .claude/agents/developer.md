@@ -1,6 +1,6 @@
 ---
 name: developer
-description: Implements ONE approved scoped Kokonada task (mobile/backend/DB/scripts). Strict TDD, small commits, on-device proof for device work. Returns a diff summary + verification. Assign a single well-defined task.
+description: Implements ONE approved scoped Kokonada task (mobile/backend/DB/scripts). Strict TDD, small commits, emulator evidence for device work, the owner's real phone only for /page G11P's list. Returns a diff summary + verification. Assign a single well-defined task.
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: opus
 effort: max

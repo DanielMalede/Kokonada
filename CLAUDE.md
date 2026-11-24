@@ -93,7 +93,7 @@ Content triggers — the reviewer applies them, and the session's pre-merge chec
 Each agent also reviews every row and trigger of the jurisdiction table that names it.
 
 - `architect` — read-only principal analysis; dependency-ordered plans and decision tables. Before any non-trivial change; /page G0 and G4.
-- `designer` — read-only design lead: the Vision Frame, tokens, per-page direction, SHIP/REVISE from device evidence. All UI work; /page G0, G3, G4, G8, G12.
+- `designer` — read-only design lead: the Vision Frame, tokens, per-page direction, SHIP/REVISE from emulator evidence plus the owner's real-phone pass (`/page` G11P). All UI work; /page G0, G4, G8, G8d and G12.
 - `developer` — full tools; builds one claimed task under strict TDD, closing on emulator evidence whose manifest names the AVD, its API level and its GPU renderer (the owner's real phone only for `/page` G11P's list). Never a reviewer.
 - `resilience-auditor` — read-only master QA with no shell: judges the diff against the suite output the session ran on its own branch at the head, or CI on the head for a PR under review; stress and boundary tests, false-green hunting, a calibrated severity (S0–S3) and origin for every finding, each with its regression guard. After every implementation (`/ship`, before `gh pr ready`), and on every agent file in place of its own agent.
 - `security-auditor` — read-only security owner: auth, sessions, tokens, secrets, crypto, the biometric and health-data path, logging, permissions, deep links, exports, dependencies, CI and hooks. Its BLOCK is terminal.
