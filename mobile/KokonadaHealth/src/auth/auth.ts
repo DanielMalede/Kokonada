@@ -18,16 +18,34 @@ function googleFailure(e: unknown): AuthError {
   return new AuthError('unknown', message);
 }
 
+// RA-7: RN's fetch has no deadline (RN 0.86's Android OkHttp client is built with 0 ms timeouts) and
+// AbortSignal.timeout is not on Hermes, so an exchange the network never answered left the sign-in
+// screen busy for good. It is aborted after EXCHANGE_TIMEOUT_MS, and settles then even if the fetch
+// ignores the abort: a `network` failure the screen words as such.
+const EXCHANGE_TIMEOUT_MS = 15_000;
+
+async function postWithDeadline(url: string, body: Record<string, unknown>, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error('Sign-in request timed out')); }, ms);
+  });
+  try {
+    return await Promise.race([
+      fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal }),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // The provider-token exchange both providers share. Every failure is an AuthError whose kind comes
 // from the backend's status; `message` keeps the server's text as before (never shown, C7).
 async function exchange(path: string, body: Record<string, unknown>): Promise<{ token?: string; refreshToken?: string; user: KokonadaUser }> {
   let res: Response;
   try {
-    res = await fetch(`${BACKEND_URL}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    res = await postWithDeadline(`${BACKEND_URL}${path}`, body, EXCHANGE_TIMEOUT_MS);
   } catch (e: any) {
     throw new AuthError('network', e?.message ?? 'Network request failed');
   }

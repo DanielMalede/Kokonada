@@ -233,6 +233,27 @@ describe('C7 — sign-in failures are typed, and a Google cancel is not a failur
     expect(authSession.setSession).not.toHaveBeenCalled();
   });
 
+  // RA-7 (S2): RN's fetch has no deadline (RN 0.86's Android OkHttp client: 0 ms timeouts), so an
+  // exchange the network never answered left the sign-in screen busy for good.
+  it('a token exchange the network never answers is aborted and is network within 30 s, and no session is installed', async () => {
+    jest.useFakeTimers();
+    try {
+      const fetch = jest.fn((_url: string, init: { signal?: AbortSignal } = {}) => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' })));
+      }));
+      (globalThis as any).fetch = fetch;
+      const attempt = signInWithGoogle().then(() => null, (err) => err);
+      await jest.advanceTimersByTimeAsync(30_000);
+      const e = await Promise.race([attempt, Promise.resolve('still waiting')]);
+      expect(e).toBeInstanceOf(AuthError);
+      expect((e as AuthError).kind).toBe('network');
+      expect((fetch.mock.calls[0] as any[])[1].signal.aborted).toBe(true);
+      expect(authSession.setSession).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('a 200 whose body cannot be read is unknown, and no session is installed', async () => {
     (globalThis as any).fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token <'); } });
     expect(await kindOf(signInWithGoogle())).toBe('unknown');

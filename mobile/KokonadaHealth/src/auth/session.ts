@@ -22,6 +22,24 @@ function inIssueOrder<T>(op: () => Promise<T>): Promise<T> {
   return run;
 }
 
+// RA-7: RN's fetch has no deadline (RN 0.86's Android OkHttp client is built with 0 ms timeouts) and
+// AbortSignal.timeout is not on Hermes, so a refresh the network never answered held the single flight
+// for good. It is aborted after REFRESH_TIMEOUT_MS, and settles then even if the fetch ignores the abort.
+const REFRESH_TIMEOUT_MS = 15_000;
+
+async function fetchWithDeadline(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error('refresh timed out')); }, ms);
+  });
+  try {
+    return await Promise.race([fetch(url, { ...init, signal: controller.signal }), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const keychainSession = {
   loadTokens: (): Promise<TokenPair | null> => inIssueOrder(async () => {
     const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
@@ -37,11 +55,11 @@ export const keychainSession = {
   // unreadable 200 is `unavailable`: no verdict on the family, so the session must survive it.
   refreshEndpoint: async (refreshToken: string): Promise<RefreshOutcome> => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+      const res = await fetchWithDeadline(`${BACKEND_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
-      });
+      }, REFRESH_TIMEOUT_MS);
       if (res.status === 401) return { kind: 'dead' };
       if (!res.ok) return { kind: 'unavailable' };
       const { token, refreshToken: nextRefresh } = await res.json();
