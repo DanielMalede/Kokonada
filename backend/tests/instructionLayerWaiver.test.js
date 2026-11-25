@@ -527,6 +527,10 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
       'only a loopback host (`localhost`, `127.0.0.1`, `[::1]`), a `*.invalid` host or one of RFC 2606\'s example names (`example.com`, `example.net`, `example.org`, `*.example`) counts as a fake; any other host is `RED (DIFF)`',
       'A test that needs a `whr_` or `krt_` value builds it at run time (`\'krt_\' + \'x\'.repeat(43)`), so the line it adds holds no match.');
     expect(secrets).not.toContain('an `example.` host');
+    // SA-15 (c): the mask runs through the last `@` of the authority, so a raw `@` inside a malformed password never
+    // prints that password's tail as part of the "host".
+    has(secrets, '| sed -E \'s#//.*@#//<user>:<password>@#\'`');
+    expect(secrets).not.toContain('[^@]+@#');
     // ARCH-307-28, option A: the code is pinned by its symbol over the whole file, never by a line index (#309 moved
     // this constant from line 13 to 14), and the text cites the symbol, not a line.
     expect(read('backend/app/services/auth/tokenService.js')).toMatch(/^const REFRESH_PREFIX = 'krt_';$/m);
