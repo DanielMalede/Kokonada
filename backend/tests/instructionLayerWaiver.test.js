@@ -522,7 +522,11 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
     has(secrets, '`krt_[A-Za-z0-9_-]{8,}` (the refresh token the backend mints, `REFRESH_PREFIX` in `backend/app/services/auth/tokenService.js`)',
       'Until `OPS-503` lands, a `whr_` or `krt_` hit is `RED (DIFF)` in every path, test fixtures included, since CI\'s scan has a rule for neither.',
       'A credentials-in-URI hit is judged by its host, printed with the user and the password masked',
-      'only a loopback host (`localhost`, `127.0.0.1`, `[::1]`), a `.invalid` host or an `example.` host counts as a fake; any other host is `RED (DIFF)`');
+      // RA-37 = SA-15's fakes: the hosts named exactly, RFC 2606's four forms among them, never "an `example.` host",
+      // which `example.attacker.net` would meet; and a fixture builds its token at run time, so no added line matches.
+      'only a loopback host (`localhost`, `127.0.0.1`, `[::1]`), a `*.invalid` host or one of RFC 2606\'s example names (`example.com`, `example.net`, `example.org`, `*.example`) counts as a fake; any other host is `RED (DIFF)`',
+      'A test that needs a `whr_` or `krt_` value builds it at run time (`\'krt_\' + \'x\'.repeat(43)`), so the line it adds holds no match.');
+    expect(secrets).not.toContain('an `example.` host');
     // ARCH-307-28, option A: the code is pinned by its symbol over the whole file, never by a line index (#309 moved
     // this constant from line 13 to 14), and the text cites the symbol, not a line.
     expect(read('backend/app/services/auth/tokenService.js')).toMatch(/^const REFRESH_PREFIX = 'krt_';$/m);
