@@ -314,6 +314,49 @@ describe('buildTokenModel: the F1 gaps', () => {
   });
 });
 
+// The designer's G8 rulings on the hero lanes (2026-11-25): the ledger additions this lane owns. F2: the capture
+// harness finds the hero's parts by these element IDs.
+describe('buildTokenModel: the G8 ledger additions (the designer, 2026-11-25)', () => {
+  const model: any = buildTokenModel(real());
+  const elements: string[] = model.extensions.base.$root.hero.elements;
+
+  it('F2: the hero elements name the CTA and its label, the live beads oldest first with their settings, the leaving bead, PlateTouch, the latest bead’s node and PlateEntry, each once', () => {
+    expect(new Set(elements).size).toBe(elements.length);
+    expect(elements.slice(elements.indexOf('hero.cta'), elements.indexOf('hero.cta') + 2)).toEqual(['hero.cta', 'hero.cta.label']);
+    expect(elements.slice(elements.indexOf('hero.plate.bead.0'), elements.indexOf('hero.listEntry') + 1)).toEqual([
+      'hero.plate.bead.0',
+      'hero.plate.bead.0.setting',
+      'hero.plate.bead.0.halo',
+      'hero.plate.bead.1',
+      'hero.plate.bead.1.setting',
+      'hero.plate.bead.1.halo',
+      'hero.plate.bead.2',
+      'hero.plate.bead.2.setting',
+      'hero.plate.bead.2.halo',
+      'hero.plate.bead.leaving',
+      'hero.plate.touch',
+      'hero.plate.bead.latest.a11y',
+      'hero.listEntry',
+    ]);
+  });
+
+  // LEDGER rev §3 L9 and §5.9, F3: a Well that hosts a Button changes state at most once per well.hold; a Well that
+  // hosts CommitCTA keeps DEC-174's limits. A timing every direction shares, so in base, beside the Well's heights.
+  it('L9 (F3): well.hold is 400 ms, beside the Well’s heights, and its rule names the Button host only', () => {
+    expect(model.base.well).toEqual({ height: 56, consentSlotHeight: 108, hold: 400 });
+    expect(model.extensions.base['well.hold']).toEqual({
+      rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
+    });
+  });
+
+  // F4: CommitCTA, and later Button's pill variants, take radius.pill. A radius above half a box's shorter side is
+  // drawn as half of it, so the one value stays a pill at every height the CTA takes, a 2.0 label's too.
+  it('F4: radius.pill is 9999, beside the art radii, and its rule says the renderer clamps it to half the shorter side', () => {
+    expect(model.base.radius).toEqual({ art: { phone: 4, large: 8, largeMinWidth: 600 }, pill: 9999 });
+    expect(model.extensions.base['radius.pill']).toEqual({ rule: 'the renderer clamps it to half the shorter side' });
+  });
+});
+
 // The close-out leaves one shipped direction, so the generator's handling of several is shown on a
 // fixture direction in a temp folder, never in design-tokens/: a copy of Abyss with a negative plate
 // depth, an inset shadow layer and a three-step alias chain, read, checked and rendered beside Abyss.
