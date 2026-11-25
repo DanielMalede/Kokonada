@@ -148,7 +148,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-18
 
 ### M10
-_free_
+- task: `own:v1-auth-session-fixes` (own)
+- title: v1 session and sign-in fixes: refresh outcome ok|dead|unavailable, no sign-out on an offline or 5xx cold start, socket reconnect, typed AuthError and a silent Google cancel (B1 charters C1, C2, C4 reconnect, C7)
+- branch: `fix/v1-auth-session-fixes`
+- paths: `mobile/KokonadaHealth/src/auth/session.ts`, `mobile/KokonadaHealth/src/auth/authSession.ts`, `mobile/KokonadaHealth/src/auth/__tests__/authSession.test.ts`, `mobile/KokonadaHealth/src/prodBootstrap.ts`, `mobile/KokonadaHealth/src/__tests__/prodBootstrap.test.ts`, `mobile/KokonadaHealth/src/net/socketClient.ts`, `mobile/KokonadaHealth/src/net/__tests__/socketClient.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.mobile.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.qa4.network.test.ts`, `mobile/KokonadaHealth/src/testing/__tests__/socket.test.ts`, `mobile/KokonadaHealth/src/auth/auth.ts`, `mobile/KokonadaHealth/src/auth/authErrors.ts`, `mobile/KokonadaHealth/src/auth/__tests__/authErrors.test.ts`, `mobile/KokonadaHealth/src/auth/__tests__/loginFlow.test.ts`, `mobile/KokonadaHealth/src/auth/SignInScreen.tsx`, `mobile/KokonadaHealth/src/auth/__tests__/SignInScreen.test.tsx`, `mobile/KokonadaHealth/src/experience/playback/playbackServices.ts`, `mobile/KokonadaHealth/src/net/__tests__/apiClient.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.playback.test.ts`, `mobile/KokonadaHealth/src/health/config.ts`, `mobile/KokonadaHealth/src/health/__tests__/configPlaceholder.test.ts`, `mobile/KokonadaHealth/src/auth/signInWords.ts`, `mobile/KokonadaHealth/src/net/socketFactory.ts`, `mobile/KokonadaHealth/src/net/__tests__/socketFactory.test.ts`, `mobile/KokonadaHealth/src/experience/profile/profileServices.ts`, `mobile/KokonadaHealth/src/state/cold/coldPersistence.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.socketSessionSwitch.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.bootLateIdentity.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.refreshCooldown.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.authContracts.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.kitPlaceholder.test.ts`, `mobile/src/health/config.ts`, `backend/app/services/auth/tokenService.js`, `backend/tests/shadow.refreshRotationLostAnswer.test.js`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-24
 
 ### M11
 - task: `own:stop-google-picture` (own)

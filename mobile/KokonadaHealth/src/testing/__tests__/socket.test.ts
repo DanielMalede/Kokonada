@@ -148,10 +148,83 @@ describe('QA-045 · the socket fake under the real KokonadaSocket', () => {
     const { sock } = client(server);
     sock.connect();
     server.flush();
-    expect(server.liveListeners()).toBe(8); // the eight events KokonadaSocket listens to
+    expect(server.liveListeners()).toBe(9); // the nine events KokonadaSocket listens to (RA-6 added reconnect_failed)
     sock.disconnect();
     expect(server.liveListeners()).toBe(0);
     expect(() => server.assertNoLiveListeners()).not.toThrow();
+  });
+
+  // C4: the refresh endpoint is unreachable when the token expires. AuthSession keeps the session
+  // and answers null (C1), so the socket stays down WITHOUT a logout and without a listening dead
+  // socket; once the network is back, reconnect() refreshes, opens the new socket and re-sends.
+  it('a token that expires while the refresh endpoint is unreachable: no logout, 0 live listeners, and reconnect() re-sends the pending request on the fresh token', async () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-a'] });
+    let fresh: string | null = null;
+    const { sock, deps } = client(server, { refreshToken: async () => fresh, isSessionActive: () => true });
+    sock.connect();
+    server.flush();
+    server.expire('tok-a');
+    const reqId = sock.requestPlaylist();
+    await settle();
+    server.flush();
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(server.sockets).toHaveLength(1);
+    expect(() => server.assertNoLiveListeners()).not.toThrow();
+
+    fresh = 'tok-b'; // the network is back
+    server.accept('tok-b');
+    await sock.reconnect();
+    server.flush();
+    expect(server.sockets.map((s) => s.token)).toEqual(['tok-a', 'tok-b']);
+    expect(server.receivedOn('request_playlist', server.sockets[1])).toEqual([{ reqId }]);
+    expect(() => server.assertNoLiveListeners({ except: [server.sockets[1]] })).not.toThrow();
+  });
+
+  // RA-6 / MB-183: socket.io destroys a socket the handshake middleware refused (socket.js:520-527) and
+  // never retries it; KokonadaSocket kept it, so every later request went into that dead socket.
+  it('a token refused at the handshake is never reused: the next request refreshes first, opens on the fresh token, and reaches the server', async () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-b'] }); // tok-a expired before the handshake
+    const refreshToken = jest.fn(async () => 'tok-b');
+    const { sock, deps } = client(server, { token: 'tok-a', refreshToken, isSessionActive: () => true });
+    sock.connect();
+    server.flush(); // connect_error 'unauthorized': the socket is destroyed
+    const reqId = sock.requestPlaylist();
+    await settle();
+    server.flush();
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(server.sockets.map((s) => s.token)).toEqual(['tok-a', 'tok-b']);
+    expect(server.receivedOn('request_playlist', server.sockets[1])).toEqual([{ reqId }]);
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(() => server.assertNoLiveListeners({ except: [server.sockets[1]] })).not.toThrow();
+  });
+
+  it('a refused handshake whose refresh is unavailable: no logout, no socket listening, and nothing reopens on the refused token', async () => {
+    const server = new FakeSocketServer({ validTokens: [] });
+    const { sock, deps } = client(server, { token: 'tok-a', fresh: null, isSessionActive: () => true });
+    sock.connect();
+    server.flush();
+    sock.requestPlaylist();
+    await settle();
+    server.flush();
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(server.handshakes.map((h) => h.token)).toEqual(['tok-a']);
+    expect(() => server.assertNoLiveListeners()).not.toThrow();
+  });
+
+  // RA-6: a server disconnect ('io server disconnect') destroys the socket too (socket.js:639-643).
+  it('a socket the server closed is never trusted again: the next request opens a new socket on the current token', () => {
+    const server = new FakeSocketServer({ validTokens: ['tok-a'] });
+    const { sock } = client(server);
+    sock.connect();
+    server.flush();
+    server.latest().serverDisconnect();
+    const reqId = sock.requestPlaylist();
+    server.flush();
+    expect(server.sockets.map((s) => s.token)).toEqual(['tok-a', 'tok-a']);
+    // Emitted while the new socket connects: socket.io flushes it, then the connect handler re-sends
+    // the pending one (the OPS-067 double send the transport-drop test above records).
+    expect(server.receivedOn('request_playlist', server.sockets[1])).toEqual([{ reqId }, { reqId }]);
+    expect(() => server.assertNoLiveListeners({ except: [server.sockets[1]] })).not.toThrow();
   });
 
   it('a packet for a socket that is not connected is dropped, not delivered late', () => {

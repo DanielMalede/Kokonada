@@ -58,7 +58,12 @@ async function clearSpotifyPlayback(): Promise<void> {
 
 export const profileController = new ProfileController({
   apiGet, apiPost, apiDelete,
-  serverLogout: () => apiPost('/api/auth/logout'),
+  // Security L2: the held refresh token rides along, read here, before clearLocal wipes it, so the server
+  // revokes its whole family (authController.js `logout`); a copied refresh token dies with the sign-out.
+  serverLogout: () => {
+    const refreshToken = authSession.getRefreshToken();
+    return apiPost('/api/auth/logout', refreshToken ? { refreshToken } : undefined);
+  },
   clearLocal,
   clearSpotifyPlayback,
   onSpotifyLinked: () => orchestrator.resume(),
