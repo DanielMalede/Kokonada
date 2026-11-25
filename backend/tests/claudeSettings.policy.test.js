@@ -317,17 +317,46 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
   });
 
   // The repository scripts a hook command runs, as paths relative to the repository root: under
-  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, PowerShell's `$env:`, `$Env:` or `${env:…}` form or cmd's
-  // `%CLAUDE_PROJECT_DIR%`, in any case, with a closing double or single quote before the slash or not, before
-  // either slash; or a relative path under `.claude/`, `scripts/`, `backend/` or `mobile/`, with `./` or not.
+  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, the shell's `${CLAUDE_PROJECT_DIR:-…}`, PowerShell's `$env:`,
+  // `$Env:` or `${env:…}` form or cmd's `%CLAUDE_PROJECT_DIR%`, in any case, or under `$(git rev-parse
+  // --show-toplevel)`, with a closing double or single quote before the slash or not, before either slash; or a
+  // relative path under `.claude/`, `scripts/`, `backend/` or `mobile/`, with `./` or not. A braced form is read only
+  // with its closing brace, so `${CLAUDE_PROJECT_DIR/x/y}` (a substitution) is not read as the directory (RA-33).
   const hookScripts = (command) => [...new Set([
-    ...[...command.matchAll(/(?:\$\{env:|\$env:|\$\{?|%)CLAUDE_PROJECT_DIR(?:\}|%)?["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
+    ...[...command.matchAll(/(?:\$\{(?:env:)?CLAUDE_PROJECT_DIR(?::-[^}"'\s]*)?\}|\$(?:env:)?CLAUDE_PROJECT_DIR|%CLAUDE_PROJECT_DIR%)["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
+    ...[...command.matchAll(/\$\(git rev-parse --show-toplevel\)["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
     ...[...command.matchAll(/(?:^|[\s"'=])(?:\.[\\/])?((?:\.claude|scripts|backend|mobile)[\\/][^"'\s]+)/gi)].map((m) => m[1]),
   ].map((p) => p.replace(/\\/g, '/')))];
+  // RA-33: a part of a hook command (split at `&&`, `||`, `;`, `|` and newlines) that names the project directory or a
+  // repository path, and from which hookScripts reads nothing.
+  const namesRepo = (part) => /CLAUDE_PROJECT_DIR|rev-parse\s+--show-toplevel|(?:^|[\s"'=`\\/])(?:\.claude|scripts|backend|mobile)[\\/]/i.test(part);
+  const unread = (command) => command.split(/&&|\|\||[;|\n]/).some((part) => namesRepo(part) && hookScripts(part).length === 0);
 
-  it('every hook that runs a script under the project directory runs one that exists', () => {
+  it('every hook that runs a script under the project directory runs one that exists, and none is left unread', () => {
     const missing = commands.flatMap(hookScripts).filter((rel) => !fs.existsSync(path.join(ROOT, rel)));
     expect(missing).toEqual([]);
+    expect(commands.filter(unread)).toEqual([]);
+  });
+
+  // RA-33: the reader fails closed. A part of a hook command (split at `&&`, `||`, `;`, `|` and newlines) that names
+  // `CLAUDE_PROJECT_DIR` in any case, `rev-parse --show-toplevel`, or a `.claude`, `scripts`, `backend` or `mobile`
+  // path segment, and from which the reader takes no script, is refused, so a spelling it misses fails the case above
+  // instead of passing unread.
+  it('a hook command part that names the project directory or a repository path, but from which the reader reads nothing, is refused', () => {
+    expect([
+      'node "$(git -C ../other rev-parse --show-toplevel)/.claude/hooks/y.mjs"',
+      'bash -c \'cd "$CLAUDE_PROJECT_DIR" && node hook.mjs\'',
+      'node /opt/tools/scripts/z.js',
+      'node .claude/hooks/a.mjs && node "${CLAUDE_PROJECT_DIR/x/y}/b.mjs"',
+      'node `git rev-parse --show-toplevel`/.claude/hooks/c.mjs',
+    ].filter((c) => !unread(c))).toEqual([]);
+    expect([
+      'echo "no script here"',
+      'node "$CLAUDE_PROJECT_DIR/.claude/hooks/a.mjs"',
+      'node .claude/hooks/d.mjs; echo done',
+      'node "$(git rev-parse --show-toplevel)/.claude/hooks/x.mjs"',
+      'node ${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/x.mjs',
+    ].filter(unread)).toEqual([]);
   });
 
   // CU307-4: a half-wired hook hides behind any spelling the reader misses. It reads the spellings listed in this case,
@@ -360,12 +389,16 @@ describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a 
       'node ./backend/scripts/r.js --dry-run',
       'node "mobile/KokonadaHealth/scripts/s.mjs"',
       'node .Claude/hooks/t.mjs',
+      // RA-33: the root as `git rev-parse --show-toplevel` prints it, and the shell's default-value form.
+      'node "$(git rev-parse --show-toplevel)/.claude/hooks/x.mjs"',
+      'node ${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/x.mjs',
     ].map(hookScripts)).toEqual([['.claude/hooks/a.mjs'], ['.claude/hooks/b.mjs'], ['.claude/hooks/c.mjs'],
       ['.claude/hooks/d.mjs'], ['.claude/hooks/e.mjs'], ['scripts/f.js'], [],
       ['.claude/hooks/g.mjs'], ['.claude/hooks/h.mjs'], ['.claude/hooks/i.ps1'], ['.claude/hooks/j.ps1'],
       ['.claude/hooks/k.cmd'], ['scripts/l.cmd'],
       ['.claude/hooks/m.ps1'], ['.claude/hooks/n.ps1'], ['.claude/hooks/o.cmd'], ['.claude/hooks/p.mjs'],
-      ['scripts/q.js'], ['backend/scripts/r.js'], ['mobile/KokonadaHealth/scripts/s.mjs'], ['.Claude/hooks/t.mjs']]);
+      ['scripts/q.js'], ['backend/scripts/r.js'], ['mobile/KokonadaHealth/scripts/s.mjs'], ['.Claude/hooks/t.mjs'],
+      ['.claude/hooks/x.mjs'], ['.claude/hooks/x.mjs']]);
   });
 });
 
