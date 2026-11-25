@@ -205,7 +205,7 @@ describe('a scene that declares a face the lab does not have', () => {
     const h = setup({ scenes: scene(['Nope-Regular']) });
     h.layoutScene();
     h.tick(10);
-    expect(h.of('ERROR')).toEqual([{ run: 'r1', errors: ['the scene declares a font that is not a lab face (fonts.ts LAB_FACES): "Nope-Regular"'] }]);
+    expect(h.of('ERROR')).toEqual([{ run: 'r1', errors: ['the scene declares a font that is not a lab face (fonts.ts LAB_FACES or TOKEN_FACES): "Nope-Regular"'] }]);
     expect(h.of('READY')).toEqual([]);
   });
 });
@@ -297,5 +297,58 @@ describe('a font probe that never lays out (UI-072, the setting-read deadline)',
     act(() => { jest.advanceTimersByTime(5 * FONT_CHECK_DEADLINE_MS); });
     expect(h.of('READY')).toHaveLength(1);
     expect(h.of('ERROR')).toEqual([]);
+  });
+});
+
+// F10 G8: a scene whose components style their text as the type tokens' family at a weight declares the token face
+// (fonts.ts TOKEN_FACES), and the gate measures that text as React Native draws it, against the fallback at the same weight.
+describe('a scene that declares a token face (F10 G8)', () => {
+  /** React Native on Android finds no fonts/Heebo.ttf: the family at a weight drew at its fallback's width. */
+  const notApplied = (face: string, file: string, width: number) =>
+    `font "${face}" is not applied: its calibration line drew at ${width} dp, the width of the fallback face, so React Native did not find ${file} in the APK's assets`;
+
+  it('lays out each token face as its family at its weight, and the fallback at that weight, and nothing else', () => {
+    const h = setup({ scenes: scene(['Heebo@600', 'Heebo@400']) });
+    const styles = Object.fromEntries(h.fontProbes().map((n) => [n.props.testID, StyleSheet.flatten(n.props.style)]));
+    expect(Object.keys(styles).sort()).toEqual(['lab-font-probe:Heebo@400', 'lab-font-probe:Heebo@600', 'lab-font-probe:fallback@400', 'lab-font-probe:fallback@600']);
+    expect(styles['lab-font-probe:Heebo@600']).toMatchObject({ fontFamily: 'Heebo', fontWeight: '600', position: 'absolute', left: 0, top: 0 });
+    expect(styles['lab-font-probe:fallback@600']).toMatchObject({ fontFamily: MISSING_FACE, fontWeight: '600', position: 'absolute', left: 0, top: 0 });
+    expect(styles['lab-font-probe:fallback@400']).toMatchObject({ fontFamily: MISSING_FACE, fontWeight: '400' });
+  });
+
+  it('drew at its fallback\'s width: one ERROR naming the face and the family\'s file, never READY', () => {
+    const h = setup({ scenes: scene(['Heebo@400', 'Heebo@600']) });
+    h.layoutScene();
+    h.drew('fallback@400', 395.25);
+    h.drew('fallback@600', 395.25);
+    h.drew('Heebo@400', 395.25);
+    h.drew('Heebo@600', 395.25);
+    h.tick(10);
+    expect(h.of('ERROR')).toEqual([{ run: 'r1', errors: [
+      `${notApplied('Heebo@400', 'fonts/Heebo.ttf', 395.25)}; ${notApplied('Heebo@600', 'fonts/Heebo.ttf', 395.25)}`,
+    ] }]);
+    expect(h.of('READY')).toEqual([]);
+  });
+
+  it('drew a dp or more from its fallback: READY after the scene\'s frames', () => {
+    const h = setup({ scenes: scene(['Heebo@600']) });
+    h.layoutScene();
+    h.drew('fallback@600', 395.25);
+    h.drew('Heebo@600', 421.5);
+    h.tick(2);
+    expect(h.of('ERROR')).toEqual([]);
+    expect(h.of('READY')).toHaveLength(1);
+  });
+
+  describe('at the deadline', () => {
+    beforeEach(() => { jest.useFakeTimers(); });
+    afterEach(() => { jest.useRealTimers(); });
+
+    it('names the token face and the fallback at its weight that never drew', () => {
+      const h = setup({ scenes: scene(['Heebo@600']) });
+      h.layoutScene();
+      act(() => { jest.advanceTimersByTime(FONT_CHECK_DEADLINE_MS); });
+      expect(h.of('ERROR')).toEqual([{ run: 'r1', errors: [`the font probes did not lay out within ${FONT_CHECK_DEADLINE_MS} ms: "Heebo@600", the fallback at 600`] }]);
+    });
   });
 });

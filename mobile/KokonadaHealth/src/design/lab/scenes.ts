@@ -6,7 +6,7 @@ import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
 import type { Face } from '../v2/tokens/tokens.generated';
 import { FIELD_SCENES } from './fieldScenes';
-import type { LabFaceId } from './fonts';
+import type { SceneFaceId } from './fonts';
 import type { LabParams } from './params';
 import { COST_SCENES } from './sceneGroups/cost';
 import { GRAIN_SCENES } from './sceneGroups/grain';
@@ -28,11 +28,12 @@ export type Scene = {
   periodMs: number;
   probes: readonly string[];
   /**
-   * The faces the scene draws text in (UI-072, fonts.ts). READY waits until React Native drew each one, measured against
+   * The faces the scene draws text in (UI-072, fonts.ts): a face cut by its file, or the type tokens' family at a weight
+   * (a token face, as the v2 components style their text). READY waits until React Native drew each one, measured against
    * its fallback face; a scene that names none waits for no font. Every face the scene draws must be named here
    * (scenes.test.tsx renders each scene and checks).
    */
-  fonts?: readonly LabFaceId[];
+  fonts?: readonly SceneFaceId[];
   Component: ComponentType<SceneProps>;
 };
 

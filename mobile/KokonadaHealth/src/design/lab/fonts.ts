@@ -11,6 +11,13 @@
 // a scene that declares faces it lays out one hidden calibration line per face, and one in a family that cannot exist
 // (the fallback, which React Native draws in its default face), all at one origin and one size (FontProbes.tsx). A face
 // whose line drew within FACE_MIN_DIFF_DP of the fallback's is the fallback: the font is not in the APK.
+//
+// Token faces (F10 G8). The v2 components style their text as the type tokens' family at a token weight (fontFamily
+// 'Heebo', fontWeight '600'), not as a face cut by its file. React Native on Android looks that family up as
+// fonts/Heebo.ttf (fonts/Heebo_bold.ttf from weight 700), a file the APK does not hold, and draws the default face. A
+// scene whose components style text that way declares the token face (Heebo@600), and the check measures its line as it
+// is drawn, the family at the weight, against the fallback at the same weight: whatever React Native does with a weight,
+// it does to both lines alike. So READY is never sent over the fallback face for that text either.
 
 import { BASE } from '../v2/tokens/tokens.generated';
 import { SETTING_READ_DEADLINE_MS } from './settingRead';
@@ -47,9 +54,79 @@ export const LAB_FACES = {
 
 export type LabFaceId = keyof typeof LAB_FACES;
 
+/**
+ * The token faces: the type tokens' family at each weight a lab face is cut at, keyed `<family>@<weight>`, as a v2
+ * component styles its text (fontFamily the family, fontWeight the weight). fonts.test.ts holds them to LAB_FACES.
+ */
+export const TOKEN_FACES = {
+  'Heebo@300': { family: UI, weight: 300 },
+  'Heebo@400': { family: UI, weight: 400 },
+  'Heebo@500': { family: UI, weight: 500 },
+  'Heebo@600': { family: UI, weight: 600 },
+  'Bellefair@400': { family: VOICE, weight: 400 },
+} as const satisfies Readonly<Record<string, LabFace>>;
+
+export type TokenFaceId = keyof typeof TOKEN_FACES;
+/** A face a scene may declare: one cut by its file (LAB_FACES), or the type tokens' family at a weight (TOKEN_FACES). */
+export type SceneFaceId = LabFaceId | TokenFaceId;
+
+/** A token face's id: the family, an at sign and the weight (Heebo@600). */
+export function tokenFaceId(family: string, weight: number): string {
+  return `${family}@${weight}`;
+}
+
+const isTokenFace = (face: string): face is TokenFaceId => Object.prototype.hasOwnProperty.call(TOKEN_FACES, face);
+
+/**
+ * The asset React Native on Android loads a family at a weight from: fonts/<family>.ttf, or fonts/<family>_bold.ttf from
+ * weight 700 (ReactFontManager picks a file by normal or bold only).
+ */
+export function tokenFaceFile(family: string, weight: number): string {
+  return `fonts/${family}${weight >= 700 ? '_bold' : ''}.ttf`;
+}
+
+/** The asset React Native on Android loads a declared face from: its own file, or a token face's family's. */
+export function fontFile(face: SceneFaceId): string {
+  return isTokenFace(face) ? tokenFaceFile(TOKEN_FACES[face].family, TOKEN_FACES[face].weight) : `fonts/${face}.ttf`;
+}
+
 /** The probe drawn in the fallback face. Never a face id: those always carry a style after a hyphen. */
 export const FALLBACK_PROBE = 'fallback';
-export type FontProbeId = LabFaceId | typeof FALLBACK_PROBE;
+/** The probe drawn in the fallback face at a weight: a token face at that weight is judged against it. */
+export type WeightedFallback = `${typeof FALLBACK_PROBE}@${number}`;
+export const fallbackAt = (weight: number): WeightedFallback => `${FALLBACK_PROBE}@${weight}`;
+export type FontProbeId = SceneFaceId | typeof FALLBACK_PROBE | WeightedFallback;
+
+/** The fallback a declared face is judged against. */
+const fallbackOf = (face: SceneFaceId): FontProbeId => (isTokenFace(face) ? fallbackAt(TOKEN_FACES[face].weight) : FALLBACK_PROBE);
+
+/**
+ * The probes a scene's faces need, in order: each face as declared, the fallback when a face is cut by its file, then the
+ * fallback at each token face's weight, once each, in the order first declared.
+ */
+export function fontProbes(faces: readonly SceneFaceId[]): FontProbeId[] {
+  const plain: FontProbeId[] = faces.some((f) => !isTokenFace(f)) ? [FALLBACK_PROBE] : [];
+  const weighted = [...new Set(faces.filter(isTokenFace).map(fallbackOf))];
+  return [...faces, ...plain, ...weighted];
+}
+
+/**
+ * How a probe's line is styled: a face cut by its file is its family alone; a token face is its family at its weight; a
+ * fallback is the missing family, at the weight when it has one.
+ */
+export function probeStyle(probe: FontProbeId): { readonly fontFamily: string; readonly fontWeight?: string } {
+  if (probe === FALLBACK_PROBE) return { fontFamily: MISSING_FACE };
+  if (probe.startsWith(`${FALLBACK_PROBE}@`)) return { fontFamily: MISSING_FACE, fontWeight: probe.slice(FALLBACK_PROBE.length + 1) };
+  if (isTokenFace(probe)) return { fontFamily: TOKEN_FACES[probe].family, fontWeight: String(TOKEN_FACES[probe].weight) };
+  return { fontFamily: probe };
+}
+
+/** A probe as an error names it: the fallback, the fallback at a weight, or the face in quotes. */
+export function probeName(probe: FontProbeId): string {
+  if (probe === FALLBACK_PROBE) return 'the fallback';
+  if (probe.startsWith(`${FALLBACK_PROBE}@`)) return `the fallback at ${probe.slice(FALLBACK_PROBE.length + 1)}`;
+  return `"${probe}"`;
+}
 
 /** A family no font in the APK and no system alias answers to, so React Native draws it in its default face. */
 export const MISSING_FACE = 'KokonadaLabNoSuchFace';
@@ -81,22 +158,22 @@ const PENDING: FontVerdict = { settled: false };
 
 /**
  * The judgement over one scene's faces. `measure` records the width React Native laid a probe out at, and returns the
- * verdict: pending until every face and the fallback have one; then applied (error null) or the faces that fell back,
- * each named with its file. A width that is not finite is an error at once. Once settled, nothing changes it.
+ * verdict: pending until every face and its fallback have one; then applied (error null) or the faces that fell back,
+ * each named with the file React Native looked for. A face cut by its file is judged against the fallback, a token face
+ * against the fallback at its weight. A width that is not finite is an error at once. Once settled, nothing changes it.
  */
-export function createFontCheck(faces: readonly LabFaceId[]) {
-  const probes: readonly FontProbeId[] = [...faces, FALLBACK_PROBE];
+export function createFontCheck(faces: readonly SceneFaceId[]) {
+  const probes: readonly FontProbeId[] = fontProbes(faces);
   const widths = new Map<FontProbeId, number>();
   let verdict: FontVerdict = faces.length === 0 ? { settled: true, error: null } : PENDING;
 
   const judge = (): FontVerdict => {
     if (probes.some((p) => !widths.has(p))) return PENDING;
-    const fallback = widths.get(FALLBACK_PROBE) as number;
-    const fell = faces.filter((f) => Math.abs((widths.get(f) as number) - fallback) < FACE_MIN_DIFF_DP);
+    const fell = faces.filter((f) => Math.abs((widths.get(f) as number) - (widths.get(fallbackOf(f)) as number)) < FACE_MIN_DIFF_DP);
     if (fell.length === 0) return { settled: true, error: null };
     return {
       settled: true,
-      error: fell.map((f) => `font "${f}" is not applied: its calibration line drew at ${widths.get(f)} dp, the width of the fallback face, so React Native did not find fonts/${f}.ttf in the APK's assets`).join('; '),
+      error: fell.map((f) => `font "${f}" is not applied: its calibration line drew at ${widths.get(f)} dp, the width of the fallback face, so React Native did not find ${fontFile(f)} in the APK's assets`).join('; '),
     };
   };
 
@@ -112,14 +189,14 @@ export function createFontCheck(faces: readonly LabFaceId[]) {
       return verdict;
     },
     verdict: (): FontVerdict => verdict,
-    /** The probes with no width yet, in the scene's order, the fallback last. */
+    /** The probes with no width yet, in the scene's order, the fallbacks last. */
     unmeasured: (): FontProbeId[] => probes.filter((p) => !widths.has(p)),
   };
 }
 
 export type FontCheck = ReturnType<typeof createFontCheck>;
 
-/** The declared faces that are not lab faces, each once, in the order declared. */
+/** The declared faces that are neither lab faces nor token faces, each once, in the order declared. */
 export function unknownFaces(faces: readonly string[]): string[] {
-  return [...new Set(faces.filter((f) => !Object.prototype.hasOwnProperty.call(LAB_FACES, f)))];
+  return [...new Set(faces.filter((f) => !Object.prototype.hasOwnProperty.call(LAB_FACES, f) && !isTokenFace(f)))];
 }

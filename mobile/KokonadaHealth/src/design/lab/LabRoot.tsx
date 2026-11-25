@@ -34,7 +34,7 @@ import { CostReportContext, formatCostResult, type CostReport } from './cost/cos
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
 import { FontProbes } from './FontProbes';
 import {
-  createFontCheck, FALLBACK_PROBE, FONT_CHECK_DEADLINE_MS, unknownFaces, type FontProbeId, type FontVerdict, type LabFaceId,
+  createFontCheck, FONT_CHECK_DEADLINE_MS, probeName, unknownFaces, type FontProbeId, type FontVerdict, type SceneFaceId,
 } from './fonts';
 import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
@@ -98,7 +98,7 @@ type LabRootProps = {
   deps?: Partial<LabDeps>;
 };
 
-const NO_FACES: readonly LabFaceId[] = [];
+const NO_FACES: readonly SceneFaceId[] = [];
 
 /** A reason short enough that READY stays one logcat line (a shader compile error can be long). */
 const MAX_REASON = 300;
@@ -407,7 +407,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     const unknown = unknownFaces(faces);
     if (unknown.length > 0) {
       judged.current = true;
-      fail(`the scene declares a font that is not a lab face (fonts.ts LAB_FACES): ${unknown.map((f) => `"${f}"`).join(', ')}`);
+      fail(`the scene declares a font that is not a lab face (fonts.ts LAB_FACES or TOKEN_FACES): ${unknown.map((f) => `"${f}"`).join(', ')}`);
       return undefined;
     }
     judgeFonts(fontCheck.verdict());
@@ -416,7 +416,7 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       fontDeadline.current = null;
       if (judged.current) return;
       judged.current = true;
-      const missing = fontCheck.unmeasured().map((p) => (p === FALLBACK_PROBE ? 'the fallback' : `"${p}"`));
+      const missing = fontCheck.unmeasured().map(probeName);
       fail(`the font probes did not lay out within ${FONT_CHECK_DEADLINE_MS} ms: ${missing.join(', ')}`);
     }, FONT_CHECK_DEADLINE_MS);
     fontDeadline.current = timer;

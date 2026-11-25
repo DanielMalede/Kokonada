@@ -1,10 +1,11 @@
 import React from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { unknownFaces, type LabFaceId } from '../fonts';
 import { Probe, ProbeRegistry } from '../probe/Probe';
 import { SCENES, type Scene } from '../scenes';
 import { LabMotionPortsContext } from '../scenes/FieldScene';
+import { drawnFaces } from './__fixtures__/drawnFaces';
 // SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
 jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
@@ -63,7 +64,9 @@ describe('the lab scenes', () => {
 
   // UI-072. READY waits only for the faces a scene DECLARES (LabRoot measures each one), so a scene that draws text in a
   // face it does not declare could send READY over Android's fallback face. The faces it draws and the faces it declares
-  // must agree, scene by scene; a face no scene may use (one the lab does not have) is caught the same way.
+  // must agree, scene by scene; a face no scene may use (one the lab does not have) is caught the same way. Text styled as
+  // a family at a weight is that token face (F10 G8, __fixtures__/drawnFaces.ts). A scene that draws its text only once
+  // its view has a size (the hero) draws none here: its own test lays it out and holds it to the same check.
   const drawnFamilies = (Scene: Scene['Component'], id: string) => {
     let tree!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
@@ -75,11 +78,9 @@ describe('the lab scenes', () => {
         </ProbeRegistry>,
       );
     });
-    const families = tree.root.findAllByType(Text)
-      .map((n) => StyleSheet.flatten(n.props.style)?.fontFamily)
-      .filter((f): f is string => typeof f === 'string');
+    const faces = drawnFaces(tree.root);
     act(() => tree.unmount());
-    return [...new Set(families)].sort();
+    return faces;
   };
 
   it.each(Object.keys(SCENES))('%s declares every face it draws text in, and only lab faces', (id) => {
@@ -88,6 +89,11 @@ describe('the lab scenes', () => {
     const declared = new Set<string>(scene.fonts ?? []);
     expect(drawn.filter((f) => !declared.has(f))).toEqual([]);
     expect(unknownFaces(scene.fonts ?? [])).toEqual([]);
+  });
+
+  it('the check sees text styled as the token family at a weight as that token face (F10 G8: as the v2 components style it)', () => {
+    const Planted = () => <Probe id="stage"><Text style={[{ fontFamily: 'Heebo', fontWeight: '600' }]}>המשך</Text><Text style={{ fontFamily: 'Heebo-Medium' }}>כותרת</Text></Probe>;
+    expect(drawnFamilies(Planted, 'planted')).toEqual(['Heebo-Medium', 'Heebo@600']);
   });
 
   it('the check sees a face drawn but not declared (a check that finds nothing must fail, not pass)', () => {
