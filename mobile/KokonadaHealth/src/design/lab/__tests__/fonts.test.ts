@@ -2,9 +2,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BASE, DIRECTIONS } from '../../v2/tokens/tokens.generated';
+import * as fontsModule from '../fonts';
 import {
-  CALIBRATION_TEXT, FACE_MIN_DIFF_DP, FALLBACK_PROBE, FONT_CHECK_DEADLINE_MS, LAB_FACES, MISSING_FACE, TOKEN_FACES, createFontCheck,
-  faceId, fallbackAt, fontFile, fontProbes, probeName, probeStyle, tokenFaceFile, tokenFaceId, unknownFaces, type LabFaceId,
+  CALIBRATION_TEXT, FACE_MIN_DIFF_DP, FALLBACK_PROBE, FONT_CHECK_DEADLINE_MS, LAB_FACES, MISSING_FACE, createFontCheck,
+  faceId, fontProbes, probeName, probeStyle, unknownFaces, type LabFaceId,
 } from '../fonts';
 import { SETTING_READ_DEADLINE_MS } from '../settingRead';
 import { faceId as v2FaceId, fontFace } from '../../v2/typeface/faces';
@@ -156,70 +157,25 @@ describe('unknownFaces', () => {
   });
 });
 
-// F10 G8: the v2 components style their text as the type tokens' family at a token weight (`fontFamily: 'Heebo',
-// fontWeight: '600'`), not as a face cut by its file. React Native on Android looks such a family up as fonts/Heebo.ttf
-// (fonts/Heebo_bold.ttf from weight 700), which the APK does not hold. A scene whose components draw text that way
-// declares the token face, so the check measures the text as it is drawn and never sends READY over the fallback face.
-describe('token faces: the type tokens\' family at a weight, as a v2 component styles its text', () => {
-  it('one per lab face, keyed <family>@<weight>, the same family and weight', () => {
-    expect(Object.keys(TOKEN_FACES).sort()).toEqual(['Bellefair@400', 'Heebo@300', 'Heebo@400', 'Heebo@500', 'Heebo@600']);
-    for (const [id, f] of Object.entries(TOKEN_FACES)) expect(tokenFaceId(f.family, f.weight)).toBe(id);
-    expect(Object.values(TOKEN_FACES).map((f) => faceId(f.family, f.weight)).sort()).toEqual(Object.keys(LAB_FACES).sort());
+// F10 G8 (F6): the v2 components set their text in their faces' own files through fontFace, so on Android the lab's
+// faces are the only ones a v2 text style names. The token faces the hero needed before (the type family at a weight,
+// Heebo@600) are retired: a family at a weight is no lab face, and a scene that declares one is refused.
+describe('the faces a scene may declare: the faces cut by their file, and nothing else', () => {
+  it('a family at a weight is no lab face, and the token faces are gone from the module', () => {
+    expect(unknownFaces(['Heebo@600', 'Heebo-SemiBold', 'Heebo'])).toEqual(['Heebo@600', 'Heebo']);
+    expect(Object.keys(fontsModule)).not.toEqual(expect.arrayContaining(['TOKEN_FACES']));
+    expect(Object.keys(fontsModule)).not.toEqual(expect.arrayContaining(['tokenFaceId']));
   });
 
-  it('a token face draws its family at its weight, a face cut by its file its family alone, each fallback the missing family at the weight it judges', () => {
-    expect(probeStyle('Heebo@600')).toEqual({ fontFamily: 'Heebo', fontWeight: '600' });
-    expect(probeStyle('Bellefair@400')).toEqual({ fontFamily: 'Bellefair', fontWeight: '400' });
-    expect(probeStyle('Heebo-SemiBold')).toEqual({ fontFamily: 'Heebo-SemiBold' });
-    expect(probeStyle(FALLBACK_PROBE)).toEqual({ fontFamily: MISSING_FACE });
-    expect(probeStyle(fallbackAt(600))).toEqual({ fontFamily: MISSING_FACE, fontWeight: '600' });
-  });
-
-  it('the probes: each face as declared, the fallback when a face is cut by its file, then the fallback at each token weight, once', () => {
+  it('the probes are each face as declared, then the fallback; each face drawn in its own family, the fallback in the missing one', () => {
     expect(fontProbes([])).toEqual([]);
     expect(fontProbes(['Heebo-Regular', 'Bellefair-Regular'])).toEqual(['Heebo-Regular', 'Bellefair-Regular', FALLBACK_PROBE]);
-    expect(fontProbes(['Heebo@400'])).toEqual(['Heebo@400', fallbackAt(400)]);
-    expect(fontProbes(['Heebo@600', 'Heebo-Light', 'Heebo@400', 'Bellefair@400'])).toEqual(
-      ['Heebo@600', 'Heebo-Light', 'Heebo@400', 'Bellefair@400', FALLBACK_PROBE, fallbackAt(600), fallbackAt(400)],
-    );
+    expect(probeStyle('Heebo-SemiBold')).toEqual({ fontFamily: 'Heebo-SemiBold' });
+    expect(probeStyle(FALLBACK_PROBE)).toEqual({ fontFamily: MISSING_FACE });
   });
 
-  it('the file React Native looks a face up by: its own for a face cut by its file; the family\'s for a token face, _bold from weight 700', () => {
-    expect(fontFile('Heebo-Medium')).toBe('fonts/Heebo-Medium.ttf');
-    expect(fontFile('Heebo@600')).toBe('fonts/Heebo.ttf');
-    expect(fontFile('Bellefair@400')).toBe('fonts/Bellefair.ttf');
-    expect(tokenFaceFile('Heebo', 699)).toBe('fonts/Heebo.ttf');
-    expect(tokenFaceFile('Heebo', 700)).toBe('fonts/Heebo_bold.ttf');
-  });
-
-  it('a token face is judged against the fallback at its own weight; one that drew at its width names the file React Native looked for', () => {
-    const check = createFontCheck(['Heebo@600']);
-    expect(check.unmeasured()).toEqual(['Heebo@600', fallbackAt(600)]);
-    expect(check.measure(FALLBACK_PROBE, 300)).toEqual({ settled: false }); // not a probe of this scene: ignored
-    check.measure(fallbackAt(600), 395.25);
-    expect(check.measure('Heebo@600', 395.25)).toEqual({
-      settled: true,
-      error: 'font "Heebo@600" is not applied: its calibration line drew at 395.25 dp, the width of the fallback face, so React Native did not find fonts/Heebo.ttf in the APK\'s assets',
-    });
-  });
-
-  it('a token face a dp or more from its own fallback is applied, beside a face cut by its file', () => {
-    const check = createFontCheck(['Heebo@400', 'Heebo-Regular']);
-    check.measure(FALLBACK_PROBE, 395.25);
-    check.measure(fallbackAt(400), 395.25);
-    check.measure('Heebo-Regular', 413.5);
-    expect(check.measure('Heebo@400', 396.25)).toEqual({ settled: true, error: null });
-  });
-
-  it('unknownFaces knows the token faces too, and names what neither list has', () => {
-    expect(unknownFaces(['Heebo@400', 'Heebo-Light', 'Heebo@450', 'Roboto@400', 'Heebo'])).toEqual(['Heebo@450', 'Roboto@400', 'Heebo']);
-    expect(unknownFaces(Object.keys(TOKEN_FACES))).toEqual([]);
-  });
-
-  it('a probe as an error names it: the fallback, the fallback at a weight, or the face in quotes', () => {
+  it('a probe as an error names it: the fallback, or the face in quotes', () => {
     expect(probeName(FALLBACK_PROBE)).toBe('the fallback');
-    expect(probeName(fallbackAt(600))).toBe('the fallback at 600');
-    expect(probeName('Heebo@600')).toBe('"Heebo@600"');
     expect(probeName('Heebo-Regular')).toBe('"Heebo-Regular"');
   });
 });

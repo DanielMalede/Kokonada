@@ -6,7 +6,7 @@ import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
 import type { Face } from '../v2/tokens/tokens.generated';
 import { FIELD_SCENES } from './fieldScenes';
-import type { SceneFaceId } from './fonts';
+import type { LabFaceId } from './fonts';
 import type { LabParams } from './params';
 import { COST_SCENES } from './sceneGroups/cost';
 import { FONTS_SCENES } from './sceneGroups/fonts';
@@ -30,12 +30,11 @@ export type Scene = {
   periodMs: number;
   probes: readonly string[];
   /**
-   * The faces the scene draws text in (UI-072, fonts.ts): a face cut by its file, or the type tokens' family at a weight
-   * (a token face, as the v2 components style their text). READY waits until React Native drew each one, measured against
-   * its fallback face; a scene that names none waits for no font. Every face the scene draws must be named here
-   * (scenes.test.tsx renders each scene and checks).
+   * The faces the scene draws text in (UI-072, fonts.ts), each cut by its file, as v2's fontFace names it on Android.
+   * READY waits until React Native drew each one, measured against its fallback face; a scene that names none waits for no
+   * font. Every face the scene draws must be named here (scenes.test.tsx renders each scene and checks).
    */
-  fonts?: readonly SceneFaceId[];
+  fonts?: readonly LabFaceId[];
   /**
    * The scene draws Skia text in the bundled faces (F6: the hero's rim words): LabRoot mounts v2's typeface provider above
    * it, and READY waits until its font manager is in (labTypefaceGate.test.tsx).

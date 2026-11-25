@@ -2,9 +2,8 @@
 // fallback, each reporting the width React Native laid it out at. LabRoot judges those widths before READY.
 //
 // They must measure alike and never be seen:
-//   · one size, no font scaling and one line, every line at the same origin, so the only difference between two lines is
-//     the face they drew in, and the fallback's pixel rounding is the same as a missing face's; no weight, but a token
-//     face's own and its fallback's, which is that same weight (fonts.ts probeStyle);
+//   · one size, no weight, no font scaling and one line, every line at the same origin, so the only difference between
+//     two lines is the face they drew in, and the fallback's pixel rounding is the same as a missing face's;
 //   · off the scene's layout (absolute), never drawn (opacity 0: Android does not draw a view under its alpha threshold),
 //     hidden from TalkBack and from touch, and never a lab probe (no probe- nativeID), so no capture, bounds dump or READY
 //     probe set ever holds them;
@@ -13,13 +12,13 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { BASE } from '../v2/tokens/tokens.generated';
-import { CALIBRATION_TEXT, fontProbes, probeStyle, type FontProbeId, type SceneFaceId } from './fonts';
+import { CALIBRATION_TEXT, fontProbes, probeStyle, type FontProbeId, type LabFaceId } from './fonts';
 
 export const FONT_PROBES_TEST_ID = 'lab-font-probes';
 export const fontProbeTestId = (probe: FontProbeId) => `lab-font-probe:${probe}`;
 
 export function FontProbes({ faces, onWidth }: {
-  faces: readonly SceneFaceId[];
+  faces: readonly LabFaceId[];
   onWidth(probe: FontProbeId, width: number): void;
 }) {
   const probes: readonly FontProbeId[] = fontProbes(faces);
