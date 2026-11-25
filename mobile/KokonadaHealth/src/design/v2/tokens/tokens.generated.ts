@@ -3,8 +3,8 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  base: '813849069223af4f231d5715a469fb3a7f6e41c42d5b6c5f4f9278cbdf84692c',
-  'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
+  base: '1c09c0eb94b5ddfc89426ed9ee1fd0d2f43c0d1244d6d436cdb28b896c8b71d9',
+  'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
 };
 
 export type DirectionId = 'abyss';
@@ -139,6 +139,17 @@ export const BASE = {
   topBar: { height: 56 },
   avatar: { size: 36, target: 48 },
   nav: { height: 64, iconSize: 24, iconStroke: 1.5 },
+  target: { min: 48 },
+  row: { min: 56, twoLine: 72 },
+  icon: { xs: 16, s: 20, m: 24, stroke: 1.5 },
+  focus: { width: 2, offset: 2 },
+  content: { maxWidth: 560 },
+  pager: { row: 48 },
+  brand: { mark: { splash: 128, page: 80 } },
+  input: { field: { minHeight: 56 } },
+  toggle: { width: 52, height: 32, thumb: 24 },
+  slider: { track: 4, thumb: 24, hit: 48 },
+  skeleton: { motion: 'static' },
   type: {
     face: { ui: 'Heebo', voice: 'Bellefair', voiceFallback: 'Frank Ruhl Libre', voiceFallbackWeight: 300 },
     voice: {
@@ -200,6 +211,7 @@ export const BASE = {
   },
   motion: {
     respond: { duration: 350, easing: [0.22, 1, 0.36, 1] },
+    press: { duration: 100, easing: [0.22, 1, 0.36, 1], reducedMotion: 'none' },
     settle: { duration: 600, easing: [0.25, 1, 0.5, 1] },
     drift: { duration: 1200, easing: [0.37, 0, 0.63, 1] },
     pop: { duration: 420, easing: [0.34, 1.56, 0.64, 1] },
@@ -207,6 +219,7 @@ export const BASE = {
     fadeReduced: { duration: 150, easing: [0, 0, 1, 1] },
     dtClamp: 50,
   },
+  feedback: { progressDelay: 400 },
   radius: { art: { phone: 4, large: 8, largeMinWidth: 600 } },
   haptics: { minEventGap: 80 },
 };
@@ -355,6 +368,46 @@ const abyss = {
       avatar: {
         fill: { hex: '#081822', alpha: 1, oklch: [0.2, 0.03, 240], oklab: [0.2, -0.015, -0.0259807621] },
       },
+      scrim: {
+        hex: '#030C15',
+        alpha: 0.72,
+        oklch: [0.15, 0.025, 240],
+        oklab: [0.15, -0.0125, -0.0216506351],
+      },
+      notice: {
+        surface: {
+          hex: '#10212D',
+          alpha: 1,
+          oklch: [0.24, 0.032, 240],
+          oklab: [0.24, -0.016, -0.0277128129],
+        },
+        border: {
+          hex: '#1A2B36',
+          alpha: 1,
+          oklch: [0.28, 0.03, 235],
+          oklab: [0.28, -0.0172072931, -0.0245745613],
+        },
+      },
+      button: {
+        keyline: {
+          hex: '#63757E',
+          alpha: 1,
+          oklch: [0.55, 0.025, 230],
+          oklab: [0.55, -0.0160696902, -0.0191511111],
+        },
+      },
+      input: {
+        fill: { hex: '#081822', alpha: 1, oklch: [0.2, 0.03, 240], oklab: [0.2, -0.015, -0.0259807621] },
+        keyline: {
+          hex: '#63757E',
+          alpha: 1,
+          oklch: [0.55, 0.025, 230],
+          oklab: [0.55, -0.0160696902, -0.0191511111],
+        },
+      },
+      skeleton: {
+        fill: { hex: '#081822', alpha: 1, oklch: [0.2, 0.03, 240], oklab: [0.2, -0.015, -0.0259807621] },
+      },
     },
     light: {
       ground: { hex: '#EFF7F8', alpha: 1, oklch: [0.97, 0.008, 210], oklab: [0.97, -0.0069282032, -0.004] },
@@ -481,6 +534,39 @@ const abyss = {
         },
       },
       avatar: { fill: { hex: '#FFFFFF', alpha: 1, oklch: [1, 0, 0], oklab: [1, 0, 0] } },
+      scrim: {
+        hex: '#EFF7F8',
+        alpha: 0.72,
+        oklch: [0.97, 0.008, 210],
+        oklab: [0.97, -0.0069282032, -0.004],
+      },
+      notice: {
+        surface: { hex: '#FFFFFF', alpha: 1, oklch: [1, 0, 0], oklab: [1, 0, 0] },
+        border: {
+          hex: '#D7E0E3',
+          alpha: 1,
+          oklch: [0.9, 0.01, 220],
+          oklab: [0.9, -0.0076604444, -0.0064278761],
+        },
+      },
+      button: {
+        keyline: {
+          hex: '#72838C',
+          alpha: 1,
+          oklch: [0.6, 0.025, 230],
+          oklab: [0.6, -0.0160696902, -0.0191511111],
+        },
+      },
+      input: {
+        fill: { hex: '#FFFFFF', alpha: 1, oklch: [1, 0, 0], oklab: [1, 0, 0] },
+        keyline: {
+          hex: '#72838C',
+          alpha: 1,
+          oklch: [0.6, 0.025, 230],
+          oklab: [0.6, -0.0160696902, -0.0191511111],
+        },
+      },
+      skeleton: { fill: { hex: '#FFFFFF', alpha: 1, oklch: [1, 0, 0], oklab: [1, 0, 0] } },
     },
   },
   elevation: {
@@ -548,6 +634,12 @@ const abyss = {
   },
   radius: { xs: 6, s: 10, m: 14, l: 20, xl: 28 },
   layout: { gutter: 24, gap: { aiToVoice: 24, voiceToPlate: 24, plateToWell: 32, wellToNav: 16 } },
+  button: { keyline: 1.5 },
+  sheet: { radius: 28 },
+  dialog: { radius: 20 },
+  notice: { border: 1, radius: 14, padding: { horizontal: 16, vertical: 12 }, iconGap: 12 },
+  pager: { dot: 6, activeWidth: 16, gap: 8 },
+  input: { field: { keyline: 1.5, radius: 14 } },
   haptics: {
     place: 'TICK@0:0.50',
     replace: 'TICK@0:0.50,TICK@60:0.30',
