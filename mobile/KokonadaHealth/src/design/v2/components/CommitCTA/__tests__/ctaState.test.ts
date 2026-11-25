@@ -4,7 +4,7 @@ import { oklabToSrgb } from '../../../color/oklab.ts';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import { progress, rampProgress } from '../../../field/crossfade.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
-import { hexLab, srgbHex } from '../../Bead/beadModel.ts';
+import { hexLab, srgbHex } from '../../../field/fieldLaw.ts';
 import { CTA_NODES, ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaPaint, type CtaPlacement } from '../ctaState.ts';
 
 // DEC-174's CTA, as a pure machine: it shows and changes its tint only at the field's admitted starts, from a

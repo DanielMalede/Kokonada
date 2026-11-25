@@ -1,13 +1,13 @@
 import { progress, rampProgress } from '../../../field/crossfade.ts';
 import { relY, worstFlashesPerSecond } from '../../../field/flashCount.ts';
 import { geometry as STORM_PLATE, neutral, QUAD, store, STORM_GRIDS } from '../../../field/ledgerStorms.ts';
-import { emptyLedger, ledgerConfig, reconcile, type Ledger, type Tap } from '../../../field/placementLedger.ts';
+import { admittedLive, emptyLedger, ledgerConfig, reconcile, stillLive, type Ledger, type Tap } from '../../../field/placementLedger.ts';
 import { nodeAt } from '../../../field/fieldFrame.ts';
 import { mixSafe } from '../../../color/mixSafe.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { STATICS } from '../../../tokens/tokens.statics.generated.ts';
-import { hexLab, srgbHex } from '../../Bead/beadModel.ts';
-import { admittedLive, ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement, type CtaView } from '../ctaState.ts';
+import { hexLab, srgbHex } from '../../../field/fieldLaw.ts';
+import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement, type CtaView } from '../ctaState.ts';
 
 // E6, the CTA under the ledger (DEC-174; the resilience-auditor's text, verbatim in the decision): the machine is
 // sampled every 1 ms while the real placement ledger runs E3's storms plus toggleJR, in both faces and both modes,
@@ -190,15 +190,30 @@ interface Sample {
   readonly view: CtaView;
   readonly taps: number;
   readonly live: ReadonlySet<number>;
+  /** The store's taps and the ledger, as they are at this ms (the truth under the hop reads them). */
+  readonly store: readonly Tap[];
+  readonly ledger: Ledger;
 }
+
+/** A start's hop to JS (F4): delivered `delay` ms after the ledger made it, filtered by stillLive against the store then, or (planted) not. */
+interface Hop {
+  readonly delay: number;
+  readonly filter: boolean;
+}
+
 interface Run {
   readonly samples: Sample[];
-  /** Times of admitted starts, with whether the target held a store-live tap. */
+  /** Times of admitted starts (under the hop, of their deliveries), with the ids each carried to the CTA. */
   readonly starts: Array<{ t: number; live: number[] }>;
   /** Times the store emptied. */
   readonly empties: number[];
   readonly mode: CtaMode;
   readonly paint: CtaPaint;
+  readonly hop: Hop | null;
+  /** Under the hop, each delivery: what it carried, the store's taps then, and the ids in the ledger's store then. */
+  readonly deliveries: Array<{ t: number; carried: CtaPlacement[]; store: readonly Tap[]; ledgerStore: ReadonlySet<number> }>;
+  /** Under the hop, every placement a delivery carried, by id. */
+  readonly delivered: Map<number, CtaPlacement>;
 }
 
 function schedule(kind: Storm, every: number, span: number, s: ReturnType<typeof store>) {
@@ -215,17 +230,19 @@ function schedule(kind: Storm, every: number, span: number, s: ReturnType<typeof
   return { at, last };
 }
 
-function run(factory: Factory, kind: Storm, every: number, span: number, mode: CtaMode, face: Face): Run {
+function run(factory: Factory, kind: Storm, every: number, span: number, mode: CtaMode, face: Face, hop: Hop | null = null): Run {
   const paint: CtaPaint = { id: 'abyss', face };
   const driver = factory(paint, mode);
   const s = store(kind === 'neutral3' ? [neutral(1), neutral(2), neutral(3)] : []);
   const { at, last } = schedule(kind, every, span, s);
   const config = ledgerConfig('abyss', STATICS.abyss['field.rest'].lobes[face], { radiusPx: STORM_PLATE.radiusPx, pxPerDp: STORM_PLATE.pxPerDp });
   let ledger: Ledger = emptyLedger(config);
-  const out: Run = { samples: [], starts: [], empties: [], mode, paint };
-  const end = Math.max(span, last) + 3 * SETTLE + SHOW[mode] + HIDE[mode] + 200;
+  const out: Run = { samples: [], starts: [], empties: [], mode, paint, hop, deliveries: [], delivered: new Map() };
+  const end = Math.max(span, last) + 3 * SETTLE + SHOW[mode] + HIDE[mode] + 200 + (hop === null ? 0 : hop.delay);
   let seq = -1;
   let starts = 0;
+  /** Under the hop: the starts made and not yet delivered, each with when it lands. */
+  let inFlight: Array<{ due: number; live: CtaPlacement[] }> = [];
   for (let t = 0; t <= end; t++) {
     for (const act of at.get(t) ?? []) act();
     let input = { seq: s.seq(), taps: s.taps() as readonly Tap[] };
@@ -242,10 +259,23 @@ function run(factory: Factory, kind: Storm, every: number, span: number, mode: C
     if (ledger.starts !== starts) {
       starts = ledger.starts;
       const live = admittedLive(ledger);
-      driver.start(live, t);
-      out.starts.push({ t, live: live.map((p) => p.id) });
+      if (hop === null) {
+        driver.start(live, t);
+        out.starts.push({ t, live: live.map((p) => p.id) });
+      } else inFlight.push({ due: t + hop.delay, live });
     }
-    out.samples.push({ t, view: driver.view(t), taps: s.taps().length, live: new Set(admittedLive(ledger).map((p) => p.id)) });
+    // A delivery lands after the store events of its ms, as runOnJS lands after the JS work already queued.
+    if (hop !== null) {
+      for (const f of inFlight.filter((x) => x.due === t)) {
+        const carried = hop.filter ? stillLive(f.live, s.taps()) : f.live;
+        driver.start(carried, t);
+        out.starts.push({ t, live: carried.map((p) => p.id) });
+        out.deliveries.push({ t, carried, store: s.taps(), ledgerStore: new Set(ledger.store.map((p) => p.id)) });
+        for (const p of carried) out.delivered.set(p.id, p);
+      }
+      inFlight = inFlight.filter((x) => x.due !== t);
+    }
+    out.samples.push({ t, view: driver.view(t), taps: s.taps().length, live: new Set(admittedLive(ledger).map((p) => p.id)), store: s.taps(), ledger });
   }
   return out;
 }
@@ -305,7 +335,17 @@ function clauses(r: Run): Record<'flash' | 'starts' | 'latch' | 'step' | 'live' 
     if (now.view.phase === 'hiding' && wasShown) latched = true;
     if (!(Math.abs(now.view.opacity - before.view.opacity) <= STEEPEST * 1.001 + 1e-12)) out.step.push(`${before.view.opacity} → ${now.view.opacity} at ${t} ms`);
     if ((now.view.pressable || now.view.accessible) && !(now.taps > 0 && (now.view.phase === 'showing' || now.view.phase === 'shown'))) out.press.push(`pressable at ${t} ms while ${now.view.phase} with ${now.taps} taps`);
-    if (now.view.tint !== null && (before.view.tint === null || now.view.tint.owner !== before.view.tint.owner) && !now.live.has(now.view.tint.owner)) out.truth.push(`the tint went to ${now.view.tint.owner} at ${t} ms, not admitted and live`);
+    if (now.view.tint !== null && (before.view.tint === null || now.view.tint.owner !== before.view.tint.owner)) {
+      const owner = now.view.tint.owner;
+      if (r.hop === null) {
+        if (!now.live.has(owner)) out.truth.push(`the tint went to ${owner} at ${t} ms, not admitted and live`);
+      } else {
+        // Under the hop: a placement a delivery carried, that the field still shows and not leaving, whose point the store holds now.
+        const carried = r.delivered.get(owner);
+        const shown = now.ledger.shown.some((p) => p.id === owner && p.phase !== 'out');
+        if (carried === undefined || !shown || stillLive([carried], now.store).length === 0) out.truth.push(`the tint went to ${owner} at ${t} ms, not carried, shown and held by the store`);
+      }
+    }
   }
   const at = (t: number) => r.samples[Math.min(r.samples.length - 1, t)].view;
   for (const s of r.starts) {
@@ -393,5 +433,43 @@ describe('E6: each planted case must fail (the clauses are watched failing)', ()
 
   it('a show from 0 instead of from where the CTA is: the opacity steps', () => {
     expect(failures(showFromZero, 'step')).toBeGreaterThan(0);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------ E6 under the hop
+
+// F4 (the architect's F10 G8 findings): on the device a start crosses from the UI thread to JS (runOnJS) and lands after
+// the store may have moved on. Here each start is delivered 16, 50 or 250 ms after the ledger made it, as FieldView
+// delivers it: filtered by stillLive against the store at delivery. Store events stay immediate. Under the hop the
+// clauses' starts are the deliveries, and the truth is read as JS can know it: at a delivery the tint goes to a
+// placement that start carried, that the field still shows and not leaving, and whose point the store holds then. The
+// ledger's ids cannot be that truth: a tap undone and placed again at its point within the hop is a new id in the
+// ledger and the same tap in the store (the last test below), and the tint is the same either way.
+const HOPS: readonly number[] = [16, 50, 250];
+const HOP_CASES = CASES.flatMap((c) => HOPS.map((delay) => ({ ...c, delay })));
+const HOP_PLANTS = (['toggle', 'toggleJR', 'placeRemoveJR', 'cycle4', 'netted'] as const).flatMap((kind) => [17, 143].flatMap((every) => MODES.flatMap((mode) => HOPS.map((delay) => ({ kind, every, mode, delay })))));
+
+describe('E6 under the hop (F4): each start delivered late, through stillLive against the store at delivery', () => {
+  it.each(HOP_CASES)('$kind every $every ms, $mode, $face, $delay ms late: every clause holds, and the CTA settles where the store does', ({ kind, every, mode, face, delay }) => {
+    const r = run(real, kind, every, GRID.span[0], mode, face, { delay, filter: true });
+    expect(clauses(r)).toEqual({ flash: [], starts: [], latch: [], step: [], live: [], press: [], truth: [] });
+    if (kind !== 'reemit' && kind !== 'neutral3') expect(r.starts.length).toBeGreaterThan(1);
+    expect(r.starts.every((s) => s.t >= delay)).toBe(true);
+    const last = r.samples[r.samples.length - 1];
+    expect(last.view.phase).toBe(last.taps > 0 ? 'shown' : 'hidden');
+  });
+
+  // The filtered control of these cases is the grid above (each holds every clause there).
+  it('planted: with no filter, a start lands on a store that no longer holds its placement, and the truth clause fails', () => {
+    const truth = HOP_PLANTS.reduce((n, c) => n + clauses(run(real, c.kind, c.every, GRID.span[0], c.mode, 'dark', { delay: c.delay, filter: false })).truth.length, 0);
+    expect(truth).toBeGreaterThan(0);
+  });
+
+  it('the ledger’s ids are not the truth under the hop: toggled every 17 ms and 50 ms late, a delivered tap is back in the store under a new ledger id', () => {
+    const r = run(real, 'toggle', 17, GRID.span[0], 'settle', 'dark', { delay: 50, filter: true });
+    const reAdded = r.deliveries.filter((d) => d.carried.some((p) => !d.ledgerStore.has(p.id)));
+    expect(reAdded.length).toBeGreaterThan(0);
+    for (const d of reAdded) for (const p of d.carried) expect(stillLive([p], d.store)).toEqual([p]);
+    expect(clauses(r).truth).toEqual([]);
   });
 });

@@ -14,18 +14,20 @@
 //
 // Shows and tint changes begin only at admitted starts, at least motion.settle apart, so the CTA makes at most 5
 // changes and 2 flashes in any second (E6, ctaStorms.test.ts). The machine knows the store only by its tap count
-// and the field only by its admitted starts, each with the target's store-live placements (admittedLive, which
-// FieldView can call at a start). PlacementTint is branded: only this module mints one, so the commit button is
-// the only tinted control and takes its tint from here alone (R3).
+// and the field only by its admitted starts, each with the target's store-live placements (the ledger's
+// admittedLive, which FieldView's onStart carries, filtered by stillLive when the hop to JS lands). It is pure: it
+// reaches no React Native and nothing of the bead's view family (F3, ctaStateClosure.test.ts). PlacementTint is
+// branded: only this module mints one, so the commit button is the only tinted control and takes its tint from here
+// alone (R3).
 
 import { mixSafe } from '../../color/mixSafe.ts';
 import type { Oklab } from '../../color/oklab.ts';
 import type { RedBand } from '../../color/redBand.ts';
 import { progress, rampProgress } from '../../field/crossfade.ts';
 import { NODE_TIER, QUADRANT, nodeAt, type PlacementNode } from '../../field/fieldFrame.ts';
-import type { Ledger } from '../../field/placementLedger.ts';
+import { srgbHex } from '../../field/fieldLaw.ts';
+import type { LivePlacement } from '../../field/placementLedger.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
-import { readPoint, srgbHex } from '../Bead/beadModel.ts';
 
 export type CtaMode = 'settle' | 'reduced';
 
@@ -35,12 +37,8 @@ export interface CtaPaint {
   readonly face: Face;
 }
 
-/** A placement in an admitted start's target that is live in the store: its ledger id and its point. */
-export interface CtaPlacement {
-  readonly id: number;
-  readonly x: number;
-  readonly y: number;
-}
+/** A placement in an admitted start's target that is live in the store: its ledger id and its point (the ledger's). */
+export type CtaPlacement = LivePlacement;
 
 export type CtaEvent =
   /** The store changed: how many taps it holds now. */
@@ -148,10 +146,6 @@ function tintAt(s: TintRamp, t: number, paint: CtaPaint): { readonly lab: Oklab;
 }
 
 const latestOf = (live: readonly CtaPlacement[]) => live.reduce((a, b) => (b.id > a.id ? b : a));
-const nodeOf = (p: CtaPlacement): PlacementNode => {
-  const read = readPoint(p);
-  return nodeAt(read.x, read.y);
-};
 
 /**
  * The machine at a mount. The field shows a fresh mount's taps at once (the ledger's reset, with no start), so a
@@ -163,7 +157,7 @@ export function ctaInitial(paint: CtaPaint, live: readonly CtaPlacement[], taps:
   return {
     taps,
     opacity: { kind: 'show', from: 1, at: nowMs, mode: 'settle' },
-    tint: { node: nodeOf(latest), owner: latest.id, from: null, at: nowMs, mode: 'settle', paint },
+    tint: { node: nodeAt(latest.x, latest.y), owner: latest.id, from: null, at: nowMs, mode: 'settle', paint },
     starts: 0,
   };
 }
@@ -180,7 +174,7 @@ export function ctaReduce(m: CtaMachine, event: CtaEvent, nowMs: number, mode: C
   const starts = m.starts + 1;
   if (event.live.length === 0 || m.taps <= 0) return { ...m, starts };
   const latest = latestOf(event.live);
-  const node = nodeOf(latest);
+  const node = nodeAt(latest.x, latest.y);
   const visible = opacityAt(m, nowMs);
   const shown = m.opacity !== null && m.opacity.kind === 'show';
   const opacity = shown ? m.opacity : { kind: 'show' as const, from: visible, at: nowMs, mode };
@@ -203,21 +197,4 @@ export function ctaState(m: CtaMachine, nowMs: number, paint: CtaPaint): CtaView
   const moving = m.tint === null ? null : tintAt(m.tint, nowMs, paint);
   const tint = m.tint === null || moving === null ? null : mint(moving.hex, ctaColours(paint, m.tint.node).label, m.tint.node, m.tint.owner);
   return { opacity, tint, pressable: exposed, accessible: exposed, phase, animating: phase === 'showing' || phase === 'hiding' || (moving !== null && moving.moving) };
-}
-
-/**
- * An admitted start's target, read from the ledger: the placements it shows (not leaving) that are live in the
- * store, oldest first. What the CTA hears at a start (DEC-174; FieldView's onStart can carry it).
- */
-export function admittedLive(ledger: Ledger): CtaPlacement[] {
-  'worklet';
-  const live: CtaPlacement[] = [];
-  for (const s of ledger.shown) {
-    if (s.phase === 'out') continue;
-    let inStore = false;
-    for (const p of ledger.store) if (p.id === s.id) inStore = true;
-    if (inStore) live.push({ id: s.id, x: s.x, y: s.y });
-  }
-  live.sort((a, b) => a.id - b.id);
-  return live;
 }
