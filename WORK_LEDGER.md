@@ -151,7 +151,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:cmp008-get-spotify-free` (own)
 - title: CMP-008 / CA307-15: GET SPOTIFY FREE opens Spotify's Play Store listing (market:// then the Play web page) instead of open.spotify.com
 - branch: `fix/cmp008-get-spotify-free`
-- paths: `mobile/KokonadaHealth/src/experience/player/spotifyLinkBack.ts`, `mobile/KokonadaHealth/src/experience/player/spotifyContentLink.ts`, `mobile/KokonadaHealth/src/experience/player/SpotifyAttribution.tsx`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyLinkBack.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyContentLink.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/SpotifyAttribution.test.tsx`, `docs/design-v2/registry/CMP-008.md`, `docs/design-v2/registry/CMP-009.md`, `TASKS.md`
+- paths: `mobile/KokonadaHealth/src/experience/player/spotifyLinkBack.ts`, `mobile/KokonadaHealth/src/experience/player/spotifyContentLink.ts`, `mobile/KokonadaHealth/src/experience/player/SpotifyAttribution.tsx`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyLinkBack.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyContentLink.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/SpotifyAttribution.test.tsx`, `mobile/KokonadaHealth/src/experience/playback/NowPlayingScreen.tsx`, `mobile/KokonadaHealth/src/experience/playback/__tests__/NowPlayingScreen.test.tsx`, `docs/design-v2/registry/CMP-008.md`, `docs/design-v2/registry/CMP-009.md`, `docs/design-v2/registry/INDEX.md`, `docs/design-v2/decisions/DEC-193.md`, `docs/design-v2/decisions/DEC-112.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-25
