@@ -5,7 +5,7 @@ import { PHONE, fallbackScenes, heroLayout } from '../../v2/field/fallbackScenes
 import type { FieldLayout, LayoutRect } from '../../v2/field/fieldDriver';
 import { EXTENSIONS } from '../../v2/tokens/tokens.extensions.generated';
 import { BASE } from '../../v2/tokens/tokens.generated';
-import { FIELD_FACES, FIELD_SCENES, FIELD_TIERS, HERO_SCENES, NEAR_SCENES, fieldSceneCatalogue, fieldSceneLayout, type FieldSceneSpec } from '../fieldScenes';
+import { FIELD_FACES, FIELD_SCENES, FIELD_TIERS, HERO_SCENES, NEAR_SCENES, fieldSceneCatalogue, fieldSceneLayout, heroTaps, type FieldSceneSpec } from '../fieldScenes';
 
 // T14 (handoff items 7 and 9; the architect's T14 plan at c8ff246, forks F1–F6 at A): the Design Lab's field scenes. Abyss,
 // both faces, the hero scenes rest, one.joy, three and one.intense at the tiers full, low and still (FieldView), and the
@@ -122,5 +122,20 @@ describe('the layout: the hero\'s, with at most QUIET_SLOTS quiet rects (a Range
 
   it('a repeated id is refused by name', () => {
     expect(() => fieldSceneCatalogue([FIELD[0], FIELD[0]])).toThrow(new RegExp(FIELD[0].id.replace(/\./g, '\\.')));
+  });
+});
+
+// F10 G8: the lab's hero scene starts from a hero scene's placements, as the field scenes do, so the plate and the field
+// show the same taps a field capture of that scene shows.
+describe('heroTaps', () => {
+  it('is a hero scene\'s placements as taps on the unit disc, oldest first, the same the field scenes draw', () => {
+    expect(heroTaps('three')).toEqual((HERO.three.placements ?? []).map((p) => ({ x: p.x, y: p.y })));
+    expect(heroTaps('three')).toHaveLength(3);
+    expect(heroTaps('three')).toEqual(FIELD_SCENES['field.abyss.dark.three.full'].taps);
+    expect(heroTaps('rest')).toEqual([]);
+  });
+
+  it('a scene the extensions do not name has no taps', () => {
+    expect(heroTaps('nowhere')).toEqual([]);
   });
 });
