@@ -170,6 +170,11 @@ function rowIn(tasks, id) {
   const end = lines.findIndex((l, i) => i > at && !l.startsWith('  '));
   return lines.slice(at, end < 0 ? lines.length : end).join('\n');
 }
+// The one check of this file that reads whether a row is open: `OPS-502`'s, which gates the two pins that hold only
+// while nothing in code holds ruling 8 (ARCH-307-20, ARCH-307-28). RA-35's scan in the last case allows no other.
+function ops502Open(tasks) {
+  return tasks.split('\n').some((l) => l.startsWith('- [ ] `OPS-502`'));
+}
 const idsIn = (tasks) => new Set([...tasks.matchAll(/^- \[[ x]\] `([A-Z]+-\d+)`/gm)].map((m) => m[1]));
 const ROW_PINS = [];
 const rowPin = (check) => {
@@ -514,11 +519,14 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
   // secret's line either.
   test('step 7: krt_ joins whr_, both RED in every path until OPS-503; .env* is never a fixture; a URI is judged by its masked host; 8b greps the same way', () => {
     const secrets = STEP7.split('\n').find((l) => l.startsWith('   · Secrets:')) || '';
-    has(secrets, '`krt_[A-Za-z0-9_-]{8,}` (the refresh token the backend mints, `backend/app/services/auth/tokenService.js:13`)',
+    has(secrets, '`krt_[A-Za-z0-9_-]{8,}` (the refresh token the backend mints, `REFRESH_PREFIX` in `backend/app/services/auth/tokenService.js`)',
       'Until `OPS-503` lands, a `whr_` or `krt_` hit is `RED (DIFF)` in every path, test fixtures included, since CI\'s scan has a rule for neither.',
       'A credentials-in-URI hit is judged by its host, printed with the user and the password masked',
       'only a loopback host (`localhost`, `127.0.0.1`, `[::1]`), a `.invalid` host or an `example.` host counts as a fake; any other host is `RED (DIFF)`');
-    expect(read('backend/app/services/auth/tokenService.js').split('\n')[12]).toBe('const REFRESH_PREFIX = \'krt_\';');
+    // ARCH-307-28, option A: the code is pinned by its symbol over the whole file, never by a line index (#309 moved
+    // this constant from line 13 to 14), and the text cites the symbol, not a line.
+    expect(read('backend/app/services/auth/tokenService.js')).toMatch(/^const REFRESH_PREFIX = 'krt_';$/m);
+    expect(secrets).not.toMatch(/tokenService\.js:\d/);
     has(sub8('b'), 'The greps run as step 7\'s do: both lists are piped straight in and never printed, every hit prints only its file:line and kind, and a line a Secrets pattern of step 7 matches is judged without reading the line, as step 7\'s Secrets bullet says.');
   });
 
@@ -1188,9 +1196,9 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   // accounts, and the owner's phone reads Health Connect on the grant he states he holds.
   test('rulings 8, 10 and 11 in /page G11P and /device-qa: no new grant in production; seeded fake grants on a local backend; the phone reads on his grant', () => {
     has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', '(5) BLE heart rate, a Health Connect read on my existing consent grant, which I hold (DEC-192 ruling 11; ruling 8, as ruling 10 scopes it: no new grant in production until the final text)');
-    has(read('.claude/commands/device-qa.md').split('\n')[6] || '',
+    has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('No new consent grant is recorded in production')) || '',
       'No new consent grant is recorded in production until the final consent text (M4; DEC-192 ruling 8, as ruling 10 scopes it), so no evidence run creates one there, and the v1 text is not approved.',
-      'Nothing in code holds this rule yet: the consent route records any grant (`backend/app/services/privacy/consent.js:41-55`), and whether code will hold it is `OPS-502`, open.',
+      'Nothing in code holds this rule yet: the consent route records any grant (`recordConsent` in `backend/app/services/privacy/consent.js`), and whether code will hold it is `OPS-502`, open.',
       'On a local evidence backend, seeded fake grants for test accounts are allowed, and so are the grants automated tests record (ruling 10).',
       'The owner\'s real-phone pass reads Health Connect on his existing grant, which he states he holds (ruling 11).');
     has(DEC192, '- Rulings 10 and 11: `/device-qa`\'s consent line and `/page` G11P item 5');
@@ -1199,11 +1207,14 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   // ARCH-307-20 = RA-28(a) = SA-13: nothing in code holds ruling 8 while `OPS-502` is open (the consent route records
   // any grant), so no text may say that code does.
   test('while OPS-502 is open, neither /device-qa nor DEC-192 says that code holds ruling 8', () => {
-    const open = TASKS_MD.split('\n').some((l) => l.startsWith('- [ ] `OPS-502`'));
+    const open = ops502Open(TASKS_MD);
     for (const [name, text] of [['device-qa.md', read('.claude/commands/device-qa.md')], ['DEC-192.md', DEC192]]) {
       expect([name, open && /enforces it in code|`OPS-502` is the code|`OPS-502` \(ruling 8 in code\)/.test(text)]).toEqual([name, false]);
     }
-    expect(read('backend/app/services/privacy/consent.js').split('\n')[40]).toMatch(/^async function recordConsent\(/);
+    // ARCH-307-28, option A: the route's function by its symbol over the whole file, never a line index, and the
+    // runbook cites the symbol, not a line.
+    expect(read('backend/app/services/privacy/consent.js')).toMatch(/^async function recordConsent\(/m);
+    expect(read('.claude/commands/device-qa.md')).not.toMatch(/consent\.js:\d/);
   });
 
   // RA-20, ARCH-307-13: the orchestrator's picks shape instruction-layer text, which is the owner's (class (a)), so they
@@ -1495,8 +1506,12 @@ describe('#307 round 4 · every finding of the review at a196ce4 that #307 does 
     const ops502 = rowIn(tasks, 'OPS-502');
     has(ops502.split('\n')[0], '`mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx:19` and `:38-39`');
     expect(ops502).not.toContain('legalCopy.ts:3');
-    const sheet = read('mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx').split('\n');
-    expect([sheet[18], sheet[37]].map((l) => /PLACEHOLDER COPY/.test(l))).toEqual([true, true]);
+    // ARCH-307-28, option A: while `OPS-502` is open in the text this pin reads, the sheet still carries both of its
+    // placeholder marks, read over the whole file, never by a line index; a closed `OPS-502` drops the check.
+    if (ops502Open(tasks)) {
+      const sheet = read('mobile/KokonadaHealth/src/experience/profile/ConsentSheet.tsx');
+      expect((sheet.match(/^\/\/.*\bPLACEHOLDER COPY\b/gm) || []).length).toBeGreaterThanOrEqual(2);
+    }
     const ops511 = rowIn(tasks, 'OPS-511');
     expect(ops511).not.toContain('DEC-192 says that ruling 5 leaves `DEC-089` open');
     has(ops511.split('\n').find((l) => l.startsWith('  - where:')) || '', 'the owner\'s M1 answer on `DEC-089`', 'awaits recording as a DEC- entry in the fast-track plan\'s L0 records step');
