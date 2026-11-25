@@ -1,12 +1,13 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Animated, I18nManager, PixelRatio, StyleSheet } from 'react-native';
+import { Animated, I18nManager, PixelRatio, Platform, StyleSheet } from 'react-native';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { hexLab } from '../../Bead/beadModel.ts';
+import { fontFace } from '../../../typeface/faces.ts';
 import { CommitCTA, useCtaMachine } from '../CommitCTA.tsx';
 import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaPaint } from '../ctaState.ts';
 
@@ -118,6 +119,24 @@ describe('CommitCTA: shown', () => {
     expect(latin).toMatchObject({ fontFamily: BASE.type.face.ui, fontSize: BASE.type.ui.cta.latin.size, lineHeight: BASE.type.ui.cta.latin.lineHeight, fontWeight: String(BASE.type.ui.cta.latin.weight) });
     const hebrew = flat(host(mount({ machine: shown(), label: 'המשך' }), 'hero.cta.label').props.style);
     expect(hebrew).toMatchObject({ fontSize: BASE.type.ui.cta.hebrew.size, lineHeight: BASE.type.ui.cta.hebrew.lineHeight });
+  });
+
+  // Jest runs as iOS (the preset's Platform.OS), where a face is the family at the weight, as above. React Native on
+  // Android loads fonts/<fontFamily>.ttf by its exact name and picks a file by normal or bold only: the family 'Heebo' at
+  // 600 finds no file and draws the system face without weight 600 (the lab's font check, f3e4679: Heebo@600 at the
+  // fallback's width). So on Android the label names ui.cta's per-weight file, with no weight on top (typeface/faces.ts).
+  it.each([['Continue', 'latin'], ['המשך', 'hebrew']] as const)('on Android, "%s": the label is set in ui.cta’s own file, Heebo-SemiBold, with no fontWeight', (label, script) => {
+    const os = jest.replaceProperty(Platform, 'OS', 'android');
+    try {
+      const style = flat(host(mount({ machine: shown(), label }), 'hero.cta.label').props.style);
+      expect(BASE.type.ui.cta[script].weight).toBe(600);
+      expect(style.fontFamily).toBe('Heebo-SemiBold');
+      expect(style.fontFamily).toBe(fontFace(BASE.type.face.ui, BASE.type.ui.cta[script].weight, 'android').fontFamily);
+      expect(style).not.toHaveProperty('fontWeight');
+      expect(style).toMatchObject({ fontSize: BASE.type.ui.cta[script].size, lineHeight: BASE.type.ui.cta[script].lineHeight });
+    } finally {
+      os.restore();
+    }
   });
 });
 

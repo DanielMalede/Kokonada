@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { Animated, Easing, Pressable, StyleSheet, Text } from 'react-native';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { useTokens } from '../../tokens/useTokens.ts';
+import { fontFace } from '../../typeface/faces.ts';
 import { ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement } from './ctaState.ts';
 
 export interface CommitCTAProps {
@@ -77,7 +78,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
       >
         <Text
           testID="hero.cta.label"
-          style={[styles.label, { color: view.tint?.label, fontFamily: base.type.face.ui, fontSize: type.size, lineHeight: type.lineHeight, fontWeight: String(type.weight) as '600', letterSpacing: type.tracking * type.size }]}
+          style={[styles.label, { color: view.tint?.label, ...fontFace(base.type.face.ui, type.weight), fontSize: type.size, lineHeight: type.lineHeight, letterSpacing: type.tracking * type.size }]}
         >
           {label}
         </Text>
