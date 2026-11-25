@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Profiler } from 'react';
 import { I18nManager, StyleSheet, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { contrastRatio } from '../../../color/contrast.ts';
@@ -49,12 +49,42 @@ const isHost = (n: Node) => typeof n.type === 'string';
 const HINT = 'Tap the plate to place a point.';
 
 type Mounted = Omit<WellProps, 'children'> & { face?: Face };
-function mount(props: Mounted) {
+/** The action's height in dp: 80 is a CommitCTA whose label wraps at font 2.0. */
+const ACTION_AT_2 = 80;
+
+// Every View measures, as on the device: React Native's jest View is a class whose measure() never calls back
+// (@react-native/jest-preset MockNativeMethods), so here measure, measureInWindow and Fabric's getBoundingClientRect
+// report the action's box at once. A Well that measured after its first layout and set its own height from what it
+// read would commit a second time, which the Profiler in mount() records.
+type Measurable = {
+  measure: (cb: (...v: number[]) => void) => void;
+  measureInWindow: (cb: (...v: number[]) => void) => void;
+  getBoundingClientRect?: () => object;
+};
+const VIEW = View as unknown as { prototype: Measurable };
+let laidOutHeight = 40;
+beforeEach(() => {
+  jest.spyOn(VIEW.prototype, 'measure').mockImplementation((cb) => cb(0, 0, 336, laidOutHeight, 0, 0));
+  jest.spyOn(VIEW.prototype, 'measureInWindow').mockImplementation((cb) => cb(0, 0, 336, laidOutHeight));
+  Object.defineProperty(VIEW.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({ x: 0, y: 0, width: 336, height: laidOutHeight, top: 0, left: 0, right: 336, bottom: laidOutHeight }),
+  });
+});
+afterEach(() => {
+  delete VIEW.prototype.getBoundingClientRect;
+});
+
+function mount(props: Mounted, actionHeight = 40) {
+  laidOutHeight = actionHeight;
+  const commits: string[] = [];
   const tree = (p: Mounted) => (
     <DirectionProvider direction="abyss" face={p.face ?? 'dark'}>
-      <Well actionShown={p.actionShown} hint={p.hint} script={p.script} tier={p.tier} consentSlot={p.consentSlot}>
-        <View testID="action" />
-      </Well>
+      <Profiler id="well" onRender={(_id, phase) => commits.push(phase)}>
+        <Well actionShown={p.actionShown} hint={p.hint} script={p.script} tier={p.tier} consentSlot={p.consentSlot}>
+          <View testID="action" style={{ height: actionHeight }} />
+        </Well>
+      </Profiler>
     </DirectionProvider>
   );
   let r!: ReactTestRenderer.ReactTestRenderer;
@@ -63,16 +93,18 @@ function mount(props: Mounted) {
   });
   const root = () => r.root.find((n) => isHost(n) && n.props.testID === 'hero.well');
   const text = () => r.root.findAll((n) => isHost(n) && String(n.type) === 'Text');
-  const hostParent = (n: Node) => {
-    for (let p = n.parent; p !== null; p = p.parent) if (isHost(p)) return p;
-    throw new Error('no host parent');
-  };
   const hintLayer = () => hostParent(text()[0]);
-  /** The action's measured container, then the layer that holds it in the Well. */
-  const actionBox = () => hostParent(r.root.find((n) => isHost(n) && n.props.testID === 'action'));
-  const actionLayer = () => hostParent(actionBox());
-  return { r, root, text, hintLayer, actionBox, actionLayer, update: (next: Mounted) => act(() => r.update(tree(next))), unmount: () => act(() => r.unmount()) };
+  const action = () => r.root.find((n) => isHost(n) && n.props.testID === 'action');
+  /** The cell that holds the action in the Well. */
+  const actionCell = () => hostParent(action());
+  return { r, commits, root, text, hintLayer, action, actionCell, update: (next: Mounted) => act(() => r.update(tree(next))), unmount: () => act(() => r.unmount()) };
 }
+/** A host by its testID, else its type: what a failure prints, never the test instance itself. */
+const named = (n: Node) => String(n.props.testID ?? n.type);
+const hostParent = (n: Node) => {
+  for (let p = n.parent; p !== null; p = p.parent) if (isHost(p)) return p;
+  throw new Error('no host parent');
+};
 
 const base: Mounted = { actionShown: false, hint: HINT, script: 'latin', tier: 'full' };
 
@@ -85,7 +117,7 @@ describe('Well: the slot', () => {
   it('is a full-column slot at least well.height tall, its height a minimum, never fixed (F10 R6)', () => {
     const view = mount(base);
     const s = flat(view.root());
-    expect(s).toMatchObject({ minHeight: BASE.well.height, alignSelf: 'stretch', justifyContent: 'center' });
+    expect(s).toMatchObject({ minHeight: BASE.well.height, alignSelf: 'stretch' });
     expect(s).not.toHaveProperty('height');
     view.unmount();
   });
@@ -97,22 +129,51 @@ describe('Well: the slot', () => {
     view.unmount();
   });
 
-  it('grows to hold an action taller than its minimum, so a 2.0 label is never clipped, and shrinks back to the token', () => {
-    const view = mount(base);
-    act(() => view.actionBox().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 336, height: 80 } } }));
-    expect(flat(view.root()).minHeight).toBe(80);
-    act(() => view.actionBox().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 336, height: 40 } } }));
-    expect(flat(view.root()).minHeight).toBe(BASE.well.height);
+  // Ruling 6a: the first painted frame already has the final height, with no second layout pass. Jest has no layout
+  // engine, so these pin the mechanism that gives Yoga the final height in its first pass (the action in the Well's own
+  // flow, never measured); the device capture at font 2.0 is the closing evidence.
+  it('at font 2.0, an 80 dp action with no hint: its first layout holds it, in the Well’s own flow, never measured, with no second pass (ruling 6a)', () => {
+    const view = mount({ ...base, hint: undefined }, ACTION_AT_2);
+    // One commit: nothing measured the action after the first layout and set the Well's height from it.
+    expect(view.commits).toEqual(['mount']);
+    // No host in the Well asks for its own layout: its height can never arrive a frame late.
+    expect(view.r.root.findAll((n) => isHost(n) && n.props.onLayout !== undefined).map(named)).toEqual([]);
+    // No absolute layer between the action and the Well: the action's 80 dp is the Well's in the first layout pass.
+    for (let n = view.action(); n !== view.root(); n = hostParent(n)) expect([n.props.testID, flat(n).position]).not.toEqual([n.props.testID, 'absolute']);
+    expect(named(hostParent(view.actionCell()))).toBe('hero.well');
+    // The minimum stays the token, never a measured number: the flow does the growing.
+    expect(flat(view.root())).toMatchObject({ minHeight: BASE.well.height });
+    expect(flat(view.root())).not.toHaveProperty('height');
+    // With no hint the action's cell is the only one: full width, pulled over nothing.
+    expect(flat(view.actionCell())).toMatchObject({ width: '100%' });
+    expect(flat(view.actionCell())).not.toHaveProperty('marginStart');
     view.unmount();
   });
 
-  it('holds the hint in its flow and the action in a layer over it, centred, so each keeps the other’s place', () => {
-    const view = mount(base);
-    expect(flat(view.actionLayer())).toMatchObject({ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center' });
-    expect(flat(view.hintLayer())).not.toHaveProperty('position', 'absolute');
-    // The hint comes first, so TalkBack reads it before the action, as it sits.
+  it('with a hint, both share one row, centred across: each cell full width, the action’s pulled back over the hint’s by marginStart −100%, so the Well is as tall as the taller in one pass (ruling 6a, option 1)', () => {
+    const view = mount(base, ACTION_AT_2);
+    expect(flat(view.root())).toMatchObject({ flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', minHeight: BASE.well.height });
+    expect(flat(view.hintLayer())).toMatchObject({ width: '100%' });
+    expect(flat(view.actionCell())).toMatchObject({ width: '100%', marginStart: '-100%' });
+    for (const cell of [view.hintLayer(), view.actionCell()]) {
+      expect(flat(cell)).not.toHaveProperty('position', 'absolute');
+      expect(named(hostParent(cell))).toBe('hero.well');
+    }
+    expect(view.commits).toEqual(['mount']);
+    expect(view.r.root.findAll((n) => isHost(n) && n.props.onLayout !== undefined).map(named)).toEqual([]);
+    // The hint comes first, so TalkBack reads it before the action, as it sits; the action draws over it.
     const hosts = view.r.root.findAll(isHost);
-    expect(hosts.indexOf(view.hintLayer())).toBeLessThan(hosts.indexOf(view.actionLayer()));
+    expect(hosts.indexOf(view.hintLayer())).toBeLessThan(hosts.indexOf(view.actionCell()));
+    view.unmount();
+  });
+
+  it('the hint coming or going re-lays the row in the same pass: the pull follows the hint’s cell, never a stale one', () => {
+    const view = mount({ ...base, hint: undefined }, ACTION_AT_2);
+    view.update(base);
+    expect(flat(view.actionCell())).toMatchObject({ width: '100%', marginStart: '-100%' });
+    view.update({ ...base, hint: undefined });
+    expect(flat(view.actionCell())).not.toHaveProperty('marginStart');
+    expect(view.commits).toEqual(['mount', 'update', 'update']);
     view.unmount();
   });
 
@@ -189,16 +250,16 @@ describe('Well: the hint and the action take turns (DEC-174)', () => {
     expect(flat(view.hintLayer()).opacity).toBe(0);
     expect(view.hintLayer().props.accessibilityElementsHidden).toBe(true);
     expect(view.hintLayer().props.importantForAccessibility).toBe('no-hide-descendants');
-    expect(view.actionLayer().props.pointerEvents).toBe('box-none');
-    expect(view.actionLayer().props.accessibilityElementsHidden).toBeFalsy();
+    expect(view.actionCell().props.pointerEvents).toBe('box-none');
+    expect(view.actionCell().props.accessibilityElementsHidden).toBeFalsy();
     view.unmount();
   });
 
   it('while the action is not shown, it can be neither pressed nor reached: never an invisible, pressable commit', () => {
     const view = mount(base);
-    expect(view.actionLayer().props.pointerEvents).toBe('none');
-    expect(view.actionLayer().props.accessibilityElementsHidden).toBe(true);
-    expect(view.actionLayer().props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(view.actionCell().props.pointerEvents).toBe('none');
+    expect(view.actionCell().props.accessibilityElementsHidden).toBe(true);
+    expect(view.actionCell().props.importantForAccessibility).toBe('no-hide-descendants');
     view.unmount();
   });
 

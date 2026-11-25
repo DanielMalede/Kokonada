@@ -3,8 +3,11 @@
 // disabled (R9): the action is shown, or it is absent and the hint says what makes it appear.
 //
 //   · A full-column slot whose height is a minimum (R6): well.height, or well.consentSlotHeight while it holds DEC-066's
-//     reserved consent slot. The hint sits in its flow; the action sits in a layer over it, centred, and the Well grows
-//     to the action's measured height, so the two keep each other's place and a 2.0 label is never clipped.
+//     reserved consent slot. The hint and the action share one row in its flow, each in a full-width cell, the
+//     action's cell pulled back over the hint's by marginStart −100% (it mirrors with the page), both centred across.
+//     So the Well is as tall as the taller of the two from its first layout, with nothing measured and no second pass
+//     (the designer's ruling 6a, option 1): the two keep each other's place, and a 2.0 label is never clipped, from
+//     the first painted frame.
 //   · The hint: ui.body in text.secondary, centred, never capped, scaled or ellipsised (DSN-037). It is plain text,
 //     never a live region (the Announcer speaks for the page, LEDGER §10).
 //   · They take turns on the page's word: `actionShown` is DEC-174's "shown" (from the start of its show ramp until its
@@ -17,8 +20,8 @@
 // well.hold (LEDGER rev §3 L9: a Well hosting a Button changes state at most once per 400 ms) is not built: the token is
 // not in tokens.generated.ts yet, and the Well hosting CommitCTA keeps DEC-174's own limits.
 
-import React, { useEffect, useRef, useState, type ReactNode } from 'react';
-import { StyleSheet, Text, View, type LayoutChangeEvent, type TextStyle } from 'react-native';
+import React, { useEffect, useRef, type ReactNode } from 'react';
+import { StyleSheet, Text, View, type TextStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
@@ -62,9 +65,6 @@ export function Well({ actionShown, hint, script, tier, consentSlot = false, chi
   }, [hintShown, tier, tokens, opacity]);
   const fadeStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
-  // The action's own height, measured, so the Well grows to hold it.
-  const [actionHeight, setActionHeight] = useState(0);
-  const onActionLayout = (e: LayoutChangeEvent) => setActionHeight(e.nativeEvent.layout.height);
   const min = consentSlot ? tokens.base.well.consentSlotHeight : tokens.base.well.height;
 
   const body = tokens.base.type.ui.body[script];
@@ -78,10 +78,10 @@ export function Well({ actionShown, hint, script, tier, consentSlot = false, chi
   };
 
   return (
-    <View testID="hero.well" style={[styles.root, { minHeight: Math.max(min, actionHeight) }]}>
+    <View testID="hero.well" style={[styles.root, { minHeight: min }]}>
       {hasHint && (
         <Animated.View
-          style={fadeStyle}
+          style={[styles.cell, fadeStyle]}
           pointerEvents="none"
           accessibilityElementsHidden={!hintShown}
           importantForAccessibility={hintShown ? 'auto' : 'no-hide-descendants'}
@@ -90,20 +90,23 @@ export function Well({ actionShown, hint, script, tier, consentSlot = false, chi
         </Animated.View>
       )}
       <View
-        style={styles.actionLayer}
+        style={[styles.cell, hasHint && styles.overHint]}
         pointerEvents={actionReachable ? 'box-none' : 'none'}
         accessibilityElementsHidden={!actionReachable}
         importantForAccessibility={actionReachable ? 'auto' : 'no-hide-descendants'}
       >
-        <View onLayout={onActionLayout}>{children}</View>
+        {children}
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { alignSelf: 'stretch', justifyContent: 'center' },
+  // One row, so both cells are in the Well's own flow and its height is the taller one's in the first layout pass.
+  root: { alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center' },
+  cell: { width: '100%' },
+  // The action's cell back over the hint's, whatever the page's direction: a full-width cell's start, pulled back by
+  // the row's own width.
+  overHint: { marginStart: '-100%' },
   hint: { textAlign: 'center' },
-  // Spelled out: React Native 0.86 no longer has StyleSheet.absoluteFillObject, and spreading it spread nothing.
-  actionLayer: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center' },
 });
