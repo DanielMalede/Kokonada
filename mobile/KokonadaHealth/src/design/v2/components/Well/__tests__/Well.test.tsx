@@ -81,7 +81,15 @@ function mount(props: Mounted, actionHeight = 40) {
   const tree = (p: Mounted) => (
     <DirectionProvider direction="abyss" face={p.face ?? 'dark'}>
       <Profiler id="well" onRender={(_id, phase) => commits.push(phase)}>
-        <Well actionShown={p.actionShown} hint={p.hint} script={p.script} tier={p.tier} consentSlot={p.consentSlot}>
+        <Well
+          actionShown={p.actionShown}
+          hint={p.hint}
+          script={p.script}
+          tier={p.tier}
+          consentSlot={p.consentSlot}
+          host={p.host}
+          hintAlign={p.hintAlign}
+        >
           <View testID="action" style={{ height: actionHeight }} />
         </Well>
       </Profiler>
@@ -301,6 +309,163 @@ describe('Well: the hint and the action take turns (DEC-174)', () => {
     view.update({ ...base, tier: 'low' });
     expect(timings()).toEqual([]);
     view.unmount();
+  });
+});
+
+// The designer's F3 (LEDGER rev §3 L9; QA-068): a Well that hosts a Button (P1·AGE) crossfades the Button against the
+// hint itself, and changes state at most once per well.hold: a turn starts at most once per hold, and when a hold ends
+// the Well takes the latest state the page asked for, if it differs from the one it shows.
+describe('Well: the button host (F3)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+  const R = BASE.motion.respond;
+  const button: Mounted = { ...base, host: 'button' };
+  /** Moves the clock on by `ms`, running the hold's end and the turn it starts. */
+  const wait = (ms: number) => act(() => {
+    jest.advanceTimersByTime(ms);
+  });
+  const turns = () => timings().map((t) => [t.toValue, t.config.duration]);
+  const easingAt = (f: (t: number) => number) => [0.1, 0.3, 0.5, 0.7, 0.9].map(f);
+
+  it.each(['full', 'low'] as MotionTier[])('%s tier: the Button and the hint crossfade over motion.respond, both ways', (tier) => {
+    const view = mount({ ...button, tier });
+    expect([flat(view.hintLayer()).opacity, flat(view.actionCell()).opacity]).toEqual([1, 0]);
+    view.update({ ...button, tier, actionShown: true });
+    expect(turns()).toEqual([[0, R.duration], [1, R.duration]]);
+    expect([flat(view.hintLayer()).opacity, flat(view.actionCell()).opacity]).toEqual([0, 1]);
+    wait(BASE.well.hold);
+    view.update({ ...button, tier, actionShown: false });
+    expect(turns()).toEqual([[0, R.duration], [1, R.duration], [1, R.duration], [0, R.duration]]);
+    for (const t of timings()) expect(easingAt(t.config.easing)).toEqual(easingAt(hintEasing(R.easing)));
+    expect([flat(view.hintLayer()).opacity, flat(view.actionCell()).opacity]).toEqual([1, 0]);
+    view.unmount();
+  });
+
+  it('still tier (reduced motion): one linear motion.fadeReduced, both ways, for both', () => {
+    const F = BASE.motion.fadeReduced;
+    const view = mount({ ...button, tier: 'still' });
+    view.update({ ...button, tier: 'still', actionShown: true });
+    wait(BASE.well.hold);
+    view.update({ ...button, tier: 'still', actionShown: false });
+    expect(turns()).toEqual([[0, F.duration], [1, F.duration], [1, F.duration], [0, F.duration]]);
+    for (const t of timings()) expect(easingAt(t.config.easing)).toEqual(easingAt(hintEasing(F.easing)));
+    view.unmount();
+  });
+
+  it('well.hold: two turns asked inside 400 ms start only one; when the hold ends the Well takes the latest, as it differs', () => {
+    const view = mount(button);
+    view.update({ ...button, actionShown: true });
+    expect(timings()).toHaveLength(2);
+    wait(100);
+    view.update({ ...button, actionShown: false });
+    expect(timings()).toHaveLength(2);
+    expect(flat(view.actionCell()).opacity).toBe(1);
+    wait(BASE.well.hold - 101);
+    expect(timings()).toHaveLength(2);
+    wait(1);
+    expect(turns().slice(2)).toEqual([[1, R.duration], [0, R.duration]]);
+    expect([flat(view.hintLayer()).opacity, flat(view.actionCell()).opacity]).toEqual([1, 0]);
+    view.unmount();
+  });
+
+  it('when the hold ends it takes nothing if the page asked back for the state the Well shows', () => {
+    const view = mount(button);
+    view.update({ ...button, actionShown: true });
+    wait(100);
+    view.update({ ...button, actionShown: false });
+    wait(100);
+    view.update({ ...button, actionShown: true });
+    wait(BASE.well.hold);
+    expect(timings()).toHaveLength(2);
+    expect(flat(view.actionCell()).opacity).toBe(1);
+    // At rest nothing runs: no hold is left armed once the last one ended with nothing to take.
+    expect(jest.getTimerCount()).toBe(0);
+    view.unmount();
+  });
+
+  it('holds every turn, the one a hold’s end starts too', () => {
+    const view = mount(button);
+    view.update({ ...button, actionShown: true });
+    wait(100);
+    view.update({ ...button, actionShown: false });
+    wait(BASE.well.hold - 100);
+    expect(timings()).toHaveLength(4);
+    wait(100);
+    view.update({ ...button, actionShown: true });
+    wait(BASE.well.hold - 101);
+    expect(timings()).toHaveLength(4);
+    wait(1);
+    expect(timings()).toHaveLength(6);
+    view.unmount();
+  });
+
+  it('the Button can be pressed and reached exactly while the Well shows it, through a held hide too', () => {
+    const view = mount(button);
+    const reach = () => [view.actionCell().props.pointerEvents, Boolean(view.actionCell().props.accessibilityElementsHidden), Boolean(view.hintLayer().props.accessibilityElementsHidden)];
+    expect(reach()).toEqual(['none', true, false]);
+    view.update({ ...button, actionShown: true });
+    expect(reach()).toEqual(['box-none', false, true]);
+    wait(100);
+    view.update({ ...button, actionShown: false });
+    expect(reach()).toEqual(['box-none', false, true]);
+    wait(BASE.well.hold - 100);
+    expect(reach()).toEqual(['none', true, false]);
+    view.unmount();
+  });
+
+  it('arrives with the page: no fade and no hold at mount, so the first turn starts at once', () => {
+    const view = mount({ ...button, actionShown: true });
+    expect(timings()).toEqual([]);
+    expect([flat(view.hintLayer()).opacity, flat(view.actionCell()).opacity]).toEqual([0, 1]);
+    view.update({ ...button, actionShown: false });
+    expect(turns()).toEqual([[1, R.duration], [0, R.duration]]);
+    view.unmount();
+  });
+
+  it('frees its hold when it unmounts: no timer is left to turn a Well that is gone', () => {
+    const view = mount(button);
+    view.update({ ...button, actionShown: true });
+    wait(100);
+    view.update({ ...button, actionShown: false });
+    expect(jest.getTimerCount()).toBe(1);
+    view.unmount();
+    expect(jest.getTimerCount()).toBe(0);
+  });
+});
+
+describe('Well: the commit host is unchanged (DEC-174)', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('two turns inside 400 ms both start at once: DEC-174 limits CommitCTA upstream, never the Well', () => {
+    const view = mount({ ...base, host: 'commit' });
+    view.update({ ...base, host: 'commit', actionShown: true });
+    view.update({ ...base, host: 'commit', actionShown: false });
+    expect(timings().map((t) => [t.toValue, t.config.duration])).toEqual([[0, BASE.motion.settle.duration], [1, BASE.motion.respond.duration]]);
+    expect(jest.getTimerCount()).toBe(0);
+    view.unmount();
+  });
+
+  it('never fades the action itself: CommitCTA draws its own show and hide', () => {
+    const view = mount({ ...base, host: 'commit' });
+    view.update({ ...base, host: 'commit', actionShown: true });
+    expect(flat(view.actionCell())).not.toHaveProperty('opacity');
+    view.update({ ...base, host: 'commit', actionShown: false });
+    expect(flat(view.actionCell())).not.toHaveProperty('opacity');
+    view.unmount();
+  });
+});
+
+describe('Well: the hint’s alignment (F3)', () => {
+  // React Native lays textAlign 'left' at the paragraph's start: Fabric's TextLayoutManager aligns it to the paragraph's
+  // direction, and Paper and iOS swap left and right under RTL. So 'left' is the start in both directions.
+  it.each([false, true])('centred by default and on P10, at the start on P1·AGE: isRTL %p', (rtl) => {
+    jest.replaceProperty(I18nManager, 'isRTL', rtl);
+    for (const [hintAlign, textAlign] of [[undefined, 'center'], ['center', 'center'], ['start', 'left']] as const) {
+      const view = mount({ ...base, hintAlign });
+      expect([hintAlign, flat(view.text()[0]).textAlign]).toEqual([hintAlign, textAlign]);
+      view.unmount();
+    }
   });
 });
 

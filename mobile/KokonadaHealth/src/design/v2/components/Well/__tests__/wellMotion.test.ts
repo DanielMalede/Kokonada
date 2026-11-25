@@ -1,6 +1,7 @@
 import { rampProgress } from '../../../field/crossfade.ts';
+import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { BASE } from '../../../tokens/tokens.generated.ts';
-import { hintEasing, hintFade } from '../wellMotion.ts';
+import { actionFade, hintEasing, hintFade } from '../wellMotion.ts';
 
 // The Well's one motion (LEDGER §3 L9 and §7; DEC-174): its hint holds the action's place, so it crossfades against the
 // action in place. It gives way on the action's show ramp (motion.settle, the CTA's show) and comes back on its hide
@@ -24,6 +25,36 @@ describe('hintFade', () => {
 
   it('never outlasts 150 ms under reduced motion (LEDGER §7)', () => {
     expect(hintFade(M, true, 'still').duration).toBeLessThanOrEqual(150);
+  });
+
+  it.each([false, true])('the commit host is the default, unchanged (hint visible %p)', (visible) => {
+    for (const tier of ['full', 'low', 'still'] as MotionTier[]) expect(hintFade(M, visible, tier, 'commit')).toEqual(hintFade(M, visible, tier));
+  });
+});
+
+// The designer's F3: a Well that hosts a Button crossfades the Button against the hint itself, over motion.respond both
+// ways (a Button draws no show or hide of its own), and motion.fadeReduced, linear, at the still tier. Each turn is held
+// for well.hold (QA-068), so a turn must end inside it: two turns never overlap.
+describe('the button host (F3): the hint and the Button crossfade', () => {
+  it.each(['full', 'low'] as const)('%s tier: both over motion.respond, both ways', (tier) => {
+    for (const visible of [false, true]) {
+      expect(hintFade(M, visible, tier, 'button')).toEqual({ opacity: visible ? 1 : 0, duration: M.respond.duration, easing: M.respond.easing });
+      expect(actionFade(M, visible, tier)).toEqual({ opacity: visible ? 1 : 0, duration: M.respond.duration, easing: M.respond.easing });
+    }
+  });
+
+  it.each([false, true])('still tier (reduced motion): one linear motion.fadeReduced, both ways, for both (shown %p)', (shown) => {
+    expect(hintFade(M, !shown, 'still', 'button')).toEqual({ opacity: shown ? 0 : 1, duration: M.fadeReduced.duration, easing: M.fadeReduced.easing });
+    expect(actionFade(M, shown, 'still')).toEqual({ opacity: shown ? 1 : 0, duration: M.fadeReduced.duration, easing: M.fadeReduced.easing });
+  });
+
+  it('every turn ends inside well.hold, in every tier, so two turns never overlap', () => {
+    for (const tier of ['full', 'low', 'still'] as MotionTier[]) {
+      for (const shown of [false, true]) {
+        expect(hintFade(M, !shown, tier, 'button').duration).toBeLessThanOrEqual(BASE.well.hold);
+        expect(actionFade(M, shown, tier).duration).toBeLessThanOrEqual(BASE.well.hold);
+      }
+    }
   });
 });
 
