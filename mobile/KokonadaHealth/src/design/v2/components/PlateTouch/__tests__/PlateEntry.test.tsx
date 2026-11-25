@@ -3,6 +3,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import { AccessibilityInfo, I18nManager, PixelRatio, StyleSheet } from 'react-native';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
+import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { plateGeometry } from '../../Plate/geometry.ts';
 import { PlateEntry, type PlateEntryHandle, type PlateEntryProps } from '../PlateEntry.tsx';
 
@@ -47,6 +48,11 @@ describe('PlateEntry: the plate’s TalkBack node (ruling 9)', () => {
     expect(flat(node().props.style)).toEqual({ position: 'absolute', left: 0, top: 0, width: PLATE.diameter, height: PLATE.diameter });
     expect(node().type).toBe('View');
     expect(tree.toJSON()).toMatchObject({ type: 'View', children: null });
+  });
+
+  it('its element ID is hero.listEntry, the ledger’s (F2)', () => {
+    expect((EXTENSIONS.base.$root.hero.elements as readonly string[]).includes('hero.listEntry')).toBe(true);
+    expect(mount().node().props.testID).toBe('hero.listEntry');
   });
 
   it('is a button, labelled and hinted from the page’s resolved copy, with an activate action', () => {

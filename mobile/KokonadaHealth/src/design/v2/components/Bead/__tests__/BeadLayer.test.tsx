@@ -3,6 +3,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Animated, I18nManager, StyleSheet } from 'react-native';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
+import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import { BeadLayer } from '../BeadLayer.tsx';
@@ -45,7 +46,8 @@ function mount(taps: ReadonlyArray<{ x: number; y: number }>, tier: MotionTier =
   return tree;
 }
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as Record<string, any>;
-const beads = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props.testID === 'bead' && typeof n.type === 'string');
+/** Each drawn bead's root, in draw order: a live one is hero.plate.bead.<n>, a leaving one hero.plate.bead.leaving (F2). */
+const beads = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => typeof n.type === 'string' && /^hero\.plate\.bead\.(\d+|leaving)$/.test(String(n.props.testID)));
 /** Each drawn bead's centre, in the layer's dp, read back from its box. */
 const centres = (tree: ReactTestRenderer.ReactTestRenderer) =>
   beads(tree).map((b) => {
@@ -143,6 +145,33 @@ describe('BeadLayer', () => {
     const flipped = mount([A, B, C]).toJSON();
     rtl.restore();
     expect(flipped).toEqual(ltr);
+  });
+});
+
+// F2 (P1, the designer's rulings of 2026-11-25): the hero's element IDs are the ledger's (EXTENSIONS hero.elements).
+describe('BeadLayer: the beads’ element IDs (F2)', () => {
+  const ids = (tree: ReactTestRenderer.ReactTestRenderer) => beads(tree).map((b) => b.props.testID as string);
+  const byId = (tree: ReactTestRenderer.ReactTestRenderer, id: string) => {
+    const s = flat(beads(tree).find((b) => b.props.testID === id)!.props.style);
+    return { x: s.left + s.width / 2, y: s.top + s.height / 2 };
+  };
+
+  it('the live beads are hero.plate.bead.0 to 2, oldest first; a leaving bead is hero.plate.bead.leaving, drawn under them', () => {
+    const tree = mount([A, B, C]);
+    expect(ids(tree)).toEqual(['hero.plate.bead.0', 'hero.plate.bead.1', 'hero.plate.bead.2']);
+    expect([byId(tree, 'hero.plate.bead.0'), byId(tree, 'hero.plate.bead.2')]).toEqual([at(A), at(C)]);
+    act(() => tree.update(element([B, C, E])));
+    expect(ids(tree)).toEqual(['hero.plate.bead.leaving', 'hero.plate.bead.0', 'hero.plate.bead.1', 'hero.plate.bead.2']);
+    expect([byId(tree, 'hero.plate.bead.leaving'), byId(tree, 'hero.plate.bead.0'), byId(tree, 'hero.plate.bead.2')]).toEqual([at(A), at(B), at(E)]);
+  });
+
+  it('every hero ID the layer draws is in the ledger’s element list, rings included', () => {
+    const elements = EXTENSIONS.base.$root.hero.elements as readonly string[];
+    const tree = mount([A, B, C]);
+    act(() => tree.update(element([B, C, E])));
+    const hero = tree.root.findAll((n) => typeof n.type === 'string' && String(n.props.testID).startsWith('hero.')).map((n) => n.props.testID as string);
+    expect(hero.length).toBe(7);
+    expect(hero.filter((id) => !elements.includes(id))).toEqual([]);
   });
 });
 

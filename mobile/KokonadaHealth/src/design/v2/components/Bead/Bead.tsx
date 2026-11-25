@@ -39,6 +39,9 @@ export interface BeadProps {
   readonly placedAt: number | null;
   /** When its exit began (the presence's leftAt); null while it is live. */
   readonly leftAt: number | null;
+  /** Its element ID (F2): hero.plate.bead.<slot> while live, its place among the live beads oldest first (0 to 2), with
+   *  .setting on its ring; hero.plate.bead.leaving while it leaves, its ring then claiming no hero ID. */
+  readonly slot: number | 'leaving';
   /** The exit ended: the layer may drop the bead. */
   readonly onLeft: () => void;
 }
@@ -103,7 +106,7 @@ function highlight(tokens: DirectionTokens['bead']['highlight'], rb: number, fro
   };
 }
 
-export function Bead({ point, plate, placedAt, leftAt, onLeft }: BeadProps) {
+export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps) {
   const { id, face, direction } = useTokens();
   const g = { bead: plate.beadRadius, setting: direction.bead.setting.width };
   const centre = pointToLocal(point, plate);
@@ -136,7 +139,7 @@ export function Bead({ point, plate, placedAt, leftAt, onLeft }: BeadProps) {
   const shadow = direction.bead.shadow;
   return (
     <Animated.View
-      testID="bead"
+      testID={'hero.plate.bead.' + slot}
       pointerEvents="none"
       accessible={false}
       importantForAccessibility="no-hide-descendants"
@@ -160,7 +163,7 @@ export function Bead({ point, plate, placedAt, leftAt, onLeft }: BeadProps) {
         pointerEvents="none"
         style={[styles.part, circle, { opacity: phase.colour, backgroundColor: paint.fill, experimental_backgroundImage: [highlight(direction.bead.highlight, g.bead, paint.highlight, paint.fill)] }]}
       />
-      <View testID="bead.setting" style={[styles.ring, { width: box, height: box, borderRadius: g.bead + g.setting, borderWidth: g.setting, borderColor: paint.setting }]} />
+      <View testID={slot === 'leaving' ? 'bead.setting' : 'hero.plate.bead.' + slot + '.setting'} style={[styles.ring, { width: box, height: box, borderRadius: g.bead + g.setting, borderWidth: g.setting, borderColor: paint.setting }]} />
     </Animated.View>
   );
 }

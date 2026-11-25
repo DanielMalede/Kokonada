@@ -110,7 +110,7 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
   const bead = latest === null ? null : pointToLocal(latest, plate);
   return (
     <View
-      testID="plate.touch"
+      testID="hero.plate.touch"
       accessible={false}
       importantForAccessibility={inert ? 'no-hide-descendants' : 'auto'}
       accessibilityElementsHidden={inert}
@@ -125,7 +125,7 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
     >
       {bead !== null && (
         <View
-          testID="plate.touch.latest"
+          testID="hero.plate.bead.latest.a11y"
           pointerEvents="none"
           accessible
           accessibilityRole="button"

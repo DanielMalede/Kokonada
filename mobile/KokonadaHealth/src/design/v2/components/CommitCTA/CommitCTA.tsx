@@ -62,7 +62,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
       style={[styles.root, { opacity: view.opacity, transform: [{ scale }] }]}
     >
       <Pressable
-        testID="cta"
+        testID="hero.cta"
         accessible={view.accessible}
         accessibilityRole="button"
         accessibilityLabel={label}
@@ -76,7 +76,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
         ]}
       >
         <Text
-          testID="cta.label"
+          testID="hero.cta.label"
           style={[styles.label, { color: view.tint?.label, fontFamily: base.type.face.ui, fontSize: type.size, lineHeight: type.lineHeight, fontWeight: String(type.weight) as '600', letterSpacing: type.tracking * type.size }]}
         >
           {label}

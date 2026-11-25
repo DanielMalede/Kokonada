@@ -23,7 +23,8 @@ export interface BeadLayerProps {
 }
 
 export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
-  const order = [...beads.filter((b) => b.leaving), ...beads.filter((b) => !b.leaving)];
+  const live = beads.filter((b) => !b.leaving);
+  const order = [...beads.filter((b) => b.leaving), ...live];
   return (
     <View
       testID="bead.layer"
@@ -34,7 +35,7 @@ export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
       style={[styles.layer, { width: plate.diameter, height: plate.diameter }]}
     >
       {order.map((bead) => (
-        <Bead key={bead.id} point={bead.point} plate={plate} placedAt={bead.placedAt} leftAt={bead.leftAt} onLeft={() => onGone(bead.id)} />
+        <Bead key={bead.id} point={bead.point} plate={plate} placedAt={bead.placedAt} leftAt={bead.leftAt} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} onLeft={() => onGone(bead.id)} />
       ))}
     </View>
   );

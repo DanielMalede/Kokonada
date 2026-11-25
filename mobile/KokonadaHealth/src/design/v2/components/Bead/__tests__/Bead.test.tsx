@@ -3,6 +3,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import { Animated, I18nManager, PixelRatio, StyleSheet } from 'react-native';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
+import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import { Bead } from '../Bead.tsx';
@@ -38,10 +39,11 @@ interface Options {
   readonly leftAt?: number | null;
   readonly onLeft?: () => void;
   readonly point?: { x: number; y: number };
+  readonly slot?: number | 'leaving';
 }
 const element = (o: Options = {}) => (
   <DirectionProvider direction="abyss" face={o.face ?? 'dark'}>
-    <Bead point={o.point ?? POINT} plate={PLATE} placedAt={o.placedAt === undefined ? performance.now() : o.placedAt} leftAt={o.leftAt ?? null} onLeft={o.onLeft ?? jest.fn()} />
+    <Bead point={o.point ?? POINT} plate={PLATE} placedAt={o.placedAt === undefined ? performance.now() : o.placedAt} leftAt={o.leftAt ?? null} slot={o.slot ?? 0} onLeft={o.onLeft ?? jest.fn()} />
   </DirectionProvider>
 );
 function mount(o: Options = {}) {
@@ -58,7 +60,7 @@ const valueOf = (v: any): number => (typeof v === 'number' ? v : v.__getValue())
 const scaleOf = (style: Record<string, any>) => valueOf((style.transform as Array<Record<string, any>>).find((t) => 'scale' in t)!.scale);
 /** The look as drawn: the bead's opacity, its colour disc's opacity, its scale. */
 const drawnLook = (tree: ReactTestRenderer.ReactTestRenderer) => {
-  const root = flat(composite(tree, 'bead').props.style);
+  const root = flat(composite(tree, 'hero.plate.bead.0').props.style);
   return { opacity: valueOf(root.opacity), colour: valueOf(flat(composite(tree, 'bead.colour').props.style).opacity), scale: scaleOf(root) };
 };
 const grey = (hex: string) => hex.slice(1, 3) === hex.slice(3, 5) && hex.slice(3, 5) === hex.slice(5, 7);
@@ -76,7 +78,7 @@ describe('Bead: where it sits and what it paints', () => {
   it('a box of the disc plus its setting ring, centred on the plate’s point (pointToLocal: the halo’s centre), placed by left and top', () => {
     const tree = mount();
     const c = pointToLocal(POINT, PLATE);
-    const style = flat(host(tree, 'bead').props.style);
+    const style = flat(host(tree, 'hero.plate.bead.0').props.style);
     const box = 2 * (g.bead + g.setting);
     expect(style).toMatchObject({ position: 'absolute', left: c.x - g.bead - g.setting, top: c.y - g.bead - g.setting, width: box, height: box });
     expect(style.right).toBeUndefined();
@@ -109,7 +111,7 @@ describe('Bead: where it sits and what it paints', () => {
       expect(tint.experimental_backgroundImage).toEqual(gradient(colour.highlight, colour.fill));
       expect(tint.boxShadow).toBeUndefined();
       expect(host(tree, 'bead.colour').props.pointerEvents).toBe('none');
-      const ring = flat(host(tree, 'bead.setting').props.style);
+      const ring = flat(host(tree, 'hero.plate.bead.0.setting').props.style);
       const box = 2 * (g.bead + g.setting);
       expect(ring).toMatchObject({ position: 'absolute', left: 0, top: 0, width: box, height: box, borderRadius: g.bead + g.setting, borderWidth: ABYSS.bead.setting.width, borderColor: ABYSS.color[face].bead.setting.hex });
       expect(ring.backgroundColor).toBeUndefined();
@@ -119,12 +121,12 @@ describe('Bead: where it sits and what it paints', () => {
 
   it('draws the grey disc, then the colour disc, then the setting ring: the colour sits on its twin, under the ring', () => {
     const tree = mount();
-    expect(host(tree, 'bead').children.map((c) => (typeof c === 'string' ? c : c.props.testID))).toEqual(['bead.disc', 'bead.colour', 'bead.setting']);
+    expect(host(tree, 'hero.plate.bead.0').children.map((c) => (typeof c === 'string' ? c : c.props.testID))).toEqual(['bead.disc', 'bead.colour', 'hero.plate.bead.0.setting']);
   });
 
   it('is never a touch target and never an accessibility node', () => {
     const tree = mount();
-    const root = host(tree, 'bead');
+    const root = host(tree, 'hero.plate.bead.0');
     expect(root.props.pointerEvents).toBe('none');
     expect(root.props.accessible).toBe(false);
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants');
@@ -144,6 +146,28 @@ describe('Bead: where it sits and what it paints', () => {
     }
     expect(colours.length).toBeGreaterThanOrEqual(8);
     for (const c of colours) expect(isRed(hexLab(c.slice(0, 7)), CHECK)).toBe(false);
+  });
+});
+
+// F2 (P1, the designer's rulings of 2026-11-25): the hero's element IDs are the ledger's (EXTENSIONS hero.elements).
+describe('Bead: its element IDs (F2)', () => {
+  const heroIds = (tree: ReactTestRenderer.ReactTestRenderer) =>
+    tree.root.findAll((n) => typeof n.type === 'string' && typeof n.props.testID === 'string' && n.props.testID.startsWith('hero.')).map((n) => n.props.testID as string);
+  const elements = EXTENSIONS.base.$root.hero.elements as readonly string[];
+
+  it('a live bead is hero.plate.bead.<slot> (0 to 2), with .setting on its ring, each in the ledger’s list', () => {
+    for (const slot of [0, 1, 2]) {
+      const ids = heroIds(mount({ slot, placedAt: null }));
+      expect(ids).toEqual([`hero.plate.bead.${slot}`, `hero.plate.bead.${slot}.setting`]);
+      for (const id of ids) expect([id, elements.includes(id)]).toEqual([id, true]);
+    }
+  });
+
+  it('a leaving bead is hero.plate.bead.leaving, in the ledger’s list; its ring claims no hero ID', () => {
+    const tree = mount({ slot: 'leaving', placedAt: null, leftAt: performance.now() });
+    expect(heroIds(tree)).toEqual(['hero.plate.bead.leaving']);
+    expect(elements.includes('hero.plate.bead.leaving')).toBe(true);
+    expect(host(tree, 'bead.setting')).toBeDefined();
   });
 });
 
