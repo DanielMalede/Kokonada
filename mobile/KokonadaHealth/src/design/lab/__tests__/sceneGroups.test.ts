@@ -11,7 +11,7 @@ import { SCENE_GROUPS, SCENE_GROUP_FACES, SCENES, composeScenes, type Scene, typ
 
 const NOOP = (() => null) as unknown as Scene['Component'];
 const scene = (): Scene => ({ periodMs: 1000, probes: ['stage'], Component: NOOP });
-const empty = (): Record<SceneGroupName, Record<string, Scene>> => ({ witness: {}, grain: {}, cost: {}, storm: {}, fonts: {} });
+const empty = (): Record<SceneGroupName, Record<string, Scene>> => ({ witness: {}, grain: {}, cost: {}, storm: {}, fonts: {}, hero: {} });
 const GROUPS = Object.keys(SCENE_GROUP_FACES) as SceneGroupName[];
 
 // The catalogue's ids at 199b138, before any scene group: composing the groups keeps every one.
@@ -24,8 +24,10 @@ const KEYS_AT_199B138 = [
 ];
 
 describe('the lab scene groups (B8-0)', () => {
-  it('names exactly the groups, each with its faces (storm is dark only): the four B8 benches and the F10 fonts scenes', () => {
-    expect(SCENE_GROUP_FACES).toEqual({ witness: ['dark', 'light'], grain: ['dark', 'light'], cost: ['dark', 'light'], storm: ['dark'], fonts: ['dark', 'light'] });
+  it('names exactly the groups, each with its faces (storm is dark only): the four B8 benches, and F10\'s fonts and hero scenes', () => {
+    expect(SCENE_GROUP_FACES).toEqual({
+      witness: ['dark', 'light'], grain: ['dark', 'light'], cost: ['dark', 'light'], storm: ['dark'], fonts: ['dark', 'light'], hero: ['dark', 'light'],
+    });
     expect(Object.keys(SCENE_GROUPS).sort()).toEqual([...GROUPS].sort());
   });
 

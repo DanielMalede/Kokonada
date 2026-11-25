@@ -11,6 +11,7 @@ import type { LabParams } from './params';
 import { COST_SCENES } from './sceneGroups/cost';
 import { FONTS_SCENES } from './sceneGroups/fonts';
 import { GRAIN_SCENES } from './sceneGroups/grain';
+import { HERO_LAB_SCENES } from './sceneGroups/hero';
 import { STORM_SCENES } from './sceneGroups/storm';
 import { WITNESS_SCENES } from './sceneGroups/witness';
 import { FALLBACK_SCENE_PROBES, FallbackScene } from './scenes/FallbackScene';
@@ -46,13 +47,14 @@ const fieldScenes: Record<string, Scene> = Object.fromEntries(Object.values(FIEL
 
 // The scene groups, each in its own file under sceneGroups/, by group: the faces its ids may name. A group's id is
 // `<group>.abyss.<face>`, alone or followed by `.<more>` (the B8 plan's "Contracts fixed now"). The B8 benches (B8-0),
-// then F10's fonts scenes (G8).
+// then F10's fonts and hero scenes (G8).
 export const SCENE_GROUP_FACES = {
   witness: ['dark', 'light'],
   grain: ['dark', 'light'],
   cost: ['dark', 'light'],
   storm: ['dark'],
   fonts: ['dark', 'light'],
+  hero: ['dark', 'light'],
 } as const satisfies Readonly<Record<string, readonly Face[]>>;
 export type SceneGroupName = keyof typeof SCENE_GROUP_FACES;
 
@@ -62,6 +64,7 @@ export const SCENE_GROUPS: Readonly<Record<SceneGroupName, Readonly<Record<strin
   cost: COST_SCENES,
   storm: STORM_SCENES,
   fonts: FONTS_SCENES,
+  hero: HERO_LAB_SCENES,
 };
 
 const hasPrefix = (group: SceneGroupName, id: string): boolean => (SCENE_GROUP_FACES[group] as readonly string[])

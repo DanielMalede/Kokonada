@@ -133,7 +133,7 @@ afterEach(() => {
 });
 
 it('has cases: every scene component of the catalogue', () => {
-  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
+  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'HeroScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
 });
 
 describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {
@@ -150,11 +150,12 @@ describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {
 // pinned by its own RTL test on the shared model (what lands where, and why the pin is the scene's own).
 const RTL_TESTS: Readonly<Record<string, string>> = {
   GrainScene: 'GrainSceneRtl.test.tsx',
+  HeroScene: 'HeroSceneRtl.test.tsx',
   StormScene: 'stormSceneRtl.test.tsx',
   WitnessScene: 'WitnessSceneRtl.test.tsx',
 };
 
-it('the scenes that place a View by its sides or its row order are exactly the grain, storm and witness scenes', () => {
+it('the scenes that place a View by its sides or its row order are exactly the grain, hero, storm and witness scenes', () => {
   const placing = [...BY_COMPONENT.entries()].filter(([, id]) => mountScene(id, true).bySideOrRow).map(([name]) => name).sort();
   expect(placing).toEqual(Object.keys(RTL_TESTS).sort());
 });
