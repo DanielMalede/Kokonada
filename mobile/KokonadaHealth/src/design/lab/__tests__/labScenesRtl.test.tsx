@@ -40,6 +40,7 @@ jest.mock('../../v2/field/FieldView', () => ({ FieldView: () => null }));
 jest.mock('../../v2/field/FieldFallback', () => ({ FieldFallback: () => null }));
 jest.mock('../../v2/field/FieldSurface', () => ({ FieldSurface: () => null }));
 
+import { FONT_PROBES_TEST_ID } from '../FontProbes';
 import { LabRoot } from '../LabRoot';
 import { SCENES } from '../scenes';
 import { flat, frameOf, hostChildren, layoutRules, type Box, type Node } from './__fixtures__/yogaRtl';
@@ -62,6 +63,15 @@ const parentHost = (n: Node): Node | null => {
   return null;
 };
 const inFlow = (n: Node) => flat(n.props.style).position !== 'absolute';
+/**
+ * LabRoot's own font probes (FontProbes.tsx, UI-072): hidden calibration lines beside a scene that declares fonts, never
+ * drawn (opacity 0), never a lab probe, and read for their width alone. They are not the scene's layout, so they are left
+ * out here; a scene's own Views and probes are all held to the rule.
+ */
+const inFontProbes = (n: Node): boolean => {
+  for (let p: Node | null = n; p !== null; p = p.parent) if (p.props.testID === FONT_PROBES_TEST_ID) return true;
+  return false;
+};
 
 /** Placed by its sides: absolute, and not the same inset on both sides (absolute fill is symmetric). */
 function placedBySide(n: Node): boolean {
@@ -102,7 +112,7 @@ function mountScene(scene: string, rtl: boolean) {
     act(() => v.props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: W, height: H } } }));
   }
   act(() => { for (const p of r.root.findAll((n) => isHost(n) && String(n.props.nativeID ?? '').startsWith('probe-'))) p.props.onLayout({ nativeEvent: { layout: {} } }); });
-  const hosts = r.root.findAll(isHost);
+  const hosts = r.root.findAll((n) => isHost(n) && !inFontProbes(n));
   const key = (n: Node) => String(n.props.nativeID ?? n.props.testID ?? `host-${hosts.indexOf(n)}`);
   const placed = hosts.filter((n) => String(n.props.nativeID ?? '').startsWith('probe-') || placedBySide(n) || placedByRow(n));
   const frames = Object.fromEntries(placed.map((n) => [key(n), frameOf(n, STAGE, rules)]));
@@ -123,7 +133,7 @@ afterEach(() => {
 });
 
 it('has cases: every scene component of the catalogue', () => {
-  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'GrainScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
+  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
 });
 
 describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {
