@@ -1,11 +1,11 @@
 // The bead's pure model (F10 group A, DSN-017, DSN-029; LEDGER §5.5, §7): a placed point's colours, and how
 // it enters and leaves. The views (Bead.tsx) draw exactly this. Where it sits is the plate's shared geometry
-// (Plate/geometry.ts pointToLocal, held to the field builder there), so the bead sits on its own halo.
+// (Plate/geometry.ts pointToLocal, held to the field builder there), so the bead sits where the field lights its tap.
 //
 // Colour (DSN-017): the face's neutral bead inside placement.neutralRadius; otherwise the lightness runs
 // from the neutral bead's to the quadrant anchor's (the face's tier: core on dark, deep on light) with the
 // placement ramp p, and the chroma is p·bead.chromaScale·anchor.ab. The node and p are the field's own
-// (nodeAt, placementRamp), so the bead and its halo always agree.
+// (nodeAt, placementRamp), so the bead and the field's light for its tap always agree.
 //
 // F1 (the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. Below opacity 1
 // it shows only its grey disc, its achromatic twin (beadTwinPaint: the fill at its own OKLab L with chroma 0, and the

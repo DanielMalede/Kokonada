@@ -19,7 +19,7 @@
 // end, never an exit cut short. A phase whose effect runs late starts where it is (the clock at now − its origin).
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
-// are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the halo's own centre).
+// are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the centre the field lights for the tap).
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
