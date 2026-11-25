@@ -91,7 +91,7 @@ describe('Plate', () => {
     expect(rim.props.pointerEvents).toBe('none');
     expect(rim.props.colorSpace).toBe('srgb');
     // The canvas is the root's direct child: under RTL its `left` resolves against the root's ltr, as on the device.
-    expect(view.root().children).toContain(rim);
+    expect(view.root().children.includes(rim)).toBe(true);
     view.unmount();
   });
 
