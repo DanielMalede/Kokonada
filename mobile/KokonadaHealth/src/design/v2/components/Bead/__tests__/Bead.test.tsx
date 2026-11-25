@@ -8,7 +8,7 @@ import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import { Bead } from '../Bead.tsx';
 import { beadEntrance, beadExit, beadMotion, beadPaint, beadTwinPaint, hexLab } from '../beadModel.ts';
-import { exitDuration, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
+import { EXIT_MIN_MS, exitDuration, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
 
 // The bead as drawn (F10 group A): views only, no Skia, no strings, no elevation (R1, R2, R9). It is purely
 // visual: never a touch target and never an accessibility node (PlateTouch owns both, so the latest bead's
@@ -292,16 +292,68 @@ describe('Bead: the exit (F1)', () => {
     expect(onLeft).toHaveBeenCalledTimes(1);
   });
 
-  it('an exit that began before its effect ran starts where it is (the clock at now − leftAt); one already over reports onLeft at once', () => {
+  it('a late exit’s first painted frame, before its effect runs, is the bead as it was at leftAt: never gone', () => {
+    // The frame React paints before the passive effect runs is the clock's value when it is made: record it.
+    const Real = Animated.Value;
+    const made: number[] = [];
+    const spy = jest.spyOn(Animated, 'Value').mockImplementation(function made_(value: number, config?: object) {
+      made.push(value);
+      return new Real(value, config as never);
+    } as never);
+    try {
+      mount({ placedAt: null, leftAt: performance.now() - 10_000, slot: 0 });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(made).toEqual([0]);
+  });
+
+  it('an exit whose effect runs a little late plays its whole timeline from where the bead is, over what is left of it', () => {
     const onLeft = jest.fn();
-    const leftAt = performance.now() - 120;
-    mount({ placedAt: null, leftAt, onLeft });
+    const leftAt = performance.now() - 60;
+    const tree = mount({ placedAt: null, leftAt, onLeft, slot: 0 });
     const [clock, config] = timing.mock.calls[0];
-    expect(clock.__getValue()).toBe(120);
-    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1) - 120 });
-    const late = jest.fn();
-    mount({ placedAt: null, leftAt: performance.now() - 10_000, onLeft: late });
-    expect(late).toHaveBeenCalledTimes(1);
+    expect(clock.__getValue()).toBe(0);
+    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
+    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1) - 60, useNativeDriver: true });
+    expect(onLeft).not.toHaveBeenCalled();
+  });
+
+  // The d5479dc capture: the bead went whole to gone within one 147 ms frame gap, because an effect that ran more than the
+  // exit's 450 ms after leftAt (a loaded JS thread) set the clock to its end. A late exit is compressed, never skipped.
+  it.each([300, 600, 10_000])('an exit whose effect runs %p ms late still plays, from the bead as it is, over EXIT_MIN_MS: grey before it goes, then onLeft', (late) => {
+    const onLeft = jest.fn();
+    const tree = mount({ placedAt: null, leftAt: performance.now() - late, onLeft, slot: 0 });
+    expect(onLeft).not.toHaveBeenCalled();
+    expect(timing).toHaveBeenCalledTimes(1);
+    const [clock, config] = timing.mock.calls[0];
+    expect(clock.__getValue()).toBe(0);
+    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
+    expect(config).toMatchObject({ toValue: exitDuration(1), duration: EXIT_MIN_MS, useNativeDriver: true });
+    expect(config.easing(0.3)).toBeCloseTo(0.3, 12);
+    // The native driver plays the clock linearly on the UI thread (jest never sees its frames: the device recording is the
+    // proof). At each 16 ms frame of EXIT_MIN_MS the clock stands at end × (frame time ÷ duration): never colour while
+    // translucent, and the grey, translucent bead on screen for frames on end.
+    act(() => {
+      jest.advanceTimersByTime(EXIT_MIN_MS + 50);
+    });
+    expect(onLeft).toHaveBeenCalledTimes(1);
+    let grey = 0;
+    for (let ms = 0; ms <= EXIT_MIN_MS; ms += 16) {
+      clock.setValue((exitDuration(1) * ms) / EXIT_MIN_MS);
+      const drawn = drawnLook(tree);
+      if (drawn.colour > 0) expect([ms, drawn.opacity]).toEqual([ms, 1]);
+      if (drawn.opacity > 0.05 && drawn.opacity < 0.95) grey += 1;
+    }
+    expect(grey).toBeGreaterThanOrEqual(6);
+    clock.setValue(exitDuration(1));
+    expect(drawnLook(tree).opacity).toBe(0);
+    // F1 holds under the compression at every 0.5 ms of the clock: the colour is 0 before the opacity leaves 1.
+    for (let t = 0; t <= exitDuration(1); t += 0.5) {
+      clock.setValue(t);
+      const drawn = drawnLook(tree);
+      if (drawn.colour > 0) expect([t, drawn.opacity]).toEqual([t, 1]);
+    }
   });
 
   it('an exit cut short by an unmount never reports onLeft', () => {

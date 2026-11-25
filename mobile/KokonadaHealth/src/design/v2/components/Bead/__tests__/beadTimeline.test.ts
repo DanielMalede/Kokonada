@@ -4,7 +4,7 @@ import * as path from 'path';
 import ts from 'typescript';
 import { Easing } from 'react-native';
 import { BASE } from '../../../tokens/tokens.generated.ts';
-import { beadOpacityAt, entranceColour, entranceOpacity, exitColour, exitDuration, exitHold, exitOpacity, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
+import { beadOpacityAt, entranceColour, entranceOpacity, EXIT_MIN_MS, exitColour, exitDuration, exitHold, exitOpacity, exitPlayMs, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
 
 // F1 (P0, the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. Below opacity 1
 // it is drawn achromatic; the colour lives on an inner disc that fades only while the bead is opaque. The timeline is
@@ -102,6 +102,32 @@ describe('the exit (F1): the colour to 0 over motion.press, then the opacity to 
   it('a start opacity that is not a number is read as gone; one above 1 as whole', () => {
     expect([exitOpacity(NaN, 0), exitColour(NaN, 1, 0), exitHold(NaN)]).toEqual([0, 0, 0]);
     expect(exitOpacity(1.5, 10)).toBe(1);
+  });
+});
+
+describe('a late exit still plays (the d5479dc capture: whole to gone within one 147 ms frame gap)', () => {
+  it('EXIT_MIN_MS is motion.respond, the opacity step’s own length: the shortest an exit is ever played', () => {
+    expect(EXIT_MIN_MS).toBe(RESPOND.duration);
+  });
+
+  it('on time, an exit plays its whole timeline', () => {
+    expect(exitPlayMs(1, 0)).toBe(exitDuration(1));
+    expect(exitPlayMs(0.4, 0)).toBe(exitDuration(0.4));
+  });
+
+  it('a little late, it plays over what is left of its timeline, so it still ends when it was due', () => {
+    expect(exitPlayMs(1, 60)).toBe(exitDuration(1) - 60);
+    expect(exitPlayMs(1, exitDuration(1) - EXIT_MIN_MS)).toBe(EXIT_MIN_MS);
+  });
+
+  it('later, or after the timeline was over, it plays over EXIT_MIN_MS: compressed, never skipped', () => {
+    for (const late of [exitDuration(1) - EXIT_MIN_MS + 1, 300, exitDuration(1), 600, 10_000]) expect(exitPlayMs(1, late)).toBe(EXIT_MIN_MS);
+    expect(exitPlayMs(0.4, 10_000)).toBe(EXIT_MIN_MS);
+  });
+
+  it('an unreadable or negative lateness is on time', () => {
+    for (const late of [Number.NaN, -50, Number.NEGATIVE_INFINITY]) expect(exitPlayMs(1, late)).toBe(exitDuration(1));
+    expect(exitPlayMs(1, Number.POSITIVE_INFINITY)).toBe(EXIT_MIN_MS);
   });
 });
 

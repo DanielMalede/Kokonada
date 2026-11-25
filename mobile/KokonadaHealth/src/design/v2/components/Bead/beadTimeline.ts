@@ -7,6 +7,9 @@
 //   · Exit, from where the bead is: the colour disc to 0 over motion.press, then the opacity to 0 over motion.respond.
 //     A bead caught translucent in its entrance carries no colour, so its opacity fades at once.
 //   · The still tier plays neither: the bead is whole from its first frame and gone in one (beadPresence.ts).
+//   · An exit whose view starts late (a loaded JS thread runs its effect after leftAt) still plays its whole timeline
+//     from where the bead is, over what is left of it, and never over less than EXIT_MIN_MS: compressed, never skipped
+//     (exitPlayMs; the d5479dc capture lost the grey exit to a late effect).
 //
 // Each step is the token's duration on its own curve (field/crossfade.ts rampProgress, the field's worklet). Every
 // function here is a worklet: hero A's rim words read a leaving bead's opacity on the UI thread (beadOpacityAt,
@@ -44,6 +47,21 @@ export function exitHold(startOpacity: number): number {
 export function exitDuration(startOpacity: number): number {
   'worklet';
   return exitHold(startOpacity) + RESPOND_MS;
+}
+
+/** The shortest an exit is ever played: motion.respond, the opacity step's own length, so a late exit's grey still shows. */
+export const EXIT_MIN_MS = RESPOND_MS;
+
+/**
+ * How long an exit from `startOpacity` plays when its view starts it `lateMs` after leftAt: the rest of its timeline,
+ * so it ends when it was due, but never less than EXIT_MIN_MS. An unreadable or negative lateness is on time.
+ */
+export function exitPlayMs(startOpacity: number, lateMs: number): number {
+  'worklet';
+  const end = exitDuration(startOpacity);
+  const late = lateMs > 0 ? lateMs : 0;
+  const rest = end - late;
+  return rest > EXIT_MIN_MS ? rest : EXIT_MIN_MS;
 }
 
 /** The bead's opacity `elapsedMs` into its exit from `startOpacity`: held through the colour's step, then to 0 over motion.respond. */

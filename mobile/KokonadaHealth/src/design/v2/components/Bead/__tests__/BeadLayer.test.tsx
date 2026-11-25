@@ -201,13 +201,13 @@ describe('BeadLayer draws the presence it is given (ruling 2)', () => {
     expect(onGone.mock.calls).toEqual([[7]]);
   });
 
-  it('hands each bead its entry’s stamps: a leaving bead’s exit clock starts at now − leftAt', () => {
-    const leftAt = performance.now() - 120;
+  it('hands each bead its entry’s stamps: a leaving bead’s exit plays from the bead at leftAt over what is left since leftAt', () => {
+    const leftAt = performance.now() - 60;
     act(() => {
       ReactTestRenderer.create(direct([entry(2, A, { leaving: true, leftAt })], jest.fn()));
     });
     const [clock, config] = timing.mock.calls[0];
-    expect(clock.__getValue()).toBe(120);
-    expect(config.toValue).toBe(exitDuration(1));
+    expect(clock.__getValue()).toBe(0);
+    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1) - 60 });
   });
 });

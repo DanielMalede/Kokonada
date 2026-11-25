@@ -16,7 +16,10 @@
 // boundaries, so the three can never part from each other: the colour disc starts in the frame the opacity is 1, and
 // the opacity starts down only once the colour is 0. A bead with no entrance (placedAt null: the mount, a restore, the
 // still tier) is whole from its first frame. The exit starts from where the bead is, its scale held; onLeft reports its
-// end, never an exit cut short. A phase whose effect runs late starts where it is (the clock at now − its origin).
+// end, never an exit cut short. An entrance whose effect runs late starts where it is (the clock at now − placedAt). An
+// exit always plays its whole timeline from the bead as it was at leftAt (the clock at 0), over what is left of it and
+// never less than EXIT_MIN_MS (beadTimeline.ts exitPlayMs): a loaded JS thread compresses it, never skips it, so the
+// grey exit is always seen (at d5479dc an effect past the exit's end set the clock to its end: whole to gone at once).
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
 // are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the centre the field lights for the tap).
@@ -28,7 +31,7 @@ import type { DirectionId, DirectionTokens } from '../../tokens/tokens.generated
 import { useTokens } from '../../tokens/useTokens.ts';
 import { pointToLocal, type PlateGeometry, type PlatePoint } from '../Plate/geometry.ts';
 import { BEAD_WHOLE, beadEntrance, beadExit, beadMotion, beadPaint, beadTwinPaint, type BeadLook } from './beadModel.ts';
-import { exitDuration, exitHold, PRESS_MS, RESPOND_MS } from './beadTimeline.ts';
+import { exitDuration, exitHold, exitPlayMs, PRESS_MS, RESPOND_MS } from './beadTimeline.ts';
 
 export interface BeadProps {
   /** The tap on the unit disc, y up. */
@@ -59,7 +62,8 @@ interface Phase {
   readonly clock: Animated.Value | null;
   readonly origin: number;
   readonly end: number;
-  readonly exit: boolean;
+  /** An exit's start opacity (its length, exitPlayMs); null for an entrance. */
+  readonly exit: number | null;
   readonly opacity: Channel;
   readonly colour: Channel;
   readonly scale: Channel;
@@ -72,23 +76,26 @@ function breakpoints(end: number, boundaries: readonly number[]): number[] {
   return [...new Set(all)].sort((a, b) => a - b);
 }
 
-/** A phase on its own clock: each channel of the model's look, sampled at the breakpoints and clamped past them. */
-function phaseOf(origin: number, end: number, exit: boolean, boundaries: readonly number[], look: (ms: number) => BeadLook): Phase {
-  const clock = new Animated.Value(Math.min(end, Math.max(0, now() - origin)));
+/**
+ * A phase on its own clock: each channel of the model's look, sampled at the breakpoints and clamped past them. An
+ * entrance's clock starts where it is (now − origin); an exit's at 0, the bead as it was when it began to leave.
+ */
+function phaseOf(origin: number, end: number, exit: number | null, boundaries: readonly number[], look: (ms: number) => BeadLook): Phase {
+  const clock = new Animated.Value(exit !== null ? 0 : Math.min(end, Math.max(0, now() - origin)));
   const inputRange = breakpoints(end, boundaries);
   const looks = inputRange.map(look);
   const channel = (pick: (l: BeadLook) => number): Channel => clock.interpolate({ inputRange, outputRange: looks.map(pick), extrapolate: 'clamp' });
-  return { clock, origin, end, exit, opacity: channel((l) => l.opacity), colour: channel((l) => l.colour), scale: exit ? look(0).scale : channel((l) => l.scale) };
+  return { clock, origin, end, exit, opacity: channel((l) => l.opacity), colour: channel((l) => l.colour), scale: exit !== null ? look(0).scale : channel((l) => l.scale) };
 }
 
 function phaseFor(id: DirectionId, placedAt: number | null, leftAt: number | null): Phase {
   if (leftAt === null) {
-    if (placedAt === null) return { clock: null, origin: 0, end: 0, exit: false, ...BEAD_WHOLE };
+    if (placedAt === null) return { clock: null, origin: 0, end: 0, exit: null, ...BEAD_WHOLE };
     const scaleEnd = beadMotion(id, PLAYED).duration;
-    return phaseOf(placedAt, Math.max(PRESS_MS + RESPOND_MS, scaleEnd), false, [PRESS_MS, PRESS_MS + RESPOND_MS, scaleEnd], (t) => beadEntrance(id, PLAYED, t));
+    return phaseOf(placedAt, Math.max(PRESS_MS + RESPOND_MS, scaleEnd), null, [PRESS_MS, PRESS_MS + RESPOND_MS, scaleEnd], (t) => beadEntrance(id, PLAYED, t));
   }
   const from = placedAt === null ? BEAD_WHOLE : beadEntrance(id, PLAYED, leftAt - placedAt);
-  return phaseOf(leftAt, exitDuration(from.opacity), true, [exitHold(from.opacity)], (t) => beadExit(id, PLAYED, from, t));
+  return phaseOf(leftAt, exitDuration(from.opacity), from.opacity, [exitHold(from.opacity)], (t) => beadExit(id, PLAYED, from, t));
 }
 
 /** The highlight (bead.highlight): a radial gradient from its colour to the fill, its centre up and to the left. */
@@ -123,15 +130,22 @@ export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps
     const { clock, origin, end, exit } = phase;
     if (clock === null) return undefined;
     const elapsed = Math.max(0, now() - origin);
-    if (!(elapsed < end)) {
-      clock.setValue(end);
-      if (exit) reportLeft.current();
-      return undefined;
+    let duration: number;
+    if (exit !== null) {
+      // From the bead as it was at leftAt, over the rest of its timeline, never under EXIT_MIN_MS: compressed, never skipped.
+      clock.setValue(0);
+      duration = exitPlayMs(exit, elapsed);
+    } else {
+      if (!(elapsed < end)) {
+        clock.setValue(end);
+        return undefined;
+      }
+      clock.setValue(elapsed);
+      duration = end - elapsed;
     }
-    clock.setValue(elapsed);
-    const animation = Animated.timing(clock, { toValue: end, duration: end - elapsed, easing: Easing.linear, useNativeDriver: true });
+    const animation = Animated.timing(clock, { toValue: end, duration, easing: Easing.linear, useNativeDriver: true });
     animation.start(({ finished }) => {
-      if (finished && exit) reportLeft.current();
+      if (finished && exit !== null) reportLeft.current();
     });
     return () => animation.stop();
   }, [phase]);
