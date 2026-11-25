@@ -188,13 +188,40 @@ function nextFreeNotAbove(tasks) {
     return free === undefined || ids.some((n) => n >= Number(free));
   });
 }
-// The index just past the `)` that closes the `(` at `open`, skipping string literals and line comments; -1 if none.
+// The index of the last character of the string, template or regular-expression literal that opens at `at`, or -1
+// when none opens there. A `/` opens a regular expression only where no value ends before it (after an operator, a
+// bracket or a keyword such as `return`), as in `/--jq '([^']*)'/g`, whose quotes a scan must not read as strings.
+function literalEnd(text, at) {
+  const c = text[at];
+  if (c === '\'' || c === '"' || c === '`') {
+    let i = at + 1;
+    for (; i < text.length && text[i] !== c; i += 1) if (text[i] === '\\') i += 1;
+    return Math.min(i, text.length - 1);
+  }
+  if (c !== '/' || text[at + 1] === '/' || text[at + 1] === '*') return -1;
+  let p = at - 1;
+  while (p >= 0 && /\s/.test(text[p])) p -= 1;
+  if (p >= 0 && !/[(,=:[!&|?{};+\-*%<>~^]/.test(text[p])
+    && !/(?:^|[^\w$])(?:return|typeof|case|in|of|void|delete|throw|new|yield|await)$/.test(text.slice(Math.max(0, p - 10), p + 1))) return -1;
+  let inClass = false;
+  for (let i = at + 1; i < text.length; i += 1) {
+    if (text[i] === '\\') i += 1;
+    else if (text[i] === '\n') return -1;
+    else if (text[i] === '[') inClass = true;
+    else if (text[i] === ']') inClass = false;
+    else if (text[i] === '/' && !inClass) return i;
+  }
+  return -1;
+}
+// The index just past the `)` that closes the `(` at `open`, skipping literals (literalEnd) and line comments; -1 if
+// none.
 function closeParen(text, open) {
   let depth = 0;
   for (let i = open; i < text.length; i += 1) {
     const c = text[i];
-    if (c === '\'' || c === '"' || c === '`') {
-      for (i += 1; i < text.length && text[i] !== c; i += 1) if (text[i] === '\\') i += 1;
+    const end = literalEnd(text, i);
+    if (end >= 0) {
+      i = end;
     } else if (c === '/' && text[i + 1] === '/') {
       i = text.indexOf('\n', i);
       if (i < 0) return -1;
@@ -207,16 +234,68 @@ function closeParen(text, open) {
   }
   return -1;
 }
+// RA-31: the text with every line and block comment blanked to spaces (its newlines kept), by the scan closeParen
+// runs, so a quote inside a comment or a regular expression opens no string and a `//` inside a string opens no
+// comment.
+function blankComments(text) {
+  const out = text.split('');
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    const end = literalEnd(text, i);
+    if (end >= 0) {
+      i = end;
+    } else if (c === '/' && (text[i + 1] === '/' || text[i + 1] === '*')) {
+      const close = text[i + 1] === '/' ? '\n' : '*/';
+      const at = text.indexOf(close, i + 2);
+      const stop = at < 0 ? text.length : at + (close === '*/' ? 2 : 0);
+      for (let k = i; k < stop; k += 1) if (out[k] !== '\n') out[k] = ' ';
+      i = stop - 1;
+    }
+  }
+  return out.join('');
+}
+// RA-31: the text with the inside of every literal (literalEnd) blanked to spaces, its delimiters and newlines kept,
+// so a name or a bracket quoted in a string is never read as code.
+function blankLiterals(code) {
+  const out = code.split('');
+  for (let i = 0; i < code.length; i += 1) {
+    const end = literalEnd(code, i);
+    if (end >= 0) {
+      for (let k = i + 1; k < end; k += 1) if (out[k] !== '\n') out[k] = ' ';
+      i = end;
+    }
+  }
+  return out.join('');
+}
+// RA-31: the extents [start, end) of every `describe.skip(` and `xdescribe(` call in code whose comments and literals
+// are blanked, a `.each(…)` table between the name and its call included, so a case inside one never counts.
+function skippedExtents(code) {
+  return [...code.matchAll(/(?<![\w.])(?:describe\.skip|xdescribe)\b/g)].map((m) => {
+    let at = m.index + m[0].length;
+    const each = code.slice(at).match(/^\s*\.each\s*\(/);
+    if (each) {
+      at = closeParen(code, at + each[0].length - 1);
+      if (at < 0) return [m.index, code.length];
+    }
+    const call = code.slice(at).match(/^\s*\(/);
+    if (!call) return [m.index, m.index];
+    const end = closeParen(code, at + call[0].length - 1);
+    return [m.index, end < 0 ? code.length : end];
+  });
+}
 // RA-25: a test file declares a case only where the case's title, as a single-quoted literal, opens a `test(` or
 // `it(` call or follows a `test.each(…)(` call; a table or an expectation that quotes the title declares nothing,
-// and neither does a skipped case.
+// and neither does a skipped case. RA-31: nor a case in a comment, or inside a `describe.skip(` or `xdescribe(`.
 function declares(text, title) {
   const lit = `'${title.replace(/\\/g, '\\\\').replace(/'/g, '\\\'')}'`;
   const esc = lit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(`(?<![\\w.])(?:test|it)\\(\\s*${esc}`).test(text)) return true;
-  return [...text.matchAll(/(?<![\w.])(?:test|it)\.each\(/g)].some((m) => {
-    const end = closeParen(text, m.index + m[0].length - 1);
-    return end > 0 && new RegExp(`^\\(\\s*${esc}`).test(text.slice(end));
+  const code = blankComments(text);
+  const skipped = skippedExtents(blankLiterals(code));
+  const live = (at) => !skipped.some(([a, b]) => at >= a && at < b);
+  if ([...code.matchAll(new RegExp(`(?<![\\w.])(?:test|it)\\(\\s*${esc}`, 'g'))].some((m) => live(m.index))) return true;
+  return [...code.matchAll(/(?<![\w.])(?:test|it)\.each\(/g)].some((m) => {
+    const end = closeParen(code, m.index + m[0].length - 1);
+    return live(m.index) && end > 0 && new RegExp(`^\\(\\s*${esc}`).test(code.slice(end));
   });
 }
 // The instruction files a session or an agent loads.
