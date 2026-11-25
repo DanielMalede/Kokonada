@@ -1231,7 +1231,8 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
       '`resilience-auditor` accepts option A of ARCH-307-2 and of ARCH-307-3 and the RA-3 and SA-2 resolution, with RA-17 and `OPS-479` as residuals',
       '`compliance-auditor` has no compliance objection to any of the three',
       'RA-4 = ARCH-307-5, the never-from-an-emulator list');
-    expect(DEC192).not.toMatch(/The orchestrator's rulings under DEC-142 on the review|No agent's agreement is quoted here yet/);
+    // ARCH-307-29: no pick is said to be ruled under DEC-142, the local evidence backend's included.
+    expect(DEC192).not.toMatch(/The orchestrator's rulings under DEC-142 on the review|No agent's agreement is quoted here yet|ruled it under DEC-142/);
   });
 
   test('DEC-192\'s stale lines follow the files: the push wording, PK\'s two waves in every round, OPS-479 named, the GitHub MCP denies', () => {
@@ -1316,13 +1317,121 @@ describe('DEC-192 · the owner\'s rulings 10 to 13 of 2026-11-24, recorded verba
   test('the private excerpt is the primary record, here and in the index; the statement of fact quotes its question; the dates and M4 are stated', () => {
     has(DEC192, `The primary record of the option selections of 2026-11-24 is ${PRIVATE}`);
     has(DECISIONS.split('\n').find((l) => l.startsWith('- **The private primary record**')) || '', PRIVATE, 'DEC-192');
+    // ARCH-307-27 = SA-17 = R-6: clearing the AVD's data revoked nothing on the server, so no line says the revocation
+    // was done; the owner asked for a guide, and whether his sessions need revoking turns on AUTH_ACCESS_TTL.
     has(DEC192, '   - question: "שתי שאלות עובדה על השרת שלך: האם יש בשרת הייצור חשבונות של אנשים אחרים חוץ ממך? והאם לבטל עכשיו את כל החיבורים הפעילים של החשבון שלך, בגלל מפתח הגישה שדלף לכתובת הדמה?"',
-      '"ביטול" (cancellation) there is revoking his account\'s sessions, not a consent withdrawal; it was done on 2026-11-24 by clearing the AVD\'s app data (`OPS-505`).');
+      '"ביטול" (cancellation) there is revoking his account\'s sessions, not a consent withdrawal; he asked for a revocation guide (`OPS-505`). The AVD\'s stored session was cleared on 2026-11-24 (`OPS-505` (1)); that revokes nothing on the server. Whether his account\'s sessions need revoking turns on `AUTH_ACCESS_TTL` (`OPS-505`, L1).');
+    expect(DEC192).not.toMatch(/was done on 2026-11-24 by clearing/);
     expect(DEC192).not.toContain('the question it answers is not quoted here');
     const ruled = DEC192.split('\n---\n')[0].split('\n').find((l) => l.startsWith('ruled:')) || '';
-    has(ruled, '2026-11-23', '2026-11-24');
-    has(DEC192.split('\n').find((l) => l.startsWith('- ruled:')) || '', '2026-11-24 (rulings 6 to 13)');
-    has(DEC192, 'M4: the owner\'s (c) on all regulated copy, the consent version bump and the cutover PR, about 2026-12-18, per the approved plan (ruling 5).');
+    has(ruled, '2026-11-23', '2026-11-24', '2026-11-25 (rulings 14 to 17)');
+    has(DEC192.split('\n').find((l) => l.startsWith('- ruled:')) || '', '2026-11-24 (rulings 6 to 13)', '2026-11-25 (rulings 14 to 17)');
+    // R-8: M4 quotes the plan's line 72 whole, so it drops neither "(EN and HE)", the window nor "any new DEC".
+    has(DEC192, 'M4, about 2026-12-18, per the approved plan (ruling 5), in the plan\'s own words: "(c) on all regulated copy (EN and HE), the consent version bump and window, the cutover PR, and any new DEC".');
+    expect(DEC192).not.toContain('M4: the owner\'s (c) on all regulated copy, the consent version bump and the cutover PR');
+  });
+});
+
+// DEC-192, round 6 of the owner's option selections, of 2026-11-25, after the fourth review round of #307 at c10abaa:
+// rulings 14 to 17, each quoted with its question, every option and the description shown with the selected one; and
+// the fixes of that review to the entry (R-7 to R-11, CA307-16 (iii), ARCH-307-33).
+describe('DEC-192 · the owner\'s rulings 14 to 17 of 2026-11-25, and the entry after the review at c10abaa', () => {
+  const rulingText = (n) => {
+    const at = DEC192.search(new RegExp(`\\n${n}\\. `));
+    return at < 0 ? '' : DEC192.slice(at).split(/\n(?=\d+\. |## |A statement of fact)/)[1] || '';
+  };
+  test.each([
+    ['14', '14. The publication gates and ruling 13 (2026-11-25).',
+      'בקשה 307, החלטה 13: אמרת לפרסם את מדיניות הפרטיות לפני המעבר לממשק החדש (בערך 18.12). בשאלה ששאלתי לא הזכרתי שלפרסום יש תנאים שכבר קבעת קודם. התנאים: הפעלת המחיקה האוטומטית בשרת (DEC-156, בלי גרסת ביניים), בחירת המדינות שבהן האפליקציה תושק (DEC-190), ההחלטה על ספק המוזיקה וספוטיפיי (DAN-135), תנאי השימוש ושורת \'מי אחראי על המידע\'. מה התכוונת?',
+      'כל התנאים לפני המעבר',
+      '- the rule it sets: every publication gate closes before the cutover PR merges, and a gate that slips moves the cutover: DEC-156 (publication only after `DAN-050` records the sweep armed, with no interim version); OD-12, OD-16 and OD-17, tied to the markets (DEC-056; `DEC-190.md:72`); the music-provider DEC (`DAN-135`; `DEC-190.md:78`); the controller line (OD-13; `DEC-190.md:127`); the terms of use, hosted and accepted in the app (`DEC-190.md:138`); `DAN-015`\'s own gate lists; and the owner\'s (c) on the exact text, naming both pages\' blob SHAs. DEC-156 and DEC-190 stand, unrefined.'],
+    ['15', '15. The held regulated-copy branch and the cutover, again (2026-11-25).',
+      'הענף המוחזק עם הטקסטים המשפטיים (נוסח ההסכמה החדש): מתי הוא ממוזג? אם הוא ממוזג לפני המעבר לממשק החדש, ההסכמה שנתת בגרסה הראשונה מפסיקה לחול ברגע המיזוג. אז בבדיקה על הטלפון שלך תצטרך לתת הסכמה חדשה לנוסח הסופי.',
+      'יחד עם המעבר',
+      '- the rule it sets: the held regulated-copy branch (F3-B) merges with the cutover PR, so production switches its consent version only when the cutover merges, and `/page` G11P item 5 at the cutover head runs on the owner\'s existing v1 grant (ruling 11). It narrows ruling 9\'s "before the cutover PR or with it" to "with it".'],
+    ['16', '16. A consent prompt at G11P before M4 (2026-11-25).',
+      'אם בבדיקה על הטלפון שלך, לפני שאישרת את הנוסח הסופי, האפליקציה מבקשת ממך הסכמה: האם הבדיקה של נתוני הבריאות נעצרת ונשארת \'לא נבדק\', בלי ללחוץ על \'מסכים\'?',
+      'כן, עוצרים (מומלץ)',
+      '- the rule it sets: before M4 no consent grant is made at G11P: if the app asks for consent, item 5 stops and stays NOT VERIFIED.'],
+    ['17', '17. The local evidence backend\'s scope (2026-11-25).',
+      'השרת המקומי לצילומי ההוכחה: האם הוא משמש רק להרצות על האמולטור, והבדיקה על הטלפון האמיתי שלך רצה מול שרת הייצור עם החשבון שלך?',
+      'כן, רק אמולטור (מומלץ)',
+      '- the rule it sets: the local evidence backend serves emulator runs only; G11P runs against production on the owner\'s own account.'],
+  ])('ruling %s: its heading, its question, every option, the selected option, a gloss and the rule it sets, in that order', (n, heading, question, option, rule) => {
+    const at = DEC192.indexOf(`\n${heading}\n`);
+    expect([heading, at > 0]).toEqual([heading, true]);
+    const body = DEC192.slice(at).split(/\n(?=\d+\. |## |A statement of fact)/)[1] || '';
+    const parts = [`   - question: "${question}"`, '   - options: ', `   - selected option: "${option}"`, '   - the scribe\'s English gloss: ', `   ${rule}`].map((p) => body.indexOf(p));
+    expect([heading, parts.every((p, i) => p > 0 && (i === 0 || p > parts[i - 1]))]).toEqual([heading, true]);
+  });
+
+  // R-10: every ruling of 2026-11-24 and 2026-11-25 quotes each option of its question, and the description shown with
+  // the selected option where one was shown, word for word, after the question and around the selected option.
+  test.each([
+    ['10', ['רק בשרת הייצור (מומלץ)', 'אצל אנשים אמיתיים בלבד', 'בכל מקום'],
+      'אף הסכמה חדשה לא נרשמת בשרת הייצור. מותר להזריע הסכמות מדומות לחשבונות בדיקה בשרת מקומי, ובבדיקות האוטומטיות. כך אפשר לצלם באמולטור את המסכים האלה.'],
+    ['11', ['לא יודע, תבדוק (מומלץ)', 'כן', 'לא'],
+      null],
+    ['12', ['כן, כל מה שלא מאושר (מומלץ)', 'רק מקום שמור ריק'],
+      null],
+    ['13', ['לפרסם לפני המעבר (מומלץ)', 'הדפים האלה מחכים'],
+      'המדיניות תאורח באתר לפני המעבר לניווט, עם האישור שלך לנוסח המדויק, כמו שקבעת. כך כל הדפים נכנסים יחד.'],
+    ['14', ['כל התנאים לפני המעבר', 'גרסת ביניים', 'הדפים מחכים'],
+      'כל התנאים נסגרים לפני שבקשת המעבר ממוזגת. אם אחד מהם מתעכב, גם המעבר מתעכב.'],
+    ['15', ['יחד עם המעבר', 'לפני המעבר'],
+      'השרת עובר לגרסת ההסכמה החדשה רק כשהמעבר ממוזג. הבדיקה על הטלפון רצה על ההסכמה הקיימת שלך.'],
+    ['16', ['כן, עוצרים (מומלץ)', 'לא, ממשיכים'],
+      null],
+    ['17', ['כן, רק אמולטור (מומלץ)', 'גם הטלפון מול השרת המקומי'],
+      null],
+  ])('ruling %s quotes every option of its question, and the description shown with the selected one', (n, options, description) => {
+    const text = rulingText(n);
+    has(text, `   - options: ${options.map((o) => `"${o}"`).join(' / ')}`);
+    expect(text.indexOf('   - question: ')).toBeLessThan(text.indexOf('   - options: '));
+    expect(text.indexOf('   - options: ')).toBeLessThan(text.indexOf('   - selected option: '));
+    if (description) {
+      has(text, `   - the description shown with it: "${description}"`);
+      expect(text.indexOf('   - selected option: ')).toBeLessThan(text.indexOf('   - the description shown with it: '));
+    } else {
+      expect(text).not.toContain('   - the description shown with it:');
+    }
+  });
+
+  test('the entry\'s dates, sources and owner classes carry rulings 14 to 17, and its class (c) list names rulings 11 and 14 to 16 (CA307-16)', () => {
+    has(DEC192.split('\n').find((l) => l.startsWith('- decided by: the owner.')) || '', 'rulings 14 to 17 (2026-11-25) are option selections',
+      '(c) since rulings 5 (F3-B), 6, 8, 9, 10, 11, 12, 13, 14, 15 and 16 touch consent, privacy and the legal surface (CA307-16)');
+    has(DEC192, 'option selections of 2026-11-25, each quoted below with its question: rulings 14 to 17, after the fourth review round of #307 at c10abaa',
+      '(its items 7 to 19)', '## The owner\'s rulings of 2026-11-25, by option selection');
+  });
+
+  test('the index carries rulings 14 to 17 and their words, and the private record\'s items 7 to 19', () => {
+    has(decRow('DEC-192'), 'rulings 14 to 17 (2026-11-25): every publication gate closes before the cutover; the regulated-copy branch merges with the cutover; no consent grant at G11P before M4; the local evidence backend serves emulator runs only',
+      'his option selections of 2026-11-25 (rulings 14 to 17)');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-192**')) || '', '"כל התנאים לפני המעבר" (ruling 14)', '"יחד עם המעבר" (ruling 15)', '"כן, עוצרים (מומלץ)" (ruling 16)', '"כן, רק אמולטור (מומלץ)" (ruling 17)');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **From the owner\'s rulings of 2026-11-23 on the fast track, DEC-192**')) || '', 'rulings 14 to 17');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **The private primary record**')) || '', 'its items 7 to 19');
+  });
+
+  // R-7 = ARCH-307-33(c), R-11 = ARCH-307-33(b) and R-9.
+  test('rulings 8 and 10 bind evidence runs in production, F3-B\'s line notes production and M4, and ruling 13 names all three hosted-policy HALTs', () => {
+    has(DEC192, 'no evidence run creates a consent grant in production (ruling 10)');
+    expect(DEC192).not.toContain('say that no evidence run creates a consent grant (ruling 8;');
+    has(DEC192.split('\n').find((l) => l.startsWith('- F3-B, a held regulated-copy branch:')) || '',
+      '"No consent is ever recorded against unapproved text" binds production (ruling 10 scopes ruling 8)',
+      'there is no approved consent text before M4 (ruling 8), so until then P5 has no approved text to show');
+    has(rulingText('13'), '   - the scribe\'s note: ',
+      '`docs/design-v2/registry/INDEX.md:22` names three HALTs that wait on the hosted policy, `CMP-026`, `CMP-066` and `CMP-081`, not two', 'the rule covers all three');
+    has(DEC192.split('\n').find((l) => l.startsWith('- registry IDs named:')) || '', '`CMP-026`', '`CMP-066`', '`CMP-081`');
+  });
+
+  // ARCH-307-33(a) and ruling 17: the local evidence backend is the emulator's, and an entry that needs a signed-in
+  // state does not pass until it exists; it no longer waits for G11P.
+  test('how #307 applies rulings 14 to 17, and the pick on the local evidence backend no longer sends a signed-in entry to G11P', () => {
+    for (const n of [14, 15, 16, 17]) has(DEC192, `- Ruling ${n}: `);
+    const pick = DEC192.split('\n').find((l) => l.startsWith('  - ARCH-307-21 = RA-30, option A, on the review at `a196ce4`:')) || '';
+    has(pick, 'emulator evidence that needs sign-in runs against a local evidence backend, never production', 'ruling 17',
+      'an entry that needs one does not pass');
+    expect(pick).not.toMatch(/wait for G11P/);
   });
 });
 
