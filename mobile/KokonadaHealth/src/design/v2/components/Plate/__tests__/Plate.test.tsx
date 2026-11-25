@@ -11,8 +11,13 @@ import { rimPlan } from '../rim.ts';
 // the canvas is a Proxy, so a ring, a face or a fill drawn by mistake shows up here), the paint each draw used, and how
 // many times its picture was freed. The pixels are rim.skia.test.ts's, on CanvasKit; here, the component's wiring.
 jest.mock('@shopify/react-native-skia', () => {
-  const fake = { recordings: [] as Array<{ calls: Array<{ name: string; args: unknown[] }>; disposed: number; bounds: unknown }> };
-  const Stub = ({ children }: { children?: unknown }) => children ?? null;
+  const fake = { recordings: [] as Array<{ calls: Array<{ name: string; args: unknown[] }>; disposed: number; bounds: unknown }>, redraws: 0 };
+  // The canvas: its ref's redraw() asks the native view to draw its picture again (SkiaViewApi.requestRedraw); counted.
+  const ReactInMock = jest.requireActual('react') as typeof import('react');
+  const Canvas = ({ children, ref }: { children?: unknown; ref?: unknown }) => {
+    ReactInMock.useImperativeHandle(ref as never, () => ({ redraw: () => { fake.redraws += 1; } }), []);
+    return children ?? null;
+  };
   const paint = () => {
     const state: Record<string, unknown> = {};
     const setter = (key: string) => (value: unknown) => {
@@ -44,11 +49,12 @@ jest.mock('@shopify/react-native-skia', () => {
       };
     },
   };
-  return { Canvas: Stub, Picture: () => null, PaintStyle: { Fill: 0, Stroke: 1 }, TileMode: { Clamp: 0 }, Skia, __fake: fake };
+  return { Canvas, Picture: () => null, PaintStyle: { Fill: 0, Stroke: 1 }, TileMode: { Clamp: 0 }, Skia, __fake: fake };
 });
 
 type Recording = { calls: Array<{ name: string; args: unknown[] }>; disposed: number; bounds: { width: number; height: number } };
 const recordings = (): Recording[] => jest.requireMock('@shopify/react-native-skia').__fake.recordings;
+const redraws = (): number => jest.requireMock('@shopify/react-native-skia').__fake.redraws;
 const reanimated = jest.requireMock('react-native-reanimated') as Record<string, (...args: unknown[]) => unknown>;
 
 type Node = ReactTestRenderer.ReactTestInstance;
@@ -72,6 +78,7 @@ function mount(props: { diameter: number; fontScale: number; face?: Face; childr
 
 beforeEach(() => {
   recordings().splice(0);
+  jest.requireMock('@shopify/react-native-skia').__fake.redraws = 0;
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -162,6 +169,64 @@ describe('Plate', () => {
     view.update({ diameter: 320, fontScale: 2 });
     view.unmount();
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  // The d5479dc launches: 1 in 19 lost the keyline. Skia renders a static canvas only around its surface's attach, and
+  // each render first latches the TextureView's queued frame on the main thread, where that fails and releases it
+  // (RNSkia's "updateAndRelease() failed"); a frame the view had not shown yet is dropped, and no later render comes.
+  // So once the plate is laid out, two frames on (its surfaces attach at the first draw), the rim is drawn once more.
+  describe('the keyline is drawn again once its surface is up (the d5479dc launch that lost it)', () => {
+    const layout = (view: ReturnType<typeof mount>) => act(() => view.root().props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: 296, height: 296 } } }));
+    const frames = (n: number) => {
+      for (let i = 0; i < n; i++) act(() => jest.advanceTimersToNextTimer());
+    };
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    it('two frames after a layout, it asks the rim canvas to draw again, once', () => {
+      const view = mount({ diameter: 296, fontScale: 1 });
+      expect(redraws()).toBe(0);
+      layout(view);
+      expect(redraws()).toBe(0);
+      frames(1);
+      expect(redraws()).toBe(0);
+      frames(1);
+      expect(redraws()).toBe(1);
+      view.unmount();
+    });
+
+    it('then does no frame work at rest: nothing pending, and no redraw without a new layout', () => {
+      const view = mount({ diameter: 296, fontScale: 1 });
+      expect(jest.getTimerCount()).toBe(0);
+      layout(view);
+      frames(2);
+      expect(jest.getTimerCount()).toBe(0);
+      act(() => jest.advanceTimersByTime(10_000));
+      expect(redraws()).toBe(1);
+      layout(view);
+      frames(2);
+      expect(redraws()).toBe(2);
+      view.unmount();
+    });
+
+    it('layouts that come before the frames ask once; an unmount before them asks nothing and leaves nothing pending', () => {
+      const view = mount({ diameter: 296, fontScale: 1 });
+      layout(view);
+      layout(view);
+      frames(1);
+      layout(view);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(redraws()).toBe(1);
+      const gone = mount({ diameter: 296, fontScale: 1 });
+      layout(gone);
+      expect(jest.getTimerCount()).toBe(1);
+      gone.unmount();
+      expect(jest.getTimerCount()).toBe(0);
+      act(() => jest.advanceTimersByTime(1000));
+      expect(redraws()).toBe(1);
+      expect(jest.getTimerCount()).toBe(0);
+      view.unmount();
+    });
   });
 
   it('has no elevation and no shadow anywhere (R9)', () => {

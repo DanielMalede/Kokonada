@@ -15,10 +15,16 @@
 //   · Static in every tier: nothing here moves, so reduced motion is the plate as drawn, with no frame work. No colour
 //     but the face's rim tokens (R3, R4), no elevation (R9). Each picture is freed once it is replaced, and on unmount
 //     (RA-31), as FieldFallback frees its own.
+//   · Drawn again once its surface is up. Skia renders a static canvas only around its surface's attach, and each
+//     render first latches the TextureView's queued frame on the main thread, where that fails and releases it
+//     (RNSkia's "updateAndRelease() failed"), so a frame the view had not shown yet can be dropped with no later render
+//     to replace it: 1 launch in 19 at d5479dc lost the keyline. So each layout of the root asks the rim canvas to draw
+//     its picture once more two frames on, when its surface has attached (the first draw attaches it). Layouts before
+//     then ask once; an unmount cancels. Nothing runs between layouts: no frame work at rest.
 
-import React, { useEffect, useMemo, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Canvas, PaintStyle, Picture, Skia, TileMode } from '@shopify/react-native-skia';
+import { Canvas, PaintStyle, Picture, Skia, TileMode, type CanvasRef } from '@shopify/react-native-skia';
 import { useTokens } from '../../tokens/useTokens.ts';
 import { plateGeometry } from './geometry.ts';
 import { recordPlateRim, rimPlan, type RimSkia } from './rim.ts';
@@ -39,10 +45,31 @@ export function Plate({ diameter, fontScale, children }: PlateProps) {
   const plan = useMemo(() => rimPlan(tokens, plateGeometry(tokens, diameter, fontScale)), [tokens, diameter, fontScale]);
   const picture = useMemo(() => recordPlateRim(SKIA, plan), [plan]);
   useEffect(() => () => picture.dispose(), [picture]);
+
+  // The redraw two frames after a layout: one animation frame request pending at a time, cancelled on unmount.
+  const rim = useRef<CanvasRef>(null);
+  const pending = useRef<number | null>(null);
+  const onLayout = useCallback(() => {
+    if (pending.current !== null) return;
+    pending.current = requestAnimationFrame(() => {
+      pending.current = requestAnimationFrame(() => {
+        pending.current = null;
+        rim.current?.redraw();
+      });
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (pending.current !== null) cancelAnimationFrame(pending.current);
+      pending.current = null;
+    },
+    [],
+  );
   const canvasBox = { left: -plan.pad, top: -plan.pad, width: plan.size, height: plan.size };
   return (
-    <View testID="hero.plate" collapsable={false} style={[styles.root, { width: diameter, height: diameter }]}>
+    <View testID="hero.plate" collapsable={false} onLayout={onLayout} style={[styles.root, { width: diameter, height: diameter }]}>
       <Canvas
+        ref={rim}
         testID="hero.plate.rim"
         style={[styles.layer, canvasBox]}
         colorSpace="srgb"
