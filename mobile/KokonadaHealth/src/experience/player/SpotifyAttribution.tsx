@@ -5,17 +5,17 @@ import { space, radius, type as typography } from '../../design/tokens';
 import {
   isSpotifyInstalled as defaultIsSpotifyInstalled,
   foregroundSpotify as defaultForegroundSpotify,
-  openSpotifyWebPage as defaultOpenSpotifyWebPage,
+  openSpotifyStoreListing as defaultOpenSpotifyStoreListing,
 } from './spotifyLinkBack';
 import { parseSpotifyContentUri } from './spotifyContentLink';
 
 // Compliance C1 + C2 attribution + link-back mark, reusable across the Up-Next sheet and Now Playing.
 // The official Spotify Full logo (theme-aware) + "content from Spotify" (attribution) and a link-back
-// to the EXACT item on screen (HX-4): OPEN SPOTIFY opens contentUri in the installed app; GET SPOTIFY
-// FREE opens the same item's open.spotify.com page. With no linkable contentUri there is no control
-// at all — never a dead button — and the logo and attribution words stay. Kept visually
-// self-contained so it never sits inside recommendation copy — nothing here may imply Spotify
-// authored the pick.
+// beside the EXACT item on screen (HX-4): OPEN SPOTIFY opens contentUri in the installed app; GET
+// SPOTIFY FREE opens Spotify's app-store listing (DEC-193, which supersedes DEC-112). With no linkable
+// contentUri there is no control at all — never a dead button — and the logo and attribution words
+// stay. Kept visually self-contained so it never sits inside recommendation copy — nothing here may
+// imply Spotify authored the pick.
 
 // The official Spotify brand assets. White reads on the dark theme; Black reads on light porcelain.
 const SPOTIFY_FULL_LOGO = {
@@ -35,14 +35,14 @@ export interface SpotifyAttributionProps {
   // All overridable so the mark is reusable/testable; each defaults to the real link-back wiring.
   isSpotifyInstalled?: () => Promise<boolean>;
   onOpenSpotify?: (uri: string) => void | Promise<unknown>; // installed → open the item in Spotify
-  onGetSpotify?: (uri: string) => void | Promise<unknown>;  // not installed → the item's web page
+  onGetSpotify?: (uri: string) => void | Promise<unknown>;  // not installed → Spotify's store listing
 }
 
 export function SpotifyAttribution({
   contentUri,
   isSpotifyInstalled = defaultIsSpotifyInstalled,
   onOpenSpotify = defaultForegroundSpotify,
-  onGetSpotify = defaultOpenSpotifyWebPage,
+  onGetSpotify = defaultOpenSpotifyStoreListing,
 }: SpotifyAttributionProps) {
   const { name, c } = useTheme();
   // Default to the not-installed label until the async probe answers (safe, non-blocking).

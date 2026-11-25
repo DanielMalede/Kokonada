@@ -7,6 +7,8 @@ import type { QueueTrack } from './playbackQueue';
 import { UpNextSheet } from './UpNextSheet';
 import { UP_NEXT_ENABLED } from './upNextGate';
 import { SpotifyAttribution } from '../player/SpotifyAttribution';
+import { openSpotifyWebPage } from '../player/spotifyLinkBack';
+import { parseSpotifyContentUri } from '../player/spotifyContentLink';
 import { playerStatusStore } from '../player/playerStatusStore';
 import { store } from '../../state/store';
 import { emotionAccentFor } from '../../design/emotionAccent';
@@ -116,6 +118,34 @@ export function NowPlayingScreen() {
   // URI never matches, so an unpaired cover can't slip through as null === null).
   const showCover = !!coverUri && !coverFailed && !!track?.uri && coverTrackUri === track.uri;
 
+  // DEC-193 (Spotify Developer Policy II.4.2): Spotify metadata and cover art link back to the item
+  // itself, so the title and the cover each open the item's open.spotify.com page. Only a linkable
+  // Spotify item earns the link; anything else keeps the plain title and art.
+  const itemLink = parseSpotifyContentUri(track?.uri);
+  const openItemPage = () => {
+    if (itemLink) openSpotifyWebPage(itemLink.uri).catch(() => { /* best-effort — never throw into the UI */ });
+  };
+  const titleText = (
+    <Text
+      accessibilityRole="header"
+      numberOfLines={2}
+      style={{ fontSize: typography.size.title, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
+    >
+      {track ? track.title : 'Nothing playing yet'}
+    </Text>
+  );
+  const coverImage = showCover ? (
+    <Image
+      testID="now-playing-cover"
+      source={{ uri: coverUri! }}
+      resizeMode="cover"
+      onError={() => setCoverFailed(true)}
+      accessibilityRole="image"
+      accessibilityLabel={`Album art for ${track!.title}`}
+      style={[styles.cover, { borderRadius: radius.xl }]}
+    />
+  ) : null;
+
   // The session discovery accent (static per session — the quadrant is chosen ONCE, above).
   const accent = c.emotionAccent[quadrant];
   // The enriched "why this discovery" branch fires for a DISCOVERY track (recordingKey present)
@@ -164,16 +194,18 @@ export function NowPlayingScreen() {
           testID="now-playing-art"
           style={[styles.art, elevation.e2, { width: artSize, height: artSize, maxHeight: artSize, backgroundColor: c.surface.raised, borderColor: c.surface.hairline }]}
         >
-          {showCover ? (
-            <Image
-              testID="now-playing-cover"
-              source={{ uri: coverUri! }}
-              resizeMode="cover"
-              onError={() => setCoverFailed(true)}
-              accessibilityRole="image"
-              accessibilityLabel={`Album art for ${track!.title}`}
-              style={[styles.cover, { borderRadius: radius.xl }]}
-            />
+          {coverImage ? (
+            itemLink ? (
+              <Pressable
+                testID="now-playing-cover-link"
+                onPress={openItemPage}
+                accessibilityRole="link"
+                accessibilityLabel={`Album art for ${track!.title}, on Spotify`}
+                style={styles.coverLink}
+              >
+                {coverImage}
+              </Pressable>
+            ) : coverImage
           ) : (
             <Text
               accessibilityElementsHidden
@@ -187,13 +219,17 @@ export function NowPlayingScreen() {
       </View>
 
       <View style={styles.meta}>
-        <Text
-          accessibilityRole="header"
-          numberOfLines={2}
-          style={{ fontSize: typography.size.title, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading, color: c.content.primary, textAlign: 'center' }}
-        >
-          {track ? track.title : 'Nothing playing yet'}
-        </Text>
+        {itemLink ? (
+          <Pressable
+            testID="now-playing-title-link"
+            onPress={openItemPage}
+            accessibilityRole="link"
+            accessibilityLabel={`${track!.title}, on Spotify`}
+            style={styles.titleLink}
+          >
+            {titleText}
+          </Pressable>
+        ) : titleText}
         <Text
           numberOfLines={1}
           style={{ marginTop: space.sm, fontSize: typography.size.subheading, color: c.content.secondary, textAlign: 'center' }}
@@ -366,6 +402,11 @@ const styles = StyleSheet.create({
   aura: { position: 'absolute', borderRadius: radius.pill },
   art: { flexShrink: 1, borderRadius: radius.xl, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   cover: { width: '100%', height: '100%' },
+  // DEC-193's links add only a touch target. The cover's fills the art box, so the art keeps its size
+  // and corners; the title's is 48 dp from its own bounds (space['3xl']), because TalkBack and
+  // Accessibility Scanner read a node's bounds, never its hitSlop.
+  coverLink: { width: '100%', height: '100%' },
+  titleLink: { minHeight: space['3xl'], minWidth: space['3xl'], alignItems: 'center', justifyContent: 'center' },
   meta: { width: '100%', alignItems: 'center', paddingHorizontal: space.md },
   receipt: { marginTop: space.md, paddingVertical: space.sm, paddingHorizontal: space.md, borderRadius: radius.pill, borderWidth: StyleSheet.hairlineWidth, alignItems: 'center' },
   // The enriched treatment reads as a left-aligned block inside the same pill slot (overrides the
