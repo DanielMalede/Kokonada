@@ -88,13 +88,13 @@ function placed(scene: string, rtl: boolean, fontScale: number) {
   const frames: Record<string, Box> = {
     plate: at(hostByNativeId(r.root, 'probe-plate')),
     root: at(byTestId('hero.plate')),
-    touch: at(byTestId('plate.touch')),
-    'touch.plate': at(byTestId('plate.touch.plate')),
-    latest: at(byTestId('plate.touch.latest')),
+    entry: at(byTestId('hero.listEntry')),
+    touch: at(byTestId('hero.plate.touch')),
+    latest: at(byTestId('hero.plate.bead.latest.a11y')),
     beads: at(byTestId('bead.layer')),
   };
   for (const n of all(/^hero\.plate\.word\.\w+\.a11y$/)) frames[n.props.testID] = at(n);
-  all(/^bead$/).forEach((n, i) => { frames[`bead.${i}`] = at(n); });
+  for (const n of all(/^hero\.plate\.bead\.\d$/)) frames[`bead.${n.props.testID.slice('hero.plate.bead.'.length)}`] = at(n);
   const well = StyleSheet.flatten(byTestId('hero-scene.well-column').props.style);
   return { frames, well };
 }
@@ -123,7 +123,7 @@ describe.each([1, 2])('at font scale %d, under RTL (isRTL true, left and right s
   it.each(['hero.abyss.dark.three.latin', 'hero.abyss.light.three.hebrew'])('%s: the plate, its words, its beads and its touch layer land as on a left-to-right phone', (scene) => {
     const rtl = placed(scene, true, fontScale);
     const ltr = placed(scene, false, fontScale);
-    expect(Object.keys(rtl.frames)).toEqual(expect.arrayContaining(['plate', 'latest', 'bead.0', 'bead.1', 'bead.2', 'hero.plate.word.top.a11y', 'hero.plate.word.left.a11y']));
+    expect(Object.keys(rtl.frames)).toEqual(expect.arrayContaining(['plate', 'entry', 'latest', 'bead.0', 'bead.1', 'bead.2', 'hero.plate.word.top.a11y', 'hero.plate.word.left.a11y']));
     expect(rtl.frames).toEqual(ltr.frames);
   });
 
@@ -133,6 +133,8 @@ describe.each([1, 2])('at font scale %d, under RTL (isRTL true, left and right s
     const box = { x: layout.centre[0] - layout.radius, y: layout.centre[1] - layout.radius, width: 2 * layout.radius, height: 2 * layout.radius };
     expect(frames.plate).toEqual(box);
     expect(frames.root).toEqual(box);
+    // The list's button covers the plate's box (ruling 9).
+    expect(frames.entry).toEqual(box);
     // The rim words sit on the ring, inside the plate's box; the latest bead's target is centred on the latest bead.
     for (const p of ['top', 'right', 'bottom', 'left']) {
       const w = frames[`hero.plate.word.${p}.a11y`];

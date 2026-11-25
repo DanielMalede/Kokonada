@@ -1,16 +1,19 @@
 // The hero scene (F10 G8-2a and G8-2b): the v2 hero's instrument over the field, composed as the page will compose it, from
 // synthetic data only. Ids `hero.abyss.<face>.<taps>.<script>` (sceneGroups/hero.ts). The real FieldView draws the field
 // at T13's hero layout (heroLayout, as the field scenes draw it); over it, at the field's own centre and radius, the Plate
-// holds RimLabels, BeadLayer and PlateTouch; under it, at the layout's CTA column, the Well holds the hint and CommitCTA,
-// driven by useCtaMachine.
+// holds its layers in the designer's order (ruling 9): PlateEntry, the list's button; RimLabels; BeadLayer; PlateTouch.
+// Under it, at the layout's CTA column, the Well holds the hint and CommitCTA, driven by useCtaMachine.
 //
 //   · Synthetic: the taps are the token extensions' hero scene `three` or none (`empty`); the words, the hint, the label
 //     and the accessible copy are the lab's own, in the script the id names, never the app's copy (the copy port is not
 //     built yet).
 //   · Every callback only updates the scene's state: a placement joins the taps (a ring of three, the oldest replaced, as
-//     the cold lane's), a removal takes the latest, a commit and a haptic are counted; nothing leaves the scene. The CTA's
-//     machine hears the scene's tap count (store) and FieldView's admitted starts (start), with the scene's taps as the
-//     live placements.
+//     the cold lane's), a removal takes the latest, and a commit, a haptic, the list's button and its focus are counted;
+//     nothing leaves the scene.
+//   · Wired as a page wires them: one bead presence (useBeadPresence, ruling 2) for the beads BeadLayer draws and the
+//     letters RimLabels knocks out and lets return on the bead model's clock (beadOpacityAt); PlateTouch hands focus back
+//     to PlateEntry through its handle; the CTA's machine hears the tap count (store) and is bound as FieldView's onStart
+//     (F8), which carries each admitted start's live placements.
 //   · The tier is the app's motion policy on the device's settings, as a policy scene's (FieldScene.tsx usePolicyTier):
 //     READY waits until it is known and says it.
 //   · Where it draws: the plate's box sits in a full-stage box laid out left to right, so the plate lands on the field's
@@ -18,19 +21,22 @@
 //     both sides, and mirrors with the page, as the Well does.
 //   · It says which surface drew it (UI-223), as a field scene does (useFieldSceneReport): pending until FieldView's first
 //     drawn frame of this scene, then ready, or fallback with the reason.
-//   · Its fonts (fonts.ts): the components style their text as the type tokens' family at a token weight, the hint at
-//     ui.body's and the label at ui.cta's, so the scene declares those token faces, and READY waits until each drew in its
-//     own face, never over the fallback face.
+//   · Its fonts: the hint and the label are set in their faces' own files through fontFace (F6), which on Android are
+//     Heebo-Regular (ui.body) and Heebo-SemiBold (ui.cta): the scene declares them, and READY waits until each drew in its
+//     own face (fonts.ts). The rim words are Skia text: the scene asks for the typeface provider (`typefaces`), and READY
+//     waits for its font manager too (LabRoot).
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
 import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
+import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
+import { useBeadPresence } from '../../v2/components/Bead/useBeadPresence';
 import { CommitCTA, useCtaMachine } from '../../v2/components/CommitCTA/CommitCTA';
-import type { CtaPlacement } from '../../v2/components/CommitCTA/ctaState';
 import { plateGeometry, type PlatePoint } from '../../v2/components/Plate/geometry';
 import { Plate } from '../../v2/components/Plate/Plate';
-import { PlateTouch, type PlateCell, type PlateHaptics } from '../../v2/components/PlateTouch/PlateTouch';
+import { PlateEntry, type PlateEntryHandle } from '../../v2/components/PlateTouch/PlateEntry';
+import { PlateTouch, type PlateHaptics } from '../../v2/components/PlateTouch/PlateTouch';
 import { RimLabels, type RimWords } from '../../v2/components/RimLabels/RimLabels';
 import { Well } from '../../v2/components/Well/Well';
 import { FieldFallbackReport } from '../../v2/field/fallbackReport';
@@ -43,8 +49,9 @@ import type { MotionTier } from '../../v2/motion/useMotionPolicy';
 import { DirectionProvider } from '../../v2/tokens/DirectionProvider';
 import { BASE, DIRECTIONS, type Face } from '../../v2/tokens/tokens.generated';
 import { useTokens } from '../../v2/tokens/useTokens';
+import { fontFace } from '../../v2/typeface/faces';
 import { FIELD_DIRECTION, FIELD_FACES, FIELD_STATICS, heroTaps } from '../fieldScenes';
-import { tokenFaceId, type SceneFaceId } from '../fonts';
+import type { LabFaceId } from '../fonts';
 import { Probe } from '../probe/Probe';
 import type { SceneProps } from '../scenes';
 import { useFieldSceneReport, usePolicyTier } from './FieldScene';
@@ -73,14 +80,13 @@ export function heroScene(id: string): { readonly face: Face; readonly taps: Her
 }
 
 /**
- * The faces the hero's components draw text in, as they style it (fontFamily the type tokens' UI family, fontWeight a
- * token weight): the Well's hint at ui.body's weight and the CTA's label at ui.cta's, in either script. Token faces
- * (fonts.ts), each once.
+ * The faces the hero's components set their text in on Android, the lab's platform: through fontFace, the bundled file of
+ * ui.body's weight (the Well's hint) and of ui.cta's (the CTA's label), in either script, each once.
  */
-export const HERO_FONTS: readonly SceneFaceId[] = [...new Set(HERO_SCRIPTS.flatMap((s) => [
-  tokenFaceId(BASE.type.face.ui, BASE.type.ui.body[s].weight),
-  tokenFaceId(BASE.type.face.ui, BASE.type.ui.cta[s].weight),
-]))] as SceneFaceId[];
+export const HERO_FONTS: readonly LabFaceId[] = [...new Set(HERO_SCRIPTS.flatMap((s) => [
+  fontFace(BASE.type.face.ui, BASE.type.ui.body[s].weight, 'android').fontFamily,
+  fontFace(BASE.type.face.ui, BASE.type.ui.cta[s].weight, 'android').fontFamily,
+]))] as LabFaceId[];
 
 /** The lab's synthetic copy, by script. */
 export interface HeroCopy {
@@ -88,14 +94,12 @@ export interface HeroCopy {
   readonly a11y: RimWords;
   readonly hint: string;
   readonly cta: string;
+  /** PlateEntry's label and hint (plate.a11y.label and plate.a11y.hint): the list's button. */
   readonly plateLabel: string;
   readonly plateHint: string;
   readonly latestLabel: string;
   readonly removeLabel: string;
-  readonly cells: readonly PlateCell[];
 }
-
-const CELL_POINTS: readonly PlatePoint[] = [{ x: 0, y: 0.7 }, { x: 0.7, y: 0 }, { x: 0, y: -0.7 }, { x: -0.7, y: 0 }, { x: 0, y: 0 }];
 
 export const HERO_COPY: Readonly<Record<HeroScript, HeroCopy>> = {
   latin: {
@@ -104,10 +108,9 @@ export const HERO_COPY: Readonly<Record<HeroScript, HeroCopy>> = {
     hint: 'Tap the plate to place a point.',
     cta: 'Continue',
     plateLabel: 'Plate',
-    plateHint: 'Swipe up or down to choose a point, then double-tap to place it.',
+    plateHint: 'Holds up to three points. Double-tap to open a list of every place.',
     latestLabel: 'Latest point',
     removeLabel: 'Remove',
-    cells: ['More energy', 'Pleasant', 'Less energy', 'Unpleasant', 'Centre'].map((label, i) => ({ point: CELL_POINTS[i], label })),
   },
   hebrew: {
     words: { top: 'יותר אנרגיה', right: 'נעים', bottom: 'פחות אנרגיה', left: 'לא נעים' },
@@ -115,40 +118,34 @@ export const HERO_COPY: Readonly<Record<HeroScript, HeroCopy>> = {
     hint: 'הקישו על הלוח כדי להניח נקודה.',
     cta: 'המשך',
     plateLabel: 'לוח',
-    plateHint: 'החליקו למעלה או למטה כדי לבחור נקודה, ואז הקישו פעמיים כדי להניח אותה.',
+    plateHint: 'אפשר להניח עד שלוש נקודות. הקישו פעמיים כדי לפתוח רשימה של כל המקומות.',
     latestLabel: 'הנקודה האחרונה',
     removeLabel: 'הסרה',
-    cells: ['יותר אנרגיה', 'נעים', 'פחות אנרגיה', 'לא נעים', 'מרכז'].map((label, i) => ({ point: CELL_POINTS[i], label })),
   },
 };
 
-/** The scene's state: its taps (oldest first), each tap's id, the next id, and what the commit and haptic callbacks counted. */
+/** The scene's state: its taps (oldest first), and what the commit, haptic, list and focus callbacks counted. */
 export interface HeroState {
   readonly taps: readonly PlatePoint[];
-  readonly ids: readonly number[];
-  readonly next: number;
   readonly commits: number;
   readonly haptics: number;
+  readonly lists: number;
+  readonly entryFocused: boolean;
 }
 
 export function heroInitial(taps: HeroTaps): HeroState {
-  const points = taps === 'three' ? heroTaps('three') : [];
-  return { taps: points, ids: points.map((_, i) => i + 1), next: points.length + 1, commits: 0, haptics: 0 };
+  return { taps: taps === 'three' ? heroTaps('three') : [], commits: 0, haptics: 0, lists: 0, entryFocused: false };
 }
 
 /** A placement: it joins the taps, and on a full plate the oldest goes. */
 export function heroPlaced(s: HeroState, point: PlatePoint): HeroState {
-  const drop = Math.max(0, s.taps.length + 1 - HERO_RING);
-  return { ...s, taps: [...s.taps, point].slice(drop), ids: [...s.ids, s.next].slice(drop), next: s.next + 1 };
+  return { ...s, taps: [...s.taps, point].slice(Math.max(0, s.taps.length + 1 - HERO_RING)) };
 }
 
 /** The latest tap removed; with none, nothing changes. */
 export function heroRemoved(s: HeroState): HeroState {
-  return s.taps.length === 0 ? s : { ...s, taps: s.taps.slice(0, -1), ids: s.ids.slice(0, -1) };
+  return s.taps.length === 0 ? s : { ...s, taps: s.taps.slice(0, -1) };
 }
-
-/** The scene's taps as the CTA's live placements: the field shows every tap the scene holds. */
-export const heroLive = (s: HeroState): CtaPlacement[] => s.taps.map((t, i) => ({ id: s.ids[i], x: t.x, y: t.y }));
 
 export function HeroScene({ clock, params }: SceneProps) {
   const { face, taps, script } = heroScene(params.scene);
@@ -193,11 +190,13 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
   // each see the other's.
   const latest = useRef(state);
 
-  // DEC-174's machine, owned here as the page owns it: it hears the tap count when it changes, and FieldView's admitted
-  // starts, with the scene's taps as the live placements.
+  // DEC-174's machine, owned here as the page owns it: it hears the tap count when it changes, and is FieldView's onStart.
   const paint = useMemo(() => ({ id: tokens.id, face: tokens.face }), [tokens.id, tokens.face]);
-  const { machine, store, start } = useCtaMachine(paint, tier, { live: heroLive(state), taps: state.taps.length });
-  const onStart = useCallback(() => start(heroLive(latest.current)), [start]);
+  const { machine, store, start } = useCtaMachine(paint, tier, state.taps);
+  // The page's one bead presence (ruling 2): BeadLayer draws it, and RimLabels knocks its letters out by it.
+  const presence = useBeadPresence(state.taps, tier);
+  // The list's button (ruling 9): PlateTouch hands focus back to it when Remove leaves no tap.
+  const entry = useRef<PlateEntryHandle>(null);
 
   const apply = useCallback((next: HeroState) => {
     const was = latest.current;
@@ -209,6 +208,8 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
   const onRemoveLatest = useCallback(() => apply(heroRemoved(latest.current)), [apply]);
   const haptics = useMemo<PlateHaptics>(() => ({ fire: () => apply({ ...latest.current, haptics: latest.current.haptics + 1 }) }), [apply]);
   const onCommit = useCallback(() => apply({ ...latest.current, commits: latest.current.commits + 1 }), [apply]);
+  const onOpenList = useCallback(() => apply({ ...latest.current, lists: latest.current.lists + 1 }), [apply]);
+  const onEntryFocus = useCallback((focused: boolean) => apply({ ...latest.current, entryFocused: focused }), [apply]);
 
   const column = layout.quietRects?.[QUIET_ZONE.cta];
   const inset = column === undefined ? 0 : column.x;
@@ -231,13 +232,14 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
         confidence={1}
         genesis={false}
         clock={clock}
-        onStart={onStart}
+        onStart={start}
       />
       <View testID="hero-scene.plate-box" style={styles.ltrFill} pointerEvents="box-none">
         <Probe id="plate" style={[styles.plate, box]}>
           <Plate diameter={diameter} fontScale={layout.fontScale}>
-            <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={state.taps} />
-            <BeadLayer taps={state.taps} plate={plate} tier={tier} />
+            <PlateEntry ref={entry} plate={plate} label={copy.plateLabel} hint={copy.plateHint} onOpenList={onOpenList} onFocusChange={onEntryFocus} inert={false} />
+            <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={presence.beads} beadOpacity={beadOpacityAt} />
+            <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} />
             <PlateTouch
               plate={plate}
               taps={state.taps}
@@ -246,9 +248,7 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
               onRemoveLatest={onRemoveLatest}
               haptics={haptics}
               inert={false}
-              label={copy.plateLabel}
-              hint={copy.plateHint}
-              cells={copy.cells}
+              entry={entry}
               latestLabel={copy.latestLabel}
               removeLabel={copy.removeLabel}
             />

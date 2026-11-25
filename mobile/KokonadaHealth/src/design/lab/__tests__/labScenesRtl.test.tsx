@@ -11,7 +11,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 // (__fixtures__/yogaRtl.ts) under RTL and under LTR, and every probe and every View placed by its sides or its row order
 // must have the same frame in both. The scenes that place Views that way are listed, and each has its own RTL test on the
 // shared model. FieldView, FieldFallback and FieldSurface are the app's, not the lab's layout: they are stubbed here (they
-// draw through Skia, which does not mirror), so only the lab's own Views are laid out.
+// draw through Skia, which does not mirror), so only the lab's own Views are laid out; so is the hero's Well (below).
 jest.mock('react-native-reanimated', () => {
   const { useRef } = require('react');
   const RNView = require('react-native').View;
@@ -39,11 +39,22 @@ jest.mock('../../v2/field/effect.ts', () => ({ fieldEffect: () => ({ status: 're
 jest.mock('../../v2/field/FieldView', () => ({ FieldView: () => null }));
 jest.mock('../../v2/field/FieldFallback', () => ({ FieldFallback: () => null }));
 jest.mock('../../v2/field/FieldSurface', () => ({ FieldSurface: () => null }));
+// The hero's Well (F10 G8) is the app's layout too, and mirrors with the page by design: its hint and its action share
+// one row of full-width cells sized by their text, which this model cannot measure. It is stubbed to its children (the
+// CTA); HeroSceneRtl.test.tsx pins its column to the same inset on both sides, so the swap cannot move it.
+jest.mock('../../v2/components/Well/Well', () => ({ Well: ({ children }: { children?: unknown }) => children ?? null }));
 
 import { FONT_PROBES_TEST_ID } from '../FontProbes';
 import { LabRoot } from '../LabRoot';
 import { SCENES } from '../scenes';
 import { flat, frameOf, hostChildren, layoutRules, type Box, type Node } from './__fixtures__/yogaRtl';
+
+// A scene that draws Skia text gets the typeface provider (LabRoot): here its faces are read by a reader that never
+// answers, since this test lays Views out and never waits for READY (labTypefaceGate.test.tsx tests the gate).
+const TYPEFACES = {
+  sources: { 'Heebo-Light': 'l', 'Heebo-Regular': 'r', 'Heebo-Medium': 'm', 'Heebo-SemiBold': 's', 'Bellefair-Regular': 'b' },
+  read: () => new Promise<never>(() => {}),
+};
 
 const K = 2.625;
 const W = 1080 / K;
@@ -103,7 +114,7 @@ function mountScene(scene: string, rtl: boolean) {
       <LabRoot
         labArgs={{ run: 'r', scene, clock: 'fixed', t: '0', frames: '3' }}
         nonStringKeys={[]}
-        deps={{ emit: (l) => lines.push(l), frames: { next: () => () => {} }, events, reduceMotion: { current: () => new Promise(() => {}), subscribe: () => () => {} } }}
+        deps={{ emit: (l) => lines.push(l), frames: { next: () => () => {} }, events, reduceMotion: { current: () => new Promise(() => {}), subscribe: () => () => {} }, typefaces: TYPEFACES }}
       />,
     );
   });

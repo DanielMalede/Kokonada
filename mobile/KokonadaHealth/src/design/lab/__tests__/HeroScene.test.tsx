@@ -1,13 +1,15 @@
 /// <reference types="node" />
 import React from 'react';
-import { PixelRatio, StyleSheet } from 'react-native';
+import { Platform, PixelRatio, StyleSheet } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 
 // F10 G8-2a and G8-2b: the hero scene composes the v2 hero over the real FieldView, from synthetic data only. FieldView,
-// its ledger and builder, the Plate, RimLabels, BeadLayer, PlateTouch, the Well and CommitCTA are the real ones; only the
-// UI thread, the canvas and the field effect are faked, as in FieldScene.test.tsx: SharedValues persist, a frame callback
-// is registered per identity, only active callbacks run, and each frame carries a rising timestamp. So a placement the
-// touch layer reports reaches the real ledger, and the CTA shows only when the real FieldView admits a start.
+// its ledger and builder, the Plate, PlateEntry, RimLabels, BeadLayer, PlateTouch, the Well and CommitCTA are the real
+// ones, wired as a page wires them (ruling 2, ruling 9, F6, F8): one bead presence for the beads and the rim words, the
+// list's button first on the plate, the CTA's machine bound as FieldView's onStart. Only the UI thread, the canvas and
+// the field effect are faked, as in FieldScene.test.tsx: SharedValues persist, a frame callback is registered per
+// identity, only active callbacks run, and each frame carries a rising timestamp. So a placement the touch layer reports
+// reaches the real ledger, and the CTA shows only when the real FieldView admits a start.
 const mockUi = { timestamp: 0 };
 jest.mock('react-native-reanimated', () => {
   const { useEffect, useRef } = require('react');
@@ -63,8 +65,10 @@ jest.mock('../../v2/field/effect.ts', () => ({
 
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
 import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
+import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
 import { CommitCTA } from '../../v2/components/CommitCTA/CommitCTA';
 import { Plate } from '../../v2/components/Plate/Plate';
+import { PlateEntry } from '../../v2/components/PlateTouch/PlateEntry';
 import { PlateTouch } from '../../v2/components/PlateTouch/PlateTouch';
 import { RimLabels } from '../../v2/components/RimLabels/RimLabels';
 import { Well } from '../../v2/components/Well/Well';
@@ -72,6 +76,7 @@ import { heroLayout } from '../../v2/field/fallbackScenes';
 import { FieldView } from '../../v2/field/FieldView';
 import type { MotionPorts } from '../../v2/motion/ports';
 import { BASE } from '../../v2/tokens/tokens.generated';
+import { fontFace } from '../../v2/typeface/faces';
 import { heroTaps } from '../fieldScenes';
 import type { LabParams } from '../params';
 import { ProbeRegistry } from '../probe/Probe';
@@ -137,17 +142,19 @@ describe('the hero scenes', () => {
     for (const id of IDS) {
       expect([id, SCENES[id].Component, SCENES[id].probes, SCENES[id].fonts]).toEqual([id, HeroScene, HERO_SCENE_PROBES, HERO_FONTS]);
       expect(SCENES[id].periodMs).toBe(BASE.field.clock.T);
+      // The rim words are Skia text in the bundled faces: LabRoot mounts the typeface provider, and READY waits for it (F6).
+      expect([id, SCENES[id].typefaces]).toEqual([id, true]);
     }
     expect(HERO_SCENE_PROBES).toEqual(['stage', 'plate']);
     expect(heroScene('hero.abyss.light.empty.hebrew')).toEqual({ face: 'light', taps: 'empty', script: 'hebrew' });
     expect(() => heroScene('hero.abyss.dusk.three.latin')).toThrow('"hero.abyss.dusk.three.latin" is not a lab hero scene');
   });
 
-  it('declare the faces the components style their text in: the UI family at ui.body\'s weight (the hint) and ui.cta\'s (the label)', () => {
-    expect([...HERO_FONTS].sort()).toEqual(['Heebo@400', 'Heebo@600']);
+  it('declare the files the components set their text in on Android (fontFace): ui.body\'s for the hint, ui.cta\'s for the label', () => {
+    expect([...HERO_FONTS].sort()).toEqual(['Heebo-Regular', 'Heebo-SemiBold']);
     for (const s of ['latin', 'hebrew'] as const) {
-      expect(HERO_FONTS).toContain(`${BASE.type.face.ui}@${BASE.type.ui.body[s].weight}`);
-      expect(HERO_FONTS).toContain(`${BASE.type.face.ui}@${BASE.type.ui.cta[s].weight}`);
+      expect(HERO_FONTS).toContain(fontFace(BASE.type.face.ui, BASE.type.ui.body[s].weight, 'android').fontFamily);
+      expect(HERO_FONTS).toContain(fontFace(BASE.type.face.ui, BASE.type.ui.cta[s].weight, 'android').fontFamily);
     }
   });
 });
@@ -172,25 +179,41 @@ describe('a hero scene before and after its view has a size', () => {
     expect(StyleSheet.flatten(plate.props.style)).toMatchObject({
       position: 'absolute', left: layout.centre[0] - layout.radius, top: layout.centre[1] - layout.radius, width: 2 * layout.radius, height: 2 * layout.radius,
     });
-    // Every plate layer reads the same taps and the same plate.
-    expect(h.props(RimLabels)).toMatchObject({ diameter: 2 * layout.radius, fontScale: layout.fontScale, beads: field.taps });
-    expect(h.props(BeadLayer).taps).toBe(field.taps);
+    // The plate's layers in the designer's order (ruling 9): the list's button, the rim words, the beads, the touch layer.
+    const layers = React.Children.toArray(h.props(Plate).children) as React.ReactElement[];
+    expect(layers.map((l) => l.type)).toEqual([PlateEntry, RimLabels, BeadLayer, PlateTouch]);
+    // One bead presence (ruling 2): the beads BeadLayer draws are the beads the rim words knock out, on the bead model's clock.
+    const beads = h.props(BeadLayer).beads;
+    expect(beads.map((b) => b.point)).toEqual(field.taps);
+    expect(h.props(RimLabels)).toMatchObject({ diameter: 2 * layout.radius, fontScale: layout.fontScale, beadOpacity: beadOpacityAt });
+    expect(h.props(RimLabels).beads).toBe(beads);
     expect(h.props(BeadLayer).plate.diameter).toBe(2 * layout.radius);
     expect(h.props(PlateTouch)).toMatchObject({ taps: field.taps, toPoint: screenToCircumplex, inert: false });
     expect(h.props(PlateTouch).plate).toBe(h.props(BeadLayer).plate);
+    expect(h.props(PlateEntry).plate).toBe(h.props(BeadLayer).plate);
+    expect(h.props(PlateEntry).inert).toBe(false);
+    // PlateTouch hands focus back to the list's button through its handle (ruling 9).
+    expect(typeof h.props(PlateTouch).entry.current?.focus).toBe('function');
+    // The CTA's machine is bound as FieldView's onStart (F8), and keeps its identity across renders.
+    const onStart = field.onStart;
+    expect(typeof onStart).toBe('function');
+    h.frames(2);
+    expect(h.props(FieldView).onStart).toBe(onStart);
   });
 
-  it.each(['latin', 'hebrew'] as const)('draws the %s copy the id names: the rim words and their doubles, the hint, the label, the touch layer\'s labels', async (script) => {
+  it.each(['latin', 'hebrew'] as const)('draws the %s copy the id names: the rim words and their doubles, the hint, the label, the list\'s button, the latest bead', async (script) => {
     const h = await mount(`hero.abyss.dark.empty.${script}`);
     h.layout();
     const copy = HERO_COPY[script];
     expect(h.props(RimLabels)).toMatchObject({ words: copy.words, a11y: copy.a11y, script });
     expect(h.props(Well)).toMatchObject({ hint: copy.hint, script });
     expect(h.props(CommitCTA).label).toBe(copy.cta);
-    expect(h.props(PlateTouch)).toMatchObject({ label: copy.plateLabel, hint: copy.plateHint, latestLabel: copy.latestLabel, removeLabel: copy.removeLabel, cells: copy.cells });
+    expect(h.props(PlateEntry)).toMatchObject({ label: copy.plateLabel, hint: copy.plateHint });
+    expect(h.props(PlateTouch)).toMatchObject({ latestLabel: copy.latestLabel, removeLabel: copy.removeLabel });
   });
 
-  it.each(IDS)('%s draws its text in exactly the faces it declares, once laid out', async (id) => {
+  it.each(IDS)('%s draws its text in exactly the faces it declares, once laid out, as Android draws them', async (id) => {
+    jest.replaceProperty(Platform, 'OS', 'android');
     const h = await mount(id);
     h.layout();
     expect(drawnFaces(h.r.root)).toEqual([...HERO_FONTS].sort());
@@ -209,7 +232,7 @@ describe('the taps, the CTA and the hint (synthetic: every callback updates the 
   it('three: three beads, the CTA shown and reachable at once, the hint giving way', async () => {
     const h = await mount('hero.abyss.dark.three.latin');
     h.layout();
-    expect(h.props(BeadLayer).taps).toHaveLength(3);
+    expect(h.props(BeadLayer).beads).toHaveLength(3);
     expect(h.props(Well).actionShown).toBe(true);
     expect(machine(h)).toMatchObject({ taps: 3, opacity: { kind: 'show' } });
     expect(cta(h).props.importantForAccessibility).toBe('auto');
@@ -218,7 +241,7 @@ describe('the taps, the CTA and the hint (synthetic: every callback updates the 
   it('empty: no bead, the hint in the action\'s place, the CTA out of touch and out of TalkBack', async () => {
     const h = await mount('hero.abyss.dark.empty.latin');
     h.layout();
-    expect(h.props(BeadLayer).taps).toEqual([]);
+    expect(h.props(BeadLayer).beads).toEqual([]);
     expect(h.props(Well).actionShown).toBe(false);
     expect(machine(h)).toMatchObject({ taps: 0, opacity: null });
     expect(cta(h).props.importantForAccessibility).toBe('no-hide-descendants');
@@ -232,8 +255,8 @@ describe('the taps, the CTA and the hint (synthetic: every callback updates the 
     act(() => h.props(PlateTouch).onPlace({ x: 0.3, y: 0.3 }));
     const taps = h.props(FieldView).taps;
     expect(taps).toEqual([{ x: 0.3, y: 0.3 }]);
-    expect(h.props(BeadLayer).taps).toBe(taps);
-    expect(h.props(RimLabels).beads).toBe(taps);
+    expect(h.props(BeadLayer).beads.map((b) => b.point)).toEqual(taps);
+    expect(h.props(RimLabels).beads).toBe(h.props(BeadLayer).beads);
     expect(h.props(PlateTouch).taps).toBe(taps);
     expect(machine(h)).toMatchObject({ taps: 1, opacity: null });
     expect(h.props(Well).actionShown).toBe(false);
@@ -251,6 +274,10 @@ describe('the taps, the CTA and the hint (synthetic: every callback updates the 
     act(() => h.props(PlateTouch).onPlace({ x: -0.5, y: 0.5 }));
     expect(h.props(FieldView).taps).toEqual([b, c, { x: -0.5, y: 0.5 }]);
     expect(machine(h).taps).toBe(3);
+    // The oldest bead leaves (ruling 2): the presence keeps it, leaving, for its exit, under the three live ones.
+    const beads = h.props(BeadLayer).beads;
+    expect(beads.filter((x) => x.leaving).map((x) => x.point)).toEqual([heroTaps('three')[0]]);
+    expect(beads.filter((x) => !x.leaving).map((x) => x.point)).toEqual([b, c, { x: -0.5, y: 0.5 }]);
   });
 
   it('removing the latest takes it from the scene; removing the last hides the CTA and the hint comes back', async () => {
@@ -268,12 +295,14 @@ describe('the taps, the CTA and the hint (synthetic: every callback updates the 
     expect(h.props(FieldView).taps).toEqual([]);
   });
 
-  it('a commit and a haptic change no tap and nothing the CTA shows', async () => {
+  it('a commit, a haptic, the list\'s button and its focus change no tap and nothing the CTA shows', async () => {
     const h = await mount('hero.abyss.dark.three.latin');
     h.layout();
     const before = { taps: h.props(FieldView).taps, machine: machine(h) };
     act(() => h.props(CommitCTA).onCommit());
     act(() => h.props(PlateTouch).haptics.fire('place'));
+    act(() => h.props(PlateEntry).onOpenList());
+    act(() => h.props(PlateEntry).onFocusChange(true));
     expect(h.props(FieldView).taps).toBe(before.taps);
     expect(machine(h)).toBe(before.machine);
   });
@@ -296,7 +325,8 @@ describe('what it tells LabRoot', () => {
     reduced.layout();
     expect(reduced.facts[reduced.facts.length - 1]).toEqual({ tier: 'still' });
     for (const [h, tier] of [[on, 'full'], [reduced, 'still']] as const) {
-      expect([h.props(FieldView).tier, h.props(BeadLayer).tier, h.props(Well).tier, h.props(CommitCTA).tier]).toEqual([tier, tier, tier, tier]);
+      // The beads take the tier through the scene's presence (useBeadPresence), not as a BeadLayer prop.
+      expect([h.props(FieldView).tier, h.props(Well).tier, h.props(CommitCTA).tier]).toEqual([tier, tier, tier]);
     }
   });
 });
