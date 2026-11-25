@@ -2,7 +2,8 @@ import { Easing } from 'react-native';
 import { mixOklab, srgbToOklab, type Oklab } from '../../../color/oklab.ts';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
-import { alphaHex, beadEntrance, beadExit, beadFill, beadHighlight, beadMotion, beadPaint, hexLab, readPoint, srgbHex } from '../beadModel.ts';
+import { alphaHex, BEAD_WHOLE, beadEntrance, beadExit, beadFill, beadHighlight, beadMotion, beadPaint, beadTwin, beadTwinPaint, greyHex, hexLab, readPoint, srgbHex } from '../beadModel.ts';
+import { entranceColour, entranceOpacity, exitColour, exitDuration, exitOpacity } from '../beadTimeline.ts';
 
 // The bead's pure model: what colour it is (DSN-017) and how it moves (motion.placement, the still tier's
 // ramp). Where it sits is the plate's shared geometry (Plate/geometry.ts pointToLocal), which its own test
@@ -141,37 +142,82 @@ describe('beadPaint: the colours the views draw', () => {
   });
 });
 
-describe('the bead’s motion (motion.placement; the still tier’s ramp)', () => {
+describe('F1: the grey disc, the bead’s achromatic twin (below opacity 1 it is all that shows)', () => {
+  it('the twin is the colour at its own OKLab L with chroma 0', () => {
+    expect(beadTwin({ L: 0.71, a: 0.03, b: -0.08 })).toEqual({ L: 0.71, a: 0, b: 0 });
+  });
+
+  it('greyHex paints one 8-bit grey, the same byte on every channel, the byte srgbHex gives the achromatic colour', () => {
+    for (let i = 0; i <= 100; i++) {
+      const L = i / 100;
+      const hex = greyHex(L);
+      expect(hex).toMatch(/^#[0-9A-F]{6}$/);
+      expect([hex.slice(1, 3), hex.slice(3, 5)]).toEqual([hex.slice(5, 7), hex.slice(5, 7)]);
+      expect(hex.slice(3, 5)).toBe(srgbHex({ L, a: 0, b: 0 }).slice(3, 5));
+    }
+  });
+
+  it('beadTwinPaint: the fill’s twin, and the highlight drawn from it (bead.highlight.mix toward white), in both faces', () => {
+    for (const face of FACES) {
+      for (const point of [{ x: -0.4, y: 0.5 }, { x: 0.6, y: 0.6 }, { x: 0.3, y: -0.2 }, { x: 0.02, y: 0 }]) {
+        const twin = beadTwin(beadFill('abyss', face, point));
+        const paint = beadTwinPaint('abyss', face, point);
+        expect(paint.fill).toBe(greyHex(twin.L));
+        expect(paint.highlight).toBe(greyHex(beadHighlight('abyss', twin).L));
+        expect(beadHighlight('abyss', twin).L).toBeCloseTo(twin.L + ABYSS.bead.highlight.mix * (1 - twin.L), 12);
+      }
+    }
+  });
+
+  it('keeps the colour disc’s lightness: each grey reads back to its colour’s L within one 8-bit step, and has no chroma', () => {
+    for (const face of FACES) {
+      for (const point of [{ x: -0.6, y: 0.6 }, { x: 0.6, y: 0.6 }, { x: 0.6, y: -0.6 }, { x: -0.6, y: -0.6 }, { x: 0.3, y: 0.1 }]) {
+        const colour = beadPaint('abyss', face, point);
+        const grey = beadTwinPaint('abyss', face, point);
+        for (const [c, g] of [[colour.fill, grey.fill], [colour.highlight, grey.highlight]]) {
+          const read = hexLab(g);
+          expect(Math.hypot(read.a, read.b)).toBeLessThan(1e-6);
+          expect(Math.abs(read.L - hexLab(c).L)).toBeLessThan(0.01);
+        }
+      }
+    }
+  });
+});
+
+describe('the bead’s motion (F1: the opacity over motion.press, the colour over motion.respond; the scale per motion.placement)', () => {
   const settle = BASE.motion.settle;
   const ease = Easing.bezier(settle.easing[0], settle.easing[1], settle.easing[2], settle.easing[3]);
+  const whole = { opacity: 1, colour: 1, scale: 1 };
 
-  it('beadMotion names the entrance: the placement easing token’s duration and curve, from scaleFrom', () => {
+  it('beadMotion names the scale’s entrance: the placement easing token’s duration and curve, from scaleFrom', () => {
     const m = beadMotion('abyss', 'full');
     expect(ABYSS.motion.placement.easing).toBe('motion.settle');
     expect(m).toEqual({ duration: settle.duration, easing: settle.easing, scaleFrom: ABYSS.motion.placement.scaleFrom, peak: 1, overshootScale: 1, linear: false });
   });
 
-  it('enters from scaleFrom and 0 to 1 and 1 over the token, on its curve: opacity e, scale scaleFrom + (1 − scaleFrom)·e', () => {
+  it('enters with the timeline’s opacity and colour, the scale from scaleFrom to 1 on the placement curve', () => {
     const from = ABYSS.motion.placement.scaleFrom;
-    expect(beadEntrance('abyss', 'full', 0)).toEqual({ opacity: 0, scale: from });
-    expect(beadEntrance('abyss', 'full', settle.duration)).toEqual({ opacity: 1, scale: 1 });
-    expect(beadEntrance('abyss', 'full', 10 * settle.duration)).toEqual({ opacity: 1, scale: 1 });
+    expect(beadEntrance('abyss', 'full', 0)).toEqual({ opacity: 0, colour: 0, scale: from });
+    expect(beadEntrance('abyss', 'full', settle.duration)).toEqual(whole);
+    expect(beadEntrance('abyss', 'full', 10 * settle.duration)).toEqual(whole);
+    expect(BEAD_WHOLE).toEqual(whole);
     for (const t of [30, 100, 150, 300, 450, 599]) {
-      const e = ease(t / settle.duration);
       const look = beadEntrance('abyss', 'full', t);
-      expect(look.opacity).toBeCloseTo(e, 12);
-      expect(look.scale).toBeCloseTo(from + (1 - from) * e, 12);
+      expect(look.opacity).toBe(entranceOpacity(t));
+      expect(look.colour).toBe(entranceColour(t));
+      expect(look.scale).toBeCloseTo(from + (1 - from) * ease(t / settle.duration), 12);
     }
   });
 
-  it('never moves backwards, and never leaves [scaleFrom, 1] or [0, 1] (settle does not overshoot)', () => {
+  it('never moves backwards, never leaves [scaleFrom, 1] or [0, 1], and carries no colour below opacity 1', () => {
     let last = beadEntrance('abyss', 'full', 0);
     for (let t = 1; t <= settle.duration; t++) {
       const look = beadEntrance('abyss', 'full', t);
-      expect(look.opacity).toBeGreaterThanOrEqual(last.opacity);
-      expect(look.scale).toBeGreaterThanOrEqual(last.scale);
-      expect(look.opacity).toBeLessThanOrEqual(1);
-      expect(look.scale).toBeLessThanOrEqual(1);
+      for (const k of ['opacity', 'colour', 'scale'] as const) {
+        expect(look[k]).toBeGreaterThanOrEqual(last[k]);
+        expect(look[k]).toBeLessThanOrEqual(1);
+      }
+      if (look.colour > 0) expect(look.opacity).toBe(1);
       last = look;
     }
   });
@@ -181,14 +227,9 @@ describe('the bead’s motion (motion.placement; the still tier’s ramp)', () =
     expect(beadMotion('abyss', 'low')).toEqual(beadMotion('abyss', 'full'));
   });
 
-  it('reduced motion (tier still): a linear fade over motion.fadeReduced, and no scale at any moment', () => {
-    const reduced = BASE.motion.fadeReduced.duration;
-    expect(beadMotion('abyss', 'still')).toEqual({ duration: reduced, easing: null, scaleFrom: 1, peak: 1, overshootScale: 1, linear: true });
-    for (const t of [0, 15, 75, 149, 150, 1000]) {
-      const look = beadEntrance('abyss', 'still', t);
-      expect(look.scale).toBe(1);
-      expect(look.opacity).toBeCloseTo(Math.min(1, t / reduced), 12);
-    }
+  it('reduced motion (tier still): one frame, opaque and in full colour, and no scale at any moment', () => {
+    expect(beadMotion('abyss', 'still')).toEqual({ duration: 0, easing: null, scaleFrom: 1, peak: 1, overshootScale: 1, linear: true });
+    for (const t of [0, 15, 75, 150, 1000]) expect(beadEntrance('abyss', 'still', t)).toEqual(whole);
   });
 
   // A planted direction whose placement eases on motion.pop: the overshoot appears, scaled to the token's
@@ -211,12 +252,18 @@ describe('the bead’s motion (motion.placement; the still tier’s ramp)', () =
     expect(calm).toBeCloseTo(1, 12);
   });
 
-  it('exits from where it is, linearly to 0 over the entrance’s duration, its scale held', () => {
-    const from = { opacity: 0.7, scale: 0.9 };
-    expect(beadExit('abyss', 'full', from, 0)).toEqual(from);
-    expect(beadExit('abyss', 'full', from, settle.duration / 2)).toEqual({ opacity: 0.35, scale: 0.9 });
-    expect(beadExit('abyss', 'full', from, settle.duration)).toEqual({ opacity: 0, scale: 0.9 });
-    expect(beadExit('abyss', 'still', { opacity: 1, scale: 1 }, BASE.motion.fadeReduced.duration / 2)).toEqual({ opacity: 0.5, scale: 1 });
-    expect(beadExit('abyss', 'still', { opacity: 1, scale: 1 }, 10_000)).toEqual({ opacity: 0, scale: 1 });
+  it('exits from where it is: the colour to 0 over press, then the opacity to 0 over respond, its scale held', () => {
+    const opaque = { opacity: 1, colour: 0.7, scale: 0.9 };
+    for (const t of [0, 40, 100, 250, exitDuration(1)]) {
+      expect(beadExit('abyss', 'full', opaque, t)).toEqual({ opacity: exitOpacity(1, t), colour: exitColour(1, 0.7, t), scale: 0.9 });
+    }
+    expect(beadExit('abyss', 'full', opaque, exitDuration(1))).toEqual({ opacity: 0, colour: 0, scale: 0.9 });
+    const caught = beadEntrance('abyss', 'full', 40);
+    expect(caught.opacity).toBeLessThan(1);
+    for (const t of [0, 100, 300]) expect(beadExit('abyss', 'low', caught, t)).toEqual({ opacity: exitOpacity(caught.opacity, t), colour: 0, scale: caught.scale });
+  });
+
+  it('under reduced motion the exit is one frame: gone at once, the scale held', () => {
+    for (const t of [0, 10, 1000]) expect(beadExit('abyss', 'still', whole, t)).toEqual({ opacity: 0, colour: 0, scale: 1 });
   });
 });
