@@ -7,6 +7,7 @@ import {
   faceId, fallbackAt, fontFile, fontProbes, probeName, probeStyle, tokenFaceFile, tokenFaceId, unknownFaces, type LabFaceId,
 } from '../fonts';
 import { SETTING_READ_DEADLINE_MS } from '../settingRead';
+import { faceId as v2FaceId, fontFace } from '../../v2/typeface/faces';
 
 // UI-072 and the v2 type scale (LEDGER §5.4). The lab's faces are named by the font file React Native looks them up by on
 // Android (fonts/<id>.ttf in the APK's assets), which for an upstream static cut is also its PostScript name, the name iOS
@@ -35,6 +36,11 @@ describe('the lab faces are the faces the v2 type tokens name', () => {
 
   it('each face records its family and weight, and its id is made from them', () => {
     for (const [id, face] of Object.entries(LAB_FACES)) expect(faceId(face.family, face.weight)).toBe(id);
+  });
+
+  it('one source of truth with v2: the lab names a face by v2’s faceId, and each lab face is the file v2’s fontFace draws on Android', () => {
+    expect(faceId).toBe(v2FaceId);
+    for (const [id, face] of Object.entries(LAB_FACES)) expect(fontFace(face.family, face.weight, 'android')).toEqual({ fontFamily: id });
   });
 
   it('the voice face is never cut above 400 (CMP-125: hierarchy from size and space; Android would draw a synthetic bold)', () => {

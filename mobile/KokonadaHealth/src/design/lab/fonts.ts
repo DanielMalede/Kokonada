@@ -22,17 +22,9 @@
 import { BASE } from '../v2/tokens/tokens.generated';
 import { SETTING_READ_DEADLINE_MS } from './settingRead';
 
-/** The OpenType style name of each named weight, as upstream static files and PostScript names spell it. */
-const STYLE_OF_WEIGHT: Readonly<Record<number, string>> = {
-  100: 'Thin', 200: 'ExtraLight', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'SemiBold', 700: 'Bold', 800: 'ExtraBold', 900: 'Black',
-};
-
-/** A face's id: the family without spaces, a hyphen, and the style name of the weight (Heebo-Medium, FrankRuhlLibre-Light). */
-export function faceId(family: string, weight: number): string {
-  const style = STYLE_OF_WEIGHT[weight];
-  if (style === undefined) throw new Error(`${weight} is not a named OpenType weight`);
-  return `${family.replace(/\s+/g, '')}-${style}`;
-}
+// A face's id, the family without spaces, a hyphen and the style name of the weight (Heebo-Medium), is v2's own
+// (v2/typeface/faces.ts): the file a v2 text style names is the file the lab checks.
+export { faceId } from '../v2/typeface/faces';
 
 export type LabFace = { readonly family: string; readonly weight: number };
 
