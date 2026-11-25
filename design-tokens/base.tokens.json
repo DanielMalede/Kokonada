@@ -212,7 +212,8 @@
   "well": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
-    "consentSlotHeight": {"$type":"dimension","$value":{"value":108,"unit":"px"}}
+    "consentSlotHeight": {"$type":"dimension","$value":{"value":108,"unit":"px"}},
+    "hold": {"$type":"duration","$value":{"value":400,"unit":"ms"},"$extensions":{"com.kokonada":{"rule":"a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets"}}}
   },
   "topBar": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -480,7 +481,8 @@
       "phone": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
       "large": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
       "largeMinWidth": {"$type":"dimension","$value":{"value":600,"unit":"px"}}
-    }
+    },
+    "pill": {"$type":"dimension","$value":{"value":9999,"unit":"px"},"$extensions":{"com.kokonada":{"rule":"the renderer clamps it to half the shorter side"}}}
   },
   "haptics": {
     "$extensions": {
@@ -568,7 +570,9 @@
           "hero.plate.bead.2",
           "hero.plate.bead.2.setting",
           "hero.plate.bead.2.halo",
+          "hero.plate.bead.leaving",
           "hero.plate.touch",
+          "hero.plate.bead.latest.a11y",
           "hero.listEntry",
           "hero.well",
           "hero.cta",
