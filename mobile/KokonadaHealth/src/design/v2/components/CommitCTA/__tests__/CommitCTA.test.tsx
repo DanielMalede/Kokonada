@@ -58,11 +58,11 @@ const opacityOf = (tree: ReactTestRenderer.ReactTestRenderer) => {
 };
 
 describe('CommitCTA: shown', () => {
-  it('a pill of at least cta.height, radius cta.radius, filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
+  it('a pill of at least cta.height, radius radius.pill (the renderer clamps it to half the shorter side, F4), filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
     for (const face of ['dark', 'light'] as const) {
       const tree = mount({ machine: shown(face), face });
       const pill = flat(host(tree, 'cta').props.style);
-      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.cta.radius, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
+      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.radius.pill, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
       expect(pill.height).toBeUndefined();
       expect(pill.elevation).toBeUndefined();
       expect(pill.borderWidth).toBeUndefined();

@@ -72,7 +72,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
         onPressOut={() => press(1)}
         style={[
           styles.pill,
-          { minHeight: base.cta.height, borderRadius: base.cta.radius, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
+          { minHeight: base.cta.height, borderRadius: base.radius.pill, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
         ]}
       >
         <Text
