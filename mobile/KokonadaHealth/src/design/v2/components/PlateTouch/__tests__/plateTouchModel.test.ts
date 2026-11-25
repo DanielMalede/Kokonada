@@ -1,10 +1,10 @@
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
-import { HAPTIC_GAP, hapticAllowed, hapticFor, stepCell, touchIntent, touchSurface } from '../plateTouchModel.ts';
+import { HAPTIC_GAP, hapticAllowed, hapticFor, touchIntent, touchSurface } from '../plateTouchModel.ts';
 
-// PlateTouch's pure model: the touch surface's size, what a touch means, which haptic it earns and when, and
-// how the adjustable steps. Everything is in the plate box's dp (x right, y down), the coordinate space of
-// the plate's shared geometry (Plate/geometry.ts).
+// PlateTouch's pure model: the touch surface's size, what a touch means, and which haptic it earns and when.
+// Everything is in the plate box's dp (x right, y down), the coordinate space of the plate's shared geometry
+// (Plate/geometry.ts).
 
 const TOKENS = { base: BASE, direction: DIRECTIONS.abyss };
 const PLATE = plateGeometry(TOKENS, 296, 1);
@@ -111,19 +111,5 @@ describe('the haptic a touch earns (L12; the Abyss tokens through the F8 port)',
     expect(hapticAllowed(1000, 1000 + HAPTIC_GAP - 1)).toBe(false);
     expect(hapticAllowed(1000, 1000 + HAPTIC_GAP)).toBe(true);
     expect(hapticAllowed(1000, 900)).toBe(false);
-  });
-});
-
-describe('stepCell: the adjustable’s cursor over the cells', () => {
-  it('increments and decrements by one, and stops at either end (an adjustable never wraps)', () => {
-    expect(stepCell(0, 1, 9)).toBe(1);
-    expect(stepCell(8, 1, 9)).toBe(8);
-    expect(stepCell(0, -1, 9)).toBe(0);
-    expect(stepCell(4, -1, 9)).toBe(3);
-  });
-
-  it('reads a cursor that no longer fits the cells as the last cell, and an empty list as 0', () => {
-    expect(stepCell(12, 0, 9)).toBe(8);
-    expect(stepCell(3, 1, 0)).toBe(0);
   });
 });

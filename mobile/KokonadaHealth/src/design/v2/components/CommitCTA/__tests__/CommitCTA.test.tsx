@@ -1,11 +1,13 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Animated, I18nManager, PixelRatio, StyleSheet } from 'react-native';
+import { Animated, I18nManager, PixelRatio, Platform, StyleSheet } from 'react-native';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
+import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { hexLab } from '../../../field/fieldLaw.ts';
+import { fontFace } from '../../../typeface/faces.ts';
 import { CommitCTA, useCtaMachine } from '../CommitCTA.tsx';
 import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaPaint } from '../ctaState.ts';
 
@@ -47,7 +49,7 @@ function mount(o: Options) {
 }
 const host = (tree: ReactTestRenderer.ReactTestRenderer, testID: string) => tree.root.findAll((n) => n.props.testID === testID && typeof n.type === 'string')[0];
 /** The Pressable itself: its onPress, onPressIn and onPressOut are the handlers React Native's press calls. */
-const pressable = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props.testID === 'cta' && typeof n.type !== 'string' && typeof n.props.onPress === 'function')[0];
+const pressable = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => n.props.testID === 'hero.cta' && typeof n.type !== 'string' && typeof n.props.onPress === 'function')[0];
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as Record<string, any>;
 const now = () => performance.now();
 /** A machine shown and settled now, tinted J, the store holding one tap. */
@@ -57,16 +59,28 @@ const opacityOf = (tree: ReactTestRenderer.ReactTestRenderer) => {
   return typeof v === 'number' ? v : v.__getValue();
 };
 
+// F2 (P1, the designer's rulings of 2026-11-25): the hero's element IDs are the ledger's (EXTENSIONS hero.elements).
+describe('CommitCTA: its element IDs (F2)', () => {
+  it('the button is hero.cta and its label hero.cta.label, both in the ledger’s element list; nothing else here claims a hero ID', () => {
+    const elements = EXTENSIONS.base.$root.hero.elements as readonly string[];
+    const tree = mount({ machine: shown() });
+    const ids = tree.root.findAll((x) => typeof x.type === 'string' && typeof x.props.testID === 'string').map((x) => x.props.testID as string);
+    expect(ids.filter((id) => id.startsWith('hero.')).sort()).toEqual(['hero.cta', 'hero.cta.label']);
+    for (const id of ['hero.cta', 'hero.cta.label']) expect([id, elements.includes(id)]).toEqual([id, true]);
+    expect(host(tree, 'hero.cta').props.accessibilityRole).toBe('button');
+  });
+});
+
 describe('CommitCTA: shown', () => {
-  it('a pill of at least cta.height, radius cta.radius, filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
+  it('a pill of at least cta.height, radius radius.pill (the renderer clamps it to half the shorter side, F4), filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
     for (const face of ['dark', 'light'] as const) {
       const tree = mount({ machine: shown(face), face });
-      const pill = flat(host(tree, 'cta').props.style);
-      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.cta.radius, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
+      const pill = flat(host(tree, 'hero.cta').props.style);
+      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.radius.pill, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
       expect(pill.height).toBeUndefined();
       expect(pill.elevation).toBeUndefined();
       expect(pill.borderWidth).toBeUndefined();
-      const label = host(tree, 'cta.label');
+      const label = host(tree, 'hero.cta.label');
       expect(flat(label.props.style).color).toBe(ABYSS.color[face].text.onTint.hex);
       expect(label.props.children).toBe(LABEL);
       expect(opacityOf(tree)).toBe(1);
@@ -76,7 +90,7 @@ describe('CommitCTA: shown', () => {
 
   it('is a button labelled by its resolved label, exposed and touchable, with no disabled state', () => {
     const tree = mount({ machine: shown() });
-    const pill = host(tree, 'cta');
+    const pill = host(tree, 'hero.cta');
     expect(pill.props).toMatchObject({ accessible: true, accessibilityRole: 'button', accessibilityLabel: LABEL });
     expect(pill.props.accessibilityState?.disabled).toBeUndefined();
     expect(pill.props.disabled).toBeUndefined();
@@ -93,7 +107,7 @@ describe('CommitCTA: shown', () => {
   });
 
   it('the label never truncates or shrinks (QA-013): no line cap, no font fitting, no scale cap; centred', () => {
-    const label = host(mount({ machine: shown() }), 'cta.label');
+    const label = host(mount({ machine: shown() }), 'hero.cta.label');
     expect(label.props.numberOfLines).toBeUndefined();
     expect(label.props.adjustsFontSizeToFit).toBeUndefined();
     expect(label.props.maxFontSizeMultiplier).toBeUndefined();
@@ -101,10 +115,28 @@ describe('CommitCTA: shown', () => {
   });
 
   it('sets the label in ui.cta, Latin or Hebrew metrics by its script (Hebrew line height is the Latin + 2)', () => {
-    const latin = flat(host(mount({ machine: shown() }), 'cta.label').props.style);
+    const latin = flat(host(mount({ machine: shown() }), 'hero.cta.label').props.style);
     expect(latin).toMatchObject({ fontFamily: BASE.type.face.ui, fontSize: BASE.type.ui.cta.latin.size, lineHeight: BASE.type.ui.cta.latin.lineHeight, fontWeight: String(BASE.type.ui.cta.latin.weight) });
-    const hebrew = flat(host(mount({ machine: shown(), label: 'המשך' }), 'cta.label').props.style);
+    const hebrew = flat(host(mount({ machine: shown(), label: 'המשך' }), 'hero.cta.label').props.style);
     expect(hebrew).toMatchObject({ fontSize: BASE.type.ui.cta.hebrew.size, lineHeight: BASE.type.ui.cta.hebrew.lineHeight });
+  });
+
+  // Jest runs as iOS (the preset's Platform.OS), where a face is the family at the weight, as above. React Native on
+  // Android loads fonts/<fontFamily>.ttf by its exact name and picks a file by normal or bold only: the family 'Heebo' at
+  // 600 finds no file and draws the system face without weight 600 (the lab's font check, f3e4679: Heebo@600 at the
+  // fallback's width). So on Android the label names ui.cta's per-weight file, with no weight on top (typeface/faces.ts).
+  it.each([['Continue', 'latin'], ['המשך', 'hebrew']] as const)('on Android, "%s": the label is set in ui.cta’s own file, Heebo-SemiBold, with no fontWeight', (label, script) => {
+    const os = jest.replaceProperty(Platform, 'OS', 'android');
+    try {
+      const style = flat(host(mount({ machine: shown(), label }), 'hero.cta.label').props.style);
+      expect(BASE.type.ui.cta[script].weight).toBe(600);
+      expect(style.fontFamily).toBe('Heebo-SemiBold');
+      expect(style.fontFamily).toBe(fontFace(BASE.type.face.ui, BASE.type.ui.cta[script].weight, 'android').fontFamily);
+      expect(style).not.toHaveProperty('fontWeight');
+      expect(style).toMatchObject({ fontSize: BASE.type.ui.cta[script].size, lineHeight: BASE.type.ui.cta[script].lineHeight });
+    } finally {
+      os.restore();
+    }
   });
 });
 
@@ -118,7 +150,7 @@ describe('CommitCTA: hidden, and no disabled state', () => {
     expect(root.props.pointerEvents).toBe('none');
     expect(root.props.importantForAccessibility).toBe('no-hide-descendants');
     expect(root.props.accessibilityElementsHidden).toBe(true);
-    expect(host(tree, 'cta').props.accessible).toBe(false);
+    expect(host(tree, 'hero.cta').props.accessible).toBe(false);
     act(() => pressable(tree).props.onPress());
     expect(onCommit).not.toHaveBeenCalled();
   });
@@ -140,8 +172,8 @@ describe('CommitCTA: hidden, and no disabled state', () => {
     const busy = mount({ machine, busy: true, onCommit });
     act(() => pressable(busy).props.onPress());
     expect(onCommit).not.toHaveBeenCalled();
-    expect(host(busy, 'cta').props.accessibilityState).toEqual({ busy: true });
-    expect(flat(host(busy, 'cta').props.style)).toEqual(flat(host(idle, 'cta').props.style));
+    expect(host(busy, 'hero.cta').props.accessibilityState).toEqual({ busy: true });
+    expect(flat(host(busy, 'hero.cta').props.style)).toEqual(flat(host(idle, 'hero.cta').props.style));
     expect(opacityOf(busy)).toBe(opacityOf(idle));
   });
 });
@@ -175,11 +207,11 @@ describe('CommitCTA: the ramps, frame by frame, and none at rest', () => {
     act(() => {
       jest.advanceTimersByTime(48);
     });
-    expect(flat(host(tree, 'cta').props.style).backgroundColor).toBe(ctaState(machine, now(), paint).tint!.fill);
+    expect(flat(host(tree, 'hero.cta').props.style).backgroundColor).toBe(ctaState(machine, now(), paint).tint!.fill);
     act(() => {
       jest.advanceTimersByTime(BASE.motion.settle.duration);
     });
-    expect(flat(host(tree, 'cta').props.style).backgroundColor).toBe(ctaColours(paint, 'R').fillHex);
+    expect(flat(host(tree, 'hero.cta').props.style).backgroundColor).toBe(ctaColours(paint, 'R').fillHex);
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -201,7 +233,7 @@ describe('CommitCTA: the press (cta.pressScale over motion.press; none under red
 
   it('press in scales to cta.pressScale and press out back to 1, over motion.press on its curve, on the native driver; no colour change', () => {
     const tree = mount({ machine: shown() });
-    const before = flat(host(tree, 'cta').props.style).backgroundColor;
+    const before = flat(host(tree, 'hero.cta').props.style).backgroundColor;
     act(() => pressable(tree).props.onPressIn());
     expect(timing).toHaveBeenCalledTimes(1);
     expect(timing.mock.calls[0][1]).toMatchObject({ toValue: ABYSS.cta.pressScale, duration: BASE.motion.press.duration, useNativeDriver: true });
@@ -212,7 +244,7 @@ describe('CommitCTA: the press (cta.pressScale over motion.press; none under red
     expect(easing(0.2)).toBeGreaterThan(0.2 * e[1]);
     act(() => pressable(tree).props.onPressOut());
     expect(timing.mock.calls[1][1]).toMatchObject({ toValue: 1, duration: BASE.motion.press.duration, useNativeDriver: true });
-    expect(flat(host(tree, 'cta').props.style).backgroundColor).toBe(before);
+    expect(flat(host(tree, 'hero.cta').props.style).backgroundColor).toBe(before);
   });
 
   it('under reduced motion a press does not scale', () => {
@@ -241,11 +273,11 @@ describe('CommitCTA: RTL, font scale, never red', () => {
     const spy = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(2);
     const tree = mount({ machine });
     spy.mockRestore();
-    const pill = flat(host(tree, 'cta').props.style);
+    const pill = flat(host(tree, 'hero.cta').props.style);
     expect(pill.minHeight).toBe(BASE.cta.height);
     expect(pill.height).toBeUndefined();
     expect(pill.maxHeight).toBeUndefined();
-    expect(host(tree, 'cta.label').props.allowFontScaling).not.toBe(false);
+    expect(host(tree, 'hero.cta.label').props.allowFontScaling).not.toBe(false);
   });
 
   it('never paints red: every tint, in both faces, settled and mid-change', () => {
@@ -256,9 +288,9 @@ describe('CommitCTA: RTL, font scale, never red', () => {
         const machine = ctaReduce(ctaReduce(shown(face), { kind: 'store', taps: 2 }, t0, 'settle', paint), { kind: 'start', live: [{ ...to, id: 9 }] }, t0, 'settle', paint);
         const tree = mount({ machine, face });
         for (let i = 0; i < 4; i++) {
-          const s = flat(host(tree, 'cta').props.style);
+          const s = flat(host(tree, 'hero.cta').props.style);
           expect(isRed(hexLab(s.backgroundColor), CHECK)).toBe(false);
-          expect(isRed(hexLab(flat(host(tree, 'cta.label').props.style).color), CHECK)).toBe(false);
+          expect(isRed(hexLab(flat(host(tree, 'hero.cta.label').props.style).color), CHECK)).toBe(false);
           act(() => {
             jest.advanceTimersByTime(96);
           });

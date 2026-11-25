@@ -14,6 +14,7 @@ import { Animated, Easing, Pressable, StyleSheet, Text } from 'react-native';
 import { mountedLive, type Tap } from '../../field/placementLedger.ts';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { useTokens } from '../../tokens/useTokens.ts';
+import { fontFace } from '../../typeface/faces.ts';
 import { ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement } from './ctaState.ts';
 
 export interface CommitCTAProps {
@@ -63,7 +64,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
       style={[styles.root, { opacity: view.opacity, transform: [{ scale }] }]}
     >
       <Pressable
-        testID="cta"
+        testID="hero.cta"
         accessible={view.accessible}
         accessibilityRole="button"
         accessibilityLabel={label}
@@ -73,12 +74,12 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
         onPressOut={() => press(1)}
         style={[
           styles.pill,
-          { minHeight: base.cta.height, borderRadius: base.cta.radius, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
+          { minHeight: base.cta.height, borderRadius: base.radius.pill, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
         ]}
       >
         <Text
-          testID="cta.label"
-          style={[styles.label, { color: view.tint?.label, fontFamily: base.type.face.ui, fontSize: type.size, lineHeight: type.lineHeight, fontWeight: String(type.weight) as '600', letterSpacing: type.tracking * type.size }]}
+          testID="hero.cta.label"
+          style={[styles.label, { color: view.tint?.label, ...fontFace(base.type.face.ui, type.weight), fontSize: type.size, lineHeight: type.lineHeight, letterSpacing: type.tracking * type.size }]}
         >
           {label}
         </Text>

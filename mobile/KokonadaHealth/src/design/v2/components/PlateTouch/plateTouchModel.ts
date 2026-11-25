@@ -1,6 +1,6 @@
 // PlateTouch's pure model (F10 group A; DSN-012, DSN-025, DSN-040, QA-028): the touch surface, what a touch
-// means, the haptic it earns and when, and the adjustable's cursor. Everything is in the plate box's dp
-// (x right, y down), the plate's shared coordinate space (Plate/geometry.ts).
+// means, and the haptic it earns and when. Everything is in the plate box's dp (x right, y down), the plate's
+// shared coordinate space (Plate/geometry.ts).
 //
 // The surface is the plate grown by the margin a rim bead's 48 dp target reaches past the plate's edge
 // (bead.hitTarget / 2 − the bead radius), so the latest bead's whole target is touchable wherever the bead
@@ -73,10 +73,4 @@ export const HAPTIC_GAP = BASE.haptics.minEventGap;
 /** May a haptic fire at `nowMs`, the last one having fired at `lastMs`? One inside the gap is dropped, never queued. */
 export function hapticAllowed(lastMs: number | null, nowMs: number): boolean {
   return lastMs === null || nowMs - lastMs >= HAPTIC_GAP;
-}
-
-/** The adjustable's cursor moved by `delta`, held to the cells; it never wraps. */
-export function stepCell(index: number, delta: number, count: number): number {
-  if (count <= 0) return 0;
-  return Math.min(count - 1, Math.max(0, Math.min(index, count - 1) + delta));
 }

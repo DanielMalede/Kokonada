@@ -1,50 +1,94 @@
-// One bead (F10 group A; DSN-029): the placed point, drawn over the field from views only. The disc is the
-// DSN-017 fill with the highlight's radial gradient and the token shadow (the bead's depth, the only tactile
-// part of Abyss; LEDGER §2); the setting ring sits outside the disc (the designer's board, d3). It is purely
-// visual: never a touch target and never an accessibility node. PlateTouch owns the latest bead's 48 dp
-// target and its Remove action, so the touch and the label cannot disagree about where the bead is.
+// One bead (F10 group A; DSN-029): the placed point, drawn over the field from views only. It is purely visual: never
+// a touch target and never an accessibility node. PlateTouch owns the latest bead's 48 dp target and its Remove
+// action, so the touch and the label cannot disagree about where the bead is.
 //
-// Motion (beadModel.ts): the entrance plays the eased value of motion.placement's token on the native
-// driver, mapped through the model's own breakpoints (0, 1 and the curve's peak), so the views draw exactly
-// the model's look; under reduced motion it is a linear fade over motion.fadeReduced and the scale is never
-// animated. The exit starts from where the bead is (its entrance read from the elapsed time) and fades
-// linearly to 0 over the same duration; onLeft reports its end, never an exit cut short.
+// F1 (P0, the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. It is two discs
+// under its setting ring (the ring sits outside them, the designer's board, d3):
+//   · the grey disc, its achromatic twin (beadModel.ts beadTwinPaint: the fill at its own OKLab L with chroma 0 and the
+//     highlight drawn from it), with the token shadow (the bead's depth, the only tactile part of Abyss; LEDGER §2);
+//   · the colour disc over it, the same circle: the DSN-017 fill and its highlight's radial gradient, no shadow.
+// The bead's opacity fades only the grey disc's world: the colour disc's own opacity is above 0 only while the bead's
+// opacity is 1 (beadTimeline.ts). The setting ring and the shadow are as before.
+//
+// Motion: each phase is one clock on the native driver, the ms since the presence's placedAt (the entrance) or leftAt
+// (the exit), run linearly. The bead's opacity, the colour disc's opacity and the scale are interpolations of that
+// one clock, sampled from the model (beadModel.ts beadEntrance and beadExit) every STEP_MS and at each of the timeline's
+// boundaries, so the three can never part from each other: the colour disc starts in the frame the opacity is 1, and
+// the opacity starts down only once the colour is 0. A bead with no entrance (placedAt null: the mount, a restore, the
+// still tier) is whole from its first frame. The exit starts from where the bead is, its scale held; onLeft reports its
+// end, never an exit cut short. A phase whose effect runs late starts where it is (the clock at now − its origin).
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
-// are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the halo's own centre).
+// are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the centre the field lights for the tap).
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Animated, Easing, StyleSheet, View } from 'react-native';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
-import type { DirectionTokens } from '../../tokens/tokens.generated.ts';
+import type { DirectionId, DirectionTokens } from '../../tokens/tokens.generated.ts';
 import { useTokens } from '../../tokens/useTokens.ts';
 import { pointToLocal, type PlateGeometry, type PlatePoint } from '../Plate/geometry.ts';
-import { beadEntrance, beadMotion, beadPaint, type BeadLook, type BeadMotion } from './beadModel.ts';
+import { BEAD_WHOLE, beadEntrance, beadExit, beadMotion, beadPaint, beadTwinPaint, type BeadLook } from './beadModel.ts';
+import { exitDuration, exitHold, PRESS_MS, RESPOND_MS } from './beadTimeline.ts';
 
 export interface BeadProps {
   /** The tap on the unit disc, y up. */
   readonly point: PlatePoint;
   /** The plate's shared geometry (Plate/geometry.ts plateGeometry), the one the plate and the touch layer use. */
   readonly plate: PlateGeometry;
-  readonly tier: MotionTier;
-  /** Playing its exit (a fourth tap, an undo, a clear). */
-  readonly leaving: boolean;
-  /** Shown at the mount (a restore, the page's first frame): it has no entrance. */
-  readonly initial: boolean;
+  /** When its entrance began, on the JS clock (the presence's placedAt); null: whole from its first frame. */
+  readonly placedAt: number | null;
+  /** When its exit began (the presence's leftAt); null while it is live. */
+  readonly leftAt: number | null;
+  /** Its element ID (F2): hero.plate.bead.<slot> while live, its place among the live beads oldest first (0 to 2), with
+   *  .setting on its ring; hero.plate.bead.leaving while it leaves, its ring then claiming no hero ID. */
+  readonly slot: number | 'leaving';
   /** The exit ended: the layer may drop the bead. */
   readonly onLeft: () => void;
 }
 
 const now = () => performance.now();
+/** The motion a placed bead plays: the low tier plays the same (LEDGER §7); the still tier plays none (beadPresence.ts). */
+const PLAYED: MotionTier = 'full';
+/** The breakpoints' spacing: piecewise linear on the native driver, within 0.001 of the model's curves (Bead.test.tsx). */
+const STEP_MS = 2;
 
-/** The entrance's opacity and scale, as interpolations of its eased value e over the model's breakpoints. */
-function entranceLook(value: Animated.Value, m: BeadMotion) {
-  const overshoots = m.peak > 1;
-  const input = overshoots ? [0, 1, m.peak] : [0, 1];
-  const opacity = value.interpolate({ inputRange: input, outputRange: overshoots ? [0, 1, 1] : [0, 1], extrapolate: 'clamp' });
-  if (m.linear) return { opacity, scale: 1 };
-  const scale = value.interpolate({ inputRange: input, outputRange: overshoots ? [m.scaleFrom, 1, m.overshootScale] : [m.scaleFrom, 1], extrapolate: 'clamp' });
-  return { opacity, scale };
+type Channel = Animated.AnimatedInterpolation<number> | number;
+
+interface Phase {
+  /** The phase's clock in ms since its origin; null when there is nothing to play. */
+  readonly clock: Animated.Value | null;
+  readonly origin: number;
+  readonly end: number;
+  readonly exit: boolean;
+  readonly opacity: Channel;
+  readonly colour: Channel;
+  readonly scale: Channel;
+}
+
+/** Every STEP_MS from 0 to `end`, and each boundary inside it: strictly increasing. */
+function breakpoints(end: number, boundaries: readonly number[]): number[] {
+  const all = [end, ...boundaries.filter((b) => b > 0 && b < end)];
+  for (let t = 0; t < end; t += STEP_MS) all.push(t);
+  return [...new Set(all)].sort((a, b) => a - b);
+}
+
+/** A phase on its own clock: each channel of the model's look, sampled at the breakpoints and clamped past them. */
+function phaseOf(origin: number, end: number, exit: boolean, boundaries: readonly number[], look: (ms: number) => BeadLook): Phase {
+  const clock = new Animated.Value(Math.min(end, Math.max(0, now() - origin)));
+  const inputRange = breakpoints(end, boundaries);
+  const looks = inputRange.map(look);
+  const channel = (pick: (l: BeadLook) => number): Channel => clock.interpolate({ inputRange, outputRange: looks.map(pick), extrapolate: 'clamp' });
+  return { clock, origin, end, exit, opacity: channel((l) => l.opacity), colour: channel((l) => l.colour), scale: exit ? look(0).scale : channel((l) => l.scale) };
+}
+
+function phaseFor(id: DirectionId, placedAt: number | null, leftAt: number | null): Phase {
+  if (leftAt === null) {
+    if (placedAt === null) return { clock: null, origin: 0, end: 0, exit: false, ...BEAD_WHOLE };
+    const scaleEnd = beadMotion(id, PLAYED).duration;
+    return phaseOf(placedAt, Math.max(PRESS_MS + RESPOND_MS, scaleEnd), false, [PRESS_MS, PRESS_MS + RESPOND_MS, scaleEnd], (t) => beadEntrance(id, PLAYED, t));
+  }
+  const from = placedAt === null ? BEAD_WHOLE : beadEntrance(id, PLAYED, leftAt - placedAt);
+  return phaseOf(leftAt, exitDuration(from.opacity), true, [exitHold(from.opacity)], (t) => beadExit(id, PLAYED, from, t));
 }
 
 /** The highlight (bead.highlight): a radial gradient from its colour to the fill, its centre up and to the left. */
@@ -62,80 +106,64 @@ function highlight(tokens: DirectionTokens['bead']['highlight'], rb: number, fro
   };
 }
 
-export function Bead({ point, plate, tier, leaving, initial, onLeft }: BeadProps) {
+export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps) {
   const { id, face, direction } = useTokens();
   const g = { bead: plate.beadRadius, setting: direction.bead.setting.width };
   const centre = pointToLocal(point, plate);
   const paint = beadPaint(id, face, point);
+  const twin = beadTwinPaint(id, face, point);
   const box = 2 * (g.bead + g.setting);
+  const circle = { left: g.setting, top: g.setting, width: 2 * g.bead, height: 2 * g.bead, borderRadius: g.bead };
 
-  // The entrance's motion is fixed when the bead is placed; a tier change later does not restart it.
-  const [entrance] = useState(() => beadMotion(id, tier));
-  const [enter] = useState(() => new Animated.Value(initial ? 1 : 0));
-  const placedAt = useRef(now());
-  useEffect(() => {
-    if (initial) return undefined;
-    const easing = entrance.easing === null ? Easing.linear : Easing.bezier(entrance.easing[0], entrance.easing[1], entrance.easing[2], entrance.easing[3]);
-    const animation = Animated.timing(enter, { toValue: 1, duration: entrance.duration, easing, useNativeDriver: true });
-    animation.start();
-    return () => animation.stop();
-    // The entrance runs once, at the mount: `initial`, `enter` and `entrance` are fixed for the bead's life.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // The exit: from the look the entrance has reached, linearly to 0.
-  const [exit, setExit] = useState<{ readonly value: Animated.Value; readonly from: BeadLook } | null>(null);
+  // The entrance's stamps are fixed when the bead is placed; the phase changes once, when it starts leaving.
+  const phase = useMemo(() => phaseFor(id, placedAt, leftAt), [id, placedAt, leftAt]);
   const reportLeft = useRef(onLeft);
   reportLeft.current = onLeft;
   useEffect(() => {
-    if (!leaving || exit !== null) return;
-    const from = initial ? { opacity: 1, scale: 1 } : beadEntrance(id, tier, now() - placedAt.current);
-    setExit({ value: new Animated.Value(0), from });
-  }, [leaving, exit, initial, id, tier]);
-  useEffect(() => {
-    if (exit === null) return undefined;
-    enter.stopAnimation();
-    const animation = Animated.timing(exit.value, { toValue: 1, duration: beadMotion(id, tier).duration, easing: Easing.linear, useNativeDriver: true });
+    const { clock, origin, end, exit } = phase;
+    if (clock === null) return undefined;
+    const elapsed = Math.max(0, now() - origin);
+    if (!(elapsed < end)) {
+      clock.setValue(end);
+      if (exit) reportLeft.current();
+      return undefined;
+    }
+    clock.setValue(elapsed);
+    const animation = Animated.timing(clock, { toValue: end, duration: end - elapsed, easing: Easing.linear, useNativeDriver: true });
     animation.start(({ finished }) => {
-      if (finished) reportLeft.current();
+      if (finished && exit) reportLeft.current();
     });
     return () => animation.stop();
-    // The exit starts once, from the look fixed when it began.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exit]);
+  }, [phase]);
 
-  const look =
-    exit === null
-      ? entranceLook(enter, entrance)
-      : { opacity: exit.value.interpolate({ inputRange: [0, 1], outputRange: [exit.from.opacity, 0], extrapolate: 'clamp' }), scale: exit.from.scale };
   const shadow = direction.bead.shadow;
-
   return (
     <Animated.View
-      testID="bead"
+      testID={'hero.plate.bead.' + slot}
       pointerEvents="none"
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       accessibilityElementsHidden
-      style={[styles.part, { left: centre.x - g.bead - g.setting, top: centre.y - g.bead - g.setting, width: box, height: box, opacity: look.opacity, transform: [{ scale: look.scale }] }]}
+      style={[styles.part, { left: centre.x - g.bead - g.setting, top: centre.y - g.bead - g.setting, width: box, height: box, opacity: phase.opacity, transform: [{ scale: phase.scale }] }]}
     >
       <View
         testID="bead.disc"
         style={[
           styles.part,
+          circle,
           {
-            left: g.setting,
-            top: g.setting,
-            width: 2 * g.bead,
-            height: 2 * g.bead,
-            borderRadius: g.bead,
-            backgroundColor: paint.fill,
+            backgroundColor: twin.fill,
             boxShadow: [{ offsetX: 0, offsetY: shadow.offsetY, blurRadius: shadow.blur, color: paint.shadow }],
-            experimental_backgroundImage: [highlight(direction.bead.highlight, g.bead, paint.highlight, paint.fill)],
+            experimental_backgroundImage: [highlight(direction.bead.highlight, g.bead, twin.highlight, twin.fill)],
           },
         ]}
       />
-      <View testID="bead.setting" style={[styles.ring, { width: box, height: box, borderRadius: g.bead + g.setting, borderWidth: g.setting, borderColor: paint.setting }]} />
+      <Animated.View
+        testID="bead.colour"
+        pointerEvents="none"
+        style={[styles.part, circle, { opacity: phase.colour, backgroundColor: paint.fill, experimental_backgroundImage: [highlight(direction.bead.highlight, g.bead, paint.highlight, paint.fill)] }]}
+      />
+      <View testID={slot === 'leaving' ? 'bead.setting' : 'hero.plate.bead.' + slot + '.setting'} style={[styles.ring, { width: box, height: box, borderRadius: g.bead + g.setting, borderWidth: g.setting, borderColor: paint.setting }]} />
     </Animated.View>
   );
 }
