@@ -2,9 +2,10 @@
 // field and under the beads, inside the Plate (its child, in plate-local dp).
 //
 //   · Each word is drawn on the arc by Skia (arc.ts says where, draw.ts draws it) and doubled as a real accessible text
-//     node at the word's own box, which TalkBack reads in the order top, right, bottom, left. The drawing is hidden from
-//     accessibility; the nodes carry the page's accessible copy (plate.rim.a11y.*). No string is the component's own: the
-//     page resolves both through the copy port (F10 R2).
+//     node at the word's own box. The nodes are mounted in the order TalkBack reads them in every locale, top, bottom,
+//     right, left (RIM_READING_ORDER, the designer's ruling 1). The drawing is hidden from accessibility; the nodes
+//     carry the page's accessible copy (plate.rim.a11y.*). No string is the component's own: the page resolves both
+//     through the copy port (F10 R2).
 //   · Type: type.face.ui at ui.label's size and weight, times the OS font scale with no cap (DSN-027), in the face's
 //     text.primary. The bottom word takes plate.labelBand's tracking for its script. The font comes from `fontMgr` (F6's
 //     typeface provider once Heebo is bundled), else the system's, which falls back to the platform's face until then.
@@ -20,7 +21,7 @@ import { Canvas, Picture, Skia, matchFont, type SkFontMgr } from '@shopify/react
 import { sameTapValues } from '../../field/fieldDriver.ts';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
 import { plateGeometry, type PlatePoint } from '../Plate/geometry.ts';
-import { RIM_POSITIONS, layRimWord, visualOrder, type RimPosition } from './arc.ts';
+import { RIM_POSITIONS, RIM_READING_ORDER, layRimWord, visualOrder, type RimPosition } from './arc.ts';
 import { recordRimWord, type RimWordSkia } from './draw.ts';
 
 /** The scripts the rim words' type is set for: the keys of ui.label (LEDGER §5.4). */
@@ -102,19 +103,20 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
 
   return (
     <View style={styles.root} pointerEvents="none">
-      {laid.map((w, i) => {
-        const b = w.layout.bounds;
+      {RIM_READING_ORDER.map((position) => {
+        const i = RIM_POSITIONS.indexOf(position);
+        const b = laid[i].layout.bounds;
         return (
           <View
-            key={w.position}
-            testID={`hero.plate.word.${w.position}.a11y`}
+            key={position}
+            testID={`hero.plate.word.${position}.a11y`}
             accessible
             accessibilityRole="text"
-            accessibilityLabel={a11y[w.position]}
+            accessibilityLabel={a11y[position]}
             style={[styles.word, { left: b.x, top: b.y, width: b.width, height: b.height }]}
           >
             <Canvas
-              testID={`hero.plate.word.${w.position}`}
+              testID={`hero.plate.word.${position}`}
               style={styles.fill}
               colorSpace="srgb"
               accessibilityElementsHidden

@@ -51,7 +51,7 @@ jest.mock('@shopify/react-native-skia', () => {
         finishRecordingAsPicture: () => {
           const recording = current!;
           fake.recordings.push(recording);
-          return { dispose: () => { recording.disposed += 1; } };
+          return { recording, dispose: () => { recording.disposed += 1; } };
         },
         dispose() {},
       };
@@ -67,8 +67,11 @@ const fake = () => jest.requireMock('@shopify/react-native-skia').__fake as {
 const reanimated = jest.requireMock('react-native-reanimated') as Record<string, (...args: unknown[]) => unknown>;
 
 type Node = ReactTestRenderer.ReactTestInstance;
+type FakePicture = { recording: { blobs: Array<{ ids: number[]; xforms: number[][] }>; bounds: { width: number; height: number }; disposed: number } };
 const flat = (n: Node) => StyleSheet.flatten(n.props.style) ?? {};
 const isHost = (n: Node) => typeof n.type === 'string';
+/** The pictures a word's canvas draws, in the order it draws them. */
+const pictures = (canvas: Node): FakePicture[] => canvas.findAll((n) => !isHost(n) && n.props.picture !== undefined).map((n) => n.props.picture);
 
 // Test data standing in for the page's resolved copy (the shared plate.rim.* keys are R: the lab shows pseudo-text).
 const WORDS: RimWords = { top: 'More energy', right: 'Pleasant', bottom: 'Less energy', left: 'Unpleasant' };
@@ -121,11 +124,12 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('RimLabels: four real text nodes carry the positions (DSN-027)', () => {
-  it('top, right, bottom, left, each the page’s accessible copy, as plain text and never a live region', () => {
+  it('mounted in the order TalkBack reads them, top, bottom, right, left (ruling 1), each the page’s accessible copy, as plain text and never a live region', () => {
     const view = mount();
     const nodes = view.nodes();
-    expect(nodes.map((n) => n.props.testID)).toEqual(RIM_POSITIONS.map((p) => `hero.plate.word.${p}.a11y`));
-    expect(nodes.map((n) => n.props.accessibilityLabel)).toEqual(RIM_POSITIONS.map((p) => A11Y[p]));
+    const reading: RimPosition[] = ['top', 'bottom', 'right', 'left'];
+    expect(nodes.map((n) => n.props.testID)).toEqual(reading.map((p) => `hero.plate.word.${p}.a11y`));
+    expect(nodes.map((n) => n.props.accessibilityLabel)).toEqual(reading.map((p) => A11Y[p]));
     for (const n of nodes) {
       expect(n.props.accessible).toBe(true);
       expect(n.props.accessibilityRole).toBe('text');
@@ -142,6 +146,9 @@ describe('RimLabels: four real text nodes carry the positions (DSN-027)', () => 
       expect(node.findAll((n) => n === canvas).length).toBe(1);
       expect(canvas.props.accessibilityElementsHidden).toBe(true);
       expect(canvas.props.importantForAccessibility).toBe('no-hide-descendants');
+      // The node is mounted in reading order and the words are drawn in drawing order: each canvas holds its own word.
+      const [drawn] = pictures(canvas);
+      expect(drawn.recording.blobs[0].ids).toEqual(expected(position).ids);
     }
     const root = view.r.root.findAll(isHost)[0];
     expect(root.props.pointerEvents).toBe('none');

@@ -1,7 +1,7 @@
 import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
-import { RIM_POSITIONS, layRimWord, visualOrder, type PlacedGlyph, type RimPosition } from '../arc.ts';
+import { RIM_POSITIONS, RIM_READING_ORDER, layRimWord, visualOrder, type PlacedGlyph, type RimPosition } from '../arc.ts';
 
 // The rim words on the arc (DEC-036; V1 directions §1.5; DSN-027, DSN-028): shaped first, then laid on the ring's centre
 // line, concave: the glyph tops point toward the rim at the top, the right and the left, and the bottom word is upright.
@@ -53,8 +53,13 @@ describe('visualOrder: shaped first, then laid, never reversed twice', () => {
 });
 
 describe('layRimWord: the word on the ring', () => {
-  it('lays the four positions clockwise from the top: the designer’s element order', () => {
+  it('lays the four positions clockwise from the top: the drawing order', () => {
     expect(RIM_POSITIONS).toEqual(['top', 'right', 'bottom', 'left']);
+  });
+
+  it('TalkBack reads them top, bottom, right, left in every locale (the designer’s ruling 1): each position once', () => {
+    expect(RIM_READING_ORDER).toEqual(['top', 'bottom', 'right', 'left']);
+    expect([...RIM_READING_ORDER].sort()).toEqual([...RIM_POSITIONS].sort());
   });
 
   it.each(RIM_POSITIONS)('%s: every letter is centred on the ring’s centre line, and stays inside the band', (position) => {

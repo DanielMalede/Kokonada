@@ -17,8 +17,14 @@ import { pointToLocal, type PlateGeometry, type PlatePoint } from '../Plate/geom
 
 export type RimPosition = 'top' | 'right' | 'bottom' | 'left';
 
-/** Clockwise from the top: the designer's element order (hero.plate.word.top, .right, .bottom, .left), and the order TalkBack reads them in. */
+/** Clockwise from the top: the order the words are laid and drawn in. */
 export const RIM_POSITIONS: readonly RimPosition[] = ['top', 'right', 'bottom', 'left'];
+
+/**
+ * The order TalkBack reads the words in, in every locale (the designer's ruling 1, 2026-11-25): the energy axis, top
+ * then bottom, then the pleasantness axis, right then left. RimLabels mounts their nodes in this order.
+ */
+export const RIM_READING_ORDER: readonly RimPosition[] = ['top', 'bottom', 'right', 'left'];
 
 /** Hebrew letters and its presentation forms, the one right-to-left script a plain reversal orders truthfully. */
 const HEBREW = /[א-תׯ-״יִ-ﭏ]/;
