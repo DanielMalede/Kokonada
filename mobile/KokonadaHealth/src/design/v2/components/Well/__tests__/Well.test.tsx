@@ -1,5 +1,5 @@
 import React, { Profiler } from 'react';
-import { I18nManager, StyleSheet, View } from 'react-native';
+import { I18nManager, Platform, StyleSheet, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { contrastRatio } from '../../../color/contrast.ts';
 import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type Bytes } from '../../../color/edgeSweep.ts';
@@ -8,6 +8,7 @@ import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { CHECK_BAND, DESIGN_BAND } from '../../../tokens/neverRedSweeps.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
+import { fontFace } from '../../../typeface/faces.ts';
 import { Well, type WellProps } from '../Well.tsx';
 import { hintEasing } from '../wellMotion.ts';
 
@@ -205,6 +206,7 @@ describe('Well: the slot', () => {
 });
 
 describe('Well: the hint (LEDGER §3 L9: say what makes the action appear)', () => {
+  // Jest runs as iOS (the preset's Platform.OS), where a face is the family at the weight; Android's form is pinned below.
   it.each([['dark', 'latin'], ['light', 'hebrew']] as const)('%s, %s: ui.body in text.secondary, centred, from the tokens, never capped or ellipsised', (face, script) => {
     const view = mount({ ...base, face, script });
     const [hint] = view.text();
@@ -223,6 +225,19 @@ describe('Well: the hint (LEDGER §3 L9: say what makes the action appear)', () 
     expect(hint.props.adjustsFontSizeToFit).toBeFalsy();
     expect(hint.props.maxFontSizeMultiplier).toBeUndefined();
     expect(hint.props.allowFontScaling).not.toBe(false);
+    view.unmount();
+  });
+
+  // React Native on Android loads fonts/<fontFamily>.ttf by its exact name and picks a file by normal or bold only: the
+  // family 'Heebo' with a weight finds no file and draws the system face (the lab's font check, f3e4679: Heebo@400 at the
+  // fallback's width). So on Android the hint names ui.body's per-weight file, with no weight on top (typeface/faces.ts).
+  it.each([['latin', 'Heebo-Regular'], ['hebrew', 'Heebo-Regular']] as const)('on Android, %s: the hint is set in ui.body’s own file, %s, with no fontWeight', (script, file) => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    const view = mount({ ...base, script });
+    const style = flat(view.text()[0]);
+    expect(style.fontFamily).toBe(file);
+    expect(style.fontFamily).toBe(fontFace(BASE.type.face.ui, BASE.type.ui.body[script].weight, 'android').fontFamily);
+    expect(style).not.toHaveProperty('fontWeight');
     view.unmount();
   });
 

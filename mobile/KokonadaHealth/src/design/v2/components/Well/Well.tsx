@@ -8,8 +8,9 @@
 //     So the Well is as tall as the taller of the two from its first layout, with nothing measured and no second pass
 //     (the designer's ruling 6a, option 1): the two keep each other's place, and a 2.0 label is never clipped, from
 //     the first painted frame.
-//   · The hint: ui.body in text.secondary, never capped, scaled or ellipsised (DSN-037), centred (P10) or at the start
-//     of the page's direction (P1·AGE). It is plain text, never a live region (the Announcer speaks, LEDGER §10).
+//   · The hint: ui.body in text.secondary, in its face's own file (typeface/faces.ts: on Android a family at a weight
+//     finds no file and draws the system face), never capped, scaled or ellipsised (DSN-037), centred (P10) or at the
+//     start of the page's direction (P1·AGE). It is plain text, never a live region (the Announcer speaks, LEDGER §10).
 //   · They take turns on the page's word, `actionShown`. While the action is not shown its cell can be neither pressed
 //     nor reached: never an invisible, pressable action. While it is, the hint is hidden from TalkBack.
 //   · Its host (F3). The commit host, CommitCTA (P2, P10): `actionShown` is DEC-174's "shown" (from the start of its
@@ -27,6 +28,7 @@ import { StyleSheet, Text, View, type TextStyle } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
+import { fontFace } from '../../typeface/faces.ts';
 import { actionFade, hintEasing, hintFade, type WellHost } from './wellMotion.ts';
 
 export type { WellHost } from './wellMotion.ts';
@@ -135,10 +137,9 @@ export function Well({ actionShown, hint, script, tier, consentSlot = false, hos
 
   const body = tokens.base.type.ui.body[script];
   const hintType: TextStyle = {
-    fontFamily: tokens.base.type.face.ui,
+    ...fontFace(tokens.base.type.face.ui, body.weight),
     fontSize: body.size,
     lineHeight: body.lineHeight,
-    fontWeight: String(body.weight) as TextStyle['fontWeight'],
     letterSpacing: body.tracking * body.size,
     color: tokens.color.text.secondary.hex,
   };
