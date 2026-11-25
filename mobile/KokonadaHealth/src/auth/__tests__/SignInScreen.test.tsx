@@ -82,8 +82,20 @@ describe('SignInScreen (Wave 2.8 reskin — logic contract preserved)', () => {
     await ReactTestRenderer.act(async () => { await byLabel(tree, 'Sign in with Google').props.onPress(); });
     const alert = tree.root.findAll((n) => n.props.accessibilityRole === 'alert')[0];
     expect(alert).toBeTruthy();
-    expect(texts(tree.toJSON()).join(' ')).toContain('bad token');
+    expect(texts(tree.toJSON()).join(' ')).toMatch(/^(?!.*bad token).*Sign-in failed\. Try again\./); // C7: its own words, never the raw text
     expect(onSignedIn).not.toHaveBeenCalled();
+    await ReactTestRenderer.act(async () => { tree.unmount(); });
+  });
+
+  // The designer's words (P2, #309 review): a typed failure reaches the screen as its kind's own sentence.
+  it('a network failure shows the screen\'s network words, never the transport\'s text', async () => {
+    const { AuthError } = require('../authErrors');
+    signIn.mockRejectedValueOnce(new AuthError('network', 'Network request failed'));
+    const tree = await render();
+    await ReactTestRenderer.act(async () => { await byLabel(tree, 'Sign in with Google').props.onPress(); });
+    const all = texts(tree.toJSON()).join(' ');
+    expect(all).toContain('Couldn\'t connect. Check your connection and try again.');
+    expect(all).not.toContain('Network request failed');
     await ReactTestRenderer.act(async () => { tree.unmount(); });
   });
 

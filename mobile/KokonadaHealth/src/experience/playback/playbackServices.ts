@@ -58,6 +58,10 @@ export const kokoSocket = new KokonadaSocket({
   createSocket: createBackendSocket,
   getAccessToken: () => authSession.getAccessToken(),
   refreshToken: () => authSession.refresh(),
+  // C4: a null refresh while the session still holds its pair was `unavailable` (C1): the socket
+  // stays down and its next ensureOpen() or reconnect() refreshes first. Only a session that has
+  // ended reaches onLoggedOut, so a network blip never signs the user out.
+  isSessionActive: () => authSession.hasSession(),
   getEmotionIntent: () => {
     const e = store.getState().emotion;
     return { taps: e.taps, textPrompt: e.textPrompt, activity: e.activity };

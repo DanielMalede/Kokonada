@@ -1,5 +1,7 @@
-// App configuration. Point BACKEND_URL at your Railway backend (must be https://).
-export const BACKEND_URL = 'https://YOUR-BACKEND.up.railway.app';
+// App configuration. Point BACKEND_URL at your own backend (must be https://).
+// The tracked value is a placeholder under the reserved `.invalid` TLD (RFC 2606), so a build
+// that still carries it fails at name resolution and never sends a stored token anywhere.
+export const BACKEND_URL = 'https://your-backend.invalid';
 
 // OAuth 2.0 *Web* client ID from Google Cloud Console. MUST equal the backend's
 // GOOGLE_CLIENT_ID (it is the token audience the backend verifies). Not the Android

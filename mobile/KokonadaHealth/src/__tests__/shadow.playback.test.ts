@@ -130,7 +130,7 @@ describe('ATTACK 4 (autonomous): concurrent refresh under an auth_expired storm'
       loadTokens: async () => ({ access: 'a1', refresh: 'r1' }),
       saveTokens: async () => {},
       clearTokens: async () => {},
-      refreshEndpoint: async () => { calls += 1; await tick(); return { access: 'a2', refresh: 'r2' }; },
+      refreshEndpoint: async () => { calls += 1; await tick(); return { kind: 'ok' as const, tokens: { access: 'a2', refresh: 'r2' } }; },
     });
     await session.bootstrap();
     await Promise.all(Array.from({ length: 10 }, () => session.refresh()));
