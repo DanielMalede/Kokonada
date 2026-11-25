@@ -13,9 +13,9 @@
 // where the bead is, linearly to 0 over the same duration, its scale held (the designer's board, d3).
 
 import { Easing } from 'react-native';
-import { mixOklab, srgbToOklab, type Oklab } from '../../color/oklab.ts';
+import { mixOklab, type Oklab } from '../../color/oklab.ts';
 import { NODE_TIER, QUADRANT, nodeAt, placementRamp } from '../../field/fieldFrame.ts';
-import { encodeSrgb8 } from '../../field/fieldLaw.ts';
+import { srgbHex } from '../../field/fieldLaw.ts';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
 import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
 import type { PlatePoint } from '../Plate/geometry.ts';
@@ -62,24 +62,14 @@ const byte = (v: number) => {
   return s.length < 2 ? '0' + s : s;
 };
 
-/** `#RRGGBB` of the 8-bit sRGB pixel an OKLab colour paints: clamped to the gamut, rounded (fieldLaw encodeSrgb8). */
-export function srgbHex(lab: Oklab): string {
-  const [r, g, b] = encodeSrgb8(lab);
-  return '#' + byte(r) + byte(g) + byte(b);
-}
+/** `#RRGGBB` of a painted pixel, and its OKLab read back: the field law's own (fieldLaw.ts, beside encodeSrgb8). */
+export { hexLab, srgbHex } from '../../field/fieldLaw.ts';
 
 /** `#RRGGBBAA`: a token's `#RRGGBB` with its alpha as a byte. Anything else is a RangeError. */
 export function alphaHex(hex: string, alpha: number): string {
   if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new RangeError(`"${hex}" is not #RRGGBB`);
   if (!(alpha >= 0 && alpha <= 1)) throw new RangeError(`alpha must be in [0, 1], got ${alpha}`);
   return hex.toUpperCase() + byte(alpha * 255);
-}
-
-/** A `#RRGGBB` read back to OKLab (the colour a painted pixel is). */
-export function hexLab(hex: string): Oklab {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new RangeError(`"${hex}" is not #RRGGBB`);
-  const channel = (i: number) => parseInt(hex.slice(i, i + 2), 16) / 255;
-  return srgbToOklab([channel(1), channel(3), channel(5)]);
 }
 
 /** What the bead's views paint, as colour strings. */

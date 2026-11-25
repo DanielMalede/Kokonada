@@ -5,7 +5,7 @@ import { isRed, type RedBand } from '../../../color/redBand.ts';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
-import { hexLab } from '../../Bead/beadModel.ts';
+import { hexLab } from '../../../field/fieldLaw.ts';
 import { CommitCTA, useCtaMachine } from '../CommitCTA.tsx';
 import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaPaint } from '../ctaState.ts';
 

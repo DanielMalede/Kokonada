@@ -1,13 +1,13 @@
 import { progress, rampProgress } from '../../../field/crossfade.ts';
 import { relY, worstFlashesPerSecond } from '../../../field/flashCount.ts';
 import { geometry as STORM_PLATE, neutral, QUAD, store, STORM_GRIDS } from '../../../field/ledgerStorms.ts';
-import { emptyLedger, ledgerConfig, reconcile, type Ledger, type Tap } from '../../../field/placementLedger.ts';
+import { admittedLive, emptyLedger, ledgerConfig, reconcile, type Ledger, type Tap } from '../../../field/placementLedger.ts';
 import { nodeAt } from '../../../field/fieldFrame.ts';
 import { mixSafe } from '../../../color/mixSafe.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { STATICS } from '../../../tokens/tokens.statics.generated.ts';
-import { hexLab, srgbHex } from '../../Bead/beadModel.ts';
-import { admittedLive, ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement, type CtaView } from '../ctaState.ts';
+import { hexLab, srgbHex } from '../../../field/fieldLaw.ts';
+import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement, type CtaView } from '../ctaState.ts';
 
 // E6, the CTA under the ledger (DEC-174; the resilience-auditor's text, verbatim in the decision): the machine is
 // sampled every 1 ms while the real placement ledger runs E3's storms plus toggleJR, in both faces and both modes,
