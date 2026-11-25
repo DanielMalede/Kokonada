@@ -348,6 +348,13 @@ describe('buildTokenModel: the G8 ledger additions (the designer, 2026-11-25)', 
       rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
     });
   });
+
+  // F4: CommitCTA, and later Button's pill variants, take radius.pill. A radius above half a box's shorter side is
+  // drawn as half of it, so the one value stays a pill at every height the CTA takes, a 2.0 label's too.
+  it('F4: radius.pill is 9999, beside the art radii, and its rule says the renderer clamps it to half the shorter side', () => {
+    expect(model.base.radius).toEqual({ art: { phone: 4, large: 8, largeMinWidth: 600 }, pill: 9999 });
+    expect(model.extensions.base['radius.pill']).toEqual({ rule: 'the renderer clamps it to half the shorter side' });
+  });
 });
 
 // The close-out leaves one shipped direction, so the generator's handling of several is shown on a

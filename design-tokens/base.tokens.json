@@ -481,7 +481,8 @@
       "phone": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
       "large": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
       "largeMinWidth": {"$type":"dimension","$value":{"value":600,"unit":"px"}}
-    }
+    },
+    "pill": {"$type":"dimension","$value":{"value":9999,"unit":"px"},"$extensions":{"com.kokonada":{"rule":"the renderer clamps it to half the shorter side"}}}
   },
   "haptics": {
     "$extensions": {
