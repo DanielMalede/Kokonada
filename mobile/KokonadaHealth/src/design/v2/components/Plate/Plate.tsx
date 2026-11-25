@@ -9,7 +9,9 @@
 //     sides inside it lands where it lands on a left-to-right phone, and the plate is never mirrored.
 //   · The keyline's canvas reaches `pad` beyond the box on every side, so its outer half is never cut; it is inert to
 //     touch and hidden from accessibility (a frame, not content). The root is no accessibility element itself: TalkBack
-//     reaches its layers one by one (the rim words, the latest bead, the touch layer).
+//     reaches its layers one by one, in the plate's reading order (readingOrder.ts: the plate node, the rim words, the
+//     latest bead). The root is never flattened (collapsable false), so Android sorts the plate's nodes among themselves
+//     and the plate, as one box, among the page's views.
 //   · Static in every tier: nothing here moves, so reduced motion is the plate as drawn, with no frame work. No colour
 //     but the face's rim tokens (R3, R4), no elevation (R9). Each picture is freed once it is replaced, and on unmount
 //     (RA-31), as FieldFallback frees its own.
@@ -39,7 +41,7 @@ export function Plate({ diameter, fontScale, children }: PlateProps) {
   useEffect(() => () => picture.dispose(), [picture]);
   const canvasBox = { left: -plan.pad, top: -plan.pad, width: plan.size, height: plan.size };
   return (
-    <View testID="hero.plate" style={[styles.root, { width: diameter, height: diameter }]}>
+    <View testID="hero.plate" collapsable={false} style={[styles.root, { width: diameter, height: diameter }]}>
       <Canvas
         testID="hero.plate.rim"
         style={[styles.layer, canvasBox]}

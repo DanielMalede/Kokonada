@@ -2,8 +2,10 @@
 // field and under the beads, inside the Plate (its child, in plate-local dp).
 //
 //   · Each word is drawn on the arc by Skia (arc.ts says where, draw.ts draws it) and doubled as a real accessible text
-//     node at the word's own box. The nodes are mounted in the order TalkBack reads them in every locale, top, bottom,
-//     right, left (RIM_READING_ORDER, the designer's ruling 1). The drawing is hidden from accessibility; the nodes
+//     node at the word's own box. TalkBack reads them in every locale top, bottom, right, left (RIM_READING_ORDER, the
+//     designer's ruling 1). Android reads by place, never by mount order, so the root is the plate's words slot and each
+//     node sits in a word slot of its own (Plate/readingOrder.ts), whose top alone orders it; the nodes are also mounted
+//     in that order. The drawing is hidden from accessibility; the nodes
 //     carry the page's accessible copy (plate.rim.a11y.*). No string is the component's own: the page resolves both
 //     through the copy port (F10 R2).
 //   · Type: type.face.ui at ui.label's size and weight, times the OS font scale with no cap (DSN-027), in the face's
@@ -11,7 +13,8 @@
 //     else the typeface provider's above the page (F6: the bundled faces), else the system's, which on Android has no
 //     Heebo and answers a typeface with no glyphs.
 //   · Left to right in every locale (R7, QA-088): the root is `direction: 'ltr'`, and each node is placed by its left and
-//     top inside it. A Hebrew word is laid in the order it is seen; the plate itself never mirrors.
+//     top inside its slot, at the word's box in plate-local dp. A Hebrew word is laid in the order it is seen; the plate
+//     itself never mirrors.
 //   · The knock-out (DSN-028; the designer's ruling 2): letters near a live bead are not drawn, from the frame it appears.
 //     Letters near leaving beads only are drawn in a returning picture of their own, one per set of beads they follow,
 //     whose opacity the UI thread sets at every frame from the bead model's exit function (beadOpacity) and each bead's
@@ -28,6 +31,7 @@ import { useFrameCallback, useSharedValue, type FrameInfo } from 'react-native-r
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
 import { useTypefaceFontMgr } from '../../typeface/TypefaceProvider.tsx';
 import { plateGeometry } from '../Plate/geometry.ts';
+import { plateSlot, rimWordSlot } from '../Plate/readingOrder.ts';
 import {
   RIM_POSITIONS,
   RIM_READING_ORDER,
@@ -155,8 +159,8 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
   );
   useEffect(() => () => font.dispose(), [font]);
 
+  const geometry = useMemo(() => plateGeometry(tokens, diameter, fontScale), [tokens, diameter, fontScale]);
   const laid = useMemo(() => {
-    const geometry = plateGeometry(tokens, diameter, fontScale);
     const { ascent, descent } = font.getMetrics();
     const tracking = (script === 'hebrew' ? band.trackingBottomHebrew : band.trackingBottomLatin) * size;
     // The band's padding around its text, grown with the band: room for ink past a letter's cell.
@@ -175,7 +179,7 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
       });
       return { position, ids, layout };
     });
-  }, [tokens, diameter, fontScale, font, script, band, size, words, beads]);
+  }, [geometry, font, script, band, size, words, beads]);
 
   const ink = tokens.color.text.primary.hex;
   const pictures = useMemo(
@@ -199,32 +203,38 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
     [pictures],
   );
 
+  const root = plateSlot(tokens, geometry, 'words');
   return (
-    <View style={styles.root} pointerEvents="none">
+    <View testID="plate.slot.words" collapsable={false} style={[styles.root, root]} pointerEvents="none">
       {RIM_READING_ORDER.map((position) => {
         const i = RIM_POSITIONS.indexOf(position);
         const b = laid[i].layout.bounds;
+        const slot = rimWordSlot(tokens, geometry, position);
+        // The word's box in plate-local dp, from its slot's origin (the words slot at root, the word slot at slot).
+        const left = b.x - root.left - slot.left;
+        const top = b.y - root.top - slot.top;
         return (
-          <View
-            key={position}
-            testID={`hero.plate.word.${position}.a11y`}
-            accessible
-            accessibilityRole="text"
-            accessibilityLabel={a11y[position]}
-            style={[styles.word, { left: b.x, top: b.y, width: b.width, height: b.height }]}
-          >
-            <Canvas
-              testID={`hero.plate.word.${position}`}
-              style={styles.fill}
-              colorSpace="srgb"
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
+          <View key={position} testID={`plate.slot.word.${position}`} collapsable={false} pointerEvents="none" style={[styles.slot, slot]}>
+            <View
+              testID={`hero.plate.word.${position}.a11y`}
+              accessible
+              accessibilityRole="text"
+              accessibilityLabel={a11y[position]}
+              style={[styles.word, { left, top, width: b.width, height: b.height }]}
             >
-              <Picture picture={pictures[i].kept} />
-              {pictures[i].returning.map((r) => (
-                <Returning key={r.key} picture={r.picture} beads={r.beads} beadOpacity={beadOpacity} />
-              ))}
-            </Canvas>
+              <Canvas
+                testID={`hero.plate.word.${position}`}
+                style={styles.fill}
+                colorSpace="srgb"
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+              >
+                <Picture picture={pictures[i].kept} />
+                {pictures[i].returning.map((r) => (
+                  <Returning key={r.key} picture={r.picture} beads={r.beads} beadOpacity={beadOpacity} />
+                ))}
+              </Canvas>
+            </View>
           </View>
         );
       })}
@@ -233,7 +243,8 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
 }
 
 const styles = StyleSheet.create({
-  root: { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, direction: 'ltr' },
+  root: { position: 'absolute', direction: 'ltr' },
+  slot: { position: 'absolute' },
   word: { position: 'absolute' },
   fill: { flex: 1 },
 });

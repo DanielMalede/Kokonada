@@ -2,7 +2,8 @@
 // of every place. It replaces PlateTouch's adjustable node: a screen-reader user is never told to tap the plate.
 //
 //   · A View over the plate's D×D box, first among the plate's children ([PlateEntry, RimLabels, BeadLayer,
-//     PlateTouch]), so the swipe order is the plate node, the four rim words, then the latest bead.
+//     PlateTouch]). It sits in the plate's entry slot (Plate/readingOrder.ts), so Android, which sorts by place and
+//     never by mount order, reads it first: the plate node, the four rim words, then the latest bead.
 //   · Role button, labelled and hinted from the page's resolved plate.a11y.label and plate.a11y.hint (the hint's intent:
 //     the plate holds up to three points, and a double-tap opens a list of every place). It holds no string of its own.
 //   · Its activate action opens the list through the page's required onOpenList (RA-39: a callback, nothing else).
@@ -14,7 +15,9 @@
 
 import React, { useImperativeHandle, useRef } from 'react';
 import { AccessibilityInfo, StyleSheet, View, type AccessibilityActionEvent } from 'react-native';
+import { useTokens } from '../../tokens/useTokens.ts';
 import type { PlateGeometry } from '../Plate/geometry.ts';
+import { plateSlot } from '../Plate/readingOrder.ts';
 
 /** What the page and PlateTouch may do with the plate node. */
 export interface PlateEntryHandle {
@@ -38,6 +41,8 @@ export interface PlateEntryProps {
 }
 
 export function PlateEntry({ plate, label, hint, onOpenList, onFocusChange, inert, ref }: PlateEntryProps) {
+  const tokens = useTokens();
+  const slot = plateSlot(tokens, plate, 'entry');
   const node = useRef<View>(null);
   const hidden = useRef(inert);
   hidden.current = inert;
@@ -50,26 +55,29 @@ export function PlateEntry({ plate, label, hint, onOpenList, onFocusChange, iner
     if (!inert && e.nativeEvent.actionName === 'activate') onOpenList();
   };
   return (
-    <View
-      ref={node}
-      testID="hero.listEntry"
-      pointerEvents="none"
-      accessible={!inert}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityHint={hint}
-      accessibilityActions={inert ? [] : [{ name: 'activate' }]}
-      onAccessibilityAction={onAction}
-      focusable={!inert}
-      onFocus={() => onFocusChange(true)}
-      onBlur={() => onFocusChange(false)}
-      importantForAccessibility={inert ? 'no-hide-descendants' : 'yes'}
-      accessibilityElementsHidden={inert}
-      style={[styles.entry, { width: plate.diameter, height: plate.diameter }]}
-    />
+    <View testID="plate.slot.entry" collapsable={false} pointerEvents="none" style={[styles.slot, slot]}>
+      <View
+        ref={node}
+        testID="hero.listEntry"
+        pointerEvents="none"
+        accessible={!inert}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        accessibilityActions={inert ? [] : [{ name: 'activate' }]}
+        onAccessibilityAction={onAction}
+        focusable={!inert}
+        onFocus={() => onFocusChange(true)}
+        onBlur={() => onFocusChange(false)}
+        importantForAccessibility={inert ? 'no-hide-descendants' : 'yes'}
+        accessibilityElementsHidden={inert}
+        style={[styles.entry, { left: -slot.left, top: -slot.top, width: plate.diameter, height: plate.diameter }]}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  entry: { position: 'absolute', left: 0, top: 0 },
+  slot: { position: 'absolute' },
+  entry: { position: 'absolute' },
 });

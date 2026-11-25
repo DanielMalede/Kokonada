@@ -5,6 +5,7 @@ import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { plateGeometry } from '../../Plate/geometry.ts';
+import { plateSlot } from '../../Plate/readingOrder.ts';
 import { PlateEntry, type PlateEntryHandle, type PlateEntryProps } from '../PlateEntry.tsx';
 
 // Ruling 9 (the designer's rulings of 2026-11-25): the plate's TalkBack node is a button that opens the list of every
@@ -12,7 +13,8 @@ import { PlateEntry, type PlateEntryHandle, type PlateEntryProps } from '../Plat
 // and hint the page's resolved plate.a11y.label and plate.a11y.hint; its activate action opens the list through the
 // page's required onOpenList (RA-39: a callback, nothing else); pointerEvents none, so touch goes to PlateTouch; keyboard
 // focusable, reporting its focus; hidden while the consent slot shows. Swipe order inside the plate is the plate node,
-// the four rim words, then the latest bead; when Remove leaves no tap, focus comes back here (focus()).
+// the four rim words, then the latest bead (it sits in the plate's entry slot, readingOrder.ts; plateReadingOrder.test.tsx
+// holds the order as Android sorts it); when Remove leaves no tap, focus comes back here (focus()).
 
 const PLATE = plateGeometry({ base: BASE, direction: DIRECTIONS.abyss }, 296, 1);
 
@@ -45,9 +47,22 @@ afterEach(() => focusEvent.mockRestore());
 describe('PlateEntry: the plate’s TalkBack node (ruling 9)', () => {
   it('is a View over the plate’s D×D box, at its origin, that paints nothing and holds no string of its own', () => {
     const { node, tree } = mount();
-    expect(flat(node().props.style)).toEqual({ position: 'absolute', left: 0, top: 0, width: PLATE.diameter, height: PLATE.diameter });
+    // Its box is the plate's, from the entry slot's origin: at the plate's origin in plate-local dp.
+    const slot = plateSlot({ base: BASE, direction: DIRECTIONS.abyss }, PLATE, 'entry');
+    const box = flat(node().props.style);
+    expect(box).toEqual({ position: 'absolute', left: -slot.left, top: -slot.top, width: PLATE.diameter, height: PLATE.diameter });
+    expect([slot.left + box.left, slot.top + box.top]).toEqual([0, 0]);
     expect(node().type).toBe('View');
-    expect(tree.toJSON()).toMatchObject({ type: 'View', children: null });
+    expect(tree.toJSON()).toMatchObject({ type: 'View', props: { testID: 'plate.slot.entry' }, children: [{ type: 'View', children: null }] });
+  });
+
+  it('sits in the plate’s entry slot (readingOrder.ts): never flattened, no touch, no accessibility element, the slot’s box', () => {
+    const { tree } = mount();
+    const slot = tree.root.findAll((n) => n.props.testID === 'plate.slot.entry' && typeof n.type === 'string')[0];
+    expect(slot.props.collapsable).toBe(false);
+    expect(slot.props.pointerEvents).toBe('none');
+    expect(slot.props.accessible).toBeUndefined();
+    expect(flat(slot.props.style)).toEqual({ position: 'absolute', ...plateSlot({ base: BASE, direction: DIRECTIONS.abyss }, PLATE, 'entry') });
   });
 
   it('its element ID is hero.listEntry, the ledger’s (F2)', () => {

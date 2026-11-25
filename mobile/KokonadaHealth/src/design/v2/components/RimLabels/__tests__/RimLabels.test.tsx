@@ -4,6 +4,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, type PlatePoint } from '../../Plate/geometry.ts';
+import { plateSlot, rimWordSlot } from '../../Plate/readingOrder.ts';
 import { RIM_POSITIONS, layRimWord, returningGroups, visualOrder, type RimBead, type RimPosition } from '../arc.ts';
 import { RimLabels, type RimLabelsProps, type RimWords } from '../RimLabels.tsx';
 import { BUNDLED_FACES } from '../../../typeface/faces.ts';
@@ -281,12 +282,37 @@ describe('RimLabels: four real text nodes carry the positions (DSN-027)', () => 
   it.each([false, true])('places each node at its word’s box on the arc, by left and top inside an ltr root (R7): isRTL %p', (rtl) => {
     jest.replaceProperty(I18nManager, 'isRTL', rtl);
     const view = mount();
+    const tokens = { base: BASE, direction: DIRECTIONS.abyss };
+    const g = plateGeometry(tokens, 296, 1);
+    // The root is the plate's words slot and each node sits in its word slot (Plate/readingOrder.ts): the node's box,
+    // from the two slots' origins, is the word's box in plate-local dp.
+    const words = plateSlot(tokens, g, 'words');
     const root = view.r.root.findAll(isHost)[0];
-    expect(flat(root)).toMatchObject({ position: 'absolute', left: 0, top: 0, right: 0, bottom: 0, direction: 'ltr' });
+    expect(flat(root)).toEqual({ position: 'absolute', direction: 'ltr', ...words });
+    expect(root.props.testID).toBe('plate.slot.words');
     for (const n of view.nodes()) {
       const position = String(n.props.testID).split('.')[3] as RimPosition;
       const b = expected(position).layout.bounds;
-      expect(flat(n)).toMatchObject({ position: 'absolute', left: b.x, top: b.y, width: b.width, height: b.height });
+      const slot = rimWordSlot(tokens, g, position);
+      const host = view.r.root.findAll((x) => isHost(x) && x.props.testID === `plate.slot.word.${position}`)[0];
+      expect(flat(host)).toEqual({ position: 'absolute', ...slot });
+      expect(host.findAll((x) => x === n).length).toBe(1);
+      expect(flat(n)).toMatchObject({ position: 'absolute', width: b.width, height: b.height });
+      expect(words.left + slot.left + flat(n).left).toBeCloseTo(b.x, 9);
+      expect(words.top + slot.top + flat(n).top).toBeCloseTo(b.y, 9);
+    }
+    view.unmount();
+  });
+
+  it('the words slot and each word slot are never flattened, take no touch and are no accessibility element', () => {
+    const view = mount();
+    const slots = view.r.root.findAll((x) => isHost(x) && /^plate\.slot\./.test(String(x.props.testID)));
+    expect(slots.map((x) => x.props.testID)).toEqual(['plate.slot.words', 'plate.slot.word.top', 'plate.slot.word.bottom', 'plate.slot.word.right', 'plate.slot.word.left']);
+    for (const x of slots) {
+      expect(x.props.collapsable).toBe(false);
+      expect(x.props.pointerEvents).toBe('none');
+      expect(x.props.accessible).toBeUndefined();
+      expect(x.props.accessibilityLabel).toBeUndefined();
     }
     view.unmount();
   });

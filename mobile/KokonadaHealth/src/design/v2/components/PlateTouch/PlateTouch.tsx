@@ -7,7 +7,8 @@
 //     a second finger cancels. Built on React Native's responder system: no gesture-handler root is needed.
 //   · The point: the page's screenToCircumplex (wheelGeometry.ts), passed in as toPoint and handed the plate's
 //     wheelLayout, maps the touch's end (QA-087, DSN-025: never mirrored or reimplemented in v2).
-//   · TalkBack (ruling 9): the latest bead is a 48 dp button whose activate removes it; it is the plate's last node. The
+//   · TalkBack (ruling 9): the latest bead is a 48 dp button whose activate removes it; it is the plate's last node: the
+//     surface is the plate's latest slot (Plate/readingOrder.ts), the slot with the lowest top, never flattened. The
 //     plate's own node is PlateEntry, the list's button, first among the plate's children. When Remove leaves no tap,
 //     focus moves to it first (its handle, passed in as entry), so the screen reader never loses its place.
 //   · Haptics: place, replace (a placement on a full plate) and remove, through the page's haptics port (F8),
@@ -22,6 +23,7 @@ import React, { useRef } from 'react';
 import { StyleSheet, View, type AccessibilityActionEvent, type GestureResponderEvent } from 'react-native';
 import { useTokens } from '../../tokens/useTokens.ts';
 import { pointToLocal, wheelLayout, type PlateGeometry, type PlatePoint, type PlateWheelLayout } from '../Plate/geometry.ts';
+import { plateSlot } from '../Plate/readingOrder.ts';
 import type { PlateEntryHandle } from './PlateEntry.tsx';
 import { hapticAllowed, hapticFor, touchIntent, touchSurface, type Local, type PlateHapticEvent, type TouchIntent } from './plateTouchModel.ts';
 
@@ -61,6 +63,7 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
   const tokens = useTokens();
   const surface = touchSurface(tokens, plate);
   const m = surface.margin;
+  const slot = plateSlot(tokens, plate, 'latest');
   const latest = taps.length > 0 ? taps[taps.length - 1] : null;
 
   const gesture = useRef<Gesture | null>(null);
@@ -111,10 +114,11 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
   return (
     <View
       testID="hero.plate.touch"
+      collapsable={false}
       accessible={false}
       importantForAccessibility={inert ? 'no-hide-descendants' : 'auto'}
       accessibilityElementsHidden={inert}
-      style={[styles.surface, { left: -m, top: -m, width: surface.size, height: surface.size }]}
+      style={[styles.surface, slot]}
       onStartShouldSetResponder={() => !inert}
       onResponderTerminationRequest={() => true}
       onResponderGrant={onResponderGrant}
