@@ -1753,5 +1753,21 @@ describe('#307 round 4 · a row pin reads its row open or closed (ARCH-307-19)',
     });
     expect([...idsIn(closed)].sort()).toEqual([...TASK_IDS].sort());
     expect(nextFreeNotAbove(closed)).toEqual([]);
+    // RA-35: a pin the copy above never reaches must not read a row's open mark either, nor the live TASKS text where
+    // its copy belongs. This file's own source, comments blanked, holds an open mark (`- [ ] ` in a string, or
+    // `- \[ \] ` in a regular expression) or `rowIn(TASKS_MD` only inside rowIn, the ID invariant's fixture, the
+    // `OPS-502` open check (ops502Open) and this case.
+    const self = blankComments(fs.readFileSync(__filename, 'utf8').replace(/^﻿/, '').replace(/\r\n?/g, '\n'));
+    const extent = (head) => {
+      const at = self.indexOf(head);
+      if (at < 0) throw new Error(`RA-35's scan finds no "${head}"`);
+      return [at, head.startsWith('function ') ? self.indexOf('\n}\n', at) + 2 : closeParen(self, at + head.indexOf('('))];
+    };
+    const allowed = [extent('function rowIn('), extent('function ops502Open('), extent('test(\'the invariant names each prefix'),
+      extent('test(\'on a copy of TASKS.md with every open row closed')];
+    const lineOf = (at) => self.slice(0, at).split('\n').length;
+    const stray = [...self.matchAll(/['"`]- \[ \] |- \\\[ \\\] |rowIn\(TASKS_MD\b/g)]
+      .filter((m) => !allowed.some(([a, b]) => m.index >= a && m.index < b)).map((m) => `line ${lineOf(m.index)}: ${m[0]}`);
+    expect(stray).toEqual([]);
   });
 });
