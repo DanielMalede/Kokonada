@@ -1606,7 +1606,12 @@ describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Check
     expect(safety).not.toMatch(/Device evidence that needs sign-in runs|wait for G11P/);
     has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the reviews of #307 at `a8e88e5` and `a196ce4` (2026-11-24).',
       '  - ARCH-307-21 = RA-30, option A, on the review at `a196ce4`:');
-    has(rowIn(tasks, 'OPS-516'), '`P1`', 'local evidence backend', 'before the first G11e', 'never production', 'the review of #307 at `a196ce4`');
+    has(rowIn(tasks, 'OPS-516'), '`P1`', 'local evidence backend', 'before the first G11e', 'never production', 'the review of #307 at `a196ce4`',
+      // RA-38: the running backend, not only its seed, refuses a database or a Redis that is not loopback.
+      'refuses to start unless `MONGO_URI` and `REDIS_URL` are loopback (`localhost`, `127.0.0.1`, `[::1]`) or an in-process MongoMemoryServer, proven red on a URI that is not loopback');
+    // F-5 and ruling 17: the row's title keeps the backend to emulator evidence.
+    has(rowIn(tasks, 'OPS-516').split('\n')[0], 'emulator evidence that needs sign-in', 'ruling 17 keeps the backend to emulator runs');
+    expect(rowIn(tasks, 'OPS-516').split('\n')[0]).not.toContain('device evidence that needs sign-in');
   }));
 });
 
@@ -1669,6 +1674,65 @@ describe('#307 round 4 · every finding of the review at a196ce4 that #307 does 
     has(ops511.split('\n').find((l) => l.startsWith('  - where:')) || '', 'the owner\'s M1 answer on `DEC-089`', 'awaits recording as a DEC- entry in the fast-track plan\'s L0 records step');
     has(DEC192.split('\n').find((l) => l.startsWith('- F3-B, a held regulated-copy branch:')) || '', 'DEC-089\'s M1 answer sets the transition window to none');
   }));
+});
+
+// The review of #307 at c10abaa (round 4): each finding #307 does not fix has its row, or an update line on the row it
+// extends, and the rows the owner's rulings 14 to 17 bind carry them; every one is a row pin.
+describe('#307 round 5 · every finding of the review at c10abaa that #307 does not fix has its row', () => {
+  const ROWS = [
+    ['OPS-530', 'SA-16', '`P3`', ['T1\'s whole list', 'an emotion input', 'free text', 'a PR title or body', 'a commit message', 'a TASKS row', 'a tracked file']],
+    ['MB-210', 'CA307-15', '`P1`', ['GET SPOTIFY FREE', 'store listing', '`open.spotify.com`', '"Linking to Spotify"', 'Policy II.4.2',
+      '`spotifyLinkBack.ts:46-56`', '`SpotifyAttribution.test.tsx:149`', 'seen failing first', '`CMP-008` stays HALT', '2026-11-28']],
+    ['OPS-531', 'CA307-18', '`P3`', ['play, skip or track-change', 'a real Spotify account', 'scripted run or soak', 'Policy II.2', 'owner (a)']],
+  ];
+  const isRow = (tasks, id, finding, priority, more) => {
+    const row = rowIn(tasks, id);
+    has(row.split('\n')[0], priority);
+    has(row, finding, 'the review of #307 at `c10abaa`', ...more);
+  };
+  ROWS.forEach((row) => ROW_PINS.push((tasks) => isRow(tasks, ...row)));
+  test.each(ROWS)('%s is the row for %s', (...row) => isRow(TASKS_MD, ...row));
+
+  const UPDATES = [
+    ['OPS-516', 'SA-14', 'its secrets are generated for it, never production\'s, and no session reads a production secret', 'it listens on `127.0.0.1` only',
+      'refuses to start unless `MONGO_URI` and `REDIS_URL` are loopback (`localhost`, `127.0.0.1`, `[::1]`) or an in-process MongoMemoryServer, proven red on a URI that is not loopback',
+      'Google ID-token verification', '`DAN-036`', '`GOOGLE_CLIENT_ID`', '`sub`', 'no route, flag or build path mints a session without Google',
+      'an allow-list of public keys only', 'no cleartext or user-CA exception', 'an upload build fails if the local config is present', '`pm clear`',
+      'fabricated provider content only', '`CMP-022`, `CMP-023`, `CMP-138` and `CMP-139`', 'the database is dropped after each run (the manifest records which)',
+      'a loopback redirect over `adb reverse`', '`compliance-auditor` reviews the seed', 'each pinned red first'],
+    ['OPS-503', 'SA-15', 'build `whr_` and `krt_` values at run time', 'every literal hit is rotated',
+      '`localhost`, `127.0.0.1`, `[::1]`, `*.invalid`, `example.com`, `example.net`, `example.org` and `*.example`', 'through the last `@`',
+      'a Secrets hit on a removed line is reported and rotated', '`gsk_`', '`backend/app/config/llmProvider.js`', 'the 12 literal `whr_` and `krt_` fixtures'],
+    ['OPS-505', 'SA-17', 'clearing the AVD\'s data revoked nothing on the server', 'does not invalidate a leaked access token', '`jti`',
+      '`backend/app/utils/tokenDenylist.js`', 'a key rotation', 'its expiry', '#309 merged as `b4416eb`'],
+    ['OPS-501', 'CA307-15', '`MB-210`', 'cannot close on an emulator capture', 'the store listing'],
+    ['OPS-519', 'CU307-10', '#304 and #310 on `BE-276`–`278`', '#304 and #309 on `BE-283`–`284`', '`BE-283`–`292` and `MB-177`–`196`',
+      '`origin/wip/ops412-c`', '`OPS-470`–`473`', '#286', '`OPS-402`–`403`', '`OPS-440`–`441`'],
+    ['DAN-036', 'Q14', 'whose heart rate', 'a real person\'s health data with no consent recorded'],
+    ['OPS-511', 'Q12', 'before #307 merges', 'T9', 'DEC-192\'s F3-B line'],
+    ['OPS-511', 'ARCH-307-31', 'resolved by the owner\'s ruling 15', 'existing v1 grant'],
+    ['OPS-483', 'class (c) question', '`CMP-026`, `CMP-066` and `CMP-081`', 'ruling 14', 'ruling 11', '`DEC-089`', 'T9, both readings'],
+    ['OPS-282', 'RA-35', 'row pins', 'an archive file', '`rowIn`'],
+    ['DAN-015', 'A-2', 'DEC-192 ruling 14', 'DEC-156', '`DEC-190.md:72`', 'its own gate lists', 'moves the cutover'],
+    ['OPS-500', 'RA-36', 'zero arm64-v8a libraries', 'RED unconditionally', '`getprop`', 'a planted 4 KB-aligned library', 'the PR head\'s release build'],
+  ];
+  const updated = (tasks, id, finding, ...more) => {
+    const update = rowIn(tasks, id).split('\n').find((l) => l.includes('the review of #307 at `c10abaa`') && l.includes(finding)) || '';
+    has(update, '**update 2026-11-25', ...more);
+  };
+  UPDATES.forEach((row) => ROW_PINS.push((tasks) => updated(tasks, ...row)));
+  test.each(UPDATES)('%s carries an update line from the review at c10abaa for %s', (...row) => updated(TASKS_MD, ...row));
+
+  // CU307-9's wording: the export OPS-497 drops is three names, not two.
+  test('OPS-497\'s done-when names the three exported names (CU307-9)', rowPin((tasks) => {
+    const where = rowIn(tasks, 'OPS-497').split('\n').find((l) => l.startsWith('  - where:')) || '';
+    has(where, 'the three exported names (`VALUE_FLAGS`, `BOOL_FLAGS` and `parseArgs`)');
+    expect(where).not.toContain('the two exported names');
+  }));
+
+  test('the header names this review\'s rows as #307\'s', () => {
+    has(TASKS_MD.split('\n').find((l) => l.startsWith('**Next free IDs:**')) || '', '`OPS-530`–`531` and `MB-210` from its review at `c10abaa`');
+  });
 });
 
 // ARCH-307-19: closing a pinned row must never turn its pin red. This case closes every open row of a copy of
