@@ -4,11 +4,13 @@ import { I18nManager, PixelRatio, StyleSheet } from 'react-native';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal, wheelLayout, type PlatePoint } from '../../Plate/geometry.ts';
-import { PlateTouch, type PlateCell, type PlateTouchProps } from '../PlateTouch.tsx';
+import type { PlateEntryHandle } from '../PlateEntry.tsx';
+import { PlateTouch, type PlateTouchProps } from '../PlateTouch.tsx';
 import { HAPTIC_GAP, touchSurface } from '../plateTouchModel.ts';
 
 // PlateTouch, the plate's gesture surface (F10 group A). It owns every input the plate takes: a tap or a drag
-// to place, a tap on the latest bead to remove it, and TalkBack's adjustable plate and Remove action. It
+// to place, a tap on the latest bead to remove it, and the latest bead's TalkBack Remove action (the plate's own TalkBack
+// node is PlateEntry, the list's button: ruling 9). It
 // takes callbacks only (RA-39): a placement is handed to onPlace and nothing else, so P10's taps stay in page
 // state and P2's go through its port. The touch-to-point mapping is the page's screenToCircumplex, passed in
 // (QA-087: v2 never reimplements it), and handed the plate's wheelLayout (DSN-025).
@@ -26,11 +28,6 @@ const SURFACE = touchSurface(TOKENS, PLATE);
 const M = SURFACE.margin;
 const R = PLATE.radius;
 const MAPPED: PlatePoint = { x: 0.123, y: -0.456 };
-const CELLS: readonly PlateCell[] = [
-  { point: { x: -0.6, y: 0.6 }, label: 'cell.0' },
-  { point: { x: 0, y: 0.8 }, label: 'cell.1' },
-  { point: { x: 0, y: 0 }, label: 'cell.2' },
-];
 
 interface Calls {
   readonly toPoint: jest.Mock;
@@ -38,7 +35,9 @@ interface Calls {
   readonly onRemoveLatest: jest.Mock;
   readonly fire: jest.Mock;
 }
-function props(taps: readonly PlatePoint[], calls: Calls, extra: Partial<PlateTouchProps> = {}): PlateTouchProps {
+/** The page's PlateEntry, as PlateTouch sees it through its ref: focus() is what it may call. */
+type Entry = { focus: jest.Mock };
+function props(taps: PlateTouchProps['taps'], calls: Calls, entry: Entry, extra: Partial<PlateTouchProps> = {}): PlateTouchProps {
   return {
     plate: PLATE,
     taps,
@@ -47,9 +46,7 @@ function props(taps: readonly PlatePoint[], calls: Calls, extra: Partial<PlateTo
     onRemoveLatest: calls.onRemoveLatest,
     haptics: { fire: calls.fire },
     inert: false,
-    label: 'plate.a11y.label',
-    hint: 'plate.a11y.hint',
-    cells: CELLS,
+    entry: { current: entry as PlateEntryHandle },
     latestLabel: 'bead.latest.label',
     removeLabel: 'bead.latest.remove',
     ...extra,
@@ -62,12 +59,13 @@ const element = (p: PlateTouchProps) => (
 );
 function mount(taps: readonly PlatePoint[] = [], extra: Partial<PlateTouchProps> = {}) {
   const calls: Calls = { toPoint: jest.fn(() => MAPPED), onPlace: jest.fn(), onRemoveLatest: jest.fn(), fire: jest.fn() };
+  const entry: Entry = { focus: jest.fn() };
   let tree!: ReactTestRenderer.ReactTestRenderer;
   act(() => {
-    tree = ReactTestRenderer.create(element(props(taps, calls, extra)));
+    tree = ReactTestRenderer.create(element(props(taps, calls, entry, extra)));
   });
-  const update = (nextTaps: readonly PlatePoint[], next: Partial<PlateTouchProps> = {}) => act(() => tree.update(element(props(nextTaps, calls, { ...extra, ...next }))));
-  return { tree, calls, update };
+  const update = (nextTaps: readonly PlatePoint[], next: Partial<PlateTouchProps> = {}) => act(() => tree.update(element(props(nextTaps, calls, entry, { ...extra, ...next }))));
+  return { tree, calls, entry, update };
 }
 const node = (tree: ReactTestRenderer.ReactTestRenderer, testID: string) => tree.root.findAll((n) => n.props.testID === testID && typeof n.type === 'string')[0];
 /** The rendered tree as data: every host node and prop, the handlers (fresh closures each mount) left out. */
@@ -268,7 +266,6 @@ describe('PlateTouch: inert while the consent slot shows (DEC-066)', () => {
       surface.props.onResponderGrant(evt(R, R));
       surface.props.onResponderRelease(evt(R, R, 0));
     });
-    a11y(tree, 'plate.touch.plate', 'activate');
     a11y(tree, 'plate.touch.latest', 'activate');
     expect(calls.onPlace).not.toHaveBeenCalled();
     expect(calls.onRemoveLatest).not.toHaveBeenCalled();
@@ -285,50 +282,47 @@ describe('PlateTouch: inert while the consent slot shows (DEC-066)', () => {
   });
 });
 
-describe('PlateTouch: TalkBack’s adjustable plate', () => {
-  it('the plate node is adjustable, labelled and hinted from resolved copy, its value the cursor’s cell, before the latest bead in order', () => {
-    const { tree } = mount([{ x: 0.6, y: 0.6 }]);
-    const plate = node(tree, 'plate.touch.plate');
-    expect(plate.props).toMatchObject({ accessible: true, accessibilityRole: 'adjustable', accessibilityLabel: 'plate.a11y.label', accessibilityHint: 'plate.a11y.hint', pointerEvents: 'none' });
-    expect(plate.props.accessibilityValue).toEqual({ text: 'cell.0' });
-    expect(plate.props.accessibilityActions).toEqual([{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]);
-    const order = tree.root.findAll((n) => typeof n.type === 'string' && n.props.accessible === true).map((n) => n.props.testID);
-    expect(order).toEqual(['plate.touch.plate', 'plate.touch.latest']);
+describe('PlateTouch: TalkBack (ruling 9: the plate node is PlateEntry, the list’s button)', () => {
+  const latest = { x: 0.6, y: 0.6 };
+  const older = { x: -0.6, y: -0.6 };
+  const exposed = (tree: ReactTestRenderer.ReactTestRenderer) => tree.root.findAll((n) => typeof n.type === 'string' && n.props.accessible === true).map((n) => n.props.testID);
+
+  it('exposes only the latest bead’s node, never an adjustable: the plate node is PlateEntry’s, before the rim words', () => {
+    expect(exposed(mount([older, latest]).tree)).toEqual(['plate.touch.latest']);
+    expect(exposed(mount([]).tree)).toEqual([]);
+    const { tree } = mount([latest]);
+    expect(tree.root.findAll((n) => n.props.accessibilityRole === 'adjustable').map((n) => n.props.testID)).toEqual([]);
     expect(node(tree, 'plate.touch').props.accessible).toBe(false);
   });
 
-  it('increment and decrement step the cursor over the cells and stop at the ends; neither places or vibrates', () => {
-    const { tree, calls } = mount();
-    const value = () => node(tree, 'plate.touch.plate').props.accessibilityValue.text;
-    a11y(tree, 'plate.touch.plate', 'decrement');
-    expect(value()).toBe('cell.0');
-    a11y(tree, 'plate.touch.plate', 'increment');
-    expect(value()).toBe('cell.1');
-    a11y(tree, 'plate.touch.plate', 'increment');
-    a11y(tree, 'plate.touch.plate', 'increment');
-    expect(value()).toBe('cell.2');
-    a11y(tree, 'plate.touch.plate', 'decrement');
-    expect(value()).toBe('cell.1');
-    expect(calls.onPlace).not.toHaveBeenCalled();
-    expect(calls.fire).not.toHaveBeenCalled();
+  it('when Remove leaves no tap, focus moves to the plate node first, then the latest is removed', () => {
+    const { tree, calls, entry } = mount([latest]);
+    const order: string[] = [];
+    entry.focus.mockImplementation(() => order.push('focus'));
+    calls.onRemoveLatest.mockImplementation(() => order.push('remove'));
+    a11y(tree, 'plate.touch.latest', 'activate');
+    expect(order).toEqual(['focus', 'remove']);
   });
 
-  it('activate places at the cursor’s cell, its own point (no mapping), with the place haptic', () => {
-    const { tree, calls } = mount();
-    a11y(tree, 'plate.touch.plate', 'increment');
-    a11y(tree, 'plate.touch.plate', 'activate');
-    expect(calls.onPlace).toHaveBeenCalledWith(CELLS[1].point);
-    expect(calls.toPoint).not.toHaveBeenCalled();
-    expect(calls.fire).toHaveBeenCalledWith('place');
+  it('when Remove leaves a tap, focus stays where TalkBack puts it (the next latest bead’s node)', () => {
+    const { tree, calls, entry } = mount([older, latest]);
+    a11y(tree, 'plate.touch.latest', 'activate');
+    expect(calls.onRemoveLatest).toHaveBeenCalledTimes(1);
+    expect(entry.focus).not.toHaveBeenCalled();
   });
 
-  it('with no cells it is still labelled, with no value and no stepping', () => {
-    const { tree, calls } = mount([], { cells: [] });
-    const plate = node(tree, 'plate.touch.plate');
-    expect(plate.props.accessibilityValue).toBeUndefined();
-    expect(plate.props.accessibilityActions).toEqual([]);
-    a11y(tree, 'plate.touch.plate', 'activate');
-    expect(calls.onPlace).not.toHaveBeenCalled();
+  it('a touch on the latest bead removes it with no focus move: the sighted path is not the screen reader’s', () => {
+    const { tree, calls, entry } = mount([latest]);
+    touch(tree, s(pointToLocal(latest, PLATE)));
+    expect(calls.onRemoveLatest).toHaveBeenCalledTimes(1);
+    expect(entry.focus).not.toHaveBeenCalled();
+  });
+
+  it('while inert, Remove neither removes nor moves focus', () => {
+    const { tree, calls, entry } = mount([latest], { inert: true });
+    a11y(tree, 'plate.touch.latest', 'activate');
+    expect(calls.onRemoveLatest).not.toHaveBeenCalled();
+    expect(entry.focus).not.toHaveBeenCalled();
   });
 });
 

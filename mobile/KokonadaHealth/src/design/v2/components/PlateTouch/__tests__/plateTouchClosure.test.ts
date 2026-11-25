@@ -12,6 +12,8 @@ import ts from 'typescript';
 
 const V2 = path.resolve(__dirname, '../../..');
 const ENTRY = path.resolve(__dirname, '../PlateTouch.tsx');
+/** PlateEntry, the plate's TalkBack node (ruling 9): it opens the list through a callback, so it is held to the same rule. */
+const LIST_ENTRY = path.resolve(__dirname, '../PlateEntry.tsx');
 
 /** Modules no file in the closure may name: stores, sockets, storage, sensors, health, permissions, native haptics. */
 const BANNED_MODULES: readonly RegExp[] = [
@@ -73,9 +75,9 @@ function offences(s: Scan): string[] {
 }
 
 /** Every file PlateTouch reaches by a relative import (type-only imports included: a coupling is a coupling). */
-function closure(entry: string): Map<string, Scan> {
+function closure(...entries: string[]): Map<string, Scan> {
   const seen = new Map<string, Scan>();
-  const queue = [entry];
+  const queue = [...entries];
   while (queue.length > 0) {
     const file = queue.pop()!;
     if (seen.has(file)) continue;
@@ -93,13 +95,14 @@ function closure(entry: string): Map<string, Scan> {
 
 const rel = (file: string) => path.relative(V2, file).split(path.sep).join('/');
 
-describe('PlateTouch’s closure keeps the taps on the page (RA-39, RA-40, QA-172)', () => {
-  const files = closure(ENTRY);
+describe('PlateTouch’s and PlateEntry’s closure keeps the taps on the page (RA-39, RA-40, QA-172)', () => {
+  const files = closure(ENTRY, LIST_ENTRY);
 
   it('the walk sees the real closure: the component, its model, the plate geometry, the tokens and the field it reads', () => {
     expect([...files.keys()].map(rel)).toEqual(
       expect.arrayContaining([
         'components/PlateTouch/PlateTouch.tsx',
+        'components/PlateTouch/PlateEntry.tsx',
         'components/PlateTouch/plateTouchModel.ts',
         'components/Plate/geometry.ts',
         'tokens/useTokens.ts',

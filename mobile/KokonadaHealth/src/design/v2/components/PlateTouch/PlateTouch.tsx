@@ -7,10 +7,9 @@
 //     a second finger cancels. Built on React Native's responder system: no gesture-handler root is needed.
 //   · The point: the page's screenToCircumplex (wheelGeometry.ts), passed in as toPoint and handed the plate's
 //     wheelLayout, maps the touch's end (QA-087, DSN-025: never mirrored or reimplemented in v2).
-//   · TalkBack: the plate is one adjustable node, labelled and hinted from resolved copy, whose value is the
-//     cursor's cell; increment and decrement step the cursor over the cells the page gives (the list sheet's
-//     cells, so both offer the same points, QA-127), and activate places at the cursor's cell. The latest bead
-//     is a 48 dp button whose activate removes it. Order: the plate, then the latest bead.
+//   · TalkBack (ruling 9): the latest bead is a 48 dp button whose activate removes it; it is the plate's last node. The
+//     plate's own node is PlateEntry, the list's button, first among the plate's children. When Remove leaves no tap,
+//     focus moves to it first (its handle, passed in as entry), so the screen reader never loses its place.
 //   · Haptics: place, replace (a placement on a full plate) and remove, through the page's haptics port (F8),
 //     at least haptics.minEventGap apart (DSN-040). Never while inert.
 //   · Inert while the consent slot shows (DEC-066): no touch, no action, no haptic, out of the accessibility tree.
@@ -19,17 +18,12 @@
 // storage or permission module (plateTouchClosure.test.ts). It holds no string and paints nothing (R2). Mount it
 // as a child of the plate's D×D box; it is LTR in every locale (R7, QA-088).
 
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { StyleSheet, View, type AccessibilityActionEvent, type GestureResponderEvent } from 'react-native';
 import { useTokens } from '../../tokens/useTokens.ts';
 import { pointToLocal, wheelLayout, type PlateGeometry, type PlatePoint, type PlateWheelLayout } from '../Plate/geometry.ts';
-import { hapticAllowed, hapticFor, stepCell, touchIntent, touchSurface, type Local, type PlateHapticEvent, type TouchIntent } from './plateTouchModel.ts';
-
-/** A cell the adjustable steps over: a point on the plate and its resolved label (the list sheet's placement words). */
-export interface PlateCell {
-  readonly point: PlatePoint;
-  readonly label: string;
-}
+import type { PlateEntryHandle } from './PlateEntry.tsx';
+import { hapticAllowed, hapticFor, touchIntent, touchSurface, type Local, type PlateHapticEvent, type TouchIntent } from './plateTouchModel.ts';
 
 /** The haptics port (F8): it fires the direction's haptics.<event> composition. */
 export interface PlateHaptics {
@@ -51,11 +45,8 @@ export interface PlateTouchProps {
   readonly haptics: PlateHaptics;
   /** The consent slot shows: the plate takes nothing (DEC-066). */
   readonly inert: boolean;
-  /** plate.a11y.label and plate.a11y.hint, resolved. */
-  readonly label: string;
-  readonly hint: string;
-  /** The adjustable's steps, in order. */
-  readonly cells: readonly PlateCell[];
+  /** The page's PlateEntry (its ref): focus goes back to it when Remove leaves no tap. */
+  readonly entry: React.RefObject<PlateEntryHandle | null>;
   /** bead.latest.*, resolved: the latest bead's label and its Remove action's label. */
   readonly latestLabel: string;
   readonly removeLabel: string;
@@ -66,7 +57,7 @@ interface Gesture {
   readonly cancelled: boolean;
 }
 
-export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, haptics, inert, label, hint, cells, latestLabel, removeLabel }: PlateTouchProps) {
+export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, haptics, inert, entry, latestLabel, removeLabel }: PlateTouchProps) {
   const tokens = useTokens();
   const surface = touchSurface(tokens, plate);
   const m = surface.margin;
@@ -74,8 +65,6 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
 
   const gesture = useRef<Gesture | null>(null);
   const lastHaptic = useRef<number | null>(null);
-  const [cursor, setCursor] = useState(0);
-  const cell = cells.length > 0 ? cells[stepCell(cursor, 0, cells.length)] : null;
 
   const haptic = (event: PlateHapticEvent | null) => {
     const now = performance.now();
@@ -111,14 +100,11 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
     gesture.current = null;
   };
 
-  const onPlateAction = (e: AccessibilityActionEvent) => {
-    if (inert || cell === null) return;
-    const name = e.nativeEvent.actionName;
-    if (name === 'increment' || name === 'decrement') setCursor((c) => stepCell(c, name === 'increment' ? 1 : -1, cells.length));
-    else if (name === 'activate') perform({ kind: 'place', at: { x: 0, y: 0 } }, () => cell.point);
-  };
   const onLatestAction = (e: AccessibilityActionEvent) => {
-    if (!inert && latest !== null && e.nativeEvent.actionName === 'activate') perform({ kind: 'remove' }, () => latest);
+    if (inert || latest === null || e.nativeEvent.actionName !== 'activate') return;
+    // The last tap's node is about to go: the plate node takes the focus first.
+    if (taps.length === 1) entry.current?.focus();
+    perform({ kind: 'remove' }, () => latest);
   };
 
   const bead = latest === null ? null : pointToLocal(latest, plate);
@@ -137,18 +123,6 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
       onResponderRelease={onResponderRelease}
       onResponderTerminate={onResponderTerminate}
     >
-      <View
-        testID="plate.touch.plate"
-        pointerEvents="none"
-        accessible
-        accessibilityRole="adjustable"
-        accessibilityLabel={label}
-        accessibilityHint={hint}
-        accessibilityValue={cell === null ? undefined : { text: cell.label }}
-        accessibilityActions={cell === null ? [] : [{ name: 'increment' }, { name: 'decrement' }, { name: 'activate' }]}
-        onAccessibilityAction={onPlateAction}
-        style={StyleSheet.absoluteFill}
-      />
       {bead !== null && (
         <View
           testID="plate.touch.latest"
