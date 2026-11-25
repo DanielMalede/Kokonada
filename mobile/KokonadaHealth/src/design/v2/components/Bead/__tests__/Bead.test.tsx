@@ -338,14 +338,14 @@ describe('Bead: the exit (F1)', () => {
       jest.advanceTimersByTime(EXIT_MIN_MS + 50);
     });
     expect(onLeft).toHaveBeenCalledTimes(1);
-    let grey = 0;
+    let translucent = 0;
     for (let ms = 0; ms <= EXIT_MIN_MS; ms += 16) {
       clock.setValue((exitDuration(1) * ms) / EXIT_MIN_MS);
       const drawn = drawnLook(tree);
       if (drawn.colour > 0) expect([ms, drawn.opacity]).toEqual([ms, 1]);
-      if (drawn.opacity > 0.05 && drawn.opacity < 0.95) grey += 1;
+      if (drawn.opacity > 0.05 && drawn.opacity < 0.95) translucent += 1;
     }
-    expect(grey).toBeGreaterThanOrEqual(6);
+    expect(translucent).toBeGreaterThanOrEqual(6);
     clock.setValue(exitDuration(1));
     expect(drawnLook(tree).opacity).toBe(0);
     // F1 holds under the compression at every 0.5 ms of the clock: the colour is 0 before the opacity leaves 1.
