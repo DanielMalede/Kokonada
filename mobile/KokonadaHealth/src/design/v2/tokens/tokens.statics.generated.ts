@@ -6,7 +6,7 @@
 // STATICS_SOURCE holds the sha256 of each source file it was built from.
 
 export const STATICS_SOURCE = {
-  base: '7da8c0d0255f08c6687c5ef151cd758297d54ff015637ad93fbba6d210476967',
+  base: '6dc49a227126ec39c7fed8c06a45493e4a54dcbd4253c3554fd74beab91ef691',
   'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
 };
 

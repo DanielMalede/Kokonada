@@ -229,6 +229,21 @@ describe('the breath bounds', () => {
   });
 });
 
+// QA-068 (WCAG 2.3.1) and the designer's L9 (LEDGER rev §3): a Well that hosts a Button changes state at most once per
+// well.hold, so its hint and its action never swap at 3 Hz or faster, even counting every change as a flash of its own.
+// A Well that hosts CommitCTA keeps DEC-174's limits instead.
+describe('QA-068: the Button Well’s hold (L9)', () => {
+  const changesPerSecond = (holdMs: number) => 1000 / holdMs;
+
+  it('well.hold allows fewer than 3 changes a second', () => {
+    expect(changesPerSecond(BASE.well.hold)).toBeLessThan(3);
+  });
+
+  it('bites: a hold of 300 ms would allow 3.3 changes a second', () => {
+    expect(changesPerSecond(300)).toBeGreaterThanOrEqual(3);
+  });
+});
+
 // Contrast by construction (designer §1.3, §1.5, §1.6, DSN-044), on the 8-bit hexes the app paints.
 // Any failure here is a STOP: the values are the designer's to change, not the build's.
 function pairsFor(id: DirectionId, face: Face): Array<[string, ColorValue, ColorValue, number]> {

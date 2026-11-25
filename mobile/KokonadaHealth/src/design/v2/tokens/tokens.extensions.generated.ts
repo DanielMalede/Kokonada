@@ -4,7 +4,7 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: '7da8c0d0255f08c6687c5ef151cd758297d54ff015637ad93fbba6d210476967',
+  base: '6dc49a227126ec39c7fed8c06a45493e4a54dcbd4253c3554fd74beab91ef691',
   'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
 };
 
@@ -225,6 +225,9 @@ export const EXTENSIONS = {
         position: [0, 0.585, 0.63, 0.7, 0.815, 0.926, 1],
         weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0],
       },
+    },
+    'well.hold': {
+      rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
     },
     haptics: {
       delay: 'In PRIMITIVE@delayMs:scale, the delay is Android\'s VibrationEffect.Composition.addPrimitive delay: the gap after the previous primitive ends, not time from the start of the event.',

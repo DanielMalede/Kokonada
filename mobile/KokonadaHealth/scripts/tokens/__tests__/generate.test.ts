@@ -339,6 +339,15 @@ describe('buildTokenModel: the G8 ledger additions (the designer, 2026-11-25)', 
       'hero.listEntry',
     ]);
   });
+
+  // LEDGER rev §3 L9 and §5.9, F3: a Well that hosts a Button changes state at most once per well.hold; a Well that
+  // hosts CommitCTA keeps DEC-174's limits. A timing every direction shares, so in base, beside the Well's heights.
+  it('L9 (F3): well.hold is 400 ms, beside the Well’s heights, and its rule names the Button host only', () => {
+    expect(model.base.well).toEqual({ height: 56, consentSlotHeight: 108, hold: 400 });
+    expect(model.extensions.base['well.hold']).toEqual({
+      rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
+    });
+  });
 });
 
 // The close-out leaves one shipped direction, so the generator's handling of several is shown on a
