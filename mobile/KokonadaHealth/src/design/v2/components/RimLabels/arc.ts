@@ -7,8 +7,10 @@
 //     (advance × the font's ascent..descent) are centred on that line, so the word sits in the middle of the band.
 //   · Concave: at the top, the right and the left the glyph tops point toward the rim and the word runs clockwise; the
 //     bottom word is upright and runs counter-clockwise. Its tracking widens the gaps between its letters only.
-//   · The knock-out (DSN-028): a letter whose cell comes within the bead radius + plate.labelBand.knockoutGap of a
-//     bead's centre is not drawn. The bead sits where the field draws its halo (pointToLocal).
+//   · The knock-out (DSN-028; the designer's ruling 2): a letter whose cell comes within the bead radius +
+//     plate.labelBand.knockoutGap of a bead's centre is near it. A letter near a live bead is out, not drawn, from the
+//     frame the bead appears; one near leaving beads only is returning: it fades back in as they fade
+//     (returningOpacity); any other is kept. The bead sits where the field draws its halo (pointToLocal).
 //
 // All in the plate's own dp, x right and y down. Each glyph's place is an RSXform: its baseline origin (tx, ty) and its
 // rotation (scos, ssin), as Skia lays a glyph run.
@@ -17,15 +19,24 @@ import { pointToLocal, type PlateGeometry, type PlatePoint } from '../Plate/geom
 
 export type RimPosition = 'top' | 'right' | 'bottom' | 'left';
 
-/** Clockwise from the top: the designer's element order (hero.plate.word.top, .right, .bottom, .left), and the order TalkBack reads them in. */
+/** Clockwise from the top: the order the words are laid and drawn in. */
 export const RIM_POSITIONS: readonly RimPosition[] = ['top', 'right', 'bottom', 'left'];
+
+/**
+ * The order TalkBack reads the words in, in every locale (the designer's ruling 1, 2026-11-25): the energy axis, top
+ * then bottom, then the pleasantness axis, right then left. RimLabels mounts their nodes in this order.
+ */
+export const RIM_READING_ORDER: readonly RimPosition[] = ['top', 'bottom', 'right', 'left'];
 
 /** Hebrew letters and its presentation forms, the one right-to-left script a plain reversal orders truthfully. */
 const HEBREW = /[א-תׯ-״יִ-ﭏ]/;
 /** Characters a reversal would misorder inside a right-to-left word: Latin, Greek and Cyrillic letters, and digits. */
 const LEFT_TO_RIGHT = /[0-9A-Za-zÀ-ÖØ-öø-ɏͰ-ϿЀ-ԯ]/;
-/** Combining marks: Latin's and Hebrew's points and accents. A mark needs a shaper to sit on its letter. */
-const MARK = /[̀-֑ͯ-ׇֽֿׁׂׅׄ]/;
+/**
+ * Combining marks: Latin's and Hebrew's points and accents. A mark needs a shaper to sit on its letter. Written as escapes,
+ * so the source holds no Hebrew point of its own: fontLicence.test.ts reads any as copy the fonts must cover (CMP-122).
+ */
+const MARK = /[\u0300-\u036f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7]/;
 /** Joining scripts (Arabic): their letters change shape with their neighbours, which only a shaper does. */
 const JOINING = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 
@@ -45,7 +56,28 @@ export interface RimFontMetrics {
   readonly descent: number;
 }
 
-/** One glyph's place: its index in the word's visual order, its advance, its RSXform, and whether a bead knocks it out. */
+/**
+ * A bead as the rim words see it (the designer's ruling 2; Bead/'s presence makes them): where it sits, and whether it
+ * is leaving. `leftAt` is when its fade-out began, in ms on the clock RimLabels reads each frame (Reanimated's frame
+ * timestamp), null while it is live; `startOpacity` is its opacity when the fade-out began (1 for a live bead).
+ */
+export type RimBead = {
+  readonly point: PlatePoint;
+  readonly leaving: boolean;
+  readonly leftAt: number | null;
+  readonly startOpacity: number;
+};
+
+/** A bead's opacity at `nowMs`: the bead model's exit function (Bead/ exports it). A worklet: it runs on the UI thread. */
+export type BeadOpacity = (b: RimBead, nowMs: number) => number;
+
+/**
+ * A letter's state (the designer's ruling 2): kept, with no bead near it; out, near a live bead, so not drawn; or
+ * returning, near leaving beads only, so drawn at the opacity they leave it (returningOpacity).
+ */
+export type GlyphState = 'kept' | 'out' | 'returning';
+
+/** One glyph's place: its index in the word's visual order, its advance, its RSXform, and its state. */
 export interface PlacedGlyph {
   readonly index: number;
   readonly advance: number;
@@ -53,7 +85,9 @@ export interface PlacedGlyph {
   readonly ssin: number;
   readonly tx: number;
   readonly ty: number;
-  readonly knockedOut: boolean;
+  readonly state: GlyphState;
+  /** A returning letter's leaving beads: their indices in the beads given, ascending. Empty for a kept or an out letter. */
+  readonly follows: readonly number[];
 }
 
 export interface RimBox {
@@ -66,7 +100,7 @@ export interface RimBox {
 export interface RimWordLayout {
   readonly position: RimPosition;
   readonly glyphs: readonly PlacedGlyph[];
-  /** The word's box in the plate's dp: every letter's cell, knocked out or not, outset by the pad. */
+  /** The word's box in the plate's dp: every letter's cell, whatever its state, outset by the pad. */
   readonly bounds: RimBox;
 }
 
@@ -78,8 +112,8 @@ export interface RimWordInput {
   /** Added between letters, in dp: the bottom word's tracking, 0 elsewhere. */
   readonly tracking: number;
   readonly geometry: PlateGeometry;
-  /** The beads on the plate. */
-  readonly beads: readonly PlatePoint[];
+  /** The beads on the plate, live and leaving. */
+  readonly beads: readonly RimBead[];
   /** plate.labelBand.knockoutGap: how far beyond the bead's radius a letter is knocked out, in dp. */
   readonly knockoutGap: number;
   /** How far the word's box reaches beyond its cells, in dp: room for ink past a cell. */
@@ -101,7 +135,7 @@ export function layRimWord(input: RimWordInput): RimWordLayout {
   const total = advances.reduce((sum, a) => sum + a, 0) + tracking * Math.max(0, advances.length - 1);
   const start = ANCHOR[position] - (dir * total) / (2 * baseline);
   const reach = g.beadRadius + knockoutGap;
-  const beadCentres = beads.map((b) => pointToLocal(b, g));
+  const beadCentres = beads.map((b) => pointToLocal(b.point, g));
 
   let along = 0;
   const glyphs = advances.map((advance, index): PlacedGlyph => {
@@ -112,20 +146,69 @@ export function layRimWord(input: RimWordInput): RimWordLayout {
     const ssin = Math.sin(phi);
     const tx = g.centre[0] + baseline * Math.cos(theta) - (advance / 2) * scos;
     const ty = g.centre[1] + baseline * Math.sin(theta) - (advance / 2) * ssin;
-    // The distance from a bead's centre to the cell [0, advance] × [ascent, descent], in the glyph's own frame.
-    const knockedOut = beadCentres.some((c) => {
+    // The beads near the letter: the distance from each centre to the cell [0, advance] × [ascent, descent], in the
+    // glyph's own frame, within reach.
+    const near: number[] = [];
+    beadCentres.forEach((c, k) => {
       const dx = c.x - tx;
       const dy = c.y - ty;
       const lx = dx * scos + dy * ssin;
       const ly = -dx * ssin + dy * scos;
       const ex = Math.max(-lx, 0, lx - advance);
       const ey = Math.max(font.ascent - ly, 0, ly - font.descent);
-      return Math.hypot(ex, ey) <= reach;
+      if (Math.hypot(ex, ey) <= reach) near.push(k);
     });
-    return { index, advance, scos, ssin, tx, ty, knockedOut };
+    const state: GlyphState = near.length === 0 ? 'kept' : near.some((k) => !beads[k].leaving) ? 'out' : 'returning';
+    return { index, advance, scos, ssin, tx, ty, state, follows: state === 'returning' ? near : [] };
   });
 
   return { position, glyphs, bounds: boundsOf(glyphs, font, pad, g, position) };
+}
+
+/** Letters of one word returning together: they follow the same leaving beads. */
+export interface ReturningGroup {
+  readonly follows: readonly number[];
+  readonly glyphs: readonly PlacedGlyph[];
+}
+
+/** A word's returning letters, grouped by the leaving beads they follow, each group in the order its letters are laid. */
+export function returningGroups(layout: RimWordLayout): ReturningGroup[] {
+  const groups = new Map<string, { follows: readonly number[]; glyphs: PlacedGlyph[] }>();
+  for (const glyph of layout.glyphs) {
+    if (glyph.state !== 'returning') continue;
+    const key = glyph.follows.join(',');
+    const group = groups.get(key);
+    if (group) group.glyphs.push(glyph);
+    else groups.set(key, { follows: glyph.follows, glyphs: [glyph] });
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The opacity of letters returning as the leaving beads they follow fade (the designer's ruling 2): one less the largest
+ * share of its starting opacity any of them still has, beadOpacity(b, now) ÷ b.startOpacity, held to [0, 1]. A letter
+ * near one bead comes back exactly as that bead goes; near several, it follows the one that fades last, back in full
+ * only when the last of them has gone, and never showing through one still there. A bead whose fade-out has no leftAt
+ * yet still has all of its share; one that began invisible (startOpacity 0 or less) has none. A start or an opacity
+ * that is not a number keeps the letter out, as a bead that may still be there: the letter is kept once it is gone.
+ */
+export function returningOpacity(beads: readonly RimBead[], nowMs: number, beadOpacity: BeadOpacity): number {
+  'worklet';
+  let share = 0;
+  for (let i = 0; i < beads.length; i++) {
+    const b = beads[i];
+    let s = 1;
+    if (b.leftAt !== null && Number.isFinite(b.startOpacity)) {
+      if (b.startOpacity <= 0) {
+        s = 0;
+      } else {
+        const now = beadOpacity(b, nowMs);
+        s = Number.isFinite(now) ? Math.min(1, Math.max(0, now / b.startOpacity)) : 1;
+      }
+    }
+    if (s > share) share = s;
+  }
+  return 1 - share;
 }
 
 /** Every cell's corners, where each glyph's transform puts them, boxed and outset by the pad. A word with no glyph is a point on the centre line. */
