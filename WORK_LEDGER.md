@@ -151,7 +151,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 _free_
 
 ### M11
-_free_
+- task: `own:stop-google-picture` (own)
+- title: The backend stops storing Google's profile picture URL (avatarUrl) at sign-in, per the owner's ruling of 2026-11-24 (B1 regulatory Q6)
+- branch: `fix/stop-google-picture`
+- paths: `backend/app/controllers/authController.js`, `backend/tests/auth.controller.test.js`, `backend/app/models/User.js`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-24
 
 ### M12
 _free_

@@ -19,7 +19,7 @@ async function verifyGoogleToken(idToken) {
     audience: process.env.GOOGLE_CLIENT_ID,
   });
   const p = ticket.getPayload();
-  return { ssoId: p.sub, email: p.email, displayName: p.name, avatarUrl: p.picture };
+  return { ssoId: p.sub, email: p.email, displayName: p.name }; // `picture` is never read (BE-276)
 }
 
 async function verifyAppleToken(identityToken) {
@@ -28,7 +28,7 @@ async function verifyAppleToken(identityToken) {
     ignoreExpiration: false,
   });
   // Apple only sends name on first sign-in; email may be a relay address
-  return { ssoId: p.sub, email: p.email || '', displayName: '', avatarUrl: '' };
+  return { ssoId: p.sub, email: p.email || '', displayName: '' };
 }
 
 function publicUser(user) {
@@ -64,7 +64,7 @@ async function handleSso(provider, profile, { deviceToken, platform, client } = 
       ssoId: profile.ssoId,
       email: profile.email,
       displayName: profile.displayName,
-      avatarUrl: profile.avatarUrl,
+      // no avatarUrl: it keeps its schema default, no provider's picture is stored (BE-276)
     });
   }
 
