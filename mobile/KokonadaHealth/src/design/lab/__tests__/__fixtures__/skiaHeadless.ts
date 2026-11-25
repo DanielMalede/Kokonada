@@ -44,6 +44,17 @@ export function skiaHeadless() {
       RSXform: disposable,
       Shader: { MakeLinearGradient: disposable },
       TextBlob: { MakeFromRSXformGlyphs: disposable },
+      // F6: the typeface provider reads each face (Data.fromURI), makes its typeface and registers it by family in one
+      // font manager. Headless, the bytes are a stand-in, every one makes a typeface, and the manager keeps what it was
+      // given; the real faces are typefaces.skia.test.ts's, in CanvasKit.
+      Data: { fromURI: (uri: string) => Promise.resolve({ uri, dispose() {} }) },
+      Typeface: { MakeFreeTypeFaceFromData: (data: unknown) => ({ data, dispose() {} }) },
+      TypefaceFontProvider: {
+        Make: () => {
+          const fonts: Array<{ family: string }> = [];
+          return { fonts, registerFont: (_typeface: unknown, family: string) => { fonts.push({ family }); }, dispose() {} };
+        },
+      },
     },
     matchFont: (style: { fontSize?: number } = {}) => headlessFont(style.fontSize ?? 14),
     PaintStyle: { Fill: 0, Stroke: 1 },

@@ -36,6 +36,11 @@ export type Scene = {
    * (scenes.test.tsx renders each scene and checks).
    */
   fonts?: readonly SceneFaceId[];
+  /**
+   * The scene draws Skia text in the bundled faces (F6: the hero's rim words): LabRoot mounts v2's typeface provider above
+   * it, and READY waits until its font manager is in (labTypefaceGate.test.tsx).
+   */
+  typefaces?: true;
   Component: ComponentType<SceneProps>;
 };
 

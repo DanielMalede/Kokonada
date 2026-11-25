@@ -18,6 +18,11 @@
 // lab does not have, or a probe that never lays out by the deadline is an ERROR naming it. A scene that declares no face
 // waits for none.
 //
+// READY waits for the bundled faces in Skia too (F10 G8, F6), for a scene that draws Skia text (`typefaces`, the hero's
+// rim words): LabRoot mounts v2's typeface provider above the scene, with the app's face sources, and READY waits until
+// its font manager is in. Skia on Android has no Heebo and would draw those words with no glyph. A face that cannot load,
+// or a manager not in by the font deadline, is an ERROR naming it, never a READY over missing text.
+//
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
@@ -28,6 +33,8 @@ import { Skia } from '@shopify/react-native-skia';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import type { MotionPorts } from '../v2/motion/ports';
 import type { MotionTier } from '../v2/motion/useMotionPolicy';
+import { TypefaceProvider, useTypefaceFontMgr } from '../v2/typeface/TypefaceProvider';
+import type { FaceSources, ReadFace } from '../v2/typeface/typefaces';
 import { useLabPowerSaveSource } from './adapters/labPowerSaveSource';
 import { fixedClockTime } from './clock/fixedClock';
 import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
@@ -65,7 +72,41 @@ export type LabDeps = {
   scenes: Readonly<Record<string, Scene>>;
   /** The Skia whose backend READY names (UI-276): react-native-skia's own, or a test's. */
   skia: BackendSkia;
+  /**
+   * The faces the typeface provider loads for a scene that draws Skia text (F6): the app's own (V2_FACE_SOURCES, each a
+   * Metro asset) when omitted, or a test's sources and their reader.
+   */
+  typefaces?: { readonly sources: FaceSources<unknown>; readonly read: ReadFace<unknown> };
 };
+
+/**
+ * The app's face sources, required on first use, only by a scene that draws Skia text: each is a font file, a Metro asset
+ * Jest cannot load, so a lab test that mounts such a scene gives its own (LabDeps.typefaces) or mocks the module.
+ */
+const appFaceSources = (): FaceSources<number> => require('../v2FaceSources').V2_FACE_SOURCES;
+
+/** Holds a typeface provider's throw (a face that cannot load) and tells LabRoot, which sends it as the run's ERROR. */
+class TypefaceBoundary extends React.Component<{ onError: (message: string) => void; children?: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: Error) {
+    this.props.onError(error.message);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/** Tells LabRoot once the provider's font manager is in. */
+function TypefacesIn({ onIn }: { onIn: () => void }) {
+  const mgr = useTypefaceFontMgr();
+  useEffect(() => {
+    if (mgr !== undefined) onIn();
+  }, [mgr, onIn]);
+  return null;
+}
 
 const animationFrames: FrameSource = {
   next(callback) {
@@ -386,6 +427,32 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   // not have, or a probe that never lays out by the deadline is one ERROR, naming it; never a READY over the fallback face.
   const judged = useRef(false);
   const fontDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The bundled faces in Skia (F6), for a scene that draws Skia text: READY's fonts are ready once both the faces React
+  // Native drew are judged and the typeface provider's font manager is in.
+  const needsTypefaces = scene.typefaces === true;
+  const fontsJudged = useRef(false);
+  const typefacesIn = useRef(!needsTypefaces);
+  const openFonts = useCallback(() => {
+    if (!fontsJudged.current || !typefacesIn.current || failed.current) return;
+    gate.fontsReady();
+    pump();
+  }, [gate, pump]);
+  const onTypefacesIn = useCallback(() => {
+    if (typefacesIn.current) return;
+    typefacesIn.current = true;
+    openFonts();
+  }, [openFonts]);
+  const onTypefaceError = useCallback((message: string) => {
+    fail(`the typeface provider could not load the bundled faces: ${clip(message)}`);
+  }, [fail]);
+  useEffect(() => {
+    if (!needsTypefaces) return undefined;
+    const timer = setTimeout(() => {
+      if (!typefacesIn.current) fail(`the typeface provider's font manager was not in within ${FONT_CHECK_DEADLINE_MS} ms`);
+    }, FONT_CHECK_DEADLINE_MS);
+    return () => clearTimeout(timer);
+  }, [needsTypefaces, fail]);
+  const [typefaces] = useState(() => (needsTypefaces ? deps.typefaces ?? { sources: appFaceSources() } : null));
   const judgeFonts = useCallback((verdict: FontVerdict) => {
     if (!verdict.settled || judged.current) return;
     judged.current = true;
@@ -397,9 +464,9 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
       fail(verdict.error);
       return;
     }
-    gate.fontsReady();
-    pump();
-  }, [fail, gate, pump]);
+    fontsJudged.current = true;
+    openFonts();
+  }, [fail, openFonts]);
   const onFontWidth = useCallback((probe: FontProbeId, width: number) => {
     judgeFonts(fontCheck.measure(probe, width));
   }, [fontCheck, judgeFonts]);
@@ -485,7 +552,14 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
         <SceneFactsContext.Provider value={reportFacts}>
           <LabMotionPortsContext.Provider value={motionPorts}>
             <CostReportContext.Provider value={costReport}>
-              <SceneComponent clock={clock} t={step.t} params={params} />
+              {typefaces === null ? <SceneComponent clock={clock} t={step.t} params={params} /> : (
+                <TypefaceBoundary onError={onTypefaceError}>
+                  <TypefaceProvider {...(typefaces as { sources: FaceSources<number> })}>
+                    <TypefacesIn onIn={onTypefacesIn} />
+                    <SceneComponent clock={clock} t={step.t} params={params} />
+                  </TypefaceProvider>
+                </TypefaceBoundary>
+              )}
               {faces.length > 0 ? <FontProbes faces={faces} onWidth={onFontWidth} /> : null}
             </CostReportContext.Provider>
           </LabMotionPortsContext.Provider>
