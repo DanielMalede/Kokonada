@@ -7,8 +7,9 @@
 //     carry the page's accessible copy (plate.rim.a11y.*). No string is the component's own: the page resolves both
 //     through the copy port (F10 R2).
 //   · Type: type.face.ui at ui.label's size and weight, times the OS font scale with no cap (DSN-027), in the face's
-//     text.primary. The bottom word takes plate.labelBand's tracking for its script. The font comes from `fontMgr` (F6's
-//     typeface provider once Heebo is bundled), else the system's, which falls back to the platform's face until then.
+//     text.primary. The bottom word takes plate.labelBand's tracking for its script. The font comes from `fontMgr`,
+//     else the typeface provider's above the page (F6: the bundled faces), else the system's, which on Android has no
+//     Heebo and answers a typeface with no glyphs.
 //   · Left to right in every locale (R7, QA-088): the root is `direction: 'ltr'`, and each node is placed by its left and
 //     top inside it. A Hebrew word is laid in the order it is seen; the plate itself never mirrors.
 //   · The knock-out (DSN-028; the designer's ruling 2): letters near a live bead are not drawn, from the frame it appears.
@@ -25,6 +26,7 @@ import { StyleSheet, View } from 'react-native';
 import { Canvas, Group, Picture, Skia, matchFont, type SkFontMgr, type SkPicture } from '@shopify/react-native-skia';
 import { useFrameCallback, useSharedValue, type FrameInfo } from 'react-native-reanimated';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
+import { useTypefaceFontMgr } from '../../typeface/TypefaceProvider.tsx';
 import { plateGeometry } from '../Plate/geometry.ts';
 import {
   RIM_POSITIONS,
@@ -68,7 +70,10 @@ export interface RimLabelsProps {
    * leftAt is stamped on.
    */
   readonly beadOpacity: BeadOpacity;
-  /** The font manager to find type.face.ui in (F6's typeface provider); the system's when omitted. */
+  /**
+   * The font manager to find type.face.ui in. When omitted, the typeface provider's above the page (F6), once its faces
+   * are in; else the system's, which on Android has no Heebo and draws no glyph.
+   */
   readonly fontMgr?: SkFontMgr;
 }
 
@@ -135,8 +140,10 @@ function Returning({ picture, beads, beadOpacity }: ReturningProps) {
   );
 }
 
-export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script, beads: givenBeads, beadOpacity, fontMgr }: RimLabelsProps) {
+export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script, beads: givenBeads, beadOpacity, fontMgr: givenMgr }: RimLabelsProps) {
   const tokens = useTokens();
+  const provided = useTypefaceFontMgr();
+  const fontMgr = givenMgr ?? provided;
   const words = useByValue(givenWords, sameWords);
   const beads = useByValue(givenBeads, sameBeads);
   const band = tokens.base.plate.labelBand;

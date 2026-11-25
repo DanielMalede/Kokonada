@@ -6,6 +6,9 @@ import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts
 import { plateGeometry, type PlatePoint } from '../../Plate/geometry.ts';
 import { RIM_POSITIONS, layRimWord, returningGroups, visualOrder, type RimBead, type RimPosition } from '../arc.ts';
 import { RimLabels, type RimLabelsProps, type RimWords } from '../RimLabels.tsx';
+import { BUNDLED_FACES } from '../../../typeface/faces.ts';
+import { TypefaceProvider } from '../../../typeface/TypefaceProvider.tsx';
+import type { FaceSources } from '../../../typeface/typefaces.ts';
 
 // A stateful fake of the part of Skia the rim words draw with. Its font measures as Heebo does by the designer's budget
 // basis (LEDGER rev §11: 0.50 em a Latin letter, 0.56 em a Hebrew one), with a fixed ascent and descent; its recorder keeps
@@ -15,6 +18,7 @@ jest.mock('@shopify/react-native-skia', () => {
   const fake = {
     fonts: [] as Array<{ style: Record<string, unknown>; mgr: unknown; disposed: number }>,
     recordings: [] as Array<{ blobs: Array<{ ids: number[]; xforms: number[][]; colour: unknown; antiAlias: unknown }>; bounds: unknown; disposed: number }>,
+    managers: [] as Array<{ families: string[]; disposed: number }>,
   };
   const Stub = ({ children }: { children?: unknown }) => children ?? null;
   const Group = ({ children }: { children?: unknown }) => children ?? null;
@@ -31,6 +35,16 @@ jest.mock('@shopify/react-native-skia', () => {
     };
   };
   const Skia = {
+    // The typeface provider's factories (typeface/typefaces.ts): a typeface from the bytes read, and a manager that keeps
+    // each typeface under its family.
+    Typeface: { MakeFreeTypeFaceFromData: (data: unknown) => ({ data, dispose() {} }) },
+    TypefaceFontProvider: {
+      Make: () => {
+        const mgr = { families: [] as string[], disposed: 0, registerFont: (_t: unknown, family: string) => { mgr.families.push(family); }, dispose: () => { mgr.disposed += 1; } };
+        fake.managers.push(mgr);
+        return mgr;
+      },
+    },
     Paint: () => {
       const state: Record<string, unknown> = {};
       return { state, setAntiAlias: (v: unknown) => { state.antiAlias = v; }, setColor: (v: unknown) => { state.colour = v; }, dispose() {} };
@@ -126,6 +140,7 @@ jest.mock('react-native-reanimated', () => {
 const fake = () => jest.requireMock('@shopify/react-native-skia').__fake as {
   fonts: Array<{ style: Record<string, unknown>; mgr: unknown; disposed: number }>;
   recordings: Array<{ blobs: Array<{ ids: number[]; xforms: number[][]; colour: unknown; antiAlias: unknown }>; bounds: { width: number; height: number }; disposed: number }>;
+  managers: Array<{ families: string[]; disposed: number }>;
 };
 const skia = () => jest.requireMock('@shopify/react-native-skia') as { Group: unknown; Picture: unknown };
 const reanimated = jest.requireMock('react-native-reanimated') as Record<string, (...args: unknown[]) => unknown>;
@@ -221,6 +236,7 @@ function expected(position: RimPosition, over: { fontScale?: number; script?: 'l
 beforeEach(() => {
   fake().fonts.splice(0);
   fake().recordings.splice(0);
+  fake().managers.splice(0);
 });
 afterEach(() => {
   for (const r of mounted) act(() => r.unmount());
@@ -311,6 +327,62 @@ describe('RimLabels: the words on the arc', () => {
       });
     });
     view.unmount();
+  });
+
+  // On Android the system font manager has no Heebo, and the typeface it answers has no glyphs: every word measured 0 wide
+  // and drew nothing (f3e4679). The typeface provider above the page holds the bundled faces (F6); with no fontMgr given,
+  // the words are set in its manager.
+  it('with no fontMgr given, sets the words in the typeface provider’s manager once its faces are in, re-laid and redrawn', async () => {
+    const sources = Object.fromEntries(BUNDLED_FACES.map((f) => [f.id, f.id])) as FaceSources<string>;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    const read = async (id: string) => { await held; return { id, dispose() {} } as never; };
+    const props: RimLabelsProps = { diameter: 296, fontScale: 1, words: WORDS, a11y: A11Y, script: 'latin', beads: [], beadOpacity: linearExit };
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      r = ReactTestRenderer.create(
+        <TypefaceProvider sources={sources} read={read}>
+          <DirectionProvider direction="abyss" face="dark"><RimLabels {...props} /></DirectionProvider>
+        </TypefaceProvider>,
+      );
+    });
+    mounted.add(r);
+    // Until the faces are in: the system's.
+    expect(fake().fonts.map((x) => x.mgr)).toEqual([undefined]);
+    expect(fake().recordings).toHaveLength(4);
+    await act(async () => { release(); for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    const [mgr] = fake().managers;
+    expect(mgr.families).toEqual(BUNDLED_FACES.map((x) => x.family));
+    expect(fake().fonts).toHaveLength(2);
+    expect(fake().fonts[1].mgr).toBe(mgr);
+    expect(fake().fonts[1].style).toEqual({ fontFamily: BASE.type.face.ui, fontSize: BASE.type.ui.label.latin.size, fontWeight: String(BASE.type.ui.label.latin.weight) });
+    // The system's font and its pictures are freed, and the words are drawn again in the provider's.
+    expect(fake().fonts[0].disposed).toBe(1);
+    expect(fake().recordings).toHaveLength(8);
+    expect(fake().recordings.slice(0, 4).map((x) => x.disposed)).toEqual([1, 1, 1, 1]);
+    // And the provider's manager outlives nothing: freed when the page goes.
+    act(() => r.unmount());
+    mounted.delete(r);
+    expect(mgr.disposed).toBe(1);
+  });
+
+  it('a fontMgr the page gives wins over the typeface provider’s', async () => {
+    const sources = Object.fromEntries(BUNDLED_FACES.map((f) => [f.id, f.id])) as FaceSources<string>;
+    const read = async (id: string) => ({ id, dispose() {} }) as never;
+    const given = { name: 'the page’s own' };
+    const props: RimLabelsProps = { diameter: 296, fontScale: 1, words: WORDS, a11y: A11Y, script: 'latin', beads: [], beadOpacity: linearExit, fontMgr: given as never };
+    let r!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      r = ReactTestRenderer.create(
+        <TypefaceProvider sources={sources} read={read}>
+          <DirectionProvider direction="abyss" face="dark"><RimLabels {...props} /></DirectionProvider>
+        </TypefaceProvider>,
+      );
+    });
+    mounted.add(r);
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(fake().managers).toHaveLength(1);
+    expect(fake().fonts.map((x) => x.mgr)).toEqual([given]);
   });
 
   it('lays a Hebrew word in the order it is seen, and gives the bottom word Hebrew’s tracking', () => {
