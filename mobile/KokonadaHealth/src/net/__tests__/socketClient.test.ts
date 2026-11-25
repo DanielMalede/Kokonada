@@ -117,8 +117,9 @@ describe('KokonadaSocket — delivery guarantee (re-send pending request on reco
     const sock = created[0];
     const reqId = client.requestPlaylist();
     sock.emitted.length = 0; // clear the send-time emits
-    // A token-expiry gate or churn: disconnect + reconnect with NO response having arrived.
-    sock.fire('disconnect', 'io server disconnect');
+    // A churn: disconnect + reconnect with NO response having arrived. Only a transient drop brings the
+    // SAME socket back; a server disconnect destroys it (socket.io-client socket.js:639-643), RA-6.
+    sock.fire('disconnect', 'transport close');
     sock.fire('connect');
     const resent = sock.clientEmits('request_playlist');
     expect(resent).toHaveLength(1);
@@ -447,6 +448,35 @@ describe('KokonadaSocket — transient reconnects delegate to the socket (no man
   });
 });
 
+// RA-6 (S1): a socket socket.io will never bring back must not stay in this.socket, where ensureOpen()
+// trusts it. The Manager's give-up reaches the port as 'reconnect_failed' (socketFactory.ts).
+describe('KokonadaSocket — a socket that will never come back is dropped (RA-6)', () => {
+  const listening = (s: FakeSocket) => [...s.handlers.values()].some((l) => l.length > 0);
+
+  it('reconnect_failed (the Manager spent its attempts): the socket is dropped, and the next request opens a new one on the current token, no refresh', () => {
+    const statuses: string[] = [];
+    const { client, created, deps } = build({ onConnectionChange: (s: string) => statuses.push(s) });
+    client.connect();
+    created[0].fire('disconnect', 'transport close');
+    created[0].fire('reconnect_failed');
+    expect(listening(created[0])).toBe(false);
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+    const reqId = client.requestPlaylist();
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-1']);
+    expect(created[1].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+    expect(deps.refreshToken).not.toHaveBeenCalled();
+  });
+
+  it('a transport connect_error is transient: the socket stays (the Manager retries it) and nothing reopens', () => {
+    const { client, created } = build();
+    client.connect();
+    created[0].fire('connect_error', Object.assign(new Error('xhr poll error'), { type: 'TransportError' }));
+    client.requestPlaylist();
+    expect(created).toHaveLength(1);
+    expect(listening(created[0])).toBe(true);
+  });
+});
+
 describe('KokonadaSocket — auth-refresh loop cap (self-DoS on a dying fresh token)', () => {
   it('gives up and logs out if a refreshed token keeps auth-expiring immediately', async () => {
     // refresh always yields a token that the server rejects again on connect
@@ -475,5 +505,235 @@ describe('KokonadaSocket — disconnect() is terminal', () => {
     const n = created.length;
     created[0].fire('disconnect', 'transport close');
     expect(created.length).toBe(n); // no reconnect after an intentional close
+  });
+
+  // RA-5 = MB-016: a disconnect() is the account boundary, so the request state ends with it.
+  it('ends the pending heart request and the reqId gate: the next connect re-sends nothing, and a late reply is dropped', () => {
+    const { client, created, deps } = build();
+    client.connect();
+    const reqA = client.requestHeartPlaylist(88);
+    client.disconnect();
+    client.connect();
+    expect(created[1].clientEmits('request_heart_playlist')).toEqual([]);
+    created[1].fire('playlist_ready', { reqId: reqA, tracks: ['late'] });
+    expect(deps.onPlaylist).not.toHaveBeenCalled();
+  });
+
+  // The auth-refresh cap counts one account's storm: the next account starts with its own budget.
+  it('ends the auth-refresh window: a storm that hit the cap before the close does not stop the next session\'s first refresh', async () => {
+    const { client, created, deps } = build({ refreshToken: jest.fn(async () => 'access-fresh'), isSessionActive: () => true, maxAuthRefreshes: 2, now: () => 0 });
+    client.connect();
+    for (let i = 0; i < 3; i++) { created[created.length - 1].fire('auth_expired'); await flush(); } // the third is over the cap
+    expect(created).toHaveLength(3);
+    client.disconnect();
+    client.connect();
+    const opened = created.length;
+    created[opened - 1].fire('auth_expired');
+    await flush();
+    expect(created).toHaveLength(opened + 1); // refreshed and reopened, not capped
+    expect(deps.refreshToken).toHaveBeenCalledTimes(3);
+  });
+});
+
+// RA-45 (S0, QA-096, trigger T1) and RA-47 (S3), the B1 QA brief: babel strips no console call, so
+// a release build writes every console argument to logcat. A heart-rate value, and the server's
+// free text (an error message can carry an upstream error's text), must never be one of them.
+describe('KokonadaSocket — the logs carry no health value and no server free text (RA-45, RA-47)', () => {
+  afterEach(() => { jest.restoreAllMocks(); });
+  function spyLogs() {
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    return { log, warn, all: () => [...log.mock.calls, ...warn.mock.calls].flat().map((a) => String(a)) };
+  }
+
+  it('requestHeartPlaylist(72) logs whether a heart rate is present, never the number', () => {
+    const logs = spyLogs();
+    const { client, created } = build();
+    client.connect();
+    client.requestHeartPlaylist(72);
+    expect(created[0].clientEmits('request_heart_playlist')[0].payload.heartRate).toBe(72); // the wire still carries it
+    expect(logs.all().some((a) => a.includes('72'))).toBe(false);
+    expect(logs.log.mock.calls.some((c) => c.includes('hasHr='))).toBe(true);
+  });
+
+  it('connect_error logs a fixed code, never the error\'s own text', () => {
+    const logs = spyLogs();
+    const { client, created } = build();
+    client.connect();
+    created[0].fire('connect_error', Object.assign(new Error('xhr poll error: secret-host-detail'), { type: 'TransportError' }));
+    created[0].fire('connect_error', new Error('user 5f2a not found: grief on a tuesday'));
+    created[0].fire('connect_error', undefined);
+    created[0].fire('connect_error', new Error('unauthorized')); // last: a refusal drops the socket (RA-6)
+    expect(logs.all().some((a) => /secret-host-detail|5f2a|grief/.test(a))).toBe(false);
+    expect(logs.warn.mock.calls).toEqual([
+      ['[koko] socket connect_error:', 'transport'],
+      ['[koko] socket connect_error:', 'other'],
+      ['[koko] socket connect_error:', 'other'],
+      ['[koko] socket connect_error:', 'unauthorized'],
+    ]);
+  });
+
+  it('playlist_error and playlist_building log whether a message came, never its text', () => {
+    const logs = spyLogs();
+    const { client, created } = build({ onGenerationError: jest.fn(), onBuilding: jest.fn(), setTimer: jest.fn(), clearTimer: jest.fn() });
+    client.connect();
+    const building = client.requestPlaylist();
+    created[0].fire('playlist_building', { reqId: building, message: 'MARKER-building-text' });
+    const failed = client.requestPlaylist();
+    created[0].fire('playlist_error', { reqId: failed, message: 'Token refresh failed: MARKER-upstream-text' });
+    expect(logs.all().some((a) => a.includes('MARKER'))).toBe(false);
+  });
+});
+
+// C4 (B1 charter §6 item 4): a refresh that comes back null while the session still holds its
+// pair was `unavailable` (C1), not a dead session: the socket must not log the user out, and must
+// not stay wedged on its dead socket either. reconnect() is the recovery: refresh, then open.
+describe('KokonadaSocket — an unavailable refresh is not a logout; reconnect() recovers (C4)', () => {
+  const noListeners = (s: FakeSocket) => [...s.handlers.values()].every((l) => l.length === 0);
+  function buildC4(answers: Array<string | null>, sessionActive = true) {
+    const refreshToken = jest.fn(async () => (answers.length ? answers.shift()! : null));
+    const statuses: string[] = [];
+    const built = build({ refreshToken, isSessionActive: () => sessionActive, onConnectionChange: (s: string) => statuses.push(s) });
+    return { ...built, refreshToken, statuses };
+  }
+
+  it('auth_expired whose refresh is unavailable: no logout, no new socket, the dead socket is torn down, the badge reads disconnected', async () => {
+    const { client, created, deps, statuses } = buildC4([null]);
+    client.connect();
+    created[0].fire('auth_expired');
+    await flush();
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(created).toHaveLength(1);
+    expect(noListeners(created[0])).toBe(true);
+    expect(statuses[statuses.length - 1]).toBe('disconnected');
+  });
+
+  it('reconnect() after it: a fresh socket on the refreshed token, and the pending request is re-sent there', async () => {
+    const { client, created, refreshToken } = buildC4([null, 'access-3']);
+    client.connect();
+    const reqId = client.requestPlaylist();
+    created[0].fire('auth_expired');
+    await flush();
+    await client.reconnect();
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-3']);
+    expect(created[1].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+  });
+
+  it('the next request after it goes through a refresh, never through the dead token', async () => {
+    const { client, created, refreshToken } = buildC4([null, 'access-3']);
+    client.connect();
+    created[0].fire('auth_expired');
+    await flush();
+    const reqId = client.requestPlaylist(); // ensureOpen: no live socket, and its access token was refused
+    await flush();
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-3']);
+    expect(created[1].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+  });
+
+  it('reconnect() when the session is dead logs out once and opens nothing', async () => {
+    const { client, created, deps } = buildC4([null], false);
+    await client.reconnect();
+    expect(deps.onLoggedOut).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(0);
+  });
+
+  it('reconnect() is single-flight: two calls while the refresh is pending refresh once and open one socket', async () => {
+    let release!: (v: string | null) => void;
+    const refreshToken = jest.fn(() => new Promise<string | null>((r) => { release = r; }));
+    const { client, created } = build({ refreshToken, isSessionActive: () => true });
+    const a = client.reconnect();
+    const b = client.reconnect();
+    release('access-3');
+    await Promise.all([a, b]);
+    expect(refreshToken).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(1);
+  });
+
+  it('a disconnect() while reconnect() waits on the refresh wins: nothing opens afterwards', async () => {
+    let release!: (v: string | null) => void;
+    const refreshToken = jest.fn(() => new Promise<string | null>((r) => { release = r; }));
+    const { client, created, deps } = build({ refreshToken, isSessionActive: () => true });
+    const pending = client.reconnect();
+    client.disconnect(); // the user signs out mid-refresh
+    release('access-3');
+    await pending;
+    expect(created).toHaveLength(0);
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+  });
+
+  // ARCH-309-1 = RA-1: disconnect() kept `recovery`, so after a sign-out while the socket waited on a
+  // refresh, ensureOpen() and reconnect() kept answering with that dead run: the next account got no socket.
+  it('a disconnect() while reconnect() waits on a refresh that never answers: ensureOpen() opens on the next account\'s token', () => {
+    let token = 'access-1';
+    const refreshToken = jest.fn(() => new Promise<string | null>(() => {})); // never settles
+    const { client, created } = build({ refreshToken, getAccessToken: () => token, isSessionActive: () => true });
+    client.connect();
+    created[0].fire('auth_expired'); // reconnect(): the refresh is in flight for good
+    client.disconnect(); // the user signs out
+    token = 'access-b'; // and account B signs in
+    client.ensureOpen();
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-b']);
+  });
+
+  it('reconnect() after a disconnect() starts a run of its own: it never returns the run the close abandoned', () => {
+    const refreshToken = jest.fn(() => new Promise<string | null>(() => {})); // never settles
+    const { client, created } = build({ refreshToken, isSessionActive: () => true });
+    client.connect();
+    created[0].fire('auth_expired');
+    client.disconnect();
+    void client.reconnect();
+    expect(refreshToken).toHaveBeenCalledTimes(2);
+  });
+
+  // RA-10 (S3): reconnect() tore a live socket down BEFORE its refresh, so an unavailable refresh left the
+  // phone with no socket although that socket's token was never refused. Refresh first; replace on a fresh token.
+  it('reconnect() on a live socket whose refresh is unavailable keeps that socket: still listening, still the one requests ride, no logout', async () => {
+    const { client, created, deps } = buildC4([null]);
+    client.connect();
+    await client.reconnect();
+    expect(created).toHaveLength(1);
+    expect(created[0].disconnectCalls).toBe(0);
+    expect(noListeners(created[0])).toBe(false);
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    const reqId = client.requestPlaylist();
+    expect(created).toHaveLength(1);
+    expect(created[0].clientEmits('request_playlist').map((e) => e.payload)).toContainEqual({ reqId });
+  });
+
+  it('reconnect() on a live socket whose session is dead logs out once and leaves that socket closed and unheard', async () => {
+    const { client, created, deps } = buildC4([null], false);
+    client.connect();
+    await client.reconnect();
+    expect(deps.onLoggedOut).toHaveBeenCalledTimes(1);
+    expect(noListeners(created[0])).toBe(true);
+    expect(created[0].disconnectCalls).toBeGreaterThan(0);
+  });
+
+  it('reconnect() on a live socket replaces it: the old one is torn down and disconnected', async () => {
+    const { client, created } = buildC4(['access-3']);
+    client.connect();
+    await client.reconnect();
+    expect(created.map((s) => s.token)).toEqual(['access-1', 'access-3']);
+    expect(created[0].disconnectCalls).toBeGreaterThan(0);
+    expect(noListeners(created[0])).toBe(true);
+  });
+
+  it('the auth-refresh loop cap stops the loop without ending a live session, and leaves no socket listening', async () => {
+    const { client, created, deps } = build({
+      refreshToken: jest.fn(async () => 'access-still-dead'),
+      isSessionActive: () => true,
+      maxAuthRefreshes: 5,
+      now: () => 0,
+    });
+    client.connect();
+    for (let i = 0; i < 20; i++) {
+      created[created.length - 1].fire('auth_expired');
+      await flush();
+    }
+    expect(deps.onLoggedOut).not.toHaveBeenCalled();
+    expect(created.length).toBeLessThanOrEqual(7);
+    expect(created.every(noListeners)).toBe(true);
   });
 });

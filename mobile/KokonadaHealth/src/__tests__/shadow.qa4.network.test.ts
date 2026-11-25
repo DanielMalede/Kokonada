@@ -8,6 +8,17 @@
 import { PlaybackOrchestrator, type Scheduler } from '../experience/playback/playbackOrchestrator';
 import { SpotifyPlayerController, type SpotifyRemoteLike } from '../experience/player/spotifyController';
 import { KokonadaSocket, type SocketLike } from '../net/socketClient';
+import { FakeSocketServer } from '../testing/socket';
+
+// The real playbackServices graph (the last suite) opens its sockets through this factory: the
+// QA-045 fake server.
+const mockServer: { current: FakeSocketServer | null } = { current: null };
+jest.mock('../net/socketFactory', () => ({
+  createBackendSocket: (token: string) => {
+    if (!mockServer.current) throw new Error('no fake socket server installed');
+    return mockServer.current.createSocket(token);
+  },
+}));
 
 function makeScheduler() {
   const tasks = new Map<number, { fn: () => void; ms: number }>();
@@ -227,5 +238,53 @@ describe('Q4 — KokonadaSocket reqId gating + auth storm (DEFENDED)', () => {
     await new Promise((r) => setImmediate(r));
     expect(refreshCalls).toBe(1);
     expect(first.listenerCount('playlist_ready')).toBe(0); // teardown detached the dead socket
+  });
+});
+
+// C4 through the REAL wiring (playbackServices: the kokoSocket over the app's one AuthSession and
+// its Keychain endpoint): the socket's token expires while the phone is offline. The old wiring
+// sent the null refresh to onLoggedOut, and onLoggedOut cleared the session: a sign-out by a
+// network blip. Now the session survives, and reconnect() brings the socket back on a fresh token.
+describe('Q4 — the playback socket over the real session: an offline refresh is not a sign-out (C4)', () => {
+  const realFetch = (globalThis as any).fetch;
+  afterEach(() => { (globalThis as any).fetch = realFetch; mockServer.current = null; jest.restoreAllMocks(); });
+  const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
+
+  it('auth_expired while offline keeps the session and its Keychain pair; reconnect() on the network re-sends the pending request', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const server = new FakeSocketServer({ validTokens: ['acc-a'] });
+    mockServer.current = server;
+    let svc: any;
+    let Keychain: any;
+    jest.isolateModules(() => {
+      svc = require('../experience/playback/playbackServices');
+      Keychain = require('react-native-keychain');
+    });
+    await svc.authSession.setSession({ access: 'acc-a', refresh: 'krt-a' });
+    (globalThis as any).fetch = jest.fn(async () => { throw new TypeError('Network request failed'); });
+
+    svc.kokoSocket.connect();
+    server.flush();
+    server.expire('acc-a');
+    const reqId = svc.kokoSocket.requestPlaylist();
+    await settle();
+    server.flush();
+
+    expect(svc.authSession.hasSession()).toBe(true);
+    expect(svc.authSession.getAccessToken()).toBe('acc-a');
+    expect(Keychain.resetGenericPassword).not.toHaveBeenCalled();
+    expect(() => server.assertNoLiveListeners()).not.toThrow();
+
+    // The network is back a minute later: past the backoff an unavailable refresh holds (RA-2, at most 60 s).
+    const later = Date.now() + 60_000;
+    jest.spyOn(Date, 'now').mockReturnValue(later);
+    (globalThis as any).fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ token: 'acc-b', refreshToken: 'krt-b' }) }));
+    server.accept('acc-b');
+    await svc.kokoSocket.reconnect();
+    server.flush();
+    expect(server.sockets.map((s) => s.token)).toEqual(['acc-a', 'acc-b']);
+    expect(server.receivedOn('request_playlist', server.sockets[1])).toEqual([{ reqId }]);
+    svc.kokoSocket.disconnect();
   });
 });

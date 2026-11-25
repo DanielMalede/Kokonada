@@ -297,3 +297,70 @@ describe('SSO → Identity upsert', () => {
     expect(payload.exp - payload.iat).toBe(15 * 60);
   });
 });
+
+// BE-276 — the owner's ruling of 2026-11-24: the backend no longer stores the profile picture URL
+// a provider's token carries. Google's ID token still has `picture`; none of it may reach the User
+// row. The field stays declared and `publicUser` still returns it: a row stored before keeps its
+// value until the purge (BE-277), and the client treats the field as optional.
+describe('SSO sign-in stores no profile picture URL (BE-276)', () => {
+  const appleSignin = require('apple-signin-auth');
+  const PICTURE = 'https://images.example.com/google/picture-from-the-token.png';
+
+  it('a new Google account gets no avatarUrl although the token carries a picture, which is never read', async () => {
+    let pictureReads = 0;
+    mockVerifyIdToken.mockResolvedValue({
+      getPayload: () => ({
+        sub: 'g-pic', email: 'pic@example.com', name: 'Dan',
+        get picture() { pictureReads += 1; return PICTURE; },
+      }),
+    });
+
+    const res = buildRes();
+    await ctrl.googleAuth({ body: { idToken: 'valid-google-token', client: 'mobile' } }, res, next);
+    expect(res.status).toHaveBeenCalledWith(200);
+
+    expect(User.create).toHaveBeenCalledTimes(1);
+    const written = User.create.mock.calls[0][0];
+    expect(written).not.toHaveProperty('avatarUrl'); // the schema default applies
+    expect(JSON.stringify(written)).not.toContain(PICTURE); // under no other field name either
+    expect(pictureReads).toBe(0);
+    expect(User.__store[0].avatarUrl).toBe('');
+    expect(lastJson(res).user).toHaveProperty('avatarUrl', ''); // the answer keeps the field, empty
+  });
+
+  it('a returning Google user keeps the stored avatarUrl: the token\'s picture neither refreshes nor clears it', async () => {
+    const STORED = 'https://images.example.com/google/stored-before-the-ruling.png';
+    await User.create({ ssoProvider: 'google', ssoId: 'g-back', email: 'back@example.com', avatarUrl: STORED });
+    User.create.mockClear();
+    mockVerifyIdToken.mockResolvedValue({
+      getPayload: () => ({ sub: 'g-back', email: 'back@example.com', name: 'Dan', picture: PICTURE }),
+    });
+
+    // A device token makes the returning path save the row, the one write that path makes.
+    const res = buildRes();
+    await ctrl.googleAuth({
+      body: { idToken: 'valid-google-token', deviceToken: 'fcm-device-1', platform: 'android', client: 'mobile' },
+    }, res, next);
+    expect(res.status).toHaveBeenCalledWith(200);
+
+    expect(User.create).not.toHaveBeenCalled();
+    expect(User.__store).toHaveLength(1);
+    const row = User.__store[0];
+    expect(row.save).toHaveBeenCalled();
+    expect(row.avatarUrl).toBe(STORED);
+    expect(JSON.stringify(row)).not.toContain(PICTURE);
+    expect(lastJson(res).user.avatarUrl).toBe(STORED);
+  });
+
+  it('an Apple sign-in writes no avatarUrl either: no provider sets the field', async () => {
+    appleSignin.verifyIdToken.mockResolvedValue({ sub: 'a-new', email: 'relay@example.com' });
+
+    const res = buildRes();
+    await ctrl.appleAuth({ body: { identityToken: 'valid-apple-token', client: 'mobile' } }, res, next);
+    expect(res.status).toHaveBeenCalledWith(200);
+
+    expect(User.create).toHaveBeenCalledTimes(1);
+    expect(User.create.mock.calls[0][0]).not.toHaveProperty('avatarUrl');
+    expect(User.__store[0].avatarUrl).toBe('');
+  });
+});

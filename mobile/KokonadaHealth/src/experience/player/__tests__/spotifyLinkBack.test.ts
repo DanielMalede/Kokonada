@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import * as fs from 'fs';
 import * as path from 'path';
-import { Linking } from 'react-native';
+import { Linking, Platform } from 'react-native';
 
 // The App Remote wake path is the production `player` (SpotifyPlayerController) singleton; mock it so
 // the wiring's reuse of the EXISTING connect/wake path is observable without the native graph.
@@ -11,7 +11,7 @@ jest.mock('../../playback/playbackServices', () => ({
 
 import { SpotifyRemote } from '@kokonada/spotify-remote';
 import { player } from '../../playback/playbackServices';
-import { isSpotifyInstalled, foregroundSpotify, openSpotifyWebPage } from '../spotifyLinkBack';
+import { isSpotifyInstalled, foregroundSpotify, openSpotifyWebPage, openSpotifyStoreListing } from '../spotifyLinkBack';
 
 const connect = player.connect as jest.Mock;
 const installed = SpotifyRemote.isSpotifyInstalled as jest.Mock;
@@ -119,6 +119,8 @@ describe('spotifyLinkBack — foregroundSpotify opens the exact item in the Spot
 // REVERSED, signed by the owner 2026-09-30 (DEC-112; not in DEC-091): this pinned the download page
 // ("getSpotifyApp fallback opens the download URL"). HX-4 M2: not installed ("GET SPOTIFY FREE") →
 // the SAME item's open.spotify.com page, never the download page; brief M2 reverses it.
+// DEC-193 (2026-11-25, which supersedes DEC-112) sends GET SPOTIFY FREE to the store listing (below);
+// this page stays as the link of the title and the cover on Now Playing, in either install state.
 describe('spotifyLinkBack — openSpotifyWebPage opens the same item on open.spotify.com', () => {
   it.each([
     [TRACK_URI, `https://open.spotify.com/track/${TRACK_ID}`],
@@ -135,7 +137,7 @@ describe('spotifyLinkBack — openSpotifyWebPage opens the same item on open.spo
     expect(openURL).not.toHaveBeenCalled();
   });
 
-  it('never wakes the App Remote (Spotify is not installed on this branch)', async () => {
+  it('never wakes the App Remote (a web page is no trip into the app)', async () => {
     await openSpotifyWebPage(TRACK_URI);
     expect(connect).not.toHaveBeenCalled();
   });
@@ -143,6 +145,105 @@ describe('spotifyLinkBack — openSpotifyWebPage opens the same item on open.spo
   it('never throws when Linking fails', async () => {
     openURL.mockRejectedValueOnce(new Error('no handler'));
     await expect(openSpotifyWebPage(TRACK_URI)).resolves.toBeUndefined();
+  });
+});
+
+// DEC-193 (supersedes DEC-112; CMP-008; the compliance-auditor's CA307-15): Spotify is not installed
+// ("GET SPOTIFY FREE") → Spotify's own app-store listing. Spotify's Design Guidelines, "Linking to
+// Spotify": "If the app is not installed, the user should be directed to the app store so that they
+// can install Spotify." The listing is Spotify's, not the item's: one URL for every item, with no
+// parameters.
+describe('spotifyLinkBack — openSpotifyStoreListing opens Spotify\'s app-store listing (DEC-193)', () => {
+  const PLAY_APP = 'market://details?id=com.spotify.music';
+  const PLAY_WEB = 'https://play.google.com/store/apps/details?id=com.spotify.music';
+  const APP_STORE = 'https://apps.apple.com/app/spotify-music-and-podcasts/id324684580';
+  const ORIGINAL_OS = Platform.OS;
+  afterEach(() => { (Platform as any).OS = ORIGINAL_OS; });
+
+  // A stateful fake of Android's intent resolution behind Linking.openURL (React Native's
+  // IntentModule.openURL starts an ACTION_VIEW activity): a URL opens when an installed app handles
+  // its scheme, and otherwise the promise rejects with the native "No Activity found to handle
+  // Intent". A browser handles https; the Play Store app handles market:// only where Google Play is
+  // installed, which is not every phone or emulator.
+  function android({ playStore, browser = true }: { playStore: boolean; browser?: boolean }) {
+    (Platform as any).OS = 'android';
+    const landed: string[] = [];
+    openURL.mockImplementation(async (url: string) => {
+      const scheme = url.slice(0, url.indexOf(':')).toLowerCase();
+      const handled = (scheme === 'market' && playStore) || (scheme === 'https' && browser);
+      if (!handled) throw new Error(`Could not open URL '${url}': No Activity found to handle Intent`);
+      landed.push(url);
+      return true;
+    });
+    return landed;
+  }
+
+  it('Android with Google Play: opens Spotify\'s listing in the Play Store app, exactly once', async () => {
+    const landed = android({ playStore: true });
+    await openSpotifyStoreListing(TRACK_URI);
+    expect(openURL.mock.calls).toEqual([[PLAY_APP]]);
+    expect(landed).toEqual([PLAY_APP]);
+  });
+
+  it('Android without Google Play: market:// has no handler, so the same listing opens on the Play web page', async () => {
+    const landed = android({ playStore: false });
+    await openSpotifyStoreListing(TRACK_URI);
+    expect(openURL.mock.calls).toEqual([[PLAY_APP], [PLAY_WEB]]);
+    expect(landed).toEqual([PLAY_WEB]);
+  });
+
+  it('never throws into the UI when neither the Play Store nor a browser can open it', async () => {
+    const landed = android({ playStore: false, browser: false });
+    await expect(openSpotifyStoreListing(TRACK_URI)).resolves.toBeUndefined();
+    expect(openURL).toHaveBeenCalledTimes(2);
+    expect(landed).toEqual([]);
+  });
+
+  // On Android 11+ canOpenURL answers through package visibility, so without a <queries> entry it
+  // says false for market:// and would skip the Play Store; opening and falling back on failure
+  // needs no manifest change.
+  it('never asks canOpenURL first', async () => {
+    const canOpen = jest.spyOn(Linking, 'canOpenURL');
+    android({ playStore: true });
+    await openSpotifyStoreListing(TRACK_URI);
+    expect(canOpen).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    TRACK_URI,
+    'spotify:album:4aawyAB9vmqN3uQ7FjRGTy',
+    'spotify:playlist:3cEYpjA9oz9GiPac4AsH4n',
+  ])('the listing is Spotify\'s, not the item\'s: %s opens the same listing, never an open.spotify.com page or the download page', async (uri) => {
+    android({ playStore: true });
+    await openSpotifyStoreListing(uri);
+    expect(openURL.mock.calls).toEqual([[PLAY_APP]]);
+    const opened = openURL.mock.calls.map((c) => String(c[0]));
+    expect(opened.filter((u) => /open\.spotify\.com/.test(u) || DOWNLOAD_PAGE.test(u))).toEqual([]);
+  });
+
+  // iOS is frozen (no Mac): this branch is pinned here and has never run on a device.
+  it('iOS: opens Spotify\'s App Store listing, exactly once, and no Android store URL', async () => {
+    (Platform as any).OS = 'ios';
+    await openSpotifyStoreListing(TRACK_URI);
+    expect(openURL.mock.calls).toEqual([[APP_STORE]]);
+  });
+
+  it('iOS: never throws into the UI when the App Store listing cannot open', async () => {
+    (Platform as any).OS = 'ios';
+    openURL.mockRejectedValueOnce(new Error('no handler'));
+    await expect(openSpotifyStoreListing(TRACK_URI)).resolves.toBeUndefined();
+  });
+
+  it.each(UNLINKABLE)('opens NOTHING for an unlinkable URI (no item on screen, no link-back): %p', async (uri) => {
+    android({ playStore: true });
+    await openSpotifyStoreListing(uri);
+    expect(openURL).not.toHaveBeenCalled();
+  });
+
+  it('never wakes the App Remote (Spotify is not installed on this branch)', async () => {
+    android({ playStore: true });
+    await openSpotifyStoreListing(TRACK_URI);
+    expect(connect).not.toHaveBeenCalled();
   });
 });
 

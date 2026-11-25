@@ -35,11 +35,15 @@
 //  - a starred deny reads free text too, so a commit message that spells a denied token is refused
 //    (`git commit -m "never git push origin main again"` matches `git *push * main *`): reword the
 //    message. Only a quote-aware matcher would lift this, and the runtime's is not;
-//  - this model and the one in `.claude/hooks/merge-guard-trigger.test.mjs` (`globMatch`) differ
+//  - this model and the strict one in `backend/tests/shadow.claudeSettings.policy.test.js` differ
 //    on one rule: here a trailing ` *` matches the bare command (`npm test` under `npm test *`),
-//    there it needs the space. At most one is the runtime's reading; the live capture's `npm test`
-//    item settles it, and a shared model is a later row. Every deny is written so that it holds
-//    under both readings (`backend/tests/shadow.claudeSettings.policy.test.js` pins that).
+//    there it does not, and every `*` needs a character. At most one is the runtime's reading; the
+//    live capture's `npm test` item settles it, and a shared model is a later row. Every deny is
+//    written so that it holds under both readings (the shadow pins that).
+//
+// DEC-192 removed the merge-guard trigger, the only hook this file registered, and its tests. The
+// deny-list pins those tests held (every Bash deny with a PowerShell twin, every git deny with a
+// `git -C *` twin, no duplicate, and H-5's push to main) are kept here, in the block that says so.
 //
 // The commands that carry the owner's absolute paths — CLAUDE.md step 2's three strings and its
 // L-check, the sentinel's five strings of step 3, the adb rules — are never quoted here:
@@ -302,6 +306,153 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
   });
 });
 
+describe('DEC-192 · the hooks: no merge-guard trigger, and no hook that runs a script the tree does not hold', () => {
+  const commands = Object.values(settings.hooks || {})
+    .flatMap((groups) => (Array.isArray(groups) ? groups : []))
+    .flatMap((group) => (group.hooks || []).map((h) => h.command || ''));
+
+  it('no hook registration names the deleted merge-guard trigger', () => {
+    expect(commands.filter((c) => c.includes('merge-guard-trigger'))).toEqual([]);
+    expect(fs.existsSync(path.join(ROOT, '.claude', 'hooks', 'merge-guard-trigger.mjs'))).toBe(false);
+  });
+
+  // The repository scripts a hook command runs, as paths relative to the repository root: under
+  // `$CLAUDE_PROJECT_DIR`, `${CLAUDE_PROJECT_DIR}`, the shell's `${CLAUDE_PROJECT_DIR:-…}`, PowerShell's `$env:`,
+  // `$Env:` or `${env:…}` form or cmd's `%CLAUDE_PROJECT_DIR%`, in any case, or under `$(git rev-parse
+  // --show-toplevel)`, with a closing double or single quote before the slash or not, before either slash; or a
+  // relative path under `.claude/`, `scripts/`, `backend/` or `mobile/`, with `./` or not. A braced form is read only
+  // with its closing brace, so `${CLAUDE_PROJECT_DIR/x/y}` (a substitution) is not read as the directory (RA-33).
+  const hookScripts = (command) => [...new Set([
+    ...[...command.matchAll(/(?:\$\{(?:env:)?CLAUDE_PROJECT_DIR(?::-[^}"'\s]*)?\}|\$(?:env:)?CLAUDE_PROJECT_DIR|%CLAUDE_PROJECT_DIR%)["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
+    ...[...command.matchAll(/\$\(git rev-parse --show-toplevel\)["']?[\\/]([^"'\s]+)/gi)].map((m) => m[1]),
+    ...[...command.matchAll(/(?:^|[\s"'=])(?:\.[\\/])?((?:\.claude|scripts|backend|mobile)[\\/][^"'\s]+)/gi)].map((m) => m[1]),
+  ].map((p) => p.replace(/\\/g, '/')))];
+  // RA-33: a part of a hook command (split at `&&`, `||`, `;`, `|` and newlines) that names the project directory or a
+  // repository path, and from which hookScripts reads nothing.
+  const namesRepo = (part) => /CLAUDE_PROJECT_DIR|rev-parse\s+--show-toplevel|(?:^|[\s"'=`\\/])(?:\.claude|scripts|backend|mobile)[\\/]/i.test(part);
+  const unread = (command) => command.split(/&&|\|\||[;|\n]/).some((part) => namesRepo(part) && hookScripts(part).length === 0);
+
+  it('every hook that runs a script under the project directory runs one that exists, and none is left unread', () => {
+    const missing = commands.flatMap(hookScripts).filter((rel) => !fs.existsSync(path.join(ROOT, rel)));
+    expect(missing).toEqual([]);
+    expect(commands.filter(unread)).toEqual([]);
+  });
+
+  // RA-33: the reader fails closed. A part of a hook command (split at `&&`, `||`, `;`, `|` and newlines) that names
+  // `CLAUDE_PROJECT_DIR` in any case, `rev-parse --show-toplevel`, or a `.claude`, `scripts`, `backend` or `mobile`
+  // path segment, and from which the reader takes no script, is refused, so a spelling it misses fails the case above
+  // instead of passing unread.
+  it('a hook command part that names the project directory or a repository path, but from which the reader reads nothing, is refused', () => {
+    expect([
+      'node "$(git -C ../other rev-parse --show-toplevel)/.claude/hooks/y.mjs"',
+      'bash -c \'cd "$CLAUDE_PROJECT_DIR" && node hook.mjs\'',
+      'node /opt/tools/scripts/z.js',
+      'node .claude/hooks/a.mjs && node "${CLAUDE_PROJECT_DIR/x/y}/b.mjs"',
+      'node `git rev-parse --show-toplevel`/.claude/hooks/c.mjs',
+    ].filter((c) => !unread(c))).toEqual([]);
+    expect([
+      'echo "no script here"',
+      'node "$CLAUDE_PROJECT_DIR/.claude/hooks/a.mjs"',
+      'node .claude/hooks/d.mjs; echo done',
+      'node "$(git rev-parse --show-toplevel)/.claude/hooks/x.mjs"',
+      'node ${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/x.mjs',
+    ].filter(unread)).toEqual([]);
+  });
+
+  // CU307-4: a half-wired hook hides behind any spelling the reader misses. It reads the spellings listed in this case,
+  // and only those: a hook command written another way is not read, so a new spelling gets its case here first.
+  // RA-16 and CU307-6: a quote closed before the slash (`"$CLAUDE_PROJECT_DIR"/…`), PowerShell's `$env:` form and
+  // cmd's `%…%` form. RA-23 = SA-12 = CU307-8: `${env:…}` and `$Env:`, any case, a closing `'`, and relative scripts
+  // under scripts/, backend/ and mobile/.
+  it('the script reader finds $CLAUDE_PROJECT_DIR braced or bare, quoted before the slash, as $env:, $Env:, ${env:…} and %…% in any case, before either slash, and a relative path under .claude/, scripts/, backend/ or mobile/', () => {
+    expect([
+      'node "$CLAUDE_PROJECT_DIR/.claude/hooks/a.mjs"',
+      'node "${CLAUDE_PROJECT_DIR}/.claude/hooks/b.mjs" --flag',
+      'node "$CLAUDE_PROJECT_DIR\\.claude\\hooks\\c.mjs"',
+      'node .claude/hooks/d.mjs',
+      'node ./.claude/hooks/e.mjs',
+      'node "$CLAUDE_PROJECT_DIR/scripts/f.js"',
+      'echo "no script here"',
+      'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/g.mjs',
+      'node "${CLAUDE_PROJECT_DIR}"/.claude/hooks/h.mjs',
+      'powershell -File $env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\i.ps1',
+      'powershell -File "$env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\j.ps1"',
+      'cmd /c %CLAUDE_PROJECT_DIR%\\.claude\\hooks\\k.cmd',
+      'cmd /c "%CLAUDE_PROJECT_DIR%"\\scripts\\l.cmd',
+      // RA-23 = SA-12 = CU307-8: PowerShell's braced and capitalised env forms, any case, a closing single quote, and a
+      // relative script under scripts/, backend/ or mobile/ as well as .claude/.
+      'powershell -File ${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\m.ps1',
+      'powershell -File $Env:CLAUDE_PROJECT_DIR\\.claude\\hooks\\n.ps1',
+      'cmd /c %claude_project_dir%\\.claude\\hooks\\o.cmd',
+      'node \'$CLAUDE_PROJECT_DIR\'/.claude/hooks/p.mjs',
+      'node scripts/q.js',
+      'node ./backend/scripts/r.js --dry-run',
+      'node "mobile/KokonadaHealth/scripts/s.mjs"',
+      'node .Claude/hooks/t.mjs',
+      // RA-33: the root as `git rev-parse --show-toplevel` prints it, and the shell's default-value form.
+      'node "$(git rev-parse --show-toplevel)/.claude/hooks/x.mjs"',
+      'node ${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/x.mjs',
+    ].map(hookScripts)).toEqual([['.claude/hooks/a.mjs'], ['.claude/hooks/b.mjs'], ['.claude/hooks/c.mjs'],
+      ['.claude/hooks/d.mjs'], ['.claude/hooks/e.mjs'], ['scripts/f.js'], [],
+      ['.claude/hooks/g.mjs'], ['.claude/hooks/h.mjs'], ['.claude/hooks/i.ps1'], ['.claude/hooks/j.ps1'],
+      ['.claude/hooks/k.cmd'], ['scripts/l.cmd'],
+      ['.claude/hooks/m.ps1'], ['.claude/hooks/n.ps1'], ['.claude/hooks/o.cmd'], ['.claude/hooks/p.mjs'],
+      ['scripts/q.js'], ['backend/scripts/r.js'], ['mobile/KokonadaHealth/scripts/s.mjs'], ['.Claude/hooks/t.mjs'],
+      ['.claude/hooks/x.mjs'], ['.claude/hooks/x.mjs']]);
+  });
+});
+
+// Moved from the merge-guard trigger's tests (`.claude/hooks/merge-guard-trigger.test.mjs`, 'wiring - the
+// committed settings'), deleted with the hook by DEC-192: they pinned the deny list, not the hook.
+describe('OPS-171 settings policy — the deny list\'s twins and H-5 (kept from the deleted hook tests)', () => {
+  it('every Bash deny rule has a PowerShell twin, every git rule a git -C twin, no duplicates', () => {
+    expect(new Set(deny).size).toBe(deny.length);
+    const bashRules = specsFor(deny, 'Bash');
+    for (const r of bashRules) expect([r, deny.includes(`PowerShell(${r})`)]).toEqual([r, true]);
+    for (const r of bashRules.filter((x) => x.startsWith('git ') && !x.startsWith('git -C '))) {
+      // `git -C * clean*` would also refuse `git -C <dir> commit -m "clean up"`; a destructive clean needs an option.
+      const twin = r === 'git clean*' ? 'git -C * clean -*' : r.replace(/^git /, 'git -C * ');
+      expect([r, bashRules.includes(twin)]).toEqual([r, true]);
+    }
+  });
+
+  const pushesToMain = [
+    'git push -u origin main',
+    'git push -u origin main --no-verify',
+    'git push -u origin main --follow-tags',
+    'git push upstream main -q',
+    'git push origin -d main -q',
+    'git push -u origin main 2>&1',
+    'git -C wt push -u origin main --no-verify',
+    'git push origin +feat/x',
+    'git push origin HEAD:refs/heads/main',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of pushesToMain) {
+      it(`H-5 · ${tool} denies a direct push to main, arguments after the bare word main included: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).toBe('deny');
+      });
+    }
+  }
+
+  const everyday = [
+    'git push -u origin feat/x',
+    'git push origin HEAD',
+    'git push -u origin chore/fast-track-process 2>&1',
+    'git push origin feat/main-fix',
+    'gh pr merge 5 --squash --delete-branch --match-head-commit abc123',
+    'git -C wt log --oneline',
+    'git -C wt commit -m "fix: tidy"',
+  ];
+  for (const tool of TOOLS) {
+    for (const cmd of everyday) {
+      it(`H-5 · ${tool} does not deny an everyday command: ${cmd}`, () => {
+        expect(shellDecision(cmd, tool)).not.toBe('deny');
+      });
+    }
+  }
+});
+
 describe('OPS-171 settings policy — secrets are not readable or editable, the example file stays both', () => {
   const denied = [
     'mobile/KokonadaHealth/android/keystore.properties',
@@ -495,7 +646,7 @@ describe('OPS-171 settings policy — the flows keep working', () => {
     ...STEP2_COMMANDS,
     // CLAUDE.md session-start step 3 — .claude/agents/sentinel.md § FILING, the five strings (derived):
     ...SENTINEL_COMMANDS,
-    // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and merge-guard:
+    // CLAUDE.md steps 1, 5 and 6, /ship, /review-pr, /merge and its § Checks:
     'git fetch origin --prune',
     'git fetch origin',
     'git fetch --unshallow',
@@ -575,5 +726,36 @@ describe('OPS-171 settings policy — the flows keep working', () => {
   it('the /claim coordinator invocation is never newly blocked (deny or ask)', () => {
     const coord = 'node scripts/coord/coord.js status';
     expect(['allow', 'prompt']).toContain(shellDecision(coord, 'Bash'));
+  });
+});
+
+// RA-3, SA-2 (#307): with no hook left to remind the session, a merge or a branch update through the GitHub MCP
+// (the plugin `github`, server `github`) is refused outright, so each goes through /merge's `gh pr merge` form or
+// `gh pr update-branch`, whose output the session reads back. Deny only (DEC-145). An MCP rule names the tool
+// exactly, or its whole server as `mcp__<server>` or `mcp__<server>__*`.
+function toolDecision(name) {
+  const server = (name.match(/^(mcp__.+?)__/) || [])[1];
+  const hits = (list) => list.includes(name) || (Boolean(server) && (list.includes(server) || list.includes(`${server}__*`)));
+  if (hits(deny)) return 'deny';
+  if (hits(ask)) return 'ask';
+  if (hits(allow)) return 'allow';
+  return 'prompt';
+}
+
+describe('RA-3 · the GitHub MCP tools that merge a PR or update its branch are denied', () => {
+  // RA-17 = CU307-7: the same tools under a GitHub MCP server registered as `github` rather than through the plugin.
+  const DENIED = ['mcp__plugin_github_github__merge_pull_request', 'mcp__plugin_github_github__update_pull_request_branch',
+    'mcp__github__merge_pull_request', 'mcp__github__update_pull_request_branch'];
+  for (const tool of DENIED) {
+    it(`denied, by its exact name: ${tool}`, () => {
+      expect(toolDecision(tool)).toBe('deny');
+      expect(deny).toContain(tool);
+      expect([...allow, ...ask].filter((r) => r === tool || r.startsWith(`${tool}(`))).toEqual([]);
+    });
+  }
+
+  it('the deny reaches no other tool of the server: opening a PR through it stays possible', () => {
+    expect(toolDecision('mcp__plugin_github_github__create_pull_request')).not.toBe('deny');
+    expect(toolDecision('mcp__github__create_pull_request')).not.toBe('deny');
   });
 });
