@@ -32,8 +32,11 @@ export const RIM_READING_ORDER: readonly RimPosition[] = ['top', 'bottom', 'righ
 const HEBREW = /[א-תׯ-״יִ-ﭏ]/;
 /** Characters a reversal would misorder inside a right-to-left word: Latin, Greek and Cyrillic letters, and digits. */
 const LEFT_TO_RIGHT = /[0-9A-Za-zÀ-ÖØ-öø-ɏͰ-ϿЀ-ԯ]/;
-/** Combining marks: Latin's and Hebrew's points and accents. A mark needs a shaper to sit on its letter. */
-const MARK = /[̀-֑ͯ-ׇֽֿׁׂׅׄ]/;
+/**
+ * Combining marks: Latin's and Hebrew's points and accents. A mark needs a shaper to sit on its letter. Written as escapes,
+ * so the source holds no Hebrew point of its own: fontLicence.test.ts reads any as copy the fonts must cover (CMP-122).
+ */
+const MARK = /[\u0300-\u036f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7]/;
 /** Joining scripts (Arabic): their letters change shape with their neighbours, which only a shaper does. */
 const JOINING = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
 
