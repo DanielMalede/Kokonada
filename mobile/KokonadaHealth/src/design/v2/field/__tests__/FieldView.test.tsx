@@ -467,7 +467,7 @@ describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
 
   it('the scan sees FieldView’s refs and its frame worklet, and no worklet names a ref', () => {
     const scan = refsInWorklets(SOURCE);
-    expect(scan.refs).toEqual(['currentGeneration', 'forcedDraws', 'listener', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
+    expect(scan.refs).toEqual(['currentGeneration', 'fallbackLedger', 'forcedDraws', 'listener', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
     expect(scan.worklets).toBeGreaterThan(0);
     expect(scan.offenders).toEqual([]);
   });
@@ -862,5 +862,153 @@ describe('the start carries its live placements to the CTA (T1–T6, the archite
     // Planted: onStart written back into the worklet's dependencies is seen.
     const planted = source.slice(0, deps[0].close) + ', onStart' + source.slice(deps[0].close);
     expect(workletDeps(planted)[0].names).toEqual([...deps[0].names, 'onStart']);
+  });
+});
+
+// F1 (S1, the architect's F10 G8 findings): while FieldFallback draws, the frame worklet does not run, so no start would
+// reach the CTA and it would never show. FieldView runs the same ledger on JS instead: one reconcile at each change and
+// then per animation frame, only while the ledger needs frames (needsFrames), its starts delivered the same way
+// (deliverStart). It builds nothing: FieldFallback draws from the props. A builder throw hands the UI thread's ledger to
+// JS, so its ids and its spacing carry on, and the start of the frame that threw is still heard. F5: `active` (default
+// true) gates every frame, the UI thread's and the fallback's, so a blurred page (P10) draws nothing; the ledger reads
+// the taps written meanwhile on its first frame once active again. The animation frames run on jest's fake timers.
+describe('fallback starts (F1) and the active gate (F5)', () => {
+  type LivePlacement = import('../placementLedger.ts').LivePlacement;
+  const SETTLE = BASE.motion.settle.duration;
+  const C = { x: -0.5, y: 0.45 };
+  const at = (id: number, t: { x: number; y: number }): LivePlacement => ({ id, x: t.x, y: t.y });
+  const listen = () => {
+    const calls: Array<[number, readonly LivePlacement[]]> = [];
+    const times: number[] = [];
+    const onStart = (admitted: number, live: readonly LivePlacement[]) => {
+      calls.push([admitted, live]);
+      times.push(performance.now());
+    };
+    return { calls, times, onStart };
+  };
+  const advance = (ms: number) => act(() => { jest.advanceTimersByTime(ms); });
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    for (const r of mounted.splice(0)) act(() => r.unmount());
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
+  it('F1: in fallback a start still reaches onStart, [A] → [A, B] is (1, [A0, B1]); frames are asked for only while the ledger needs them, and nothing is built', () => {
+    effectState.status = 'fallback';
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(jest.getTimerCount()).toBe(0);
+    advance(1000);
+    expect(calls).toEqual([]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    expect(jest.getTimerCount()).toBe(1);
+    advance(SETTLE + 100);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(counts.build).toBe(0);
+    expect(reanimated.__active()).toBe(0);
+  });
+
+  it('F1: a toggle storm in fallback: several starts, each at least motion.settle after the last, nothing built, and no frame asked for at rest', () => {
+    effectState.status = 'fallback';
+    const { times, onStart } = listen();
+    const r = mount(baseProps({ taps: [], onStart }));
+    for (let t = 0, k = 0; t < 3000; t += 17, k++) {
+      act(() => r.update(<FieldView {...baseProps({ taps: k % 2 === 0 ? [A] : [], onStart })} />));
+      advance(17);
+    }
+    advance(3 * SETTLE);
+    expect(times.length).toBeGreaterThan(3);
+    for (let i = 1; i < times.length; i++) expect([i, times[i] - times[i - 1] >= SETTLE]).toEqual([i, true]);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(counts.build).toBe(0);
+  });
+
+  it('F1: a builder throw hands the UI thread’s ledger to JS: the throwing frame’s start is heard, and the next keeps the ids and waits out the spacing', () => {
+    const { calls, times, onStart } = listen();
+    const layout = { ...baseProps().layout, quietRects: [{ x: 10, y: 10, width: 20, height: 20 }] };
+    const r = mount(baseProps({ taps: [A], layout, quietPresence: [1], onStart }));
+    frames(3);
+    // A presence outside [0, 1] makes the builder throw (checkQuietPresence) on the frame that starts B.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], layout, quietPresence: [2], onStart })} />));
+    frames(1);
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    const built = counts.build;
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], layout, quietPresence: [2], onStart })} />));
+    advance(2 * SETTLE);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A), at(1, B), at(2, C)]]]);
+    expect(times[1] - times[0]).toBeGreaterThanOrEqual(SETTLE);
+    expect(counts.build).toBe(built);
+    expect(reanimated.__active()).toBe(0);
+  });
+
+  it('F5: inactive, no frame runs and nothing is built at any tier; once active, the first frame reads what changed meanwhile', () => {
+    for (const tier of ['full', 'low', 'still'] as const) {
+      const { calls, onStart } = listen();
+      const r = mount(baseProps({ tier, taps: [A], onStart }));
+      frames(3);
+      const drawn = counts.build;
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A], onStart, active: false })} />));
+      expect([tier, reanimated.__active()]).toEqual([tier, 0]);
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A, B], stress: 0.5, onStart, active: false })} />));
+      frames(625);
+      expect([tier, counts.build - drawn, reanimated.__active(), calls]).toEqual([tier, 0, 0, []]);
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A, B], stress: 0.5, onStart })} />));
+      expect([tier, reanimated.__active()]).toEqual([tier, 1]);
+      frames(1);
+      expect([tier, counts.build - drawn, calls]).toEqual([tier, 1, [[1, [at(0, A), at(1, B)]]]]);
+      for (const m of mounted.splice(0)) act(() => m.unmount());
+    }
+  });
+
+  it('F5 in fallback: going inactive cancels the frame asked for and none is asked for meanwhile; active again, a crossfade carries on where it stopped, and a change made meanwhile starts at once', () => {
+    effectState.status = 'fallback';
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect([calls.length, jest.getTimerCount()]).toEqual([1, 1]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart, active: false })} />));
+    expect(jest.getTimerCount()).toBe(0);
+    advance(2000);
+    expect(jest.getTimerCount()).toBe(0);
+    // Active again: the ledger's clock stood still meanwhile (L19), so the crossfade carries on, then the frames stop.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect(jest.getTimerCount()).toBe(1);
+    advance(SETTLE + 100);
+    expect(jest.getTimerCount()).toBe(0);
+    // A change made while inactive is read on the first step once active, and starts at once.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart, active: false })} />));
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], onStart, active: false })} />));
+    advance(2000);
+    expect([calls.length, jest.getTimerCount()]).toEqual([1, 0]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], onStart })} />));
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A), at(1, B), at(2, C)]]]);
+    expect(counts.build).toBe(0);
+  });
+
+  it('F1: a throw ends the UI thread’s work at once, before JS hears of it: no further build and no second handoff while the switch is in flight', () => {
+    const { calls, onStart } = listen();
+    const layout = { ...baseProps().layout, quietRects: [{ x: 10, y: 10, width: 20, height: 20 }] };
+    const r = mount(baseProps({ taps: [A], layout, quietPresence: [1], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], layout, quietPresence: [2], onStart })} />));
+    ui.deferred = [];
+    frames(1);
+    const built = counts.build;
+    const queued = ui.deferred.length;
+    expect(queued).toBe(2); // the start, then the failure
+    frames(10);
+    expect([counts.build - built, ui.deferred.length]).toEqual([0, queued]);
+    const landing = ui.deferred;
+    ui.deferred = null;
+    act(() => { for (const land of landing) land(); });
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
   });
 });
