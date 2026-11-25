@@ -4,6 +4,7 @@ import { isRed, type RedBand } from '../../../color/redBand.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { alphaHex, BEAD_WHOLE, beadEntrance, beadExit, beadFill, beadHighlight, beadMotion, beadPaint, beadTwin, beadTwinPaint, greyHex, hexLab, readPoint, srgbHex } from '../beadModel.ts';
 import { entranceColour, entranceOpacity, exitColour, exitDuration, exitOpacity } from '../beadTimeline.ts';
+import { BEAD_TWIN_GRIDS, beadTwinInks } from '../../../tokens/neverRedSweeps.ts';
 
 // The bead's pure model: what colour it is (DSN-017) and how it moves (motion.placement, the still tier's
 // ramp). Where it sits is the plate's shared geometry (Plate/geometry.ts pointToLocal), which its own test
@@ -166,6 +167,49 @@ describe('F1: the grey disc, the bead’s achromatic twin (below opacity 1 it is
         expect(paint.highlight).toBe(greyHex(beadHighlight('abyss', twin).L));
         expect(beadHighlight('abyss', twin).L).toBeCloseTo(twin.L + ABYSS.bead.highlight.mix * (1 - twin.L), 12);
       }
+    }
+  });
+
+  // F1's sweep (tokens/neverRedSweeps.ts beadTwinFamiliesFor) reads DSN-017 from the tokens, since a lower layer never
+  // imports a component; these hold what it sweeps to what the bead paints, so the two cannot part.
+  it('the sweep’s fills are beadFill’s: each quadrant at every ramp of the full grid, in both faces', () => {
+    const diagonal = { joy: [1, 1], calm: [1, -1], reflective: [-1, -1], intense: [-1, 1] } as const;
+    const { neutralRadius, rampEnd } = BASE.placement;
+    for (const face of FACES) {
+      const { fills } = beadTwinInks('abyss', face, 'full');
+      expect(fills).toHaveLength(4 * BEAD_TWIN_GRIDS.full.ramps.length);
+      for (const { quadrant, p, fill, highlight } of fills) {
+        const r = neutralRadius + p * (rampEnd - neutralRadius) + (p === 0 ? 0 : 1e-12);
+        const point = { x: (diagonal[quadrant][0] * r) / Math.SQRT2, y: (diagonal[quadrant][1] * r) / Math.SQRT2 };
+        close(fill, beadFill('abyss', face, point), 1e-9);
+        close(highlight, beadHighlight('abyss', beadFill('abyss', face, point)), 1e-9);
+      }
+    }
+  });
+
+  it('the sweep takes every grey the grey disc paints: each twin’s L and byte inside its range, over the whole disc', () => {
+    for (const face of FACES) {
+      const { greyL, greyBytes } = beadTwinInks('abyss', face);
+      let seen = 0;
+      for (let i = -20; i <= 20; i++) {
+        for (let j = -20; j <= 20; j++) {
+          const point = { x: i / 20, y: j / 20 };
+          if (Math.hypot(point.x, point.y) > 1) continue;
+          const twin = beadTwin(beadFill('abyss', face, point));
+          const paint = beadTwinPaint('abyss', face, point);
+          for (const L of [twin.L, beadHighlight('abyss', twin).L]) {
+            expect(L).toBeGreaterThanOrEqual(greyL[0] - 1e-12);
+            expect(L).toBeLessThanOrEqual(greyL[1] + 1e-12);
+          }
+          for (const hex of [paint.fill, paint.highlight]) {
+            const v = parseInt(hex.slice(3, 5), 16);
+            expect(v).toBeGreaterThanOrEqual(greyBytes[0]);
+            expect(v).toBeLessThanOrEqual(greyBytes[1]);
+          }
+          seen++;
+        }
+      }
+      expect(seen).toBeGreaterThan(1000);
     }
   });
 
