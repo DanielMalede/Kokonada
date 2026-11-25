@@ -783,15 +783,20 @@ describe('DEC-192 · device work closes on emulator evidence; the owner\'s real 
       // RA-26 = CA307-9 + CA307-10: every 64-bit library of the artefact, an app bundle's too, and Google's RELRO rule.
       'the ELF checks run on every 64-bit native library: an APK\'s `lib/arm64-v8a/*.so` and `lib/x86_64/*.so`',
       'an app bundle is checked through `bundletool build-apks --mode=universal --bundle=<aab> --output=<apks>` and the universal APK it holds, or through its `<module>/lib/arm64-v8a/*.so` and `<module>/lib/x86_64/*.so` paths, `base/` included',
-      'a run that reads zero `.so` files for a 64-bit ABI the artefact ships is RED',
+      // RA-36: zero arm64-v8a libraries is RED whatever the artefact claims to ship, since every release artefact ships
+      // that ABI; another 64-bit ABI is RED at zero only when the artefact ships it.
+      'a run that reads zero arm64-v8a libraries (`lib/arm64-v8a/*.so`, or an app bundle\'s `<module>/lib/arm64-v8a/*.so`) is RED unconditionally, and one that reads zero `.so` files for another 64-bit ABI the artefact ships is RED',
       'every ELF `LOAD` segment aligned at `2**14` or more (`llvm-objdump -p <so>`)',
       'Google\'s RELRO rule, read with `llvm-readelf -Wl <so>`: the library has no `GNU_RELRO` segment, or that segment\'s `VirtAddr` plus its `MemSiz` is a multiple of 16384, or it ends exactly where the `LOAD` segment that holds it ends',
       '`PAGE_ALIGNMENT_16K`', 'Runtime, at `/page` G11e:', '`system-images;android-35;google_apis_ps16k;x86_64`',
       '`adb -s <serial> shell getconf PAGE_SIZE` prints 16384',
       '`adb -s <serial> shell setprop bionic.linker.16kb.app_compat.enabled false`', '`adb -s <serial> shell setprop pm.16kb.app_compat.disabled true`',
+      // The architect's lead and RA-36: a setprop that did not take hides a misaligned library, so each is read back.
+      'then read each back, `adb -s <serial> shell getprop bionic.linker.16kb.app_compat.enabled` (it prints false) and `adb -s <serial> shell getprop pm.16kb.app_compat.disabled` (it prints true), and record both values in the manifest; a value that did not take is RED',
+      'The first runtime run is watched RED on a build that carries one planted 4 KB-aligned library (linked with `-Wl,-z,max-page-size=4096`): its `dlopen` error must show in logcat, or the check is not proven able to fail and no pass counts.',
       'the check passes only if each page opens and logcat shows no `dlopen` or `SoLoader` error');
-    expect(check).not.toMatch(/every `lib\/\*\/\*\.so`|ends on a 16 KB boundary/);
-    has(pageLine('- G11e,'), 'the runtime 16 KB check on one more AVD made from the 16 KB-page image, whose manifest records `getconf PAGE_SIZE` = 16384 (`/device-qa`)');
+    expect(check).not.toMatch(/every `lib\/\*\/\*\.so`|ends on a 16 KB boundary|zero `\.so` files for a 64-bit ABI the artefact ships/);
+    has(pageLine('- G11e,'), 'the runtime 16 KB check on one more AVD made from the 16 KB-page image, whose manifest records `getconf PAGE_SIZE` = 16384 and both compatibility properties read back as set (`/device-qa`)');
     has(pageLine('- G12F.'), 'the static 16 KB check (`/device-qa`) on the cutover head\'s release build',
       'its inputs are G12\'s inputs with the G11e and G11P manifests and the static 16 KB check\'s raw output, with the artefact\'s SHA-256');
   });
@@ -830,7 +835,11 @@ const PAGE_LINES = PAGE_MD.split('\n');
 const batchAt = PAGE_LINES.findIndex((l) => l.startsWith('BATCH MODE — the default for design v2\'s pages (DEC-192'));
 const singleAt = PAGE_LINES.findIndex((l) => l.startsWith('PRECONDITIONS — stop and tell me if any fails:'));
 const BATCH = batchAt < 0 || singleAt < batchAt ? '' : PAGE_LINES.slice(batchAt, singleAt).join('\n');
-const jRow = (id) => ((ROOT_MD.split('```jurisdiction\n')[1] || '').split('```')[0].split('\n')
+// G11P item 5 reads Health Connect on the owner's v1 grant, which production keeps until the cutover merges (DEC-192
+// rulings 11 and 15), and before M4 no grant is made at G11P (ruling 16), in /page and in /device-qa's phone pass.
+const G11P_ITEM5 = '(5) BLE heart rate, a Health Connect read on my existing v1 consent grant, which I hold (DEC-192 ruling 11; production switches its consent version only when the cutover merges, ruling 15; ruling 8, as ruling 10 scopes it: no new grant in production until the final text), Google sign-in on the release client, and the Spotify temporary path';
+const G11P_STOP = 'Before M4 no consent grant is made at G11P: if the app asks for consent, item 5 stops and stays NOT VERIFIED (DEC-192 ruling 16).';
+const jRow = (id) =>((ROOT_MD.split('```jurisdiction\n')[1] || '').split('```')[0].split('\n')
   .find((l) => l.split('|')[0].trim() === id) || '');
 
 describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and the single-page mode stays', () => {
@@ -867,9 +876,18 @@ describe('DEC-192 · /page BATCH MODE is the default for design v2\'s pages, and
     has(BATCH, 'G11P', 'once, at the cutover head',
       '(1) field, ring, dither and never-red on P2 and P10',
       '(2) Perfetto frame timing and GPU cost on P2, P10 and the P8 fling',
-      '(3) the 50-transition leak loop', '(4) a 10-minute soak',
-      '(5) BLE heart rate, a Health Connect read on my existing consent grant, which I hold (DEC-192 ruling 11; ruling 8, as ruling 10 scopes it: no new grant in production until the final text), Google sign-in on the release client, and the Spotify temporary path',
+      '(3) the 50-transition leak loop', '(4) a 10-minute soak', G11P_ITEM5,
       '(6) deep link, predictive back and a cold start of 1000 ms or less', 'G12F');
+  });
+
+  // Rulings 15 to 17 of 2026-11-25: G11P runs against production on the owner's own account, item 5 on his v1 grant,
+  // and a consent prompt before M4 stops item 5; /device-qa's phone pass says the same.
+  test('G11P runs against production on my own account (ruling 17), and before M4 a consent prompt stops item 5, NOT VERIFIED (ruling 16), in /page and /device-qa', () => {
+    const g11p = BATCH.split('\n').find((l) => l.startsWith('- G11P,')) || '';
+    has(g11p, 'about two hours on my phone, against production on my own account (DEC-192 ruling 17):', G11P_ITEM5, G11P_STOP);
+    expect(g11p.indexOf('(7) every open TASKS row')).toBeLessThan(g11p.indexOf(G11P_STOP));
+    has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '', G11P_STOP,
+      'The pass runs against production on his own account (DEC-192 ruling 17).');
   });
 
   test('G13: a batch PR is lab-only; the cutover PR needs fresh records, my review and my (c); G14 after the cutover; rounds per batch', () => {
@@ -1199,7 +1217,7 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   // Rulings 10 and 11: ruling 8 binds production, a local evidence backend may hold seeded fake grants for test
   // accounts, and the owner's phone reads Health Connect on the grant he states he holds.
   test('rulings 8, 10 and 11 in /page G11P and /device-qa: no new grant in production; seeded fake grants on a local backend; the phone reads on his grant', () => {
-    has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', '(5) BLE heart rate, a Health Connect read on my existing consent grant, which I hold (DEC-192 ruling 11; ruling 8, as ruling 10 scopes it: no new grant in production until the final text)');
+    has(PAGE_LINES.find((l) => l.startsWith('- G11P,')) || '', G11P_ITEM5);
     has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('No new consent grant is recorded in production')) || '',
       'No new consent grant is recorded in production until the final consent text (M4; DEC-192 ruling 8, as ruling 10 scopes it), so no evidence run creates one there, and the v1 text is not approved.',
       'Nothing in code holds this rule yet: the consent route records any grant (`recordConsent` in `backend/app/services/privacy/consent.js`), and whether code will hold it is `OPS-502`, open.',
@@ -1260,12 +1278,27 @@ describe('DEC-192 · the owner\'s rulings of 2026-11-24, recorded verbatim and w
   }));
 
   // Ruling 12 words ruling 9: any copy that is not the approved copy keeps a page out of navigation, not only a placeholder.
-  test('rulings 9 and 12 in /page and DEC-192: a page enters navigation only when every regulated slot it renders shows the final approved text', () => {
+  // Ruling 15 (2026-11-25) narrows ruling 9's order: the held branch merges with the cutover PR, not before it. A-3: a
+  // regulated slot is every user-visible string with a legal duty, as OPS-522 lists them, not only T11's.
+  test('rulings 9, 12 and 15 in /page and DEC-192: a page enters navigation only when every regulated slot it renders shows the final approved text, and F3-B merges with the cutover PR', () => {
     const g13 = BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '';
-    has(g13, 'A page enters navigation only when every regulated slot it renders shows the final approved text, never a placeholder, a neutral stand-in or a marked preview (DEC-192 ruling 9, as ruling 12 words it): the held regulated-copy branch (F3-B) merges before the cutover PR or with it.');
-    has(DEC192, '   - the rule it sets: a page enters navigation only when every regulated slot it renders shows the final approved text (no placeholder, neutral stand-in or marked preview, as ruling 12 words it): the held regulated-copy branch (F3-B) merges before the cutover PR or with it.',
+    has(g13, 'A page enters navigation only when every regulated slot it renders shows the final approved text, never a placeholder, a neutral stand-in or a marked preview (DEC-192 ruling 9, as ruling 12 words it);',
+      'a regulated slot is every user-visible string that carries a legal duty, as `OPS-522` lists them (a disclosure a store or a provider requires, a data-use notice, the age line), not only the strings T11 fires on.',
+      'The held regulated-copy branch (F3-B) merges with the cutover PR (DEC-192 ruling 15), so production switches its consent version only when the cutover merges.');
+    expect(g13).not.toContain('merges before the cutover PR or with it');
+    has(DEC192, '   - the rule it sets: a page enters navigation only when every regulated slot it renders shows the final approved text (no placeholder, neutral stand-in or marked preview, as ruling 12 words it): the held regulated-copy branch (F3-B) merges before the cutover PR or with it. Ruling 15 narrows the order: it merges with the cutover PR.',
       '`/page` BATCH MODE\'s G13 keeps a page out of navigation until every regulated slot it renders shows the final approved text (ruling 9, as ruling 12 words it)');
     for (const text of [g13, DEC192]) expect(text).not.toMatch(/while a regulated slot it renders holds a placeholder|whose regulated slot holds a placeholder/);
+  });
+
+  // Ruling 14 (2026-11-25) = CA307-16 = A-2: hosting the policy before the cutover carries every publication gate the
+  // owner set earlier, so G13 names them, each closed before the cutover PR merges.
+  test('ruling 14 in /page G13: the hosting carries every publication gate, each closed before the cutover PR merges, and a gate that slips moves the cutover', () => {
+    has(BATCH.split('\n').find((l) => l.startsWith('- G13.')) || '',
+      'The hosting carries every publication gate, each closed before the cutover PR merges, and a gate that slips moves the cutover (DEC-192 ruling 14):',
+      'DEC-156 (publication only after `DAN-050` records the sweep armed, with no interim version)', 'OD-12, OD-16 and OD-17, tied to the markets (DEC-056; DEC-190)',
+      'the music-provider DEC (`DAN-135`)', 'the controller line (OD-13)', 'the terms of use, hosted and accepted in the app', '`DAN-015`\'s own gate lists',
+      'my (c) on the exact text, naming both pages\' blob SHAs');
   });
 
   // Ruling 13: ruling 6 closes every HALT before the cutover, and some close only on the hosted policy.
@@ -1554,17 +1587,23 @@ describe('#307 round 4 · the review at a196ce4: the runbook, /page and § Check
     const RELEASE = 'After the cutover, the real-phone pass before each release re-runs every G11P item a merged PR made stale and every open row of G11P item 7, and the release report lists any still open as NOT VERIFIED (DEC-192 ruling 7).';
     has(read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('THE REAL PHONE')) || '', RELEASE);
     has(BATCH.split('\n').find((l) => l.startsWith('- G11P,')) || '', RELEASE);
-    has(BATCH.split('\n').find((l) => l.startsWith('- G12F.')) || '', 'G12F\'s emulator part, which a PR on a page in navigation re-checks (IN NAVIGATION), is G12F on the G11e manifest plus the static 16 KB check, without the G11P manifest.');
+    // RA-36: the emulator part names its artefact, the PR head's release build, which the static check reads.
+    has(BATCH.split('\n').find((l) => l.startsWith('- G12F.')) || '', 'G12F\'s emulator part, which a PR on a page in navigation re-checks (IN NAVIGATION), is G12F on the G11e manifest plus the static 16 KB check on the PR head\'s release build, its artefact, without the G11P manifest.');
   });
 
   // ARCH-307-21 = RA-30, option A (the orchestrator's pick, put to the owner under class (a)): evidence that needs
   // sign-in runs against a local evidence backend with seeded accounts and fake grants, never production.
   test('signed-in evidence runs against a local evidence backend, never production; until it exists, no signed-in capture on an emulator', rowPin((tasks) => {
     const safety = read('.claude/commands/device-qa.md').split('\n').find((l) => l.startsWith('SAFETY — ')) || '';
-    has(safety, 'Device evidence that needs sign-in runs against a local evidence backend, never production:',
-      '`adb reverse tcp:<port> tcp:<port>`', '`10.0.2.2`', 'seeded test accounts and seeded fake grants (DEC-192 ruling 10)',
+    // F-5 and ruling 17: the local backend is the emulator's; ARCH-307-33(a): a signed-in entry does not pass until it
+    // exists, and no longer waits for G11P; RA-38: its database and Redis are on the host too, at loopback only.
+    has(safety, 'Emulator evidence that needs sign-in runs against a local evidence backend, never production (DEC-192 ruling 17: the local evidence backend serves emulator runs only, and the owner\'s real-phone pass, G11P, runs against production on his own account):',
+      '`adb reverse tcp:<port> tcp:<port>`', '`10.0.2.2`',
+      'with its database and Redis on the host too, at a loopback address (`localhost`, `127.0.0.1`, `[::1]`) or an in-process MongoMemoryServer, never a production host',
+      'seeded test accounts and seeded fake grants (DEC-192 ruling 10)',
       'the backend URL and the Google client id are injected at build time from a gitignored local config read at bundle time, so the tree stays clean (`OPS-516`).',
-      'Until it exists, signed-in states are not captured on an emulator: they wait for G11P.');
+      'Until it exists, signed-in states are not captured on an emulator, and an entry that needs a signed-in state does not pass (`OPS-516`).');
+    expect(safety).not.toMatch(/Device evidence that needs sign-in runs|wait for G11P/);
     has(DEC192, '- The orchestrator\'s picks, put to the owner under class (a), on the reviews of #307 at `a8e88e5` and `a196ce4` (2026-11-24).',
       '  - ARCH-307-21 = RA-30, option A, on the review at `a196ce4`:');
     has(rowIn(tasks, 'OPS-516'), '`P1`', 'local evidence backend', 'before the first G11e', 'never production', 'the review of #307 at `a196ce4`');
