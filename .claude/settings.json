@@ -507,118 +507,14 @@
       "PowerShell(gh pr merge * -A*)",
       "PowerShell(gh pr merge --auto*)",
       "PowerShell(gh pr merge *--auto*)",
-      "PowerShell(gh pr merge *--auto)"
+      "PowerShell(gh pr merge *--auto)",
+      "mcp__plugin_github_github__merge_pull_request",
+      "mcp__plugin_github_github__update_pull_request_branch",
+      "mcp__github__merge_pull_request",
+      "mcp__github__update_pull_request_branch"
     ],
     "additionalDirectories": [
       "\\tmp"
-    ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "if": "Bash(git *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh pr *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "Bash(node *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(git *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(gh pr *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(node *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*__(merge_pull_request|create_pull_request|update_pull_request_branch)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          }
-        ]
-      }
-    ],
-    "PostToolUseFailure": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "if": "Bash(git *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "Bash(gh pr *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "Bash(node *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(git *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(gh pr *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          },
-          {
-            "type": "command",
-            "if": "PowerShell(node *)",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          }
-        ]
-      },
-      {
-        "matcher": "mcp__.*__(merge_pull_request|create_pull_request|update_pull_request_branch)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/merge-guard-trigger.mjs\"",
-            "timeout": 20
-          }
-        ]
-      }
     ]
   }
 }

@@ -139,13 +139,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-17
 
 ### M09
-- task: `own:ops417-qa116-pinned-callers` (own)
-- title: Stage 0 Q1b: the pinned-caller check (QA-116) and its dead list (OPS-417)
-- branch: `test/s0-q1b-callers`
-- paths: `mobile/KokonadaHealth/src/testing/guards/pinnedCallers.ts`, `mobile/KokonadaHealth/src/testing/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `docs/design-v2/registry/QA-116.md`, `TASKS.md`
+- task: `own:fast-track-process` (own)
+- title: Owner rulings of 2026-11-23: the session runs the merge-guard procedure itself (agent removed), emulator evidence plus one real-phone pass, a shorter /page, DEC-192
+- branch: `chore/fast-track-process`
+- paths: `CLAUDE.md`, `AGENTS.md`, `.claude/agents/merge-guard.md`, `.claude/agents/sentinel.md`, `.claude/agents/developer.md`, `.claude/agents/designer.md`, `.claude/agents/resilience-auditor.md`, `.claude/agents/architect.md`, `.claude/agents/compliance-auditor.md`, `.claude/agents/regulatory-researcher.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `.claude/commands/ship.md`, `.claude/commands/page.md`, `.claude/commands/device-qa.md`, `.claude/commands/fix-bug.md`, `.claude/commands/vision-frame.md`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `.claude/settings.json`, `backend/tests/mergeGuardHook.test.js`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `docs/ORCHESTRATOR_FABLE.md`, `docs/plans/DESIGN_V2_PLAN.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-143.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/decisions/DEC-192.md`, `scripts/coord/coord.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-18
+- started: 2026-11-23
 
 ### M10
 - task: `own:cmp008-get-spotify-free` (own)
