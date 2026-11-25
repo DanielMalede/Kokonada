@@ -467,7 +467,7 @@ describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
 
   it('the scan sees FieldView’s refs and its frame worklet, and no worklet names a ref', () => {
     const scan = refsInWorklets(SOURCE);
-    expect(scan.refs).toEqual(['currentGeneration', 'forcedDraws', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
+    expect(scan.refs).toEqual(['currentGeneration', 'forcedDraws', 'listener', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
     expect(scan.worklets).toBeGreaterThan(0);
     expect(scan.offenders).toEqual([]);
   });
@@ -722,5 +722,145 @@ describe('the frame cap (UI-171)', () => {
     expect(reanimated.__active()).toBe(1);
     frames(1, 2);
     expect(counts.build).toBe(3);
+  });
+});
+
+// DEC-174's CTA hears the field's starts (the architect's F10 G8 rulings, Q1: option A, filtered by option 1b). The
+// frame worklet reads the start's target from the ledger (admittedLive) and sends it with the admitted count in one hop,
+// runOnJS(deliverStart)(admitted, live). deliverStart reads the listener through a ref, so a new onStart never re-makes
+// the worklet (F7); it drops a start that lands after the unmount; and it keeps only what the taps FieldView last wrote
+// still hold (stillLive). The signature is additive: a listener that takes the count alone still hears it (the legacy
+// tests above, unedited).
+describe('the start carries its live placements to the CTA (T1–T6, the architect’s Q1)', () => {
+  type LivePlacement = import('../placementLedger.ts').LivePlacement;
+  const { mountedLive } = require('../placementLedger.ts') as typeof import('../placementLedger.ts');
+  const C = { x: -0.5, y: 0.45 };
+  const at = (id: number, t: { x: number; y: number }): LivePlacement => ({ id, x: t.x, y: t.y });
+  const listen = () => {
+    const calls: Array<[number, readonly LivePlacement[]]> = [];
+    return { calls, onStart: (admitted: number, live: readonly LivePlacement[]) => { calls.push([admitted, live]); } };
+  };
+  /** Steps frames with every crossing to JS held back until one is queued, and returns its landing. */
+  const holdOneCrossing = () => {
+    ui.deferred = [];
+    for (let i = 0; i < 10 && ui.deferred.length === 0; i++) act(() => reanimated.__frame(16));
+    const queued = ui.deferred;
+    ui.deferred = null;
+    expect(queued).toHaveLength(1);
+    return () => act(() => { for (const land of queued) land(); });
+  };
+
+  it('T1: a start hands onStart its admitted count and the target’s store-live placements, in one crossing: [A] → [A, B] is (1, [A0, B1]); a pop is (1, [A0])', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(5);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A)]]]);
+    expect(ui.runOnJS).toBe(2);
+  });
+
+  it('T2: onStart is read through a ref: a new listener on every render keeps one frame worklet, and the newest one hears the start', () => {
+    const module = require('react-native-reanimated') as { useFrameCallback: (...args: unknown[]) => unknown };
+    const spy = jest.spyOn(module, 'useFrameCallback');
+    try {
+      const heard: string[] = [];
+      const r = mount(baseProps({ taps: [A], onStart: () => { heard.push('first'); } }));
+      frames(3);
+      for (let i = 0; i < 3; i++) act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart: () => { heard.push(`render ${i}`); } })} />));
+      act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart: () => { heard.push('newest'); } })} />));
+      frames(60);
+      expect(heard).toEqual(['newest']);
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(spy.mock.calls.map((c) => c[0])).size).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('T3: a start whose hop lands after the unmount reaches nobody; React’s simulated unmount and remount (StrictMode) keeps the listener', () => {
+    const gone = listen();
+    const r = mount(baseProps({ taps: [A], onStart: gone.onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart: gone.onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.unmount());
+    mounted.splice(mounted.indexOf(r), 1);
+    land();
+    expect(gone.calls).toEqual([]);
+
+    const strict = listen();
+    let s!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { s = ReactTestRenderer.create(<React.StrictMode><FieldView {...baseProps({ taps: [A], onStart: strict.onStart })} /></React.StrictMode>); });
+    mounted.push(s);
+    frames(3);
+    act(() => s.update(<React.StrictMode><FieldView {...baseProps({ taps: [A, B], onStart: strict.onStart })} /></React.StrictMode>));
+    frames(60);
+    expect(strict.calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+  });
+
+  it('T4: a start whose hop lands after an undo carries only what the taps FieldView last wrote still hold', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart })} />));
+    land();
+    expect(calls).toEqual([[1, [at(0, A)]]]);
+    // and the start the undo makes next carries the store as it is
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A)]], [1, [at(0, A)]]]);
+  });
+
+  it('T5: a face switch mounts a fresh ledger: the old one’s start in flight is dropped, and the new one numbers its placements as mountedLive does', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.update(<FieldView {...baseProps({ face: 'light', taps: [A, B], onStart })} />));
+    land();
+    expect(calls).toEqual([]);
+    frames(3);
+    expect(calls).toEqual([]);
+    act(() => r.update(<FieldView {...baseProps({ face: 'light', taps: [A, B, C], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [...mountedLive([A, B]), at(2, C)]]]);
+  });
+
+  // F7, read from the source: the frame worklet's dependency list names no onStart (only deliverStart, which reads it
+  // through the ref), so a page that passes an inline listener never re-makes the worklet.
+  it('T6: the frame worklet’s dependencies name deliverStart and never onStart (static, with a planted control)', () => {
+    const isWorklet = (fn: ts.Node) => {
+      const body = (fn as ts.FunctionLikeDeclarationBase).body;
+      return body !== undefined && ts.isBlock(body) && body.statements.length > 0 && ts.isExpressionStatement(body.statements[0])
+        && ts.isStringLiteral(body.statements[0].expression) && body.statements[0].expression.text === 'worklet';
+    };
+    /** The dependency lists of the useCallback worklets in a source, each with where its closing bracket sits. */
+    const workletDeps = (source: string) => {
+      const file = ts.createSourceFile('FieldView.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const out: Array<{ names: string[]; close: number }> = [];
+      const visit = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'useCallback' && n.arguments.length === 2) {
+          const [fn, deps] = n.arguments;
+          if (isWorklet(fn) && ts.isArrayLiteralExpression(deps)) out.push({ names: deps.elements.map((e) => e.getText(file)), close: deps.getEnd() - 1 });
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(file);
+      return out;
+    };
+    const source = fs.readFileSync(path.resolve(__dirname, '../FieldView.tsx'), 'utf8');
+    const deps = workletDeps(source);
+    expect(deps).toHaveLength(1);
+    expect(deps[0].names).toContain('deliverStart');
+    expect(deps[0].names).not.toContain('onStart');
+    // Planted: onStart written back into the worklet's dependencies is seen.
+    const planted = source.slice(0, deps[0].close) + ', onStart' + source.slice(deps[0].close);
+    expect(workletDeps(planted)[0].names).toEqual([...deps[0].names, 'onStart']);
   });
 });

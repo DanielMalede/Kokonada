@@ -12,7 +12,14 @@
 //     renderScale (default: the tier's). No Dimensions or PixelRatio reads, no hidden tier logic (fork 2);
 //   · the statics come as a prop, memoised by the root, once per direction (fork 1, 1C);
 //   · the builder runs exactly once per drawn frame, and the JS thread never reads the ledger per frame: JS hears
-//     only of a start (onStart, the CTA's admitted count), the still tier's stop, and a failure;
+//     only of a start (onStart), the still tier's stop, and a failure;
+//   · a start (DEC-174's CTA; the architect's F10 G8 rulings, Q1: option A, filtered by option 1b): the frame worklet
+//     reads the start's target from the ledger, the placements it shows that the store holds (admittedLive), and sends
+//     them with the admitted count in one hop. JS reads the listener through a ref, so a new onStart never re-makes the
+//     worklet (F7); drops a start that lands after the unmount; and hands on only what the taps it last wrote still hold
+//     (stillLive), since the store may move on while the hop is in flight. A switch of direction, face or scene is a
+//     remount: the fresh ledger numbers its placements as mountedLive does, and a start in flight from the old one is
+//     dropped;
 //   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life. It draws from the
 //     props as given (T13, the designer's Q2 and Q5): the taps, the layout as measured (every quiet rect, no clamp),
 //     pxPerDp and each presence unsanitised;
@@ -40,7 +47,7 @@
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
 
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { runOnJS, useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../clock/fieldClock.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
@@ -51,7 +58,7 @@ import { fixedFieldBreath, type FieldGeometry, type FieldStatics } from './field
 import { FieldFirstFrameReport } from './firstFrameReport.ts';
 import { FieldSurface } from './FieldSurface.tsx';
 import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams, type LayoutPass } from './fieldDriver.ts';
-import { emptyLedger, type Ledger, type LedgerInput, type Tap } from './placementLedger.ts';
+import { admittedLive, emptyLedger, stillLive, type Ledger, type LedgerInput, type LivePlacement, type Tap } from './placementLedger.ts';
 import { ledgerConfigFor } from './statics.ts';
 
 export interface FieldViewProps {
@@ -76,8 +83,13 @@ export interface FieldViewProps {
   readonly breathPhase?: SharedValue<number>;
   /** Each quiet zone's presence, by slot (QUIET_ZONE). */
   readonly quietPresence?: readonly number[];
-  /** A crossfade started: how many changes it admitted. Called on the JS thread, only at starts. */
-  readonly onStart?: (admitted: number) => void;
+  /**
+   * A crossfade started: how many changes it admitted, and its target's placements that the store holds (admittedLive,
+   * read on the UI thread at the start), less those the taps FieldView last wrote no longer hold when the hop to JS
+   * lands (stillLive). Called on the JS thread, only at starts, never after the unmount. A listener of the count alone
+   * still fits: the change is additive.
+   */
+  readonly onStart?: (admitted: number, live: readonly LivePlacement[]) => void;
 }
 
 interface FrameInputs {
@@ -153,6 +165,22 @@ function FieldViewMount(props: FieldViewProps) {
     wake();
   }, [taps, input, forceDraw, wake]);
 
+  // The start's listener (the architect's Q1): read through a ref, so a new onStart never re-makes the frame worklet
+  // (F7); set and cleared in a layout effect, so a start whose hop lands after the unmount reaches nobody (React's
+  // simulated remount sets it again); and handed only what the taps FieldView last wrote still hold (option 1b).
+  const listener = useRef(onStart);
+  useLayoutEffect(() => {
+    listener.current = onStart;
+    return () => {
+      listener.current = undefined;
+    };
+  }, [onStart]);
+  const listening = onStart !== undefined;
+  const deliverStart = useCallback((admitted: number, live: readonly LivePlacement[]) => {
+    const heard = listener.current;
+    if (heard !== undefined) heard(admitted, stillLive(live, shownTaps.current));
+  }, []);
+
   // Every other input, written when a prop changes (never per frame), and the still woken to redraw. Keyed
   // on the props themselves: FieldView's own re-renders (the still's stop) must not wake it again. A layout
   // pass that changed by value forces the next frame's draw; a root that rebuilds the same layout does not.
@@ -190,12 +218,12 @@ function FieldViewMount(props: FieldViewProps) {
       told.value = true;
       runOnJS(firstFrame)();
     }
-    if (step.started && onStart !== undefined) runOnJS(onStart)(step.ledger.admitted);
+    if (step.started && listening) runOnJS(deliverStart)(step.ledger.admitted, admittedLive(step.ledger));
     if (step.idle && !asleep.value) {
       asleep.value = true;
       runOnJS(sleep)(generation.value);
     }
-  }, [inputs, cap, forced, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart, firstFrame, told]);
+  }, [inputs, cap, forced, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, deliverStart, listening, firstFrame, told]);
 
   const frame = useFrameCallback(onFrame, false);
   const running = failure === null && (tier !== 'still' || awake);
