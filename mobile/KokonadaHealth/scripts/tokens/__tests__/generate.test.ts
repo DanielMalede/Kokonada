@@ -314,6 +314,33 @@ describe('buildTokenModel: the F1 gaps', () => {
   });
 });
 
+// The designer's G8 rulings on the hero lanes (2026-11-25): the ledger additions this lane owns. F2: the capture
+// harness finds the hero's parts by these element IDs.
+describe('buildTokenModel: the G8 ledger additions (the designer, 2026-11-25)', () => {
+  const model: any = buildTokenModel(real());
+  const elements: string[] = model.extensions.base.$root.hero.elements;
+
+  it('F2: the hero elements name the CTA and its label, the live beads oldest first with their settings, the leaving bead, PlateTouch, the latest bead’s node and PlateEntry, each once', () => {
+    expect(new Set(elements).size).toBe(elements.length);
+    expect(elements.slice(elements.indexOf('hero.cta'), elements.indexOf('hero.cta') + 2)).toEqual(['hero.cta', 'hero.cta.label']);
+    expect(elements.slice(elements.indexOf('hero.plate.bead.0'), elements.indexOf('hero.listEntry') + 1)).toEqual([
+      'hero.plate.bead.0',
+      'hero.plate.bead.0.setting',
+      'hero.plate.bead.0.halo',
+      'hero.plate.bead.1',
+      'hero.plate.bead.1.setting',
+      'hero.plate.bead.1.halo',
+      'hero.plate.bead.2',
+      'hero.plate.bead.2.setting',
+      'hero.plate.bead.2.halo',
+      'hero.plate.bead.leaving',
+      'hero.plate.touch',
+      'hero.plate.bead.latest.a11y',
+      'hero.listEntry',
+    ]);
+  });
+});
+
 // The close-out leaves one shipped direction, so the generator's handling of several is shown on a
 // fixture direction in a temp folder, never in design-tokens/: a copy of Abyss with a negative plate
 // depth, an inset shadow layer and a three-step alias chain, read, checked and rendered beside Abyss.
