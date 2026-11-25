@@ -93,6 +93,8 @@ const SWEEPS_FILTER = [
   'mobile/KokonadaHealth/src/design/v2/field/**',
   'mobile/KokonadaHealth/src/design/v2/clock/**',
   'mobile/KokonadaHealth/src/design/v2/motion/**',
+  'mobile/KokonadaHealth/src/design/v2/components/Plate/**',
+  'mobile/KokonadaHealth/src/design/v2/components/CommitCTA/**',
   'mobile/KokonadaHealth/jest.sweeps.config.js',
   'mobile/KokonadaHealth/jest.config.js',
   'mobile/KokonadaHealth/package-lock.json',

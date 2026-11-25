@@ -158,9 +158,11 @@ const consecutive = (values) => Array.isArray(values) && values.length > 1
 const namesEveryValue = (text, j) => j.expanded.every((n) => text.includes(tick(n)))
   || (consecutive(j.values) && text.includes(`${tick(j.expanded[0])} to ${tick(j.expanded[j.expanded.length - 1])}`));
 
-// ------------------------------------------------------------------ merge-guard.md, by step
+// ------------------------------------------------------------------ merge.md § Checks, by step
 
-const MG_LINES = read('.claude/agents/merge-guard.md').split('\n');
+// Since DEC-192 (#307) the session runs these checks itself from `.claude/commands/merge.md` § Checks; the
+// merge-guard agent and its file are gone.
+const MG_LINES = read('.claude/commands/merge.md').split('\n');
 const PRE = MG_LINES.slice(MG_LINES.findIndex((l) => l.startsWith('PRE-MERGE')), MG_LINES.findIndex((l) => l.startsWith('POST-MERGE')));
 function stepOf(lines, startRe, nextRe) {
   const a = lines.findIndex((l) => startRe.test(l));
