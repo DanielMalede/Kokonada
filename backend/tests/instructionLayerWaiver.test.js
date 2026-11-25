@@ -1715,6 +1715,11 @@ describe('#307 round 5 · every finding of the review at c10abaa that #307 does 
     ['OPS-282', 'RA-35', 'row pins', 'an archive file', '`rowIn`'],
     ['DAN-015', 'A-2', 'DEC-192 ruling 14', 'DEC-156', '`DEC-190.md:72`', 'its own gate lists', 'moves the cutover'],
     ['OPS-500', 'RA-36', 'zero arm64-v8a libraries', 'RED unconditionally', '`getprop`', 'a planted 4 KB-aligned library', 'the PR head\'s release build'],
+    // Found while merging main for this fix: #309's merge dates /device-qa's placeholder sentence and half of OPS-504.
+    ['OPS-504', 'on merging main after #309', '`b4416eb`', '`MB-184`', '`https://your-backend.invalid`',
+      '`mobile/KokonadaHealth/src/health/__tests__/configPlaceholder.test.ts`', '`mobile/KokonadaHealth/src/__tests__/shadow.kitPlaceholder.test.ts`',
+      'pin the value, not the sending', 'no token sent while the placeholder is set',
+      '"a Railway name another party holds until `OPS-504` makes it a `.invalid` name"'],
   ];
   const updated = (tasks, id, finding, ...more) => {
     const update = rowIn(tasks, id).split('\n').find((l) => l.includes('the review of #307 at `c10abaa`') && l.includes(finding)) || '';
