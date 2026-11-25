@@ -271,7 +271,7 @@ describe('CommitCTA: RTL, font scale, never red', () => {
 
 describe('useCtaMachine: the page’s DEC-174 machine, stamped on the JS clock', () => {
   function Probe({ tier, out }: { tier: MotionTier; out: { current: ReturnType<typeof useCtaMachine> | null } }) {
-    out.current = useCtaMachine({ id: 'abyss', face: 'dark' }, tier, { live: [], taps: 0 });
+    out.current = useCtaMachine({ id: 'abyss', face: 'dark' }, tier, []);
     return null;
   }
 
@@ -283,7 +283,7 @@ describe('useCtaMachine: the page’s DEC-174 machine, stamped on the JS clock',
       });
       const t0 = now();
       act(() => out.current!.store(1));
-      act(() => out.current!.start([J]));
+      act(() => out.current!.start(1, [J]));
       const m = out.current!.machine;
       expect(ctaState(m, t0, { id: 'abyss', face: 'dark' })).toMatchObject({ phase: 'showing', pressable: true });
       expect(ctaState(m, t0 + ramp, { id: 'abyss', face: 'dark' }).opacity).toBe(1);
