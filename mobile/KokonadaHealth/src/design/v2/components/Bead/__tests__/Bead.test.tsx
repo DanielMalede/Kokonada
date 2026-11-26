@@ -1,14 +1,15 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Animated, I18nManager, PixelRatio, StyleSheet } from 'react-native';
+import { I18nManager, PixelRatio, StyleSheet } from 'react-native';
 import { isRed, type RedBand } from '../../../color/redBand.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import { Bead } from '../Bead.tsx';
+import { driverStep, entranceEnd, type BeadLooks, type BeadPlay, type BeadRuns } from '../beadDriver.ts';
 import { beadEntrance, beadExit, beadMotion, beadPaint, beadTwinPaint, hexLab } from '../beadModel.ts';
-import { EXIT_MIN_MS, exitDuration, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
+import { exitDuration, playMs } from '../beadTimeline.ts';
 
 // The bead as drawn (F10 group A): views only, no Skia, no strings, no elevation (R1, R2, R9). It is purely
 // visual: never a touch target and never an accessibility node (PlateTouch owns both, so the latest bead's
@@ -17,12 +18,11 @@ import { EXIT_MIN_MS, exitDuration, PRESS_MS, RESPOND_MS } from '../beadTimeline
 // F1 (P0, the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. It is two
 // discs under its setting ring: the grey disc, its achromatic twin (the fill at its own OKLab L with chroma 0, the
 // highlight drawn from it, the token shadow), and over it the colour disc (the DSN-017 fill and its highlight), whose
-// opacity is above 0 only while the bead's opacity is 1. Each phase is one clock on the native driver (ms since the
-// presence's placedAt or leftAt), and every channel is an interpolation of it, sampled from the model, so the
-// opacity, the colour and the scale can never part from each other or from beadModel.ts.
+// opacity is above 0 only while the bead's opacity is 1. As amended on 2026-11-26 (UI-320): every channel of the look is
+// computed off the JS thread from one clock per bead and written in the same frame (beadDriver.ts); the bead reads its
+// own look from the driver's shared value, live, with no render, and its colour disc can never land a frame ahead.
 
-jest.useFakeTimers();
-afterAll(() => jest.useRealTimers());
+jest.mock('react-native-reanimated', () => require('./__fixtures__/uiThread').uiThreadMock());
 
 const ABYSS = DIRECTIONS.abyss;
 const PLATE = plateGeometry({ base: BASE, direction: ABYSS }, 296, 1);
@@ -30,20 +30,23 @@ const PLATE = plateGeometry({ base: BASE, direction: ABYSS }, 296, 1);
 const g = { bead: PLATE.beadRadius, setting: ABYSS.bead.setting.width };
 const POINT = { x: -0.4, y: 0.5 };
 const CHECK: RedBand = { hueFrom: BASE.neverRed.check.hueStart, hueTo: BASE.neverRed.check.hueEnd, chromaFloor: BASE.neverRed.check.chromaFloor };
+const MOTION = beadMotion('abyss', 'full');
 /** The entrance's clock runs to the later of the timeline's end and the scale's. */
-const ENTRANCE_END = Math.max(PRESS_MS + RESPOND_MS, beadMotion('abyss', 'full').duration);
+const ENTRANCE_END = entranceEnd(MOTION);
+/** The looks a test's bead reads: the driver's shared value, which the test writes as the UI thread would. */
+const shared = (value: BeadLooks = {}) => ({ value }) as { value: BeadLooks };
 
 interface Options {
   readonly face?: Face;
-  readonly placedAt?: number | null;
-  readonly leftAt?: number | null;
-  readonly onLeft?: () => void;
+  /** Placed with an entrance (the presence's placedAt is not null). */
+  readonly entered?: boolean;
+  readonly looks?: { value: BeadLooks };
   readonly point?: { x: number; y: number };
   readonly slot?: number | 'leaving';
 }
 const element = (o: Options = {}) => (
   <DirectionProvider direction="abyss" face={o.face ?? 'dark'}>
-    <Bead point={o.point ?? POINT} plate={PLATE} placedAt={o.placedAt === undefined ? performance.now() : o.placedAt} leftAt={o.leftAt ?? null} slot={o.slot ?? 0} onLeft={o.onLeft ?? jest.fn()} />
+    <Bead id={0} point={o.point ?? POINT} plate={PLATE} entered={o.entered ?? false} looks={(o.looks ?? shared()) as never} slot={o.slot ?? 0} />
   </DirectionProvider>
 );
 function mount(o: Options = {}) {
@@ -54,25 +57,14 @@ function mount(o: Options = {}) {
   return tree;
 }
 const host = (tree: ReactTestRenderer.ReactTestRenderer, testID: string) => tree.root.findAll((n) => n.props.testID === testID && typeof n.type === 'string')[0];
-const composite = (tree: ReactTestRenderer.ReactTestRenderer, testID: string) => tree.root.findAll((n) => n.props.testID === testID && typeof n.type !== 'string')[0];
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as Record<string, any>;
-const valueOf = (v: any): number => (typeof v === 'number' ? v : v.__getValue());
-const scaleOf = (style: Record<string, any>) => valueOf((style.transform as Array<Record<string, any>>).find((t) => 'scale' in t)!.scale);
-/** The look as drawn: the bead's opacity, its colour disc's opacity, its scale. */
-const drawnLook = (tree: ReactTestRenderer.ReactTestRenderer) => {
-  const root = flat(composite(tree, 'hero.plate.bead.0').props.style);
-  return { opacity: valueOf(root.opacity), colour: valueOf(flat(composite(tree, 'bead.colour').props.style).opacity), scale: scaleOf(root) };
+const scaleOf = (style: Record<string, any>) => (style.transform as Array<Record<string, any>>).find((t) => 'scale' in t)!.scale as number;
+/** The look as drawn now, with no render: the bead's opacity, its colour disc's opacity, its scale. */
+const drawnLook = (tree: ReactTestRenderer.ReactTestRenderer, slot: number | 'leaving' = 0) => {
+  const root = flat(host(tree, 'hero.plate.bead.' + slot).props.style);
+  return { opacity: root.opacity as number, colour: flat(host(tree, 'bead.colour').props.style).opacity as number, scale: scaleOf(root) };
 };
 const grey = (hex: string) => hex.slice(1, 3) === hex.slice(3, 5) && hex.slice(3, 5) === hex.slice(5, 7);
-
-let timing: jest.SpyInstance;
-beforeEach(() => {
-  timing = jest.spyOn(Animated, 'timing');
-});
-afterEach(() => {
-  timing.mockRestore();
-  jest.clearAllTimers();
-});
 
 describe('Bead: where it sits and what it paints', () => {
   it('a box of the disc plus its setting ring, centred on the plate’s point (pointToLocal: the halo’s centre), placed by left and top', () => {
@@ -157,49 +149,80 @@ describe('Bead: its element IDs (F2)', () => {
 
   it('a live bead is hero.plate.bead.<slot> (0 to 2), with .setting on its ring, each in the ledger’s list', () => {
     for (const slot of [0, 1, 2]) {
-      const ids = heroIds(mount({ slot, placedAt: null }));
+      const ids = heroIds(mount({ slot }));
       expect(ids).toEqual([`hero.plate.bead.${slot}`, `hero.plate.bead.${slot}.setting`]);
       for (const id of ids) expect([id, elements.includes(id)]).toEqual([id, true]);
     }
   });
 
   it('a leaving bead is hero.plate.bead.leaving, in the ledger’s list; its ring claims no hero ID', () => {
-    const tree = mount({ slot: 'leaving', placedAt: null, leftAt: performance.now() });
+    const tree = mount({ slot: 'leaving' });
     expect(heroIds(tree)).toEqual(['hero.plate.bead.leaving']);
     expect(elements.includes('hero.plate.bead.leaving')).toBe(true);
     expect(host(tree, 'bead.setting')).toBeDefined();
   });
 });
 
-describe('Bead: the entrance (F1)', () => {
-  it('runs one clock on the native driver: linear, from where the entrance is to the later of the timeline’s end and the scale’s', () => {
-    mount({ placedAt: performance.now() - 40 });
-    expect(timing).toHaveBeenCalledTimes(1);
-    const [clock, config] = timing.mock.calls[0];
-    expect(config).toMatchObject({ toValue: ENTRANCE_END, duration: ENTRANCE_END - 40, useNativeDriver: true });
-    for (const x of [0.1, 0.5, 0.9]) expect(config.easing(x)).toBeCloseTo(x, 12);
-    expect(clock.__getValue()).toBe(40);
+/** A UI thread for one bead: the driver's own step, its looks written into the shared value the bead reads. */
+function driven(looks: { value: BeadLooks }) {
+  let runs: BeadRuns = {};
+  const gone: number[] = [];
+  return {
+    frame(play: BeadPlay, timestamp: number) {
+      const out = driverStep([play], runs, looks.value, timestamp, { motion: MOTION, timeScale: 1 });
+      runs = out.runs;
+      looks.value = out.looks;
+      gone.push(...out.gone);
+    },
+    gone,
+  };
+}
+const ENTER: BeadPlay = { id: 0, leaving: false, entered: true, late: 0 };
+
+describe('Bead: it draws the look the driver wrote, in the frame it was written', () => {
+  it('reads its own look by its id, live: opacity, colour disc and scale change with the shared value and with no render', () => {
+    const looks = shared({ 0: { opacity: 0.4, colour: 0, scale: 0.8, start: null }, 1: { opacity: 1, colour: 1, scale: 1, start: null } });
+    const tree = mount({ entered: true, looks });
+    expect(drawnLook(tree)).toEqual({ opacity: 0.4, colour: 0, scale: 0.8 });
+    looks.value = { 0: { opacity: 1, colour: 0.25, scale: 0.97, start: null } };
+    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 0.25, scale: 0.97 });
   });
 
-  it('maps the clock to the model’s look: opacity, colour and scale within 0.001 of beadEntrance at every millisecond', () => {
-    const tree = mount();
-    const [clock] = timing.mock.calls[0];
-    let worst = 0;
+  it('a bead with no entrance (the mount, a restore, or the still tier) and no look is whole from its first frame', () => {
+    expect(drawnLook(mount({ entered: false }))).toEqual({ opacity: 1, colour: 1, scale: 1 });
+  });
+
+  it('a bead placed with an entrance is not drawn until its first look: opacity 0, no colour, at the entrance’s first scale; never whole in its first frame', () => {
+    const looks = shared();
+    const tree = mount({ entered: true, looks });
+    expect(drawnLook(tree)).toEqual({ opacity: 0, colour: 0, scale: MOTION.scaleFrom });
+    driven(looks).frame(ENTER, 5000);
+    expect(drawnLook(tree)).toEqual({ opacity: 0, colour: 0, scale: MOTION.scaleFrom });
+  });
+
+  it('a leaving bead with no look yet stays as it was: whole when it never had an entrance', () => {
+    expect(drawnLook(mount({ entered: false, slot: 'leaving' }), 'leaving')).toEqual({ opacity: 1, colour: 1, scale: 1 });
+  });
+});
+
+describe('Bead: the entrance (F1)', () => {
+  it('draws the model’s look at every half millisecond of the driver’s clock: opacity, colour and scale, exactly', () => {
+    const looks = shared();
+    const tree = mount({ entered: true, looks });
+    const ui = driven(looks);
     for (let t = 0; t <= ENTRANCE_END + 5; t += 0.5) {
-      clock.setValue(t);
-      const drawn = drawnLook(tree);
-      const want = beadEntrance('abyss', 'full', t);
-      worst = Math.max(worst, Math.abs(drawn.opacity - want.opacity), Math.abs(drawn.colour - want.colour), Math.abs(drawn.scale - want.scale));
+      ui.frame(ENTER, 1000 + t);
+      expect([t, drawnLook(tree)]).toEqual([t, beadEntrance('abyss', 'full', t)]);
     }
-    expect(worst).toBeLessThan(0.001);
   });
 
   it('never colour while translucent: at every 0.25 ms of the clock, the colour disc is above 0 only where the bead is opaque', () => {
-    const tree = mount();
-    const [clock] = timing.mock.calls[0];
+    const looks = shared();
+    const tree = mount({ entered: true, looks });
+    const ui = driven(looks);
     let coloured = 0;
     for (let t = 0; t <= ENTRANCE_END; t += 0.25) {
-      clock.setValue(t);
+      ui.frame(ENTER, 1000 + t);
       const drawn = drawnLook(tree);
       if (drawn.colour > 0) {
         coloured++;
@@ -209,178 +232,94 @@ describe('Bead: the entrance (F1)', () => {
     expect(coloured).toBeGreaterThan(1000);
   });
 
-  it('a bead with no entrance (placedAt null: the mount, a restore, or the still tier) is whole from its first frame, with no clock', () => {
-    const tree = mount({ placedAt: null });
-    expect(timing).not.toHaveBeenCalled();
-    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
-  });
-
-  it('an entrance already over when its effect runs starts no clock and is whole', () => {
-    const tree = mount({ placedAt: performance.now() - 5000 });
-    expect(timing).not.toHaveBeenCalled();
-    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
+  it('an entrance dispatched 430 ms late is drawn whole, compressed: translucent grey first, then its colour, never a bead already in colour', () => {
+    const looks = shared();
+    const tree = mount({ entered: true, looks });
+    const ui = driven(looks);
+    const seen: Array<{ opacity: number; colour: number }> = [];
+    for (let ms = 0; ms <= 400; ms += 1000 / 60) {
+      ui.frame({ ...ENTER, late: 430 }, 1000 + ms);
+      seen.push(drawnLook(tree));
+    }
+    expect(seen[0]).toMatchObject({ opacity: 0, colour: 0 });
+    expect(seen.filter((l) => l.opacity > 0 && l.opacity < 1 && l.colour === 0).length).toBeGreaterThanOrEqual(3);
+    expect(seen[seen.length - 1]).toMatchObject({ opacity: 1, colour: 1 });
   });
 });
 
 describe('Bead: the exit (F1)', () => {
-  it('an opaque bead: the colour to 0 over press, then the opacity to 0 over respond, its scale held, on one native clock from leftAt', () => {
-    const placedAt = performance.now();
-    const tree = mount({ placedAt });
-    act(() => {
-      jest.advanceTimersByTime(300);
-    });
+  const leave = (late: number): BeadPlay => ({ id: 0, leaving: true, entered: true, late });
+
+  it('an opaque bead: the colour to 0 over press, then the opacity to 0 over respond, its scale held, from the look it had', () => {
+    const looks = shared();
+    const tree = mount({ entered: true, looks, slot: 'leaving' });
+    const ui = driven(looks);
+    ui.frame(ENTER, 0);
+    ui.frame(ENTER, 300);
     const from = beadEntrance('abyss', 'full', 300);
     expect(from.opacity).toBe(1);
     expect(from.colour).toBeGreaterThan(0.5);
     expect(from.colour).toBeLessThan(1);
-    act(() => tree.update(element({ placedAt, leftAt: performance.now() })));
-    expect(timing).toHaveBeenCalledTimes(2);
-    const [clock, config] = timing.mock.calls[1];
-    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1), useNativeDriver: true });
-    expect(config.easing(0.3)).toBeCloseTo(0.3, 12);
-    let worst = 0;
     for (let t = 0; t <= exitDuration(1) + 5; t += 0.5) {
-      clock.setValue(t);
-      const drawn = drawnLook(tree);
-      const want = beadExit('abyss', 'full', from, t);
-      worst = Math.max(worst, Math.abs(drawn.opacity - want.opacity), Math.abs(drawn.colour - want.colour));
-      expect(drawn.scale).toBe(from.scale);
+      ui.frame(leave(0), 2000 + t);
+      const drawn = drawnLook(tree, 'leaving');
+      const want = t < exitDuration(1) ? beadExit('abyss', 'full', from, t) : { opacity: 0, colour: 0, scale: from.scale };
+      expect([t, drawn]).toEqual([t, want]);
       if (drawn.colour > 0 && drawn.opacity !== 1) expect([t, drawn]).toEqual([t, { ...drawn, opacity: 1 }]);
     }
-    expect(worst).toBeLessThan(0.001);
+    expect(ui.gone).toEqual([0]);
   });
 
   it('a bead caught translucent in its entrance shows no colour: its opacity fades at once, from where it is', () => {
-    const placedAt = performance.now();
-    const tree = mount({ placedAt });
-    act(() => {
-      jest.advanceTimersByTime(40);
-    });
+    const looks = shared();
+    const tree = mount({ entered: true, looks, slot: 'leaving' });
+    const ui = driven(looks);
+    ui.frame(ENTER, 0);
+    ui.frame(ENTER, 40);
     const from = beadEntrance('abyss', 'full', 40);
     expect(from.opacity).toBeLessThan(1);
-    act(() => tree.update(element({ placedAt, leftAt: performance.now() })));
-    const [clock, config] = timing.mock.calls[1];
-    expect(config.toValue).toBe(exitDuration(from.opacity));
     for (const t of [0, 50, 175, 349]) {
-      clock.setValue(t);
-      const drawn = drawnLook(tree);
+      ui.frame(leave(0), 2000 + t);
+      const drawn = drawnLook(tree, 'leaving');
       expect(drawn.colour).toBe(0);
-      expect(drawn.opacity).toBeCloseTo(beadExit('abyss', 'full', from, t).opacity, 3);
+      expect(drawn.opacity).toBe(beadExit('abyss', 'full', from, t).opacity);
       expect(drawn.scale).toBe(from.scale);
     }
   });
 
-  it('reports onLeft once, when the exit ends, and never at the entrance’s end', () => {
-    const onLeft = jest.fn();
-    const placedAt = performance.now();
-    const tree = mount({ onLeft, placedAt });
-    act(() => {
-      jest.advanceTimersByTime(ENTRANCE_END + 50);
-    });
-    expect(onLeft).not.toHaveBeenCalled();
-    const leftAt = performance.now();
-    act(() => tree.update(element({ onLeft, placedAt, leftAt })));
-    expect(onLeft).not.toHaveBeenCalled();
-    act(() => {
-      jest.advanceTimersByTime(exitDuration(1) + 50);
-    });
-    expect(onLeft).toHaveBeenCalledTimes(1);
-    act(() => tree.update(element({ onLeft, placedAt, leftAt })));
-    act(() => {
-      jest.advanceTimersByTime(exitDuration(1) + 50);
-    });
-    expect(onLeft).toHaveBeenCalledTimes(1);
-  });
-
-  it('a late exit’s first painted frame, before its effect runs, is the bead as it was at leftAt: never gone', () => {
-    // The frame React paints before the passive effect runs is the clock's value when it is made: record it.
-    const Real = Animated.Value;
-    const made: number[] = [];
-    const spy = jest.spyOn(Animated, 'Value').mockImplementation(function made_(value: number, config?: object) {
-      made.push(value);
-      return new Real(value, config as never);
-    } as never);
-    try {
-      mount({ placedAt: null, leftAt: performance.now() - 10_000, slot: 0 });
-    } finally {
-      spy.mockRestore();
-    }
-    expect(made).toEqual([0]);
-  });
-
-  it('an exit whose effect runs a little late plays its whole timeline from where the bead is, over what is left of it', () => {
-    const onLeft = jest.fn();
-    const leftAt = performance.now() - 60;
-    const tree = mount({ placedAt: null, leftAt, onLeft, slot: 0 });
-    const [clock, config] = timing.mock.calls[0];
-    expect(clock.__getValue()).toBe(0);
-    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
-    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1) - 60, useNativeDriver: true });
-    expect(onLeft).not.toHaveBeenCalled();
-  });
-
-  // The d5479dc capture: the bead went whole to gone within one 147 ms frame gap, because an effect that ran more than the
-  // exit's 450 ms after leftAt (a loaded JS thread) set the clock to its end. A late exit is compressed, never skipped.
-  it.each([300, 600, 10_000])('an exit whose effect runs %p ms late still plays, from the bead as it is, over EXIT_MIN_MS: grey before it goes, then onLeft', (late) => {
-    const onLeft = jest.fn();
-    const tree = mount({ placedAt: null, leftAt: performance.now() - late, onLeft, slot: 0 });
-    expect(onLeft).not.toHaveBeenCalled();
-    expect(timing).toHaveBeenCalledTimes(1);
-    const [clock, config] = timing.mock.calls[0];
-    expect(clock.__getValue()).toBe(0);
-    expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 1, scale: 1 });
-    expect(config).toMatchObject({ toValue: exitDuration(1), duration: EXIT_MIN_MS, useNativeDriver: true });
-    expect(config.easing(0.3)).toBeCloseTo(0.3, 12);
-    // The native driver plays the clock linearly on the UI thread (jest never sees its frames: the device recording is the
-    // proof). At each 16 ms frame of EXIT_MIN_MS the clock stands at end × (frame time ÷ duration): never colour while
-    // translucent, and the grey, translucent bead on screen for frames on end.
-    act(() => {
-      jest.advanceTimersByTime(EXIT_MIN_MS + 50);
-    });
-    expect(onLeft).toHaveBeenCalledTimes(1);
+  // The d5479dc capture: the bead went whole to gone within one 147 ms frame gap. A late exit is compressed, never skipped.
+  it.each([300, 600, 10_000])('an exit dispatched %p ms late still plays, from the bead as it is, over motion.respond: grey before it goes', (late) => {
+    const looks = shared();
+    const tree = mount({ entered: false, looks, slot: 'leaving' });
+    const ui = driven(looks);
+    const play = playMs(exitDuration(1), late);
     let translucent = 0;
-    for (let ms = 0; ms <= EXIT_MIN_MS; ms += 16) {
-      clock.setValue((exitDuration(1) * ms) / EXIT_MIN_MS);
-      const drawn = drawnLook(tree);
+    for (let ms = 0; ms <= play; ms += 16) {
+      ui.frame({ id: 0, leaving: true, entered: false, late }, 9000 + ms);
+      const drawn = drawnLook(tree, 'leaving');
+      if (ms === 0) expect(drawn).toEqual({ opacity: 1, colour: 1, scale: 1 });
       if (drawn.colour > 0) expect([ms, drawn.opacity]).toEqual([ms, 1]);
       if (drawn.opacity > 0.05 && drawn.opacity < 0.95) translucent += 1;
     }
     expect(translucent).toBeGreaterThanOrEqual(6);
-    clock.setValue(exitDuration(1));
-    expect(drawnLook(tree).opacity).toBe(0);
-    // F1 holds under the compression at every 0.5 ms of the clock: the colour is 0 before the opacity leaves 1.
-    for (let t = 0; t <= exitDuration(1); t += 0.5) {
-      clock.setValue(t);
-      const drawn = drawnLook(tree);
-      if (drawn.colour > 0) expect([t, drawn.opacity]).toEqual([t, 1]);
-    }
-  });
-
-  it('an exit cut short by an unmount never reports onLeft', () => {
-    const onLeft = jest.fn();
-    const tree = mount({ onLeft, placedAt: null });
-    act(() => tree.update(element({ onLeft, placedAt: null, leftAt: performance.now() })));
-    act(() => tree.unmount());
-    act(() => {
-      jest.advanceTimersByTime(2000);
-    });
-    expect(onLeft).not.toHaveBeenCalled();
+    ui.frame({ id: 0, leaving: true, entered: false, late }, 9000 + play);
+    expect(drawnLook(tree, 'leaving').opacity).toBe(0);
   });
 });
 
 describe('Bead: RTL and font scale', () => {
   it('draws the same under RTL as under LTR: its place is physical (the plate is LTR, R7)', () => {
-    const ltr = mount({ placedAt: null }).toJSON();
+    const ltr = mount().toJSON();
     const rtl = jest.replaceProperty(I18nManager, 'isRTL', true);
-    const flipped = mount({ placedAt: null }).toJSON();
+    const flipped = mount().toJSON();
     rtl.restore();
     expect(flipped).toEqual(ltr);
   });
 
   it('draws the same at font scale 2.0: nothing in the bead scales with text', () => {
-    const plain = mount({ placedAt: null }).toJSON();
+    const plain = mount().toJSON();
     const spy = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(2);
-    const large = mount({ placedAt: null }).toJSON();
+    const large = mount().toJSON();
     spy.mockRestore();
     expect(large).toEqual(plain);
   });

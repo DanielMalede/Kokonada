@@ -17,17 +17,21 @@
 //     itself never mirrors.
 //   · The knock-out (DSN-028; the designer's ruling 2): letters near a live bead are not drawn, from the frame it appears.
 //     Letters near leaving beads only are drawn in a returning picture of their own, one per set of beads they follow,
-//     whose opacity the UI thread sets at every frame from the bead model's exit function (beadOpacity) and each bead's
-//     leftAt (returningOpacity). So under reduced motion, where a bead goes in one frame, its letters return in that
-//     frame. When the beads are gone the letters are kept, drawn as they were. The node and its copy stay whole.
-//   · At rest it is static: it redraws only when its words, its beads or its geometry change, and a frame callback runs
-//     only while letters are returning, so no frame work happens while no bead is leaving. Every picture and font it
-//     makes is freed once replaced, and on unmount (RA-31).
+//     whose opacity is derived on the UI thread from those beads' own looks (lettersOpacity; UI-320, the designer's
+//     rulings of 2026-11-26): 1 − the largest share of its start opacity a followed bead still has, so the letters are
+//     exactly 0 while a bead is at its start opacity and can never run ahead of it, however late its motion starts.
+//     Under reduced motion a bead is gone in one frame and its letters are kept in that frame. When the beads are gone
+//     the letters are kept, drawn as they were. The node and its copy stay whole.
+//   · At rest it is static: it redraws only when its words, its beads or its geometry change, and it has no clock of
+//     its own: a returning layer is recomputed only in a frame the driver wrote a look. Each word's canvas is memoised
+//     on what it draws, so a parent's re-render while letters return commits no canvas (a JS commit of a Skia canvas
+//     draws a recording made on JS: an older frame after a newer one). Every picture and font it makes is freed once
+//     replaced, and on unmount (RA-31).
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Canvas, Group, Picture, Skia, matchFont, type SkFontMgr, type SkPicture } from '@shopify/react-native-skia';
-import { useFrameCallback, useSharedValue, type FrameInfo } from 'react-native-reanimated';
+import { useDerivedValue } from 'react-native-reanimated';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
 import { useTypefaceFontMgr } from '../../typeface/TypefaceProvider.tsx';
 import { plateGeometry } from '../Plate/geometry.ts';
@@ -36,11 +40,11 @@ import {
   RIM_POSITIONS,
   RIM_READING_ORDER,
   layRimWord,
+  lettersOpacity,
   returningGroups,
-  returningOpacity,
   visualOrder,
-  type BeadOpacity,
   type RimBead,
+  type RimLooksValue,
   type RimPosition,
 } from './arc.ts';
 import { recordRimGlyphs, type RimWordSkia } from './draw.ts';
@@ -69,11 +73,10 @@ export interface RimLabelsProps {
    */
   readonly beads: readonly RimBead[];
   /**
-   * A bead's opacity at a moment: the bead model's exit function (Bead/ exports it; the page passes it). A worklet: the
-   * UI thread calls it at every frame while letters are returning, with that frame's timestamp, the clock each bead's
-   * leftAt is stamped on.
+   * The looks the beads' driver writes on the UI thread, by bead id (Bead/'s useBeadPresence gives them; the page passes
+   * them): the returning letters are derived from them in the frame they are written.
    */
-  readonly beadOpacity: BeadOpacity;
+  readonly looks: RimLooksValue;
   /**
    * The font manager to find type.face.ui in. When omitted, the typeface provider's above the page (F6), once its faces
    * are in; else the system's, which on Android has no Heebo and draws no glyph.
@@ -85,21 +88,14 @@ const SKIA: RimWordSkia = { Skia };
 
 const sameWords = (a: RimWords, b: RimWords) => RIM_POSITIONS.every((p) => a[p] === b[p]);
 
-/** Two bead lists by value (RA-39): the same length, and at each place the same point, state, leftAt and start (Object.is). */
+/** Two bead lists by value (RA-39): the same length, and at each place the same id, point and state (Object.is). */
 const sameBeads = (a: readonly RimBead[], b: readonly RimBead[]) =>
   a.length === b.length &&
-  a.every(
-    (x, i) =>
-      Object.is(x.point.x, b[i].point.x) &&
-      Object.is(x.point.y, b[i].point.y) &&
-      x.leaving === b[i].leaving &&
-      Object.is(x.leftAt, b[i].leftAt) &&
-      Object.is(x.startOpacity, b[i].startOpacity),
-  );
+  a.every((x, i) => x.id === b[i].id && Object.is(x.point.x, b[i].point.x) && Object.is(x.point.y, b[i].point.y) && x.leaving === b[i].leaving);
 
 /**
- * A returning group's key: the places of the beads it follows, never their indices, so its layer, and the opacity the
- * UI thread has set on it, stays while other beads come and go. Beads at one place reach the same letters, so they are
+ * A returning group's key: the places of the beads it follows, never their indices, so its layer, and the value the
+ * UI thread derives for it, stays while other beads come and go. Beads at one place reach the same letters, so they are
  * always followed together: no two groups of a word share a key.
  */
 const followKey = (follows: readonly number[], beads: readonly RimBead[]) =>
@@ -115,28 +111,20 @@ function useByValue<T>(value: T, same: (a: T, b: T) => boolean): T {
   return held;
 }
 
-interface ReturningProps {
+interface ReturningLayer {
+  readonly key: string;
   readonly picture: SkPicture;
-  /** The leaving beads its letters follow. */
-  readonly beads: readonly RimBead[];
-  readonly beadOpacity: BeadOpacity;
+  /** The ids of the leaving beads its letters follow. */
+  readonly ids: readonly number[];
 }
 
 /**
- * Letters returning together: their picture, at the opacity the beads they follow leave them, set by the UI thread at
- * every frame (returningOpacity). It is mounted only while they return, so its frame callback runs only while an exit
- * does, and it starts at 0, where the letters were: out.
+ * Letters returning together: their picture, at the opacity the beads they follow leave them, derived on the UI thread
+ * from those beads' looks in the frame the driver writes them (lettersOpacity). It is mounted only while they return,
+ * and with no look yet for a bead it is at 0, where the letters were: out.
  */
-function Returning({ picture, beads, beadOpacity }: ReturningProps) {
-  const opacity = useSharedValue(0);
-  const onFrame = useCallback(
-    (frame: FrameInfo) => {
-      'worklet';
-      opacity.value = returningOpacity(beads, frame.timestamp, beadOpacity);
-    },
-    [opacity, beads, beadOpacity],
-  );
-  useFrameCallback(onFrame);
+function Returning({ picture, ids, looks }: { readonly picture: SkPicture; readonly ids: readonly number[]; readonly looks: RimLooksValue }) {
+  const opacity = useDerivedValue(() => lettersOpacity(ids, looks.value), [ids, looks]);
   return (
     <Group opacity={opacity}>
       <Picture picture={picture} />
@@ -144,7 +132,29 @@ function Returning({ picture, beads, beadOpacity }: ReturningProps) {
   );
 }
 
-export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script, beads: givenBeads, beadOpacity, fontMgr: givenMgr }: RimLabelsProps) {
+interface WordCanvasProps {
+  readonly position: RimPosition;
+  readonly kept: SkPicture;
+  readonly returning: readonly ReturningLayer[];
+  readonly looks: RimLooksValue;
+}
+
+/**
+ * One word's drawing. Memoised on what it draws: its pictures (made once per layout) and the looks' shared value, so a
+ * render of the page with nothing new for this word never commits its canvas.
+ */
+const WordCanvas = memo(function WordCanvasView({ position, kept, returning, looks }: WordCanvasProps) {
+  return (
+    <Canvas testID={`hero.plate.word.${position}`} style={styles.fill} colorSpace="srgb" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+      <Picture picture={kept} />
+      {returning.map((r) => (
+        <Returning key={r.key} picture={r.picture} ids={r.ids} looks={looks} />
+      ))}
+    </Canvas>
+  );
+});
+
+export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script, beads: givenBeads, looks, fontMgr: givenMgr }: RimLabelsProps) {
   const tokens = useTokens();
   const provided = useTypefaceFontMgr();
   const fontMgr = givenMgr ?? provided;
@@ -186,9 +196,9 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
     () =>
       laid.map((w) => ({
         kept: recordRimGlyphs(SKIA, w.layout.bounds, w.layout.glyphs.filter((g) => g.state === 'kept'), w.ids, font, ink),
-        returning: returningGroups(w.layout).map((group) => ({
+        returning: returningGroups(w.layout).map((group): ReturningLayer => ({
           key: followKey(group.follows, beads),
-          beads: group.follows.map((k) => beads[k]),
+          ids: group.follows.map((k) => beads[k].id),
           picture: recordRimGlyphs(SKIA, w.layout.bounds, group.glyphs, w.ids, font, ink),
         })),
       })),
@@ -222,18 +232,7 @@ export function RimLabels({ diameter, fontScale, words: givenWords, a11y, script
               accessibilityLabel={a11y[position]}
               style={[styles.word, { left, top, width: b.width, height: b.height }]}
             >
-              <Canvas
-                testID={`hero.plate.word.${position}`}
-                style={styles.fill}
-                colorSpace="srgb"
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-              >
-                <Picture picture={pictures[i].kept} />
-                {pictures[i].returning.map((r) => (
-                  <Returning key={r.key} picture={r.picture} beads={r.beads} beadOpacity={beadOpacity} />
-                ))}
-              </Canvas>
+              <WordCanvas position={position} kept={pictures[i].kept} returning={pictures[i].returning} looks={looks} />
             </View>
           </View>
         );

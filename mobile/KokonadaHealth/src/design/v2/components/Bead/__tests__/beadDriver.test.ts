@@ -2,7 +2,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import ts from 'typescript';
-import { loadMutant } from '../../../../../testing/mutant.ts';
 import { lettersOpacity } from '../../RimLabels/arc.ts';
 import { DIRECTIONS, type DirectionId } from '../../../tokens/tokens.generated.ts';
 import { driverStep, entranceEnd, restLook, type BeadLooks, type BeadPlay, type BeadRuns, type DriverConfig } from '../beadDriver.ts';
@@ -37,6 +36,23 @@ function ui(step: Step = driverStep, config: DriverConfig = CONFIG) {
     gone,
   };
 }
+/**
+ * Mutants made by hand (the source-planted ones are in lab/__tests__/heroDriverMutants.test.tsx: v2 imports nothing from
+ * outside v2). STAMPED starts a phase's clock at the JS stamp, `late` ms before its first UI frame, as 27107e1's letters
+ * did; SKIPPING also plays it at 1:1 from there, as 27107e1's entrance did.
+ */
+const fromStamp = (compress: boolean): Step => (plays, runs, looks, timestamp, config) => {
+  let state = { runs, looks };
+  for (const p of plays) {
+    const run = state.runs[p.id];
+    if (run !== undefined && run.leaving === p.leaving) continue;
+    const started = driverStep([compress ? p : { ...p, late: 0 }], state.runs, state.looks, timestamp - p.late, config);
+    state = { runs: { ...state.runs, ...started.runs }, looks: { ...state.looks, ...started.looks } };
+  }
+  return driverStep(plays, state.runs, state.looks, timestamp, config);
+};
+const STAMPED = fromStamp(true);
+const SKIPPING = fromStamp(false);
 const entering = (late = 0, id = ID): BeadPlay => ({ id, leaving: false, entered: true, late });
 const leaving = (late = 0, entered = false, id = ID): BeadPlay => ({ id, leaving: true, entered, late });
 
@@ -63,7 +79,7 @@ function exitFrames(step: Step, d: number, from: 'whole' | number, dt = FRAME) {
 }
 
 /** T1's law over an exit's frames: the problems found, none when it holds. */
-function lawProblems(run: ReturnType<typeof exitFrames>, lettersAt = (f: { letters: number }) => f.letters): string[] {
+function lawProblems(run: ReturnType<typeof exitFrames>, lettersAt = (f: { t: number; letters: number }) => f.letters): string[] {
   const problems: string[] = [];
   const a0 = run.before.opacity;
   run.frames.forEach((f, i) => {
@@ -113,15 +129,12 @@ describe('T1: the letters are the bead’s own look, however late its first UI f
   });
 
   it('mutant: a driver whose exit clock starts at the JS stamp (leftAt), not at its first UI frame, fails the law for every late frame', () => {
-    const mutant = loadMutant<{ driverStep: Step }>(path.resolve(__dirname, '../beadDriver.ts'), [
-      { find: 'run = { leaving: true, t0: timestamp, end,', replace: 'run = { leaving: true, t0: timestamp - p.late, end,' },
-    ], require);
-    expect(lawProblems(exitFrames(mutant.driverStep, 0, 'whole'))).toEqual([]);
-    for (const d of [100, 300, 1000]) expect(lawProblems(exitFrames(mutant.driverStep, d, 'whole')).join('\n')).toMatch(/the first frame is not the bead as it was/);
+    expect(lawProblems(exitFrames(STAMPED, 0, 'whole'))).toEqual([]);
+    for (const d of [100, 300, 1000]) expect(lawProblems(exitFrames(STAMPED, d, 'whole')).join('\n')).toMatch(/the first frame is not the bead as it was/);
   });
 
   it('mutant: letters read from leftAt on the wall clock (27107e1) are whole beside an opaque bead once the first frame is late', () => {
-    const wall = (run: ReturnType<typeof exitFrames>) => lawProblems(run, (f) => 1 - exitOpacity(1, (f as { t: number }).t - run.leftAt));
+    const wall = (run: ReturnType<typeof exitFrames>) => lawProblems(run, (f) => 1 - exitOpacity(1, f.t - run.leftAt));
     expect(wall(exitFrames(driverStep, 0, 'whole'))).toEqual([]);
     const late = wall(exitFrames(driverStep, 300, 'whole'));
     expect(late.length).toBeGreaterThan(0);
@@ -195,17 +208,14 @@ describe('T3: F1 on the look worklets: the colour is exactly 0 below opacity 1, 
   });
 
   it('mutant: a colour that starts 10 ms early is caught', () => {
-    const timeline = path.resolve(__dirname, '../beadTimeline.ts');
-    const early = loadMutant<Record<string, unknown>>(timeline, [
-      { find: 'return rampProgress(elapsedMs - PRESS_MS, RESPOND_MS, RESPOND_EASING);', replace: 'return rampProgress(elapsedMs - PRESS_MS + 10, RESPOND_MS, RESPOND_EASING);' },
-    ], require);
-    const model = loadMutant<{ entranceLook: typeof entranceLook }>(path.resolve(__dirname, '../beadModel.ts'), [], (id) => (path.resolve(String(id)) === timeline ? early : require(String(id))));
-    let caught = 0;
-    for (let t = 0; t <= PRESS_MS + RESPOND_MS; t += 0.25) {
-      const look = model.entranceLook(MOTION, t);
-      if (look.colour > 0 && look.opacity !== 1) caught++;
-    }
-    expect(caught).toBeGreaterThan(10);
+    const early = (t: number) => ({ ...entranceLook(MOTION, t), colour: entranceColour(t + 10) });
+    const breaches = (look: (t: number) => { opacity: number; colour: number }) => {
+      let n = 0;
+      for (let t = 0; t <= PRESS_MS + RESPOND_MS; t += 0.25) if (look(t).colour > 0 && look(t).opacity !== 1) n++;
+      return n;
+    };
+    expect(breaches((t) => entranceLook(MOTION, t))).toBe(0);
+    expect(breaches(early)).toBeGreaterThan(10);
   });
 });
 
@@ -260,10 +270,7 @@ describe('UI-321: a late entrance is compressed, never skipped (the designer’s
   });
 
   it('mutant: an entrance that starts where it is (27107e1: the clock at its lateness) shows no grey at 430 ms late', () => {
-    const skip = loadMutant<{ driverStep: Step }>(path.resolve(__dirname, '../beadDriver.ts'), [
-      { find: 'run = { leaving: false, t0: timestamp, end, play: playMs(end, p.late) * stretch,', replace: 'run = { leaving: false, t0: timestamp - p.late, end, play: end * stretch,' },
-    ], require);
-    const frames = entrance(430, skip.driverStep);
+    const frames = entrance(430, SKIPPING);
     expect(frames[0].opacity).toBe(1);
     expect(frames.filter((f) => f.opacity > 0 && f.opacity < 1)).toEqual([]);
   });
@@ -299,10 +306,9 @@ describe('the floor leaves the grey step on screen, in every direction’s token
   });
 
   it('mutant: a floor of half motion.respond fails it', () => {
-    const half = loadMutant<{ PLAY_FLOOR_MS: number }>(path.resolve(__dirname, '../beadTimeline.ts'), [
-      { find: 'export const PLAY_FLOOR_MS = RESPOND_MS;', replace: 'export const PLAY_FLOOR_MS = RESPOND_MS / 2;' },
-    ], require);
-    expect(greyAtFloor(half.PLAY_FLOOR_MS, PRESS_MS, entranceEnd(MOTION))).toBeLessThan(3 * FRAME);
+    expect(greyAtFloor(PLAY_FLOOR_MS / 2, PRESS_MS, entranceEnd(MOTION))).toBeLessThan(3 * FRAME);
+    // And the driver plays what the test reads: an entrance late past its end is on screen for the floor, no less.
+    expect(playMs(entranceEnd(MOTION), 10_000)).toBe(PLAY_FLOOR_MS);
   });
 
   it('a planted direction whose scale runs 1200 ms fails it: the grey would be 29 ms', () => {

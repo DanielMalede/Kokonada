@@ -10,7 +10,7 @@
 //   · The knock-out (DSN-028; the designer's ruling 2): a letter whose cell comes within the bead radius +
 //     plate.labelBand.knockoutGap of a bead's centre is near it. A letter near a live bead is out, not drawn, from the
 //     frame the bead appears; one near leaving beads only is returning: it fades back in as they fade
-//     (returningOpacity); any other is kept. The bead sits where the field draws its halo (pointToLocal).
+//     (lettersOpacity); any other is kept. The bead sits where the field draws its halo (pointToLocal).
 //
 // All in the plate's own dp, x right and y down. Each glyph's place is an RSXform: its baseline origin (tx, ty) and its
 // rotation (scos, ssin), as Skia lays a glyph run.
@@ -57,23 +57,18 @@ export interface RimFontMetrics {
 }
 
 /**
- * A bead as the rim words see it (the designer's ruling 2; Bead/'s presence makes them): where it sits, and whether it
- * is leaving. `leftAt` is when its fade-out began, in ms on the clock RimLabels reads each frame (Reanimated's frame
- * timestamp), null while it is live; `startOpacity` is its opacity when the fade-out began (1 for a live bead).
+ * A bead as the rim words see it (the designer's ruling 2; Bead/'s presence makes them): its id, the key of its look in
+ * the looks the beads' driver writes (RimLooks), where it sits, and whether it is leaving.
  */
 export type RimBead = {
+  readonly id: number;
   readonly point: PlatePoint;
   readonly leaving: boolean;
-  readonly leftAt: number | null;
-  readonly startOpacity: number;
 };
-
-/** A bead's opacity at `nowMs`: the bead model's exit function (Bead/ exports it). A worklet: it runs on the UI thread. */
-export type BeadOpacity = (b: RimBead, nowMs: number) => number;
 
 /**
  * A letter's state (the designer's ruling 2): kept, with no bead near it; out, near a live bead, so not drawn; or
- * returning, near leaving beads only, so drawn at the opacity they leave it (returningOpacity).
+ * returning, near leaving beads only, so drawn at the opacity they leave it (lettersOpacity).
  */
 export type GlyphState = 'kept' | 'out' | 'returning';
 
@@ -184,33 +179,6 @@ export function returningGroups(layout: RimWordLayout): ReturningGroup[] {
   return [...groups.values()];
 }
 
-/**
- * The opacity of letters returning as the leaving beads they follow fade (the designer's ruling 2): one less the largest
- * share of its starting opacity any of them still has, beadOpacity(b, now) ÷ b.startOpacity, held to [0, 1]. A letter
- * near one bead comes back exactly as that bead goes; near several, it follows the one that fades last, back in full
- * only when the last of them has gone, and never showing through one still there. A bead whose fade-out has no leftAt
- * yet still has all of its share; one that began invisible (startOpacity 0 or less) has none. A start or an opacity
- * that is not a number keeps the letter out, as a bead that may still be there: the letter is kept once it is gone.
- */
-export function returningOpacity(beads: readonly RimBead[], nowMs: number, beadOpacity: BeadOpacity): number {
-  'worklet';
-  let share = 0;
-  for (let i = 0; i < beads.length; i++) {
-    const b = beads[i];
-    let s = 1;
-    if (b.leftAt !== null && Number.isFinite(b.startOpacity)) {
-      if (b.startOpacity <= 0) {
-        s = 0;
-      } else {
-        const now = beadOpacity(b, nowMs);
-        s = Number.isFinite(now) ? Math.min(1, Math.max(0, now / b.startOpacity)) : 1;
-      }
-    }
-    if (s > share) share = s;
-  }
-  return 1 - share;
-}
-
 /** What the letters read of a bead's look (Bead/beadDriver.ts DrivenLook): its opacity now, and its opacity when its exit began. */
 export interface RimLook {
   readonly opacity: number;
@@ -220,6 +188,11 @@ export interface RimLook {
 
 /** The looks the beads' driver writes each frame, by bead id. */
 export type RimLooks = Readonly<Record<number, RimLook>>;
+
+/** The shared value RimLabels reads them from, on either thread: it never writes it. */
+export interface RimLooksValue {
+  readonly value: RimLooks;
+}
 
 /**
  * The letters' law (the designer's rulings of 2026-11-26, UI-320): the opacity of letters returning as the leaving beads

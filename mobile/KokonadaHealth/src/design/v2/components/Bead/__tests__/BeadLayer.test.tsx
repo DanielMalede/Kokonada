@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { Animated, I18nManager, StyleSheet } from 'react-native';
+import { I18nManager, StyleSheet } from 'react-native';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
@@ -10,11 +10,16 @@ import { BeadLayer } from '../BeadLayer.tsx';
 import type { PresentBead } from '../beadPresence.ts';
 import { exitDuration } from '../beadTimeline.ts';
 import { useBeadPresence } from '../useBeadPresence.ts';
+import type { UiThread } from './__fixtures__/uiThread.ts';
 
 // The beads for the page's presence (oldest first): one Bead each, placed on the plate's LTR root, entering when
 // placed and leaving when a fourth tap, an undo or a clear takes them. Leaving beads draw under the live ones. The
 // layer is inert: no touch, no accessibility node (PlateTouch owns both). Ruling 2: the page owns the presence
-// (useBeadPresence), shared with the rim words; the layer draws its beads and reports each finished exit to onGone.
+// (useBeadPresence), shared with the rim words; the layer draws its beads, each reading its own look from the presence's
+// driver (UI-320), which reports each finished exit so the presence drops that bead.
+
+jest.mock('react-native-reanimated', () => require('./__fixtures__/uiThread').uiThreadMock());
+const ui = (jest.requireMock('react-native-reanimated') as { __ui: UiThread }).__ui;
 
 jest.useFakeTimers();
 afterAll(() => jest.useRealTimers());
@@ -30,8 +35,8 @@ const EXIT = exitDuration(1) + 50;
 
 /** The page as the rulings wire it: the presence from the store's taps, its beads and onGone to the layer. */
 function Page({ taps, tier }: { readonly taps: ReadonlyArray<{ x: number; y: number }>; readonly tier: MotionTier }) {
-  const { beads, onGone } = useBeadPresence(taps, tier);
-  return <BeadLayer beads={beads} plate={PLATE} onGone={onGone} />;
+  const { beads, looks } = useBeadPresence(taps, tier);
+  return <BeadLayer beads={beads} plate={PLATE} looks={looks} />;
 }
 const element = (taps: ReadonlyArray<{ x: number; y: number }>, tier: MotionTier = 'full') => (
   <DirectionProvider direction="abyss" face="dark">
@@ -43,6 +48,7 @@ function mount(taps: ReadonlyArray<{ x: number; y: number }>, tier: MotionTier =
   act(() => {
     tree = ReactTestRenderer.create(element(taps, tier));
   });
+  trees.add(tree);
   return tree;
 }
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as Record<string, any>;
@@ -55,16 +61,23 @@ const centres = (tree: ReactTestRenderer.ReactTestRenderer) =>
     return { x: s.left + s.width / 2, y: s.top + s.height / 2 };
   });
 const at = (p: { x: number; y: number }) => pointToLocal(p, PLATE);
-const advance = (ms: number) => act(() => {
-  jest.advanceTimersByTime(ms);
-});
+/** The UI thread runs `ms` of frames from where it stands, JS hearing of each as it happens. */
+let uiNow = 0;
+const advance = (ms: number) => {
+  for (const end = uiNow + ms; uiNow <= end; uiNow += 10) {
+    ui.frame(uiNow);
+    act(() => ui.flushJS());
+  }
+};
+/** How many frame callbacks are running: the presence's one driver, while a bead moves. */
+const running = () => ui.callbacks().filter((c) => c.active).length;
+const opacities = (tree: ReactTestRenderer.ReactTestRenderer) => beads(tree).map((b) => flat(b.props.style).opacity as number);
 
-let timing: jest.SpyInstance;
-beforeEach(() => {
-  timing = jest.spyOn(Animated, 'timing');
-});
+const trees = new Set<ReactTestRenderer.ReactTestRenderer>();
 afterEach(() => {
-  timing.mockRestore();
+  for (const tree of trees) act(() => tree.unmount());
+  trees.clear();
+  act(() => ui.flushJS());
   jest.clearAllTimers();
 });
 
@@ -81,20 +94,28 @@ describe('BeadLayer', () => {
   it('shows the taps present at the mount at once, in order, with no entrance', () => {
     const tree = mount([A, B]);
     expect(centres(tree)).toEqual([at(A), at(B)]);
-    expect(timing).not.toHaveBeenCalled();
+    expect(running()).toBe(0);
+    expect(opacities(tree)).toEqual([1, 1]);
   });
 
-  it('a placed tap enters: one entrance clock, and the beads already there are untouched', () => {
+  it('a placed tap enters on the driver: out until its first frame, then in, and the beads already there are untouched', () => {
     const tree = mount([A, B]);
     act(() => tree.update(element([A, B, C])));
     expect(centres(tree)).toEqual([at(A), at(B), at(C)]);
-    expect(timing).toHaveBeenCalledTimes(1);
+    expect(running()).toBe(1);
+    expect(opacities(tree)).toEqual([1, 1, 0]);
+    advance(60);
+    expect(opacities(tree)[2]).toBeGreaterThan(0);
+    expect(opacities(tree).slice(0, 2)).toEqual([1, 1]);
+    advance(700);
+    expect(opacities(tree)).toEqual([1, 1, 1]);
+    expect(running()).toBe(0);
   });
 
   it('the same taps in a new array start nothing', () => {
     const tree = mount([A, B]);
     act(() => tree.update(element([{ ...A }, { ...B }])));
-    expect(timing).not.toHaveBeenCalled();
+    expect(running()).toBe(0);
     expect(centres(tree)).toEqual([at(A), at(B)]);
   });
 
@@ -102,7 +123,7 @@ describe('BeadLayer', () => {
     const tree = mount([A, B, C]);
     act(() => tree.update(element([B, C, E])));
     expect(centres(tree)).toEqual([at(A), at(B), at(C), at(E)]);
-    expect(timing).toHaveBeenCalledTimes(2);
+    expect(running()).toBe(1);
     advance(EXIT);
     expect(centres(tree)).toEqual([at(B), at(C), at(E)]);
   });
@@ -136,7 +157,7 @@ describe('BeadLayer', () => {
     expect(centres(tree)).toEqual([at(A), at(B), at(C)]);
     act(() => tree.update(element([A], 'still')));
     expect(centres(tree)).toEqual([at(A)]);
-    expect(timing).not.toHaveBeenCalled();
+    expect(running()).toBe(0);
   });
 
   it('draws the same under RTL', () => {
@@ -185,29 +206,22 @@ describe('BeadLayer draws the presence it is given (ruling 2)', () => {
     startOpacity: 1,
     ...over,
   });
-  const direct = (list: readonly PresentBead[], onGone: (id: number) => void) => (
+  const direct = (list: readonly PresentBead[], looks: { value: Record<number, unknown> }) => (
     <DirectionProvider direction="abyss" face="dark">
-      <BeadLayer beads={list} plate={PLATE} onGone={onGone} />
+      <BeadLayer beads={list} plate={PLATE} looks={looks as never} />
     </DirectionProvider>
   );
 
-  it('reports onGone with the bead’s own id when its exit ends, once, and never for a live bead', () => {
-    const onGone = jest.fn();
-    const leftAt = performance.now();
+  it('hands each bead its own id and the one looks value: each draws its own look, and one with none is at rest', () => {
+    const looks = { value: { 7: { opacity: 0.5, colour: 0, scale: 1, start: 1 } } };
+    let tree!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
-      ReactTestRenderer.create(direct([entry(4, A), entry(7, B, { leaving: true, leftAt })], onGone));
+      tree = ReactTestRenderer.create(direct([entry(4, A), entry(7, B, { leaving: true, leftAt: 0 }), entry(9, C, { placedAt: 0 })], looks));
     });
-    advance(EXIT);
-    expect(onGone.mock.calls).toEqual([[7]]);
-  });
-
-  it('hands each bead its entry’s stamps: a leaving bead’s exit plays from the bead at leftAt over what is left since leftAt', () => {
-    const leftAt = performance.now() - 60;
-    act(() => {
-      ReactTestRenderer.create(direct([entry(2, A, { leaving: true, leftAt })], jest.fn()));
-    });
-    const [clock, config] = timing.mock.calls[0];
-    expect(clock.__getValue()).toBe(0);
-    expect(config).toMatchObject({ toValue: exitDuration(1), duration: exitDuration(1) - 60 });
+    trees.add(tree);
+    // Draw order: the leaving bead under the live ones.
+    expect(beads(tree).map((b) => b.props.testID)).toEqual(['hero.plate.bead.leaving', 'hero.plate.bead.0', 'hero.plate.bead.1']);
+    // Bead 7 at its look; bead 4, with no entrance, whole; bead 9, placed with an entrance and not yet drawn, out.
+    expect(opacities(tree)).toEqual([0.5, 1, 0]);
   });
 });

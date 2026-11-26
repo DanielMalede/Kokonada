@@ -3,14 +3,16 @@
 // designer's board, d3). The layer is inert: no touch and no accessibility node; PlateTouch owns both.
 //
 // Ruling 2 (2026-11-25): the page owns the presence (useBeadPresence: the store's taps and the motion tier) and shares
-// it with hero A's rim words; the layer only draws its beads, each from its own entry's stamps, and reports each exit
-// that ends to onGone with that bead's id. Mount it as a child of the plate's D×D box. The taps are the page's own
+// it with hero A's rim words, and the looks its driver writes on the UI thread (useBeadPresence's `looks`); the layer
+// only draws its beads, each reading its own look by its id. Mount it as a child of the plate's D×D box. The taps are the page's own
 // (P10: page state, never the cold lane, RA-39; P2: the cold lane through its port).
 
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
+import type { SharedValue } from 'react-native-reanimated';
 import type { PlateGeometry } from '../Plate/geometry.ts';
 import { Bead } from './Bead.tsx';
+import type { BeadLooks } from './beadDriver.ts';
 import type { PresentBead } from './beadPresence.ts';
 
 export interface BeadLayerProps {
@@ -18,11 +20,11 @@ export interface BeadLayerProps {
   readonly beads: readonly PresentBead[];
   /** The plate's shared geometry (Plate/geometry.ts plateGeometry). */
   readonly plate: PlateGeometry;
-  /** A leaving bead's exit ended (the presence's onGone). */
-  readonly onGone: (id: number) => void;
+  /** The looks the presence's driver writes, by bead id (useBeadPresence). */
+  readonly looks: SharedValue<BeadLooks>;
 }
 
-export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
+export function BeadLayer({ beads, plate, looks }: BeadLayerProps) {
   const live = beads.filter((b) => !b.leaving);
   const order = [...beads.filter((b) => b.leaving), ...live];
   return (
@@ -35,7 +37,7 @@ export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
       style={[styles.layer, { width: plate.diameter, height: plate.diameter }]}
     >
       {order.map((bead) => (
-        <Bead key={bead.id} point={bead.point} plate={plate} placedAt={bead.placedAt} leftAt={bead.leftAt} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} onLeft={() => onGone(bead.id)} />
+        <Bead key={bead.id} id={bead.id} point={bead.point} plate={plate} entered={bead.placedAt !== null} looks={looks} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} />
       ))}
     </View>
   );

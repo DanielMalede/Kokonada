@@ -7,13 +7,12 @@
 //   · Exit, from where the bead is: the colour disc to 0 over motion.press, then the opacity to 0 over motion.respond.
 //     A bead caught translucent in its entrance carries no colour, so its opacity fades at once.
 //   · The still tier plays neither: the bead is whole from its first frame and gone in one (beadPresence.ts).
-//   · An exit whose view starts late (a loaded JS thread runs its effect after leftAt) still plays its whole timeline
-//     from where the bead is, over what is left of it, and never over less than EXIT_MIN_MS: compressed, never skipped
-//     (exitPlayMs; the d5479dc capture lost the grey exit to a late effect).
+//   · A motion that is dispatched late (a loaded JS thread) still plays its whole timeline, entrance or exit, over what
+//     is left of it and never over less than PLAY_FLOOR_MS: compressed, never skipped (playMs; the d5479dc capture lost
+//     the grey exit to a late effect, and 27107e1's captures lost the grey entrance).
 //
 // Each step is the token's duration on its own curve (field/crossfade.ts rampProgress, the field's worklet). Every
-// function here is a worklet: hero A's rim words read a leaving bead's opacity on the UI thread (beadOpacityAt,
-// ruling 2), from its presence entry. `leftAt` and `nowMs` must be read on one clock (performance.now()).
+// function here is a worklet: the beads' driver computes the looks on the UI thread (beadDriver.ts).
 
 import { rampProgress } from '../../field/crossfade.ts';
 import { BASE } from '../../tokens/tokens.generated.ts';
@@ -58,29 +57,16 @@ export const PLAY_FLOOR_MS = RESPOND_MS;
 /**
  * How long a motion whose timeline is `endMs` long plays when it is dispatched `lateMs` after its stamp: the rest of its
  * timeline, so it ends when it was due, but never less than the floor, and never more than its own length. The whole
- * timeline is played over that length: compressed, never skipped. An unreadable or negative lateness is on time.
+ * timeline is played over that length: compressed, never skipped. An unreadable or negative lateness is on time. The
+ * floor is PLAY_FLOOR_MS unless one is given.
  */
-export function playMs(endMs: number, lateMs: number, floorMs: number = PLAY_FLOOR_MS): number {
+export function playMs(endMs: number, lateMs: number, floorMs?: number): number {
   'worklet';
   const late = lateMs > 0 ? lateMs : 0;
   const rest = endMs - late;
-  const floor = floorMs < endMs ? floorMs : endMs;
+  const least = floorMs === undefined ? PLAY_FLOOR_MS : floorMs;
+  const floor = least < endMs ? least : endMs;
   return rest > floor ? rest : floor;
-}
-
-/** The shortest an exit is ever played: motion.respond, the opacity step's own length, so a late exit's grey still shows. */
-export const EXIT_MIN_MS = RESPOND_MS;
-
-/**
- * How long an exit from `startOpacity` plays when its view starts it `lateMs` after leftAt: the rest of its timeline,
- * so it ends when it was due, but never less than EXIT_MIN_MS. An unreadable or negative lateness is on time.
- */
-export function exitPlayMs(startOpacity: number, lateMs: number): number {
-  'worklet';
-  const end = exitDuration(startOpacity);
-  const late = lateMs > 0 ? lateMs : 0;
-  const rest = end - late;
-  return rest > EXIT_MIN_MS ? rest : EXIT_MIN_MS;
 }
 
 /** The bead's opacity `elapsedMs` into its exit from `startOpacity`: held through the colour's step, then to 0 over motion.respond. */
@@ -95,20 +81,4 @@ export function exitColour(startOpacity: number, startColour: number, elapsedMs:
   'worklet';
   if (!(startOpacity >= 1)) return 0;
   return startColour * (1 - rampProgress(elapsedMs, PRESS_MS, PRESS_EASING));
-}
-
-/** What beadOpacityAt reads of a presence entry: hero A's RimBead without its point. */
-export interface BeadExitStamp {
-  readonly leaving: boolean;
-  /** When its exit began, on the JS clock (performance.now()); null while it is live. */
-  readonly leftAt: number | null;
-  /** Its opacity when its exit began. */
-  readonly startOpacity: number;
-}
-
-/** A bead's opacity at `nowMs` (the clock leftAt was read on): 1 while live, else its exit's. */
-export function beadOpacityAt(b: BeadExitStamp, nowMs: number): number {
-  'worklet';
-  if (!b.leaving || b.leftAt === null) return 1;
-  return exitOpacity(b.startOpacity, nowMs - b.leftAt);
 }

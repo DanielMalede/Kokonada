@@ -13,7 +13,7 @@
 //     the cold lane's), a removal takes the latest, and a commit, a haptic, the list's button and its focus are counted;
 //     nothing leaves the scene.
 //   · Wired as a page wires them: one bead presence (useBeadPresence, ruling 2) for the beads BeadLayer draws and the
-//     letters RimLabels knocks out and lets return on the bead model's clock (beadOpacityAt); PlateTouch hands focus back
+//     letters RimLabels knocks out and lets return on the beads' own looks (the presence's `looks`); PlateTouch hands focus back
 //     to PlateEntry through its handle; the CTA's machine hears the tap count (store) and is bound as FieldView's onStart
 //     (F8), which carries each admitted start's live placements.
 //   · The tier is the app's motion policy on the device's settings, as a policy scene's (FieldScene.tsx usePolicyTier):
@@ -33,7 +33,6 @@ import { PixelRatio, StyleSheet, View } from 'react-native';
 import { Canvas, Circle } from '@shopify/react-native-skia';
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
 import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
-import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
 import { useBeadPresence } from '../../v2/components/Bead/useBeadPresence';
 import { CommitCTA, useCtaMachine } from '../../v2/components/CommitCTA/CommitCTA';
 import { createCopyPort, type Catalog, type CopySpec, type NeutralKeyOf } from '../../v2/copy/CopyPort';
@@ -337,7 +336,8 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
     busyWait(stall);
   }, [state.taps, stall]);
   // The page's one bead presence (ruling 2): BeadLayer draws it, and RimLabels knocks its letters out by it.
-  const presence = useBeadPresence(state.taps, tier);
+  const beadClock = useMemo(() => ({ timeScale }), [timeScale]);
+  const presence = useBeadPresence(state.taps, tier, beadClock);
   // The list's button (ruling 9): PlateTouch hands focus back to it when Remove leaves no tap.
   const entry = useRef<PlateEntryHandle>(null);
 
@@ -407,9 +407,9 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
         <Probe id="plate" style={[styles.plate, box]}>
           <Plate diameter={diameter} fontScale={layout.fontScale}>
             <PlateEntry ref={entry} plate={plate} label={copy.plateLabel} hint={copy.plateHint} onOpenList={onOpenList} onFocusChange={onEntryFocus} inert={false} />
-            <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={presence.beads} beadOpacity={beadOpacityAt} />
+            <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={presence.beads} looks={presence.looks} />
             {outline ? <BandOutline plate={plate} /> : null}
-            <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} />
+            <BeadLayer beads={presence.beads} plate={plate} looks={presence.looks} />
             <PlateTouch
               plate={plate}
               taps={state.taps}

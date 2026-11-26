@@ -65,7 +65,6 @@ jest.mock('../../v2/field/effect.ts', () => ({
 
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
 import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
-import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
 import { CommitCTA } from '../../v2/components/CommitCTA/CommitCTA';
 import { Plate } from '../../v2/components/Plate/Plate';
 import { PlateEntry } from '../../v2/components/PlateTouch/PlateEntry';
@@ -197,7 +196,10 @@ describe('a hero scene before and after its view has a size', () => {
     // One bead presence (ruling 2): the beads BeadLayer draws are the beads the rim words knock out, on the bead model's clock.
     const beads = h.props(BeadLayer).beads;
     expect(beads.map((b) => b.point)).toEqual(field.taps);
-    expect(h.props(RimLabels)).toMatchObject({ diameter: 2 * layout.radius, fontScale: layout.fontScale, beadOpacity: beadOpacityAt });
+    expect(h.props(RimLabels)).toMatchObject({ diameter: 2 * layout.radius, fontScale: layout.fontScale });
+    // One presence, one clock (UI-320): the rim words read the very looks the beads draw.
+    expect(h.props(RimLabels).looks).toBe(h.props(BeadLayer).looks);
+    expect(h.props(RimLabels).looks).toEqual({ value: {} });
     expect(h.props(RimLabels).beads).toBe(beads);
     expect(h.props(BeadLayer).plate.diameter).toBe(2 * layout.radius);
     expect(h.props(PlateTouch)).toMatchObject({ taps: field.taps, toPoint: screenToCircumplex, inert: false });
@@ -506,6 +508,29 @@ describe('the round-2 evidence scenes', () => {
       const eight = heroTimeline('knocktimed', 8)!;
       expect(eight.steps.map(([, action]) => action)).toEqual(one.steps.map(([, action]) => action));
       expect(eight.period!).toBeGreaterThan(3 * one.period!);
+    });
+
+    it('beadTimeScale reaches the beads’ driver: a removal takes press + respond at 1, and that many times longer at the dial', async () => {
+      const exit = BASE.motion.press.duration + BASE.motion.respond.duration;
+      const framesUntilGone = async (dials: Partial<LabParams>) => {
+        const h = await mount('hero.abyss.dark.three.latin', MOTION_ON, dials);
+        h.layout();
+        act(() => h.props(PlateTouch).onRemoveLatest());
+        expect(h.props(BeadLayer).beads.filter((b) => b.leaving)).toHaveLength(1);
+        let n = 0;
+        while (h.props(BeadLayer).beads.some((b) => b.leaving) && n < 2000) {
+          h.frames(1);
+          n += 1;
+        }
+        return n;
+      };
+      const plain = await framesUntilGone({});
+      const slow = await framesUntilGone({ beadTimeScale: 8 });
+      // 16 ms a frame, the first one starting the clock; the commit's own few ms of lateness may take a frame off.
+      expect(plain).toBeGreaterThanOrEqual(Math.ceil(exit / 16) - 2);
+      expect(plain).toBeLessThanOrEqual(Math.ceil(exit / 16) + 1);
+      expect(slow).toBeGreaterThanOrEqual(8 * (plain - 2));
+      expect(slow).toBeLessThanOrEqual(8 * plain + 1);
     });
 
     it('busyWait holds the JS thread until the clock has moved the ms asked, and not at all for 0 or less', () => {

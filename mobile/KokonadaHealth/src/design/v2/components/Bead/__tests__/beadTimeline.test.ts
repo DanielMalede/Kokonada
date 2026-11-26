@@ -4,14 +4,14 @@ import * as path from 'path';
 import ts from 'typescript';
 import { Easing } from 'react-native';
 import { BASE } from '../../../tokens/tokens.generated.ts';
-import { beadOpacityAt, entranceColour, entranceOpacity, EXIT_MIN_MS, exitColour, exitDuration, exitHold, exitOpacity, exitPlayMs, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
+import { entranceColour, entranceOpacity, exitColour, exitDuration, exitHold, exitOpacity, playMs, PLAY_FLOOR_MS, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
 
 // F1 (P0, the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. Below opacity 1
 // it is drawn achromatic; the colour lives on an inner disc that fades only while the bead is opaque. The timeline is
 // the two opacities over time: the entrance takes the bead's opacity 0 to 1 over motion.press, then the colour disc
 // 0 to 1 over motion.respond from the moment the opacity is 1; the exit takes the colour to 0 over motion.press, then
-// the opacity to 0 over motion.respond. Its functions are worklets: hero A's rim words read a leaving bead's opacity
-// on the UI thread (beadOpacityAt, ruling 2).
+// the opacity to 0 over motion.respond. Its functions are worklets: the beads' driver computes every look on the UI
+// thread (beadDriver.ts), where the rim words read it.
 
 const PRESS = BASE.motion.press;
 const RESPOND = BASE.motion.respond;
@@ -105,47 +105,29 @@ describe('the exit (F1): the colour to 0 over motion.press, then the opacity to 
   });
 });
 
-describe('a late exit still plays (the d5479dc capture: whole to gone within one 147 ms frame gap)', () => {
-  it('EXIT_MIN_MS is motion.respond, the opacity step’s own length: the shortest an exit is ever played', () => {
-    expect(EXIT_MIN_MS).toBe(RESPOND.duration);
+describe('a late motion still plays (the d5479dc capture: an exit whole to gone within one 147 ms frame gap; 27107e1: an entrance with no grey)', () => {
+  it('PLAY_FLOOR_MS is motion.respond: the shortest any bead motion is ever played', () => {
+    expect(PLAY_FLOOR_MS).toBe(RESPOND.duration);
   });
 
   it('on time, an exit plays its whole timeline', () => {
-    expect(exitPlayMs(1, 0)).toBe(exitDuration(1));
-    expect(exitPlayMs(0.4, 0)).toBe(exitDuration(0.4));
+    expect(playMs(exitDuration(1), 0)).toBe(exitDuration(1));
+    expect(playMs(exitDuration(0.4), 0)).toBe(exitDuration(0.4));
   });
 
   it('a little late, it plays over what is left of its timeline, so it still ends when it was due', () => {
-    expect(exitPlayMs(1, 60)).toBe(exitDuration(1) - 60);
-    expect(exitPlayMs(1, exitDuration(1) - EXIT_MIN_MS)).toBe(EXIT_MIN_MS);
+    expect(playMs(exitDuration(1), 60)).toBe(exitDuration(1) - 60);
+    expect(playMs(exitDuration(1), exitDuration(1) - PLAY_FLOOR_MS)).toBe(PLAY_FLOOR_MS);
   });
 
-  it('later, or after the timeline was over, it plays over EXIT_MIN_MS: compressed, never skipped', () => {
-    for (const late of [exitDuration(1) - EXIT_MIN_MS + 1, 300, exitDuration(1), 600, 10_000]) expect(exitPlayMs(1, late)).toBe(EXIT_MIN_MS);
-    expect(exitPlayMs(0.4, 10_000)).toBe(EXIT_MIN_MS);
+  it('later, or after the timeline was over, it plays over the floor: compressed, never skipped', () => {
+    for (const late of [exitDuration(1) - PLAY_FLOOR_MS + 1, 300, exitDuration(1), 600, 10_000]) expect(playMs(exitDuration(1), late)).toBe(PLAY_FLOOR_MS);
+    expect(playMs(exitDuration(0.4), 10_000)).toBe(PLAY_FLOOR_MS);
   });
 
   it('an unreadable or negative lateness is on time', () => {
-    for (const late of [Number.NaN, -50, Number.NEGATIVE_INFINITY]) expect(exitPlayMs(1, late)).toBe(exitDuration(1));
-    expect(exitPlayMs(1, Number.POSITIVE_INFINITY)).toBe(EXIT_MIN_MS);
-  });
-});
-
-describe('beadOpacityAt: a bead’s opacity from its presence entry (ruling 2, for the rim words on the UI thread)', () => {
-  it('a live bead is whole: the knock-out of a live bead is total', () => {
-    expect(beadOpacityAt({ leaving: false, leftAt: null, startOpacity: 1 }, 123)).toBe(1);
-  });
-
-  it('a leaving bead follows the exit from its leftAt and its startOpacity', () => {
-    const leftAt = 5000;
-    for (const [start, t] of [[1, 0], [1, 60], [1, 220], [0.4, 0], [0.4, 120], [1, 900]] as const) {
-      expect(beadOpacityAt({ leaving: true, leftAt, startOpacity: start }, leftAt + t)).toBe(exitOpacity(start, t));
-    }
-    expect(beadOpacityAt({ leaving: true, leftAt, startOpacity: 1 }, leftAt + exitDuration(1))).toBe(0);
-  });
-
-  it('a clock that reads earlier than leftAt holds the start (never above it)', () => {
-    expect(beadOpacityAt({ leaving: true, leftAt: 5000, startOpacity: 0.7 }, 4990)).toBe(0.7);
+    for (const late of [Number.NaN, -50, Number.NEGATIVE_INFINITY]) expect(playMs(exitDuration(1), late)).toBe(exitDuration(1));
+    expect(playMs(exitDuration(1), Number.POSITIVE_INFINITY)).toBe(PLAY_FLOOR_MS);
   });
 });
 
@@ -190,7 +172,7 @@ describe('the timeline runs on the UI thread', () => {
 
   it('every function the module defines is a worklet', () => {
     const functions = moduleFunctions(source);
-    expect(functions.map((f) => f.name)).toEqual(expect.arrayContaining(['beadOpacityAt', 'entranceOpacity', 'entranceColour', 'exitOpacity', 'exitColour', 'exitHold', 'exitDuration']));
+    expect(functions.map((f) => f.name)).toEqual(expect.arrayContaining(['playMs', 'entranceOpacity', 'entranceColour', 'exitOpacity', 'exitColour', 'exitHold', 'exitDuration']));
     expect(functions.filter((f) => !f.worklet).map((f) => f.name)).toEqual([]);
   });
 

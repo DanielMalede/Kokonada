@@ -1,7 +1,5 @@
-import * as path from 'path';
 import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
-import { loadMutant } from '../../../../../testing/mutant.ts';
 import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
 import { entranceEnd, type BeadLooks } from '../beadDriver.ts';
 import { beadMotion } from '../beadModel.ts';
@@ -255,34 +253,5 @@ describe('useBeadClock: the time scale (the lab’s dial)', () => {
     expect(h.looks()[4].opacity).toBe(exitOpacity(1, 200));
     frames(8 * exitDuration(1) - 10, 8 * exitDuration(1) + 10);
     expect(h.onGone.mock.calls).toEqual([[4]]);
-  });
-});
-
-describe('useBeadClock: mutants', () => {
-  const SOURCE = path.resolve(__dirname, '../useBeadClock.ts');
-  const exitOnce = (hook: Hook) => {
-    const bead = whole(4);
-    const h = mount([bead], hook);
-    h.update([left(bead, performance.now())]);
-    frames(0, exitDuration(1) + 200);
-    return h;
-  };
-
-  it('one that never rests the frame callback is caught', () => {
-    const mutant = loadMutant<{ useBeadClock: Hook }>(SOURCE, [{ find: 'if (seen === generation.current) frame.setActive(false);', replace: '' }], require);
-    exitOnce(mutant.useBeadClock);
-    expect(active()).toBe(1);
-  });
-
-  it('one that reports after the unmount is caught', () => {
-    const mutant = loadMutant<{ useBeadClock: Hook }>(SOURCE, [{ find: 'if (mounted.current) gone.current(id);', replace: 'gone.current(id);' }], require);
-    const bead = whole(4);
-    const h = mount([bead], mutant.useBeadClock);
-    h.update([left(bead, performance.now())]);
-    ui.frame(0);
-    ui.frame(exitDuration(1));
-    h.unmount();
-    act(() => ui.flushJS());
-    expect(h.onGone).toHaveBeenCalledTimes(1);
   });
 });

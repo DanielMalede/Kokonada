@@ -5,13 +5,19 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 import ts from 'typescript';
 import type { MotionTier } from '../../../motion/useMotionPolicy.ts';
 import type { PlatePoint } from '../../Plate/geometry.ts';
-import { beadOpacityAt, entranceOpacity } from '../beadTimeline.ts';
+import { DirectionProvider } from '../../../tokens/DirectionProvider.tsx';
+import type { BeadLooks } from '../beadDriver.ts';
+import { entranceOpacity } from '../beadTimeline.ts';
 import { useBeadPresence, type BeadPresenceHandle } from '../useBeadPresence.ts';
 
 // Ruling 2, the Bead/ half (2026-11-25): one presence for the beads and the rim words. The page calls
-// useBeadPresence(taps, tier) once and hands its beads to BeadLayer (with onGone, which drops a bead whose exit ended)
-// and to hero A's RimLabels, whose letters fade back as a leaving bead fades (beadOpacityAt). The hook stamps each
-// entrance and exit on the JS clock (performance.now(), which jest's fake timers drive here).
+// useBeadPresence(taps, tier) once and hands its beads and its looks to BeadLayer and to hero A's RimLabels, whose
+// letters fade back as a leaving bead fades, both read from the looks the beads' driver writes (UI-320). The hook
+// stamps each entrance and exit on the JS clock (performance.now(), which jest's fake timers drive here); the driver
+// reports an exit that ended, and the presence drops that bead.
+
+jest.mock('react-native-reanimated', () => require('./__fixtures__/uiThread').uiThreadMock());
+const ui = (jest.requireMock('react-native-reanimated') as { __ui: import('./__fixtures__/uiThread.ts').UiThread }).__ui;
 
 jest.useFakeTimers();
 afterAll(() => jest.useRealTimers());
@@ -19,6 +25,7 @@ afterAll(() => jest.useRealTimers());
 const A = { x: 0.6, y: 0.6 };
 const B = { x: 0.6, y: -0.6 };
 const C = { x: -0.6, y: -0.6 };
+const SLOW = { timeScale: 8 };
 
 function mount(taps: readonly PlatePoint[], tier: MotionTier = 'full') {
   const seen: BeadPresenceHandle[] = [];
@@ -28,9 +35,9 @@ function mount(taps: readonly PlatePoint[], tier: MotionTier = 'full') {
   }
   let tree!: ReactTestRenderer.ReactTestRenderer;
   act(() => {
-    tree = ReactTestRenderer.create(<Probe t={taps} m={tier} />);
+    tree = ReactTestRenderer.create(<DirectionProvider direction="abyss" face="dark"><Probe t={taps} m={tier} /></DirectionProvider>);
   });
-  const update = (next: readonly PlatePoint[], nextTier: MotionTier = tier) => act(() => tree.update(<Probe t={next} m={nextTier} />));
+  const update = (next: readonly PlatePoint[], nextTier: MotionTier = tier) => act(() => tree.update(<DirectionProvider direction="abyss" face="dark"><Probe t={next} m={nextTier} /></DirectionProvider>));
   const last = () => seen[seen.length - 1];
   const advance = (ms: number) => act(() => {
     jest.advanceTimersByTime(ms);
@@ -62,19 +69,46 @@ describe('useBeadPresence', () => {
     advance(30);
     update([]);
     expect(last().beads).toEqual([{ id: 0, point: A, leaving: true, placedAt: placed, leftAt: placed + 30, startOpacity: entranceOpacity(30) }]);
-    expect(beadOpacityAt(last().beads[0], placed + 30)).toBe(entranceOpacity(30));
   });
 
-  it('onGone drops a leaving bead, and only a leaving one, and keeps the hook’s identity across renders', () => {
+  it('drops a leaving bead when the driver reports its exit ended, and only that one; the looks are one value for the hook’s life', () => {
     const { update, last, seen } = mount([A, B]);
     update([A]);
-    const onGone = last().onGone;
-    act(() => last().onGone(0));
-    expect(last().beads.map((b) => b.id)).toEqual([0, 1]);
-    act(() => last().onGone(1));
+    expect(last().beads.map((b) => [b.id, b.leaving])).toEqual([[0, false], [1, true]]);
+    // Frames on the UI thread until the exit ends; JS hears of it, and the presence drops bead 1 alone.
+    for (let t = 0; t <= 500; t += 10) {
+      ui.frame(t);
+      act(() => ui.flushJS());
+    }
     expect(last().beads.map((b) => b.id)).toEqual([0]);
-    expect(new Set(seen.map((s) => s.onGone)).size).toBe(1);
-    expect(last().onGone).toBe(onGone);
+    expect(new Set(seen.map((s) => s.looks)).size).toBe(1);
+  });
+
+  it('hands the lab’s time scale to the driver: at 8 the exit ends eight times later', () => {
+    const seen: BeadPresenceHandle[] = [];
+    function Probe({ t }: { readonly t: readonly PlatePoint[] }) {
+      seen.push(useBeadPresence(t, 'full', SLOW));
+      return null;
+    }
+    const element = (t: readonly PlatePoint[]) => <DirectionProvider direction="abyss" face="dark"><Probe t={t} /></DirectionProvider>;
+    let tree!: ReactTestRenderer.ReactTestRenderer;
+    act(() => {
+      tree = ReactTestRenderer.create(element([A]));
+    });
+    act(() => tree.update(element([])));
+    const run = (from: number, to: number) => {
+      for (let t = from; t <= to; t += 10) {
+        ui.frame(t);
+        act(() => ui.flushJS());
+      }
+    };
+    run(0, 3000);
+    expect(seen[seen.length - 1].beads.map((b) => b.id)).toEqual([0]);
+    const looks: BeadLooks = seen[0].looks.value;
+    expect(looks[0].opacity).toBeGreaterThan(0);
+    run(3010, 3700);
+    expect(seen[seen.length - 1].beads).toEqual([]);
+    act(() => tree.unmount());
   });
 
   it('the same taps in a new array, or a re-render, keep the very same beads (a reader may memo on them)', () => {
@@ -101,20 +135,20 @@ describe('useBeadPresence', () => {
   });
 });
 
-// Hero A's RimBead (RimLabels/, ruling 2), copied here and never imported: RimLabels takes the presence's beads as its
-// `beads` and beadOpacityAt as a prop of this type. If either drifts, this file stops compiling, and the program below
-// (the project's own tsconfig, in-process: CI runs jest, not tsc) fails the test.
+// Hero A's RimBead and RimLooks (RimLabels/, ruling 2; UI-320), copied here and never imported: RimLabels takes the
+// presence's beads as its `beads` and the presence's looks as its `looks`, a shared value of this type. If either drifts,
+// this file stops compiling, and the program below (the project's own tsconfig, in-process: CI runs jest, not tsc) fails
+// the test.
 interface RimBead {
+  readonly id: number;
   readonly point: PlatePoint;
   readonly leaving: boolean;
-  readonly leftAt: number | null;
-  readonly startOpacity: number;
 }
-type RimOpacityAt = (b: RimBead, nowMs: number) => number;
+type RimLooks = { readonly value: Readonly<Record<number, { readonly opacity: number; readonly start: number | null }>> };
 
 /** Never called: it only has to compile. */
-export function rimBeadPin(handle: BeadPresenceHandle): readonly [readonly RimBead[], RimOpacityAt] {
-  return [handle.beads, beadOpacityAt];
+export function rimBeadPin(handle: BeadPresenceHandle): readonly [readonly RimBead[], RimLooks] {
+  return [handle.beads, handle.looks];
 }
 
 const THIS_FILE = path.resolve(__dirname, 'useBeadPresence.test.tsx');
@@ -136,18 +170,18 @@ function diagnosticsOf(text?: string): string[] {
   return program.getSemanticDiagnostics(file).map((d) => `${d.start === undefined ? '?' : file.getLineAndCharacterOfPosition(d.start).line + 1}: TS${d.code} ${ts.flattenDiagnosticMessageText(d.messageText, ' ')}`);
 }
 
-describe('the presence fits hero A’s RimBead and its beadOpacityAt prop (compiled, not assumed)', () => {
+describe('the presence fits hero A’s RimBead and its looks prop (compiled, not assumed)', () => {
   const source = ts.sys.readFile(THIS_FILE)!;
   /** The line of the pin's return in `text`, where a planted text's diagnostic must land. */
-  const returnLineOf = (text: string) => text.slice(0, text.indexOf('return [handle.beads, beadOpacityAt];')).split('\n').length;
+  const returnLineOf = (text: string) => text.slice(0, text.indexOf('return [handle.beads, handle.looks];')).split('\n').length;
 
   it('this file compiles clean under the project’s strict tsconfig', () => {
     expect(diagnosticsOf()).toEqual([]);
   }, 120_000);
 
-  it('planted: a RimBead with a field the entries lack, or a prop that takes the clock as a string, does not compile', () => {
-    const extraField = source.replace('readonly startOpacity: number;\n}', 'readonly startOpacity: number;\n  readonly ordinal: number;\n}');
-    const stringClock = source.replace('type RimOpacityAt = (b: RimBead, nowMs: number) => number;', 'type RimOpacityAt = (b: RimBead, nowMs: string) => number;');
+  it('planted: a RimBead with a field the entries lack, or looks whose opacity is a string, does not compile', () => {
+    const extraField = source.replace('readonly leaving: boolean;\n}', 'readonly leaving: boolean;\n  readonly ordinal: number;\n}');
+    const stringClock = source.replace('{ readonly opacity: number; readonly start: number | null }>> };', '{ readonly opacity: string; readonly start: number | null }>> };');
     expect(extraField).not.toBe(source);
     expect(stringClock).not.toBe(source);
     for (const planted of [extraField, stringClock]) {
