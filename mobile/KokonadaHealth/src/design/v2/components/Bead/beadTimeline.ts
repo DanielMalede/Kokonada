@@ -49,6 +49,25 @@ export function exitDuration(startOpacity: number): number {
   return exitHold(startOpacity) + RESPOND_MS;
 }
 
+/**
+ * The floor (the designer's rulings of 2026-11-26): no bead motion, entrance or exit, is ever played over less than
+ * motion.respond, the system's own response token, so a late motion's grey step is still seen.
+ */
+export const PLAY_FLOOR_MS = RESPOND_MS;
+
+/**
+ * How long a motion whose timeline is `endMs` long plays when it is dispatched `lateMs` after its stamp: the rest of its
+ * timeline, so it ends when it was due, but never less than the floor, and never more than its own length. The whole
+ * timeline is played over that length: compressed, never skipped. An unreadable or negative lateness is on time.
+ */
+export function playMs(endMs: number, lateMs: number, floorMs: number = PLAY_FLOOR_MS): number {
+  'worklet';
+  const late = lateMs > 0 ? lateMs : 0;
+  const rest = endMs - late;
+  const floor = floorMs < endMs ? floorMs : endMs;
+  return rest > floor ? rest : floor;
+}
+
 /** The shortest an exit is ever played: motion.respond, the opacity step's own length, so a late exit's grey still shows. */
 export const EXIT_MIN_MS = RESPOND_MS;
 

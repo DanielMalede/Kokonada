@@ -211,6 +211,39 @@ export function returningOpacity(beads: readonly RimBead[], nowMs: number, beadO
   return 1 - share;
 }
 
+/** What the letters read of a bead's look (Bead/beadDriver.ts DrivenLook): its opacity now, and its opacity when its exit began. */
+export interface RimLook {
+  readonly opacity: number;
+  /** Null while the bead enters or rests: it has no exit yet. */
+  readonly start: number | null;
+}
+
+/** The looks the beads' driver writes each frame, by bead id. */
+export type RimLooks = Readonly<Record<number, RimLook>>;
+
+/**
+ * The letters' law (the designer's rulings of 2026-11-26, UI-320): the opacity of letters returning as the leaving beads
+ * they follow fade, read from those beads' own looks: one less the largest share of its start opacity any of them still
+ * has, opacity ÷ start, held to [0, 1]. So it is exactly 0 while a bead is at its start opacity (the exit's hold), and
+ * near several beads it follows the one that fades last. A bead with no look yet, or whose look has no start yet, has
+ * all of its share: the letters stay out. One that began invisible (start 0 or less) has none: the letters are 1, never
+ * NaN. A start or an opacity that is not a number keeps the letters out, as a bead that may still be there.
+ */
+export function lettersOpacity(ids: readonly number[], looks: RimLooks): number {
+  'worklet';
+  let share = 0;
+  for (let i = 0; i < ids.length; i++) {
+    const look = looks[ids[i]];
+    let s = 1;
+    if (look !== undefined && look.start !== null && Number.isFinite(look.start)) {
+      if (look.start <= 0) s = 0;
+      else if (Number.isFinite(look.opacity)) s = Math.min(1, Math.max(0, look.opacity / look.start));
+    }
+    if (s > share) share = s;
+  }
+  return 1 - share;
+}
+
 /** Every cell's corners, where each glyph's transform puts them, boxed and outset by the pad. A word with no glyph is a point on the centre line. */
 function boundsOf(glyphs: readonly PlacedGlyph[], font: RimFontMetrics, pad: number, g: PlateGeometry, position: RimPosition): RimBox {
   if (glyphs.length === 0) {

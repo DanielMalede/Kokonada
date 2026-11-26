@@ -43,8 +43,11 @@ export function overlapOmega(delta: number, reach: number): number {
   return t * t * (3 - 2 * t);
 }
 
-/** CSS cubic-bezier(x1, y1, x2, y2) at x in [0, 1], by bisection on the x curve (monotone for x1, x2 in [0, 1]). */
-function cubicBezier(easing: readonly number[], x: number): number {
+/**
+ * CSS cubic-bezier(x1, y1, x2, y2) at x in [0, 1], by bisection on the x curve (monotone for x1, x2 in [0, 1]). Its value is
+ * not clamped: a curve that overshoots (y above 1) is returned as it is (the bead's scale reads it, Bead/beadModel.ts).
+ */
+export function cubicBezier(easing: readonly number[], x: number): number {
   'worklet';
   const x1 = easing[0];
   const y1 = easing[1];

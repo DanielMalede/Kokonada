@@ -2,7 +2,7 @@ import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
 import type { PlatePoint } from '../../Plate/geometry.ts';
-import { RIM_POSITIONS, RIM_READING_ORDER, layRimWord, returningGroups, returningOpacity, visualOrder, type PlacedGlyph, type RimBead, type RimPosition } from '../arc.ts';
+import { RIM_POSITIONS, RIM_READING_ORDER, layRimWord, lettersOpacity, returningGroups, returningOpacity, visualOrder, type PlacedGlyph, type RimBead, type RimPosition } from '../arc.ts';
 
 // The rim words on the arc (DEC-036; V1 directions §1.5; DSN-027, DSN-028): shaped first, then laid on the ring's centre
 // line, concave: the glyph tops point toward the rim at the top, the right and the left, and the bottom word is upright.
@@ -325,6 +325,60 @@ describe('returningOpacity (the designer’s ruling 2): 1 − the bead’s opaci
 
   it('is a worklet, as the frame callback that calls it on the UI thread must be, and captures nothing that is not one', () => {
     const fn = returningOpacity as unknown as { __workletHash?: number; __closure?: Record<string, unknown> };
+    expect(typeof fn.__workletHash).toBe('number');
+    const captured = Object.values(fn.__closure ?? {}).filter((v) => typeof v === 'function') as Array<{ __workletHash?: number }>;
+    expect(captured.filter((f) => typeof f.__workletHash !== 'number')).toEqual([]);
+  });
+});
+
+// The designer's rulings of 2026-11-26 (UI-320): the letters are read from the looks the beads' own driver writes each
+// frame, by bead id, never from a clock of their own: 1 − the largest share of its start opacity any followed bead still has.
+describe('lettersOpacity (the letters’ law): 1 − max over the followed beads of opacity ÷ start opacity', () => {
+  const look = (opacity: number, start: number | null) => ({ opacity, start });
+
+  it.each([1, 0.6])('follows one bead exactly: at 100, 75, 50, 25 and 0%% of its start opacity (%p) the letters are at 0, 0.25, 0.5, 0.75 and 1', (start) => {
+    for (const share of [1, 0.75, 0.5, 0.25, 0]) expect(lettersOpacity([3], { 3: look(start * share, start) })).toBeCloseTo(1 - share, 12);
+  });
+
+  it('is exactly 0 while the bead is at its start opacity (the press hold), and exactly 1 once it is gone', () => {
+    for (const start of [1, 0.6, 0.123456789]) {
+      expect(lettersOpacity([3], { 3: look(start, start) })).toBe(0);
+      expect(lettersOpacity([3], { 3: look(0, start) })).toBe(1);
+    }
+  });
+
+  it('near several leaving beads, follows the one with the most left, in either order: back in full only when the last has gone', () => {
+    const looks = { 1: look(0.2, 1), 2: look(0.4, 0.8), 3: look(0, 1) };
+    expect(lettersOpacity([1, 2], looks)).toBeCloseTo(0.5, 12);
+    expect(lettersOpacity([2, 1], looks)).toBeCloseTo(0.5, 12);
+    expect(lettersOpacity([1, 3], looks)).toBeCloseTo(0.8, 12);
+    expect(lettersOpacity([3], looks)).toBe(1);
+    expect(lettersOpacity([1, 2, 3], { ...looks, 1: look(0, 1), 2: look(0, 0.8) })).toBe(1);
+  });
+
+  it('a followed bead with no look yet, or one whose exit has no start yet (it still enters or rests), has its full share: the letters stay out', () => {
+    expect(lettersOpacity([3], {})).toBe(0);
+    expect(lettersOpacity([3], { 3: look(1, null) })).toBe(0);
+    expect(lettersOpacity([3], { 3: look(0.3, null) })).toBe(0);
+    expect(lettersOpacity([3, 4], { 3: look(0, 1) })).toBe(0);
+  });
+
+  it('a start opacity of 0 gives letters at 1, never NaN; a start or an opacity that is no number keeps them out', () => {
+    expect(lettersOpacity([3], { 3: look(0, 0) })).toBe(1);
+    expect(lettersOpacity([3], { 3: look(0, -1) })).toBe(1);
+    expect(lettersOpacity([3], { 3: look(0.5, Number.NaN) })).toBe(0);
+    expect(lettersOpacity([3], { 3: look(Number.NaN, 1) })).toBe(0);
+    // An opacity above the start reads as the whole of it; one below 0 as none.
+    expect(lettersOpacity([3], { 3: look(2, 1) })).toBe(0);
+    expect(lettersOpacity([3], { 3: look(-1, 1) })).toBe(1);
+  });
+
+  it('follows no bead: the letters are whole', () => {
+    expect(lettersOpacity([], { 3: look(1, 1) })).toBe(1);
+  });
+
+  it('is a worklet, and captures nothing that is not one', () => {
+    const fn = lettersOpacity as unknown as { __workletHash?: number; __closure?: Record<string, unknown> };
     expect(typeof fn.__workletHash).toBe('number');
     const captured = Object.values(fn.__closure ?? {}).filter((v) => typeof v === 'function') as Array<{ __workletHash?: number }>;
     expect(captured.filter((f) => typeof f.__workletHash !== 'number')).toEqual([]);

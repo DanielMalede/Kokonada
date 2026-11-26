@@ -15,9 +15,12 @@
 // (scaleFrom, the easing token, the overshoot scaled to the token's peak and × (1 − s), LEDGER §2). Under reduced
 // motion (the still tier) the bead is whole in one frame and gone in one. Battery saver does not change UI motion
 // (LEDGER §7). The exit runs from where the bead is, its scale held (the designer's board, d3; ruling 12).
+//
+// The looks are worklets (entranceLook, exitLook): the beads' driver computes them on the UI thread, every channel from
+// one clock (beadDriver.ts). The scale's curve is the field's own worklet bezier (field/crossfade.ts cubicBezier).
 
-import { Easing } from 'react-native';
 import { mixOklab, type Oklab } from '../../color/oklab.ts';
+import { cubicBezier } from '../../field/crossfade.ts';
 import { NODE_TIER, QUADRANT, nodeAt, placementRamp } from '../../field/fieldFrame.ts';
 import { srgbHex } from '../../field/fieldLaw.ts';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
@@ -26,7 +29,6 @@ import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/toke
 import type { PlatePoint } from '../Plate/geometry.ts';
 
 const WHITE: Oklab = { L: 1, a: 0, b: 0 };
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const labOf = (c: { readonly oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
 
 /**
@@ -131,13 +133,10 @@ export interface BeadMotion {
   readonly linear: boolean;
 }
 
-type Curve = (x: number) => number;
-const curveOf = (easing: readonly number[]): Curve => Easing.bezier(easing[0], easing[1], easing[2], easing[3]);
-
 /** The highest value a cubic-bezier easing reaches over [0, 1], sampled at 1/1000. */
-function peakOf(curve: Curve): number {
+function peakOf(easing: readonly number[]): number {
   let peak = 1;
-  for (let i = 0; i <= 1000; i++) peak = Math.max(peak, curve(i / 1000));
+  for (let i = 1; i < 1000; i++) peak = Math.max(peak, cubicBezier(easing, i / 1000));
   return peak;
 }
 
@@ -155,7 +154,7 @@ export function beadMotion(id: DirectionId, tier: MotionTier, placement: Placeme
     return { duration: 0, easing: null, scaleFrom: 1, peak: 1, overshootScale: 1, linear: true };
   }
   const token = easingToken(placement.easing);
-  const peak = peakOf(curveOf(token.easing));
+  const peak = peakOf(token.easing);
   return { duration: token.duration, easing: token.easing, scaleFrom: placement.scaleFrom, peak, overshootScale: peak > 1 ? placement.overshoot : 1, linear: false };
 }
 
@@ -174,22 +173,39 @@ export const BEAD_WHOLE: BeadLook = { opacity: 1, colour: 1, scale: 1 };
  * the overshoot scaled to the curve's peak and × (1 − s).
  */
 function scaleAt(m: BeadMotion, e: number, stress: number): number {
-  const s = clamp01(Number.isFinite(stress) ? stress : 0);
+  'worklet';
+  const s = Number.isFinite(stress) ? Math.min(1, Math.max(0, stress)) : 0;
   const over = m.peak > 1 ? (Math.max(0, e - 1) / (m.peak - 1)) * (m.overshootScale - 1) * (1 - s) : 0;
   return m.scaleFrom + (1 - m.scaleFrom) * Math.min(1, Math.max(0, e)) + over;
+}
+
+/**
+ * The entrance's look at `elapsedMs` of its clock, for a motion that plays (beadMotion at a tier that is not still): the
+ * timeline's opacity and colour, the scale per motion.placement, all three from the one clock. A worklet.
+ */
+export function entranceLook(m: BeadMotion, elapsedMs: number, stress = 0): BeadLook {
+  'worklet';
+  if (m.duration === 0) return { opacity: 1, colour: 1, scale: 1 };
+  const x = elapsedMs > 0 ? elapsedMs / m.duration : 0;
+  const e = x >= 1 ? 1 : m.easing === null || x === 0 ? x : cubicBezier(m.easing, x);
+  return { opacity: entranceOpacity(elapsedMs), colour: entranceColour(elapsedMs), scale: scaleAt(m, e, stress) };
+}
+
+/** The exit's look at `elapsedMs` of its clock, from the look the bead had: the colour, then the opacity, the scale held. A worklet. */
+export function exitLook(from: BeadLook, elapsedMs: number): BeadLook {
+  'worklet';
+  return { opacity: exitOpacity(from.opacity, elapsedMs), colour: exitColour(from.opacity, from.colour, elapsedMs), scale: from.scale };
 }
 
 /** The entrance `elapsedMs` after the bead was placed: the timeline's opacity and colour, the scale per motion.placement. */
 export function beadEntrance(id: DirectionId, tier: MotionTier, elapsedMs: number, stress = 0, placement?: PlacementMotion): BeadLook {
   const m = beadMotion(id, tier, placement);
   if (m.duration === 0) return BEAD_WHOLE;
-  const x = clamp01(elapsedMs / m.duration);
-  const e = m.easing === null ? x : x >= 1 ? 1 : curveOf(m.easing)(x);
-  return { opacity: entranceOpacity(elapsedMs), colour: entranceColour(elapsedMs), scale: scaleAt(m, e, stress) };
+  return entranceLook(m, elapsedMs, stress);
 }
 
 /** The exit `elapsedMs` after it began from `from`: the colour, then the opacity (beadTimeline.ts), the scale held. */
 export function beadExit(id: DirectionId, tier: MotionTier, from: BeadLook, elapsedMs: number): BeadLook {
   if (beadMotion(id, tier).duration === 0) return { opacity: 0, colour: 0, scale: from.scale };
-  return { opacity: exitOpacity(from.opacity, elapsedMs), colour: exitColour(from.opacity, from.colour, elapsedMs), scale: from.scale };
+  return exitLook(from, elapsedMs);
 }
