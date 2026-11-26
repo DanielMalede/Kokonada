@@ -144,7 +144,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `docs/l0-dec130-adr0017`
 - paths: `docs/design-v2/decisions/DEC-130.md`, `docs/design-v2/DECISIONS.md`, `docs/adr/0017-design-system-v2.md`, `docs/adr/README.md`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #312
 - started: 2026-11-25
 
 ### M10
