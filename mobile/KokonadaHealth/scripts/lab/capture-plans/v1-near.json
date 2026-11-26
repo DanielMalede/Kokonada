@@ -1,0 +1,214 @@
+{
+  "id": "v1-near",
+  "app": {
+    "package": "com.kokonadahealth.lab",
+    "activity": "com.kokonadahealth.lab.DesignLabActivity"
+  },
+  "readyTimeoutMs": 30000,
+  "settleMs": 300,
+  "session": {
+    "stayOn": true
+  },
+  "shots": [
+    {
+      "id": "dark-near-joy-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.near.joy.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "near.joy",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-near-calm-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.near.calm.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "near.calm",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-near-reflective-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.near.reflective.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "near.reflective",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-near-intense-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.near.intense.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "near.intense",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-near-joy-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.near.joy.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "near.joy",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-near-calm-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.near.calm.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "near.calm",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-near-reflective-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.near.reflective.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "near.reflective",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-near-intense-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.near.intense.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "near.intense",
+        "tier": "full"
+      }
+    }
+  ]
+}

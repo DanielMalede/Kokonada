@@ -34,6 +34,9 @@ describe('generationStatusStore', () => {
     const s = createGenerationStatusStore();
     s.getState().begin();
     expect(s.getState().message).toBeNull();
+    // Settle, so the 30 s auto-settle begin() arms on real timers is cleared: left pending, it kept jest's own
+    // process alive about 28 s after the run when CI runs the suites in band (UI-261).
+    s.getState().settle();
   });
 
   it('settle cancels the pending auto-settle so it cannot flip a fresh generation off late', () => {

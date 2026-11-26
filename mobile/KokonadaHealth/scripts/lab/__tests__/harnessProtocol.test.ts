@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { checkReady, classifyProbes, commandArgs, launchArgs, parseLabLine, waitForLab } from '../lib/protocol.mjs';
+import { checkReady, checkResult, classifyProbes, collectLab, commandArgs, launchArgs, markArgs, parseLabLine, waitForLab } from '../lib/protocol.mjs';
 
 // OPS-100. The harness side of the lab protocol (src/design/lab/protocol.ts is the lab side). The
 // harness reads logcat, waits for THIS launch's READY, and fails closed on everything else: an
@@ -147,6 +147,24 @@ describe('classifyProbes (QA-038)', () => {
     expect(r.excluded).toEqual([{ id: 'planted', reason: 'partly outside the screen', px: { x: 90, y: 50, width: 20, height: 20 } }]);
   });
 
+  // The S22+ dry run: READY measured the full-screen stage at 2340.0000458 px on a 2340 px screen (dp × the pixel ratio
+  // in floating point). Within 1 px, the same tolerance the stage check uses, an edge is the screen's or the region's.
+  it('takes an edge within 1 px of the screen or the app region as on it, and keeps the probe inside them', () => {
+    const r = classifyProbes({ plate: px(0, 20, 100, 170.0000458), wide: px(-0.6, 30, 100.9, 20) }, screen, app);
+    expect(r.inside).toEqual({ plate: { x: 0, y: 20, width: 100, height: 170 }, wide: { x: 0, y: 30, width: 100, height: 20 } });
+    expect(r.excluded).toEqual([]);
+  });
+
+  it('a full-screen stage a hair past the screen is under the system bars, not outside the screen', () => {
+    const r = classifyProbes({ stage: px(0, 0, 100, 200.0000458) }, screen, app);
+    expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([['stage', 'partly under the system bars']]);
+  });
+
+  it('more than 1 px past an edge is still outside it', () => {
+    const r = classifyProbes({ over: px(0, 20, 101.5, 10), under: px(0, 8.5, 10, 10) }, screen, app);
+    expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([['over', 'partly outside the screen'], ['under', 'partly under the system bars']]);
+  });
+
   it('excludes and reports a probe under the system bars, and one with no size', () => {
     const r = classifyProbes({ stage: px(0, 0, 100, 200), dot: px(5, 50, 0, 0) }, screen, app);
     expect(r.excluded.map((e: { id: string; reason: string }) => [e.id, e.reason])).toEqual([
@@ -171,5 +189,166 @@ describe('the adb arguments the harness sends', () => {
   it('refuses any value the device shell could read as more than one word', () => {
     expect(() => launchArgs({ package: 'p', activity: 'p.A' }, 'r1', { scene: 'smoke; reboot' })).toThrow(/shell/);
     expect(() => launchArgs({ package: 'p', activity: 'p.A' }, 'r 1', {})).toThrow(/shell/);
+  });
+});
+
+// B8-5a: the RESULT line (the plan's contract: `KOKONADA_LAB RESULT {"run","seq","kind":"cost","scene","frames","displayHz",
+// "stepUs":{p50,p95,max},"renderUs":{…},"gpuProxyUs":{…},"clock":"performance.now"}`) and the lab lines that come AFTER
+// READY (UI-225): a fallback that lands after READY sends an ERROR the harness used to miss, because waitForLab had resolved.
+const STATS = { p50: 410, p95: 980, max: 2400 };
+const RESULT = {
+  run: 'r', seq: 0, kind: 'cost', scene: 'cost.abyss.dark.three.full', frames: 1200, displayHz: 120,
+  stepUs: STATS, renderUs: { p50: 120, p95: 300, max: 900 }, gpuProxyUs: { p50: 2000, p95: 2600, max: 4100 }, clock: 'performance.now',
+};
+
+describe('the RESULT line', () => {
+  it('is a lab line of its own kind', () => {
+    expect(parseLabLine(LINE('RESULT', RESULT))).toEqual({ kind: 'RESULT', payload: RESULT });
+    expect(parseLabLine('KOKONADA_LAB RESULT {"run":"r",')).toMatchObject({ kind: 'MALFORMED' });
+  });
+
+  it('never stands for READY, even for the same run and step', async () => {
+    const src = lines();
+    const wait = waitForLab({ source: src, run: 'r', seq: 0, timeoutMs: 1000 });
+    src.push(LINE('RESULT', RESULT));
+    src.push(LINE('READY', { run: 'r', seq: 0, t: 1 }));
+    await expect(wait).resolves.toEqual({ run: 'r', seq: 0, t: 1 });
+  });
+
+  it('a valid RESULT for this run, step and scene has no problem', () => {
+    expect(checkResult(RESULT, { run: 'r', seq: 0, scene: 'cost.abyss.dark.three.full' })).toEqual([]);
+  });
+
+  it.each([
+    ['another run', { ...RESULT, run: 'old' }, /RESULT is for run old/],
+    ['another step', { ...RESULT, seq: 1 }, /RESULT is for seq 1/],
+    ['another scene', { ...RESULT, scene: 'cost.abyss.dark.rest.full' }, /RESULT is for scene cost\.abyss\.dark\.rest\.full/],
+    ['a kind the harness does not read', { ...RESULT, kind: 'motion' }, /kind must be "cost"/],
+    ['a clock other than performance.now (never a Date fallback)', { ...RESULT, clock: 'Date.now' }, /clock must be "performance\.now"/],
+    ['no frames', { ...RESULT, frames: 0 }, /frames must be an integer >= 1/],
+    ['a display rate that is not a rate', { ...RESULT, displayHz: -1 }, /displayHz must be a finite number > 0/],
+    ['a missing statistic', { ...RESULT, renderUs: { p50: 1, p95: 2 } }, /renderUs\.max is required/],
+    ['a negative time', { ...RESULT, stepUs: { ...STATS, p50: -1 } }, /stepUs\.p50 must be a finite number >= 0/],
+    ['quantiles out of order', { ...RESULT, gpuProxyUs: { p50: 5, p95: 4, max: 9 } }, /gpuProxyUs must hold p50 <= p95 <= max/],
+    ['a key the contract does not name (a tap coordinate)', { ...RESULT, taps: [[0.1, 0.2]] }, /taps is not a RESULT field/],
+    ['a statistic with a key the contract does not name', { ...RESULT, stepUs: { ...STATS, mean: 3 } }, /stepUs\.mean is not a RESULT field/],
+    ['a missing gpu proxy', (() => { const r: Record<string, unknown> = { ...RESULT }; delete r.gpuProxyUs; return r; })(), /gpuProxyUs is required/],
+  ])('refuses a RESULT with %s', (_label, payload, why) => {
+    expect(checkResult(payload, { run: 'r', seq: 0, scene: 'cost.abyss.dark.three.full' }).join('\n')).toMatch(why);
+  });
+
+  it('refuses a RESULT that is not an object', () => {
+    expect(checkResult(null, { run: 'r', seq: 0, scene: 's' })).toEqual(['RESULT must be an object']);
+    expect(checkResult([1], { run: 'r', seq: 0, scene: 's' })).toEqual(['RESULT must be an object']);
+  });
+});
+
+describe('collectLab: every lab line of a run, after READY too (UI-225)', () => {
+  it('holds an ERROR for this run that came after READY, and one that names no run', () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push(LINE('READY', { run: 'r', seq: 0 }));
+    expect(c.problems()).toEqual([]);
+    src.push(LINE('ERROR', { run: 'r', errors: ['the surface changed after READY: READY said ready, now fallback'] }));
+    src.push(LINE('ERROR', { run: null, errors: ['run is required'] }));
+    expect(c.problems()).toEqual([
+      'the lab sent an ERROR for run r: the surface changed after READY: READY said ready, now fallback',
+      'the lab sent an ERROR for run r: run is required',
+    ]);
+  });
+
+  it('ignores another run\'s lines, and a line that is not the lab\'s', () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push(LINE('ERROR', { run: 'old', errors: ['x'] }));
+    src.push(LINE('RESULT', { ...RESULT, run: 'old' }));
+    src.push('I ReactNativeJS: hello');
+    expect(c.problems()).toEqual([]);
+    expect(c.results()).toEqual([]);
+  });
+
+  it('holds a lab line it cannot read as a problem: it could have been an ERROR', () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push('KOKONADA_LAB ERROR {"run":"r","err');
+    expect(c.problems()).toEqual(['cannot read a lab line (logcat truncates long lines): KOKONADA_LAB ERROR {"run":"r","err']);
+  });
+
+  it('keeps this run\'s RESULTs, before or after READY, and resolves the next one', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push(LINE('RESULT', RESULT));
+    expect(c.results()).toEqual([RESULT]);
+    await expect(c.nextResult({ timeoutMs: 1000 })).resolves.toEqual(RESULT);
+    const later = c.nextResult({ timeoutMs: 1000 });
+    const second = { ...RESULT, frames: 99 };
+    src.push(LINE('RESULT', second));
+    await expect(later).resolves.toEqual(second);
+  });
+
+  it('a RESULT that does not come in time fails, and so does an interruption', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    await expect(c.nextResult({ timeoutMs: 20 })).rejects.toThrow(/no RESULT for run r within 20 ms/);
+    const controller = new AbortController();
+    const wait = c.nextResult({ timeoutMs: 60000, signal: controller.signal });
+    controller.abort();
+    await expect(wait).rejects.toThrow(/interrupted/);
+  });
+
+  it('an ERROR while it waits for a RESULT fails at once', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    const wait = c.nextResult({ timeoutMs: 60000 });
+    src.push(LINE('ERROR', { run: 'r', errors: ['the UI runtime has no performance.now'] }));
+    await expect(wait).rejects.toThrow(/ERROR for run r: the UI runtime has no performance\.now/);
+  });
+
+  // The harness's own marker (adb shell log -t ReactNativeJS KOKONADA_HARNESS MARK <token>) goes through the same buffer:
+  // once it is back, every lab line logged before it has been delivered.
+  it('a marker resolves once it is back, after the lines logged before it', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    const marked = c.marked('r-m1', { timeoutMs: 1000 });
+    src.push(LINE('ERROR', { run: 'r', errors: ['late'] }));
+    src.push('KOKONADA_HARNESS MARK r-other');
+    src.push('KOKONADA_HARNESS MARK r-m1');
+    await expect(marked).resolves.toBeUndefined();
+    expect(c.problems()).toEqual(['the lab sent an ERROR for run r: late']);
+  });
+
+  it('a marker already back resolves at once; one that never comes fails, and so does an interruption', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    src.push('KOKONADA_HARNESS MARK early');
+    await expect(c.marked('early', { timeoutMs: 1000 })).resolves.toBeUndefined();
+    await expect(c.marked('lost', { timeoutMs: 20 })).rejects.toThrow(/the harness's logcat marker did not come back within 20 ms/);
+    const controller = new AbortController();
+    const wait = c.marked('never', { timeoutMs: 60000, signal: controller.signal });
+    controller.abort();
+    await expect(wait).rejects.toThrow(/interrupted/);
+  });
+
+  it('a marker is a whole token: a longer one does not stand for it', async () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    const marked = c.marked('m1', { timeoutMs: 30 });
+    src.push('KOKONADA_HARNESS MARK m10');
+    await expect(marked).rejects.toThrow(/did not come back/);
+  });
+
+  it('builds the marker command as plain words for the device shell', () => {
+    expect(markArgs('f-1-abc')).toEqual(['log', '-t', 'ReactNativeJS', 'KOKONADA_HARNESS', 'MARK', 'f-1-abc']);
+    expect(() => markArgs('f 1; reboot')).toThrow(/shell/);
+  });
+
+  it('stops listening', () => {
+    const src = lines();
+    const c = collectLab({ source: src, run: 'r' });
+    expect(src.count()).toBe(1);
+    c.stop();
+    expect(src.count()).toBe(0);
+    src.push(LINE('ERROR', { run: 'r', errors: ['late'] }));
+    expect(c.problems()).toEqual([]);
   });
 });

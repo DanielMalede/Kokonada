@@ -19,6 +19,11 @@ export function makeStamp({ commit, porcelain, bundleSha256, tokens = {}, entry,
   return { commit, porcelainEmpty: true, bundleSha256, tokens, entry, dev: false, createdAt };
 }
 
+// UI-278: the token files' hashes (lib/tokenHashes.mjs), at least one sha256 by path. A stamp without them made every
+// manifest record `stamp.tokens: {}`, which no check against the token files can read (UI-119).
+const carriesTokenHashes = (tokens) => tokens !== null && typeof tokens === 'object' && !Array.isArray(tokens)
+  && Object.keys(tokens).length > 0 && Object.values(tokens).every((hash) => typeof hash === 'string' && HEX64.test(hash));
+
 const canonical = (v) => (Array.isArray(v)
   ? `[${v.map(canonical).join(',')}]`
   : v !== null && typeof v === 'object'
@@ -34,6 +39,7 @@ export function verifyStampChain({ head, porcelain, stamp, apk, builtApkSha256, 
   const problems = [];
   const complete = stamp && SHA1.test(stamp.commit ?? '') && stamp.porcelainEmpty === true && HEX64.test(stamp.bundleSha256 ?? '');
   if (!complete) problems.push('the lab stamp is missing or incomplete: run node scripts/lab/bundleLab.mjs');
+  if (stamp && !carriesTokenHashes(stamp.tokens)) problems.push('the lab stamp does not carry the sha256 of the token files (UI-278): run node scripts/lab/bundleLab.mjs');
   if (String(porcelain ?? '').trim() !== '') problems.push(`the tree has uncommitted changes since the lab was bundled:\n${porcelain}`);
   if (stamp && head !== stamp.commit) problems.push(`the lab was built from ${stamp.commit} but HEAD is ${head}: bundle and build again`);
   if (apk) {

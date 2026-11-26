@@ -178,9 +178,18 @@ describe('ATTACK 6 (autonomous): GenerateScreen warm-store subscription on unmou
   // The classic RN crash: a store subscription that outlives the component fires
   // setState into an unmounted tree (leak + "update on unmounted component"). The
   // screen must unsubscribe on unmount.
+  //
+  // The first require of GenerateScreen and the store is cold (it transforms and loads the screen's whole closure), and
+  // under a full run's load it outlasted the case's 5 s default timeout (UI-220, RA-37). It runs here, before the case,
+  // with a timeout of its own, so the case times only what it tests.
+  let GenerateScreen: React.ComponentType;
+  let warmStore: { subscribe: (cb: unknown) => () => void };
+  beforeAll(() => {
+    ({ GenerateScreen } = require('../experience/generate/GenerateScreen'));
+    ({ warmStore } = require('../state/store'));
+  }, 30000);
+
   it('unmounting the Generate tab unsubscribes from the warm store (every subscribe is cleaned up)', async () => {
-    const { GenerateScreen } = require('../experience/generate/GenerateScreen');
-    const { warmStore } = require('../state/store');
     const store = makeStore();
 
     // Track subscribe/unsubscribe parity on the shared warm-store singleton.
