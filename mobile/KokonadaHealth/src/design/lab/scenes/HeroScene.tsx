@@ -28,7 +28,7 @@
 //     own face (fonts.ts). The rim words are Skia text: the scene asks for the typeface provider (`typefaces`), and READY
 //     waits for its font manager too (LabRoot).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { Canvas, Circle } from '@shopify/react-native-skia';
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
@@ -68,9 +68,10 @@ export const HERO_RING = 3;
 /**
  * The taps a hero scene starts with: the token extensions' hero scene `three`, or none; and for G8 round 2's evidence,
  * `knock` (HERO_KNOCK_TAPS) and `seam` (the token scene `seam`, its intense bead placed last), and `timed`, which starts
- * empty and places and takes away one bead on a timer (HERO_TIMED_SCHEDULE).
+ * empty and places and takes away one bead on a timer (HERO_TIMED_SCHEDULE); and for UI-320's evidence `knocktimed` and
+ * `pairtimed`, which start empty and place and take away beads on the rim words on a loop (heroTimeline).
  */
-export const HERO_TAPS = ['three', 'empty', 'knock', 'seam', 'timed'] as const;
+export const HERO_TAPS = ['three', 'empty', 'knock', 'seam', 'timed', 'knocktimed', 'pairtimed'] as const;
 /**
  * The knock-out scene's taps (G8 round 2): a bead on the top word's anchor, then one on the left word's, each 0.96 of the
  * way to the rim, where its centre sits on the ring's centre line, well within the bead radius + knockoutGap of the
@@ -94,6 +95,67 @@ export const HERO_TIMED_SCHEDULE: ReadonlyArray<readonly [number, 'place' | 'rem
   [17000, 'remove'],
   [20000, 'place'],
 ];
+/**
+ * The pair scene's taps (UI-320, the designer's third addition): two beads on the top word, either side of 12 o'clock on
+ * the ring's centre line, closer than twice the knock-out reach, so some letters are near both: beside a live and a
+ * leaving bead they stay out, and beside two leaving beads they follow the last.
+ */
+export const HERO_PAIR_TAPS: readonly PlatePoint[] = [{ x: -0.07, y: 0.9575 }, { x: 0.07, y: 0.9575 }];
+
+/** A timed scene's plan: its steps in ms from the start of a cycle, the first cycle `start` ms after the stage's mount, repeated every `period` ms (null: once). */
+export interface HeroTimeline {
+  readonly start: number;
+  readonly period: number | null;
+  readonly steps: ReadonlyArray<readonly [number, 'place' | 'remove', PlatePoint]>;
+}
+
+/**
+ * A timed scene's plan at a bead time scale (the `beadTimeScale` dial), null for a scene with none. Every step leaves
+ * the motion before it room to end: an entrance runs motion.settle and an exit press + respond, each stretched by the
+ * scale, and a stall of up to 300 ms comes first. A removal takes the latest bead; its point is named for the reader.
+ */
+export function heroTimeline(taps: HeroTaps, timeScale = 1): HeroTimeline | null {
+  const s = timeScale >= 1 ? timeScale : 1;
+  // After a placement, and after a removal: the motion's own length, stretched, and the room.
+  const entered = s === 1 ? 3000 : 800 * s;
+  const left = s === 1 ? 3000 : 700 * s + 500;
+  if (taps === 'timed') {
+    const gap = Math.max(entered, left);
+    return { start: HERO_TIMED_SCHEDULE[0][0], period: null, steps: HERO_TIMED_SCHEDULE.map(([, action], i) => [i * gap, action, HERO_TIMED_POINT] as const) };
+  }
+  if (taps === 'knocktimed') {
+    const [top, side] = HERO_KNOCK_TAPS;
+    const e = 700 * s + 800;
+    const x = 700 * s + 800;
+    return { start: 6000, period: 2 * (e + x), steps: [[0, 'place', top], [e, 'remove', top], [e + x, 'place', side], [2 * e + x, 'remove', side]] };
+  }
+  if (taps === 'pairtimed') {
+    const [a, b] = HERO_PAIR_TAPS;
+    const e = 700 * s + 800;
+    const x = 700 * s + 800;
+    // The second of the two removals starts a third of the way into the first one's exit.
+    const overlap = 150 * s;
+    return {
+      start: 6000,
+      period: 3 * e + 2 * x + overlap + x,
+      steps: [[0, 'place', a], [e, 'place', b], [2 * e, 'remove', b], [2 * e + x, 'place', b], [3 * e + x, 'remove', b], [3 * e + x + overlap, 'remove', a]],
+    };
+  }
+  return null;
+}
+
+/**
+ * The stall dial: holds the JS thread until `now` has moved `ms` (nothing for 0 or less). A busy-wait on purpose: it
+ * stands in for a JS thread too loaded to start a bead's motion on time. Lab only, and never under a clock that stands still.
+ */
+export function busyWait(ms: number, now: () => number = () => performance.now()): void {
+  if (!(ms > 0)) return;
+  const until = now() + ms;
+  while (now() < until) {
+    // Held.
+  }
+}
+
 /** The lab-only dial a hero id may end in: `.outline` draws the label band's inner and outer edges at 1 px. */
 export const HERO_OUTLINE = 'outline';
 /** The script its words, hint and label are in. */
@@ -193,7 +255,9 @@ function startingTaps(taps: HeroTaps): readonly PlatePoint[] {
     // The seam's beads by x, right first: the intense one, left of 12 o'clock, is placed last, so Remove takes it.
     case 'seam': return [...heroTaps('seam')].sort((a, b) => b.x - a.x);
     case 'empty':
-    case 'timed': return [];
+    case 'timed':
+    case 'knocktimed':
+    case 'pairtimed': return [];
   }
 }
 
@@ -224,7 +288,7 @@ export function HeroScene({ clock, params }: SceneProps) {
             <CopyProvider port={HERO_PORT}>
               {size === null ? <Probe id="plate" style={UNPLACED} /> : (
                 <FieldFirstFrameReport.Provider value={onFirstFrame}>
-                  <HeroStage scene={params.scene} face={face} taps={taps} script={script} outline={outline} width={size.width} height={size.height} clock={clock} tier={tier} />
+                  <HeroStage scene={params.scene} face={face} taps={taps} script={script} outline={outline} width={size.width} height={size.height} clock={clock} tier={tier} stall={params.stall ?? 0} timeScale={params.beadTimeScale ?? 1} />
                 </FieldFirstFrameReport.Provider>
               )}
             </CopyProvider>
@@ -235,7 +299,7 @@ export function HeroScene({ clock, params }: SceneProps) {
   );
 }
 
-function HeroStage({ scene, face, taps, script, outline, width, height, clock, tier }: {
+function HeroStage({ scene, face, taps, script, outline, width, height, clock, tier, stall, timeScale }: {
   scene: string;
   face: Face;
   taps: HeroTaps;
@@ -245,6 +309,8 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
   height: number;
   clock: FieldClock;
   tier: MotionTier;
+  stall: number;
+  timeScale: number;
 }) {
   const tokens = useTokens();
   const copy = HERO_COPY[script];
@@ -262,6 +328,14 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
   // DEC-174's machine, owned here as the page owns it: it hears the tap count when it changes, and is FieldView's onStart.
   const paint = useMemo(() => ({ id: tokens.id, face: tokens.face }), [tokens.id, tokens.face]);
   const { machine, store, start } = useCtaMachine(paint, tier, state.taps);
+  // The stall dial: each change of the taps holds the JS thread in its commit, after the render that stamped the change
+  // and before any effect below starts a bead's motion, so that motion starts late by at least the stall.
+  const stalled = useRef(state.taps);
+  useLayoutEffect(() => {
+    if (stalled.current === state.taps) return;
+    stalled.current = state.taps;
+    busyWait(stall);
+  }, [state.taps, stall]);
   // The page's one bead presence (ruling 2): BeadLayer draws it, and RimLabels knocks its letters out by it.
   const presence = useBeadPresence(state.taps, tier);
   // The list's button (ruling 9): PlateTouch hands focus back to it when Remove leaves no tap.
@@ -275,12 +349,32 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
   }, [store]);
   const onPlace = useCallback((point: PlatePoint) => apply(heroPlaced(latest.current, point)), [apply]);
   const onRemoveLatest = useCallback(() => apply(heroRemoved(latest.current)), [apply]);
-  // The timed scene: its schedule runs from this stage's mount through the same callbacks a touch reaches.
+  // A timed scene: its plan runs from this stage's mount through the same callbacks a touch reaches, cycle after cycle.
   useEffect(() => {
-    if (taps !== 'timed') return undefined;
-    const timers = HERO_TIMED_SCHEDULE.map(([ms, action]) => setTimeout(() => (action === 'place' ? onPlace(HERO_TIMED_POINT) : onRemoveLatest()), ms));
+    const plan = heroTimeline(taps, timeScale);
+    if (plan === null) return undefined;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const arm = (ms: number, run: () => void) => {
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        run();
+      }, ms);
+      timers.add(timer);
+    };
+    const last = plan.steps[plan.steps.length - 1][0];
+    // Each cycle is armed whole, the next one from the last step of this one, so no step waits on a timer of its own.
+    const cycle = (lead: number) => {
+      for (const [ms, action, point] of plan.steps) {
+        arm(lead + ms, () => {
+          if (action === 'place') onPlace(point);
+          else onRemoveLatest();
+          if (ms === last && plan.period !== null) cycle(plan.period - last);
+        });
+      }
+    };
+    cycle(plan.start);
     return () => timers.forEach(clearTimeout);
-  }, [taps, onPlace, onRemoveLatest]);
+  }, [taps, timeScale, onPlace, onRemoveLatest]);
   const haptics = useMemo<PlateHaptics>(() => ({ fire: () => apply({ ...latest.current, haptics: latest.current.haptics + 1 }) }), [apply]);
   const onCommit = useCallback(() => apply({ ...latest.current, commits: latest.current.commits + 1 }), [apply]);
   const onOpenList = useCallback(() => apply({ ...latest.current, lists: latest.current.lists + 1 }), [apply]);

@@ -83,7 +83,7 @@ import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
 import {
-  HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_KNOCK_TAPS, HERO_SCENE_PROBES, HERO_TIMED_POINT, HERO_TIMED_SCHEDULE, HeroScene, heroInitial, heroScene,
+  HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_KNOCK_TAPS, HERO_PAIR_TAPS, HERO_SCENE_PROBES, HERO_TIMED_POINT, HERO_TIMED_SCHEDULE, HeroScene, busyWait, heroInitial, heroScene, heroTimeline,
 } from '../scenes/HeroScene';
 import { plateGeometry, pointToLocal } from '../../v2/components/Plate/geometry';
 import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
@@ -98,13 +98,13 @@ const mounts = labMounts();
 const W = 411;
 const H = 914;
 const clock = { t: { value: 0 } } as never;
-const paramsOf = (scene: string): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 0, stepMs: 0, frames: 3 });
+const paramsOf = (scene: string, dials: Partial<LabParams> = {}): LabParams => ({ run: 'r', scene, clock: 'fixed', t: 0, stepMs: 0, frames: 3, ...dials });
 /** A device setting that has answered `on` and never changes. */
 const answered = (on: boolean) => ({ read: () => Promise.resolve(on), subscribe: () => () => {} });
 const MOTION_ON: MotionPorts = { reduceMotion: answered(false), powerSave: answered(false) };
 const REDUCED: MotionPorts = { reduceMotion: answered(true), powerSave: answered(false) };
 
-async function mount(scene: string, ports: MotionPorts = MOTION_ON) {
+async function mount(scene: string, ports: MotionPorts = MOTION_ON, dials: Partial<LabParams> = {}) {
   const shader: ShaderReport[] = [];
   const facts: SceneFacts[] = [];
   let r!: ReactTestRenderer.ReactTestRenderer;
@@ -114,7 +114,7 @@ async function mount(scene: string, ports: MotionPorts = MOTION_ON) {
         <ShaderReportContext.Provider value={(x) => { shader.push(x); }}>
           <SceneFactsContext.Provider value={(x) => { facts.push(x); }}>
             <LabMotionPortsContext.Provider value={ports}>
-              <HeroScene clock={clock} t={0} params={paramsOf(scene)} />
+              <HeroScene clock={clock} t={0} params={paramsOf(scene, dials)} />
             </LabMotionPortsContext.Provider>
           </SceneFactsContext.Provider>
         </ShaderReportContext.Provider>
@@ -132,8 +132,8 @@ async function mount(scene: string, ports: MotionPorts = MOTION_ON) {
 }
 
 const IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty'].flatMap((taps) => ['latin', 'hebrew'].map((script) => `hero.abyss.${face}.${taps}.${script}`)));
-/** Every hero id: the faces × the taps (three, empty, G8 round 2's knock and seam, and timed) × the scripts, each plain and with the outline dial. */
-const ALL_IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty', 'knock', 'seam', 'timed'].flatMap((taps) => ['latin', 'hebrew'].flatMap((script) => [
+/** Every hero id: the faces × the taps (three, empty, G8 round 2's knock, seam, timed, knocktimed and pairtimed) × the scripts, each plain and with the outline dial. */
+const ALL_IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty', 'knock', 'seam', 'timed', 'knocktimed', 'pairtimed'].flatMap((taps) => ['latin', 'hebrew'].flatMap((script) => [
   `hero.abyss.${face}.${taps}.${script}`, `hero.abyss.${face}.${taps}.${script}.outline`,
 ])));
 
@@ -145,8 +145,9 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('the hero scenes', () => {
-  it('are Abyss × {dark, light} × {three, empty, knock, seam, timed} × {latin, hebrew} × {plain, outline}: 40 HeroScenes, the stage and the plate their probes', () => {
+  it('are Abyss × {dark, light} × {three, empty, knock, seam, timed, knocktimed, pairtimed} × {latin, hebrew} × {plain, outline}: 56 HeroScenes, the stage and the plate their probes', () => {
     const hero = Object.keys(SCENES).filter((id) => id.startsWith('hero.')).sort();
+    expect(hero).toHaveLength(56);
     expect(hero).toEqual([...ALL_IDS].sort());
     for (const id of ALL_IDS) {
       expect([id, SCENES[id].Component, SCENES[id].probes, SCENES[id].fonts]).toEqual([id, HeroScene, HERO_SCENE_PROBES, HERO_FONTS]);
@@ -431,6 +432,116 @@ describe('the round-2 evidence scenes', () => {
   it('timed: its bead is round 2’s entrance tap, (306, 1066) px on that device’s plate (centre (540, 1300), R 435 px), intense', () => {
     expect(HERO_TIMED_POINT.x).toBeCloseTo((306 - 540) / 435, 2);
     expect(HERO_TIMED_POINT.y).toBeCloseTo(-(1066 - 1300) / 435, 2);
+  });
+
+  // UI-320 and UI-321 (the architect's device protocol, 2026-11-26): removals and entrances with no touch, on a loop, so
+  // one recording holds many; `stall` forces the lateness and `beadTimeScale` stretches the motion and the schedule with it.
+  describe('the timed knock scenes and their dials', () => {
+    const run = async (scene: string, dials: Partial<LabParams>, untilMs: number) => {
+      const h = await mount(scene, MOTION_ON, dials);
+      h.layout();
+      const seen: string[] = [];
+      let last = JSON.stringify(h.props(PlateTouch).taps);
+      for (let ms = 0; ms < untilMs; ms += 50) {
+        act(() => {
+          jest.advanceTimersByTime(50);
+        });
+        const now = JSON.stringify(h.props(PlateTouch).taps);
+        if (now !== last) seen.push(`${ms + 50} ${(h.props(PlateTouch).taps as readonly unknown[]).length}`);
+        last = now;
+      }
+      return { h, seen };
+    };
+
+    it('knocktimed: on a loop, a bead on the top word enters and leaves, then one on the left word, alone on the plate each time', async () => {
+      jest.useFakeTimers();
+      try {
+        const plan = heroTimeline('knocktimed', 1)!;
+        expect(plan.steps.map(([, action, point]) => [action, point])).toEqual([['place', HERO_KNOCK_TAPS[0]], ['remove', HERO_KNOCK_TAPS[0]], ['place', HERO_KNOCK_TAPS[1]], ['remove', HERO_KNOCK_TAPS[1]]]);
+        expect(plan.period).not.toBeNull();
+        expect(heroInitial('knocktimed').taps).toEqual([]);
+        const { seen } = await run('hero.abyss.dark.knocktimed.latin', {}, plan.start + 2 * plan.period! + 100);
+        const want = [0, 1].flatMap((cycle) => plan.steps.map(([ms, action]) => `${plan.start + cycle * plan.period! + ms} ${action === 'place' ? 1 : 0}`));
+        expect(seen.slice(0, want.length)).toEqual(want);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('each step waits out the motion before it at every time scale: an entrance and its stall before a removal, an exit and its stall before the next placement', () => {
+      for (const taps of ['timed', 'knocktimed'] as const) {
+        for (const scale of [1, 8, 16]) {
+          const plan = heroTimeline(taps, scale)!;
+          const gaps = plan.steps.slice(1).map(([ms], i) => ms - plan.steps[i][0]);
+          if (plan.period !== null) gaps.push(plan.period - plan.steps[plan.steps.length - 1][0]);
+          // motion.settle, the longest a bead's entrance runs, stretched, and room for the largest stall and a frame gap.
+          for (const gap of gaps) expect([taps, scale, gap >= BASE.motion.settle.duration * scale + 500]).toEqual([taps, scale, true]);
+        }
+      }
+      expect(heroTimeline('timed', 1)!.steps.map(([ms, action]) => [heroTimeline('timed', 1)!.start + ms, action])).toEqual(HERO_TIMED_SCHEDULE.map(([ms, action]) => [ms, action]));
+      expect(heroTimeline('three', 1)).toBeNull();
+    });
+
+    it('pairtimed: two beads within one reach of the top word’s letters between them; one leaves beside the live other, then both leave, the second while the first is still going', () => {
+      const [a, b] = HERO_PAIR_TAPS.map((p) => pointToLocal(p, g));
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(2 * reach);
+      // Apart enough to tell them from each other on a capture: their discs do not touch.
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(2 * g.beadRadius);
+      for (const c of [a, b]) expect(Math.abs(Math.hypot(c.x - g.centre[0], c.y - g.centre[1]) - g.ringMid)).toBeLessThan(1);
+      for (const scale of [1, 8]) {
+        const plan = heroTimeline('pairtimed', scale)!;
+        expect(plan.steps.map(([, action, point]) => [action, point])).toEqual([
+          ['place', HERO_PAIR_TAPS[0]], ['place', HERO_PAIR_TAPS[1]], ['remove', HERO_PAIR_TAPS[1]],
+          ['place', HERO_PAIR_TAPS[1]], ['remove', HERO_PAIR_TAPS[1]], ['remove', HERO_PAIR_TAPS[0]],
+        ]);
+        // The last two removals overlap: the second starts inside the first one's exit (press + respond, stretched).
+        const between = plan.steps[5][0] - plan.steps[4][0];
+        expect(between).toBeGreaterThan(0);
+        expect(between).toBeLessThan((BASE.motion.press.duration + BASE.motion.respond.duration) * scale * 0.5);
+      }
+    });
+
+    it('beadTimeScale stretches the schedule: the same steps, further apart', () => {
+      const one = heroTimeline('knocktimed', 1)!;
+      const eight = heroTimeline('knocktimed', 8)!;
+      expect(eight.steps.map(([, action]) => action)).toEqual(one.steps.map(([, action]) => action));
+      expect(eight.period!).toBeGreaterThan(3 * one.period!);
+    });
+
+    it('busyWait holds the JS thread until the clock has moved the ms asked, and not at all for 0 or less', () => {
+      const clockOf = () => {
+        const c = { now: 1000, reads: 0, read: () => { c.reads += 1; c.now += 7; return c.now; } };
+        return c;
+      };
+      const waited = clockOf();
+      busyWait(300, waited.read);
+      expect(waited.now).toBeGreaterThanOrEqual(1007 + 300);
+      expect(waited.now).toBeLessThan(1007 + 300 + 7);
+      for (const ms of [0, -5, Number.NaN]) {
+        const idle = clockOf();
+        busyWait(ms, idle.read);
+        expect([ms, idle.reads]).toEqual([ms, 0]);
+      }
+    });
+
+    it('stall: every change of the taps holds the JS thread that long in its commit; the mount and a re-render with the same taps do not', async () => {
+      // The timers are fake, so no motion the placement starts outlives the test; the clock the stall reads is the real one.
+      jest.useFakeTimers({ doNotFake: ['performance'] });
+      try {
+        const h = await mount('hero.abyss.dark.empty.latin', MOTION_ON, { stall: 40 });
+        const t0 = performance.now();
+        h.layout();
+        expect(performance.now() - t0).toBeLessThan(40);
+        const t1 = performance.now();
+        act(() => h.props(PlateTouch).onPlace({ x: 0.2, y: 0.2 }));
+        expect(performance.now() - t1).toBeGreaterThanOrEqual(40);
+        const t2 = performance.now();
+        act(() => h.props(CommitCTA).onCommit());
+        expect(performance.now() - t2).toBeLessThan(40);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   const outlines = (h: Awaited<ReturnType<typeof mount>>) => h.r.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === 'hero.lab.outline');
