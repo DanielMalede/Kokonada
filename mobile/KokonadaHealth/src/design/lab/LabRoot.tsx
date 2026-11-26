@@ -545,12 +545,17 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     };
   }, []);
 
-  const SceneComponent = scene.Component;
-  // The status bar's icons on the scene's face (LEDGER §6, CMP-110): dark on light, light on dark; none named, the activity's own.
+  // The status bar's icons on the scene's face (LEDGER §6, CMP-110): dark on light, light on dark; none named, the
+  // activity's own. Set once on the native module: a <StatusBar> element batches through a setImmediate that outlives the
+  // scene's unmount (UI-261), and a launch's face never changes.
   const face = sceneFace(params.scene);
+  useEffect(() => {
+    if (face !== null) StatusBar.setBarStyle(face === 'light' ? 'dark-content' : 'light-content');
+  }, [face]);
+
+  const SceneComponent = scene.Component;
   return (
     <ProbeRegistry onMeasure={onMeasure}>
-      {face === null ? null : <StatusBar barStyle={face === 'light' ? 'dark-content' : 'light-content'} />}
       <ShaderReportContext.Provider value={reportShader}>
         <SceneFactsContext.Provider value={reportFacts}>
           <LabMotionPortsContext.Provider value={motionPorts}>

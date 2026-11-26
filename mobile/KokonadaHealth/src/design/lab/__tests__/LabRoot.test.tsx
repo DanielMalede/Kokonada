@@ -496,7 +496,14 @@ describe('the status bar', () => {
   const still: Scene = { periodMs: 1000, probes: ['stage'], Component: () => <Probe id="stage"><View /></Probe> };
   const scenes = { smoke: still, 'grain.abyss.light': still, 'hero.abyss.dark.three.latin': still, 'fallback.abyss.light.one.C.right': still };
   const launch = (scene: string) => ({ labArgs: { run: 'sb', scene, clock: 'fixed', t: '0', frames: '1' }, nonStringKeys: [], powerSave: false });
-  const bars = (h: ReturnType<typeof setup>) => h.tree.root.findAllByType(StatusBar).map((n) => n.props.barStyle);
+  // Set once, on the native module directly (StatusBar.setBarStyle): a <StatusBar> element batches through a setImmediate
+  // that outlives the scene's unmount (UI-261, stormScene.test.tsx counts the timers left).
+  const bars = (h: ReturnType<typeof setup>) => {
+    expect(h.tree.root.findAllByType(StatusBar).length).toBe(0);
+    return setBarStyle.mock.calls.map((c) => c[0]);
+  };
+  let setBarStyle: jest.SpyInstance;
+  beforeEach(() => { setBarStyle = jest.spyOn(StatusBar, 'setBarStyle').mockImplementation(() => {}); });
 
   it.each([
     ['grain.abyss.light', 'dark-content'],
