@@ -38,7 +38,7 @@ interface Options {
   readonly placedAt?: number | null;
   readonly leftAt?: number | null;
   readonly onLeft?: () => void;
-  readonly onExitStart?: (atMs: number) => void;
+  readonly onExitStart?: (atMs: number, playMs: number) => void;
   readonly point?: { x: number; y: number };
   readonly slot?: number | 'leaving';
 }
@@ -357,7 +357,9 @@ describe('Bead: the exit (F1)', () => {
     }
   });
 
-  it('reports onExitStart once, at the moment its effect starts the exit’s clock, and never for an entrance', () => {
+  // 27f2bee's capture: the native driver started the exit's clock 240 to 300 ms after Bead's effect (its op queue flushed
+  // behind a re-render), so the effect's time is not when the exit starts. Bead reads it off the clock itself.
+  it('reports onExitStart once, off the exit clock’s first moving value: when it started and how long it plays; never at the effect, never for an entrance', () => {
     const onExitStart = jest.fn();
     const placedAt = performance.now();
     const tree = mount({ placedAt, onExitStart });
@@ -367,11 +369,31 @@ describe('Bead: the exit (F1)', () => {
     expect(onExitStart).not.toHaveBeenCalled();
     const leftAt = performance.now() - 300;
     act(() => tree.update(element({ placedAt, leftAt, onExitStart })));
-    expect(onExitStart.mock.calls).toEqual([[leftAt + 300]]);
-    // The length it plays is the one beadOpacityAt derives from that stamp: exitPlayMs(start, playedAt − leftAt).
-    expect(timing.mock.calls[timing.mock.calls.length - 1][1].duration).toBe(EXIT_MIN_MS);
+    const [clock, config] = timing.mock.calls[timing.mock.calls.length - 1];
+    expect(config.duration).toBe(EXIT_MIN_MS);
+    // Not at the effect, and not on a value that is not moving.
+    expect(onExitStart).not.toHaveBeenCalled();
+    act(() => clock.setValue(0));
+    expect(onExitStart).not.toHaveBeenCalled();
+    // The native clock started 200 ms later; its first value reaches JS 40 ms after that.
+    act(() => {
+      jest.advanceTimersByTime(240);
+    });
+    const v = (exitDuration(1) * 40) / EXIT_MIN_MS;
+    act(() => clock.setValue(v));
+    expect(onExitStart.mock.calls).toEqual([[performance.now() - 40, EXIT_MIN_MS]]);
+    act(() => clock.setValue(2 * v));
     act(() => tree.update(element({ placedAt, leftAt, onExitStart: jest.fn() })));
     expect(onExitStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('an exit cut short before its clock moved stops listening: no report after the unmount', () => {
+    const onExitStart = jest.fn();
+    const tree = mount({ placedAt: null, leftAt: performance.now(), slot: 'leaving', onExitStart });
+    const [clock] = timing.mock.calls[timing.mock.calls.length - 1];
+    act(() => tree.unmount());
+    clock.setValue(10);
+    expect(onExitStart).not.toHaveBeenCalled();
   });
 
   it('an exit cut short by an unmount never reports onLeft', () => {

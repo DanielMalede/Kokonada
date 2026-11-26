@@ -180,8 +180,8 @@ function linearExit(b: RimBead, nowMs: number): number {
   if (b.leftAt === null) return b.startOpacity;
   return b.startOpacity * (1 - Math.min(1, Math.max(0, (nowMs - b.leftAt) / FADE)));
 }
-const liveBead = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, playedAt: null, startOpacity: 1 });
-const leavingBead = (point: PlatePoint, leftAt: number | null, startOpacity = 1, playedAt: number | null = leftAt): RimBead => ({ point, leaving: true, leftAt, playedAt, startOpacity });
+const liveBead = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, playedAt: null, playMs: null, startOpacity: 1 });
+const leavingBead = (point: PlatePoint, leftAt: number | null, startOpacity = 1, playedAt: number | null = leftAt, playMs: number | null = playedAt === null ? null : FADE): RimBead => ({ point, leaving: true, leftAt, playedAt, playMs, startOpacity });
 
 // Test data standing in for the page's resolved copy (the shared plate.rim.* keys are R: the lab shows pseudo-text).
 const WORDS: RimWords = { top: 'More energy', right: 'Pleasant', bottom: 'Less energy', left: 'Unpleasant' };
@@ -527,22 +527,24 @@ describe('RimLabels: letters return on the bead’s own fade (the designer’s r
     view.unmount();
   });
 
-  it('the stamp of when the bead’s view really began its exit (playedAt) reaches the exit function, on the same layer', () => {
-    const seen: Array<number | null> = [];
+  it('the stamp of when the bead’s clock really started its exit and how long it plays (playedAt, playMs) reaches the exit function, on the same layer', () => {
+    const seen: Array<[number | null, number | null]> = [];
     function recorded(b: RimBead, nowMs: number): number {
       'worklet';
-      seen.push(b.playedAt);
+      seen.push([b.playedAt, b.playMs]);
       return linearExit(b, nowMs);
     }
     const view = mount({ beads: [leavingBead(TOP, 1000, 1, null)], beadOpacity: recorded });
     const [layer] = layers(view.canvas('top')).returning;
     frame(1016);
-    view.update({ beads: [leavingBead(TOP, 1000, 1, 1300)], beadOpacity: recorded });
+    view.update({ beads: [leavingBead(TOP, 1000, 1, 1300, 350)], beadOpacity: recorded });
     const after = layers(view.canvas('top')).returning;
     expect(after).toHaveLength(1);
     expect(after[0].opacity).toBe(layer.opacity);
     frame(1316);
-    expect(seen).toEqual([null, 1300]);
+    view.update({ beads: [leavingBead(TOP, 1000, 1, 1300, 450)], beadOpacity: recorded });
+    frame(1332);
+    expect(seen).toEqual([[null, null], [1300, 350], [1300, 450]]);
     view.unmount();
   });
 

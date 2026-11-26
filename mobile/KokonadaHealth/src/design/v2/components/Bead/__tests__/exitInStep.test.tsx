@@ -13,8 +13,10 @@ import { useBeadPresence } from '../useBeadPresence.ts';
 // Ruling 2 under a loaded JS thread (F10 G8 round 2, removal 2 of knock-dark-latin, f207 to f209): the letters a
 // leaving bead knocked out came back at full strength while the bead was still opaque. RimLabels read the exit on the
 // model's clock from leftAt, while Bead, whose effect ran late, played the whole exit from where the bead was over its
-// own compressed time (exitPlayMs). One source of truth: the presence entry carries when the bead's view really began
-// its exit, and beadOpacityAt reads the exit on that compressed time, so the letters never show through the bead.
+// own compressed time (exitPlayMs), and its native clock started later still (the op queue flushed behind the re-render;
+// 27f2bee's capture: the letters whole while the bead was opaque, in both removals). One source of truth: the presence
+// entry carries when the bead's native clock really started and how long it plays (Bead reads both off the clock's own
+// first moving value), and beadOpacityAt reads the exit on that time, so the letters are never ahead of the bead.
 //
 // The page's wiring, real: useBeadPresence's entries go to BeadLayer (its Beads report their exit's real start) and to
 // the letters, whose opacity is RimLabels' own worklet, returningOpacity(beads, t, beadOpacityAt). The late effect is a
@@ -76,18 +78,20 @@ const valueOf = (v: any): number => (typeof v === 'number' ? v : v.__getValue())
 const drawnOpacity = (tree: ReactTestRenderer.ReactTestRenderer) =>
   valueOf(flat(tree.root.findAll((n) => n.props.testID === 'hero.plate.bead.leaving' && typeof n.type !== 'string')[0].props.style).opacity);
 
-describe('a leaving bead and the letters it knocked out answer to one exit, however late its view starts it', () => {
-  // [how long the bead had been entering when it was taken (null: whole), how late its exit's effect ran]
-  const cases: Array<[number | null, number]> = [
-    [null, 0],
-    [null, 60],
-    [null, 150],
-    [null, 300],
-    [null, 600],
-    [null, 10_000],
-    [40, 300],
+describe('a leaving bead and the letters it knocked out answer to one exit, however late its view and its native clock start it', () => {
+  // [how long the bead had been entering when it was taken (null: whole), how late its exit's effect ran, and how much
+  // later still the native driver started its clock (the device: the op queue flushed behind a re-render)]
+  const cases: Array<[number | null, number, number]> = [
+    [null, 0, 0],
+    [null, 60, 0],
+    [null, 300, 0],
+    [null, 0, 250],
+    [null, 150, 120],
+    [null, 300, 300],
+    [null, 10_000, 120],
+    [40, 300, 200],
   ];
-  it.each(cases)('entered %p ms, effect %p ms late: at every 0.25 ms the letters are 1 − bead ÷ start, never above it', (entered, lateMs) => {
+  it.each(cases)('entered %p ms, effect %p ms late, native clock %p ms later: the letters are never ahead of the bead, and in step once it moves', (entered, lateMs, nativeDelay) => {
     const late = { ms: 0 };
     const r = run(entered === null ? [A] : [], late);
     if (entered !== null) {
@@ -99,41 +103,42 @@ describe('a leaving bead and the letters it knocked out answer to one exit, howe
     late.ms = lateMs;
     const leftAt = performance.now();
     r.update([]);
-    const playedFrom = leftAt + lateMs;
-    expect(performance.now()).toBe(playedFrom);
-
-    // The entry as the letters hold it before the bead's view started (the render that stamped leftAt), and after.
-    const entries = r.seen.map((beads) => beads.find((b) => b.leaving)).filter((b): b is PresentBead => b !== undefined);
-    expect(entries.length).toBeGreaterThanOrEqual(2);
-    const before = entries[0];
-    const after = entries[entries.length - 1];
-    expect(before.leftAt).toBe(leftAt);
+    const effectAt = leftAt + lateMs;
+    expect(performance.now()).toBe(effectAt);
     const start = entered === null ? 1 : entranceOpacity(entered);
-    expect(before.startOpacity).toBe(start);
+    const leaving = () => r.seen[r.seen.length - 1].find((b) => b.leaving)!;
+    expect(leaving()).toMatchObject({ leftAt, startOpacity: start });
 
-    // Bead's exit clock: the native driver plays it linearly from where the effect started it.
+    // Bead's exit clock, played by the native driver from nativeStart, linearly over the length Bead gave it. In jest the
+    // native driver is inert: each value is pushed at its own time, as the driver's value updates reach JS.
     const exitCall = timing.mock.calls.filter(([, config]) => config.toValue === exitDuration(start)).pop()!;
     expect(exitCall).toBeDefined();
     const [clock, config] = exitCall;
     expect(config.duration).toBe(exitPlayMs(start, lateMs));
     const end = exitDuration(start);
-    const nativeClockAt = (t: number) => end * Math.min(1, Math.max(0, (t - playedFrom) / config.duration));
+    const nativeStart = effectAt + nativeDelay;
+    const nativeClockAt = (t: number) => end * Math.min(1, Math.max(0, (t - nativeStart) / config.duration));
 
     let returned = 0;
-    for (let t = leftAt; t <= playedFrom + config.duration + 20; t += 0.25) {
-      clock.setValue(nativeClockAt(t));
+    let inStep = 0;
+    const STEP = 4;
+    for (let t = effectAt; t <= nativeStart + config.duration + 40; t += STEP) {
+      if (t > effectAt) {
+        act(() => {
+          jest.advanceTimersByTime(STEP);
+        });
+      }
+      act(() => clock.setValue(nativeClockAt(t)));
       const bead = drawnOpacity(r.tree);
       const bound = 1 - bead / start;
-      for (const entry of t < playedFrom ? [before, after] : [after]) {
-        const letters = returningOpacity([entry], t, beadOpacityAt);
-        if (letters > bound + 0.002) expect({ t: t - leftAt, letters, bead }).toEqual({ t: t - leftAt, letters: bound, bead });
-      }
-      const letters = returningOpacity([after], t, beadOpacityAt);
-      // In step, not merely held out: the letters come back exactly as the bead goes.
-      expect(Math.abs(letters - bound)).toBeLessThan(0.002);
+      const letters = returningOpacity([leaving()], t, beadOpacityAt);
+      if (letters > bound + 0.002) expect({ t: t - leftAt, letters, bead }).toEqual({ t: t - leftAt, letters: `at most ${bound}`, bead });
+      if (Math.abs(letters - bound) < 0.002) inStep++;
       if (letters > 0.5) returned++;
     }
-    expect(returned).toBeGreaterThan(40);
-    expect(returningOpacity([after], playedFrom + config.duration, beadOpacityAt)).toBe(1);
+    // In step, not merely held out: once the clock moves the letters come back exactly as the bead goes, and they are whole at its end.
+    expect(inStep).toBeGreaterThan((config.duration + 40) / STEP - 2);
+    expect(returned).toBeGreaterThan(10);
+    expect(returningOpacity([leaving()], nativeStart + config.duration, beadOpacityAt)).toBe(1);
   });
 });

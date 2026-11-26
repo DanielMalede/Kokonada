@@ -85,7 +85,7 @@ const SKIA: RimWordSkia = { Skia };
 
 const sameWords = (a: RimWords, b: RimWords) => RIM_POSITIONS.every((p) => a[p] === b[p]);
 
-/** Two bead lists by value (RA-39): the same length, and at each place the same point, state, leftAt, playedAt and start (Object.is). */
+/** Two bead lists by value (RA-39): the same length, and at each place the same point, state, leftAt, playedAt, playMs and start (Object.is). */
 const sameBeads = (a: readonly RimBead[], b: readonly RimBead[]) =>
   a.length === b.length &&
   a.every(
@@ -95,6 +95,7 @@ const sameBeads = (a: readonly RimBead[], b: readonly RimBead[]) =>
       x.leaving === b[i].leaving &&
       Object.is(x.leftAt, b[i].leftAt) &&
       Object.is(x.playedAt, b[i].playedAt) &&
+      Object.is(x.playMs, b[i].playMs) &&
       Object.is(x.startOpacity, b[i].startOpacity),
   );
 

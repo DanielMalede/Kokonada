@@ -19,9 +19,9 @@ const lay = (position: RimPosition, over: Partial<Parameters<typeof layRimWord>[
   layRimWord({ position, advances: ADV, font: FONT, tracking: 0, geometry: G, beads: [], knockoutGap: KNOCKOUT, pad: PAD, ...over });
 
 /** A live bead at `point`, as Bead/'s presence gives it. */
-const live = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, playedAt: null, startOpacity: 1 });
+const live = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, playedAt: null, playMs: null, startOpacity: 1 });
 /** A bead at `point` whose fade-out began at `leftAt`, from `startOpacity`. */
-const leaving = (point: PlatePoint, leftAt: number | null, startOpacity = 1): RimBead => ({ point, leaving: true, leftAt, playedAt: leftAt, startOpacity });
+const leaving = (point: PlatePoint, leftAt: number | null, startOpacity = 1): RimBead => ({ point, leaving: true, leftAt, playedAt: leftAt, playMs: null, startOpacity });
 
 /** A glyph's cell corners (advance × ascent..descent), where its transform puts them. */
 const corners = (g: PlacedGlyph) =>
