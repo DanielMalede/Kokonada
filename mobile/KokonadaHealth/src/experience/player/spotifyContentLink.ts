@@ -17,7 +17,8 @@ export interface SpotifyContentLink {
   id: string;
   // Opened when Spotify is installed ("OPEN SPOTIFY").
   uri: string;
-  // Opened when it is not ("GET SPOTIFY FREE"): Spotify's documented web page for the same item.
+  // Spotify's web page for the same item: the link of the title and the cover on Now Playing, in
+  // either install state (DEC-193). GET SPOTIFY FREE opens Spotify's store listing instead.
   webUrl: string;
 }
 

@@ -96,7 +96,7 @@ describe('ApiClient — single-flight refresh via AuthSession (concurrent 401s)'
       loadTokens: async () => ({ access: 'acc-1', refresh: 'krt-1' }),
       saveTokens: async () => {},
       clearTokens: async () => {},
-      refreshEndpoint: async () => { refreshCalls++; return { access: 'acc-2', refresh: 'krt-2' }; },
+      refreshEndpoint: async () => { refreshCalls++; return { kind: 'ok' as const, tokens: { access: 'acc-2', refresh: 'krt-2' } }; },
     });
     await auth.bootstrap();
     const fetchImpl = jest.fn().mockImplementation((_url, init: any) =>
@@ -107,5 +107,36 @@ describe('ApiClient — single-flight refresh via AuthSession (concurrent 401s)'
     const [a, b] = await Promise.all([client.get('/a'), client.get('/b')]);
     expect(refreshCalls).toBe(1); // AuthSession collapsed the concurrent refreshes
     expect(a.ok && b.ok).toBe(true);
+  });
+});
+
+// C1 through the unchanged client: a 401 whose refresh the server cannot answer is still a
+// {ok:false, status:401} to the caller, but the session survives it; only a dead answer ends it.
+describe('ApiClient — a 401 over a real AuthSession: unavailable keeps the session, dead ends it', () => {
+  function sessionWith(answer: 'dead' | 'unavailable') {
+    const stored: { value: { access: string; refresh: string } | null } = { value: { access: 'acc-1', refresh: 'krt-1' } };
+    const auth = new AuthSession({
+      loadTokens: async () => stored.value,
+      saveTokens: async (t) => { stored.value = t; },
+      clearTokens: async () => { stored.value = null; },
+      refreshEndpoint: async () => ({ kind: answer }),
+    });
+    return { auth, stored };
+  }
+
+  it.each([
+    ['unavailable', true],
+    ['dead', false],
+  ] as const)('refresh %s: {ok:false, status:401}, no retry, session kept = %s', async (answer, kept) => {
+    const { auth, stored } = sessionWith(answer);
+    await auth.bootstrap();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({ error: 'expired' }, 401));
+    const client = new ApiClient({
+      baseUrl: 'https://api.test', getAccessToken: () => auth.getAccessToken(), refresh: () => auth.refresh(), fetchImpl: fetchImpl as any,
+    });
+    await expect(client.get('/api/auth/me')).resolves.toEqual({ ok: false, status: 401, error: expect.any(String) });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(auth.hasSession()).toBe(kept);
+    expect(stored.value !== null).toBe(kept);
   });
 });

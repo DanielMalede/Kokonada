@@ -31,7 +31,7 @@ Every task is executed by a squad: one `developer` paired with the reviewers its
 **The iron law. No exceptions.**
 - No production code is written without a **failing test watched first**. RED → GREEN → REFACTOR.
 - Code written before its test is deleted and rewritten test-first.
-- Backend and mobile logic is **pure behind ports**; native modules (Skia, Reanimated, gesture-handler, socket.io, Spotify Remote, MMKV, Keychain, BLE, Health Connect) are thin adapters verified **on-device**, never fake-snapshotted.
+- Backend and mobile logic is **pure behind ports**; native modules (Skia, Reanimated, gesture-handler, socket.io, Spotify Remote, MMKV, Keychain, BLE, Health Connect) are thin adapters verified **on a device**, never fake-snapshotted: on an Android emulator by default, and only on the owner's real phone, in `/page` G11P, for what an emulator never proves (`/device-qa`'s list, DEC-192). BLE heart rate, a Health Connect read, Google sign-in on the release client and the Spotify temporary path are on that list, so the BLE, Health Connect and Spotify Remote adapters are never verified on an emulator, and a hop through one stays NOT VERIFIED until G11P.
 - Resilience tests use **stateful fakes with real semantics** (in-memory MMKV, real ZSET/Mongo/vector behaviour, EventEmitter sockets, flaky Spotify remotes) — **never stub theater**.
 - **Top-down for end-to-end features:** backend and DTOs/contracts first, then the mobile UI against the *real* contract — never mocked data on the mobile side.
 </iron_law_tdd>
@@ -102,12 +102,12 @@ Production-grade at the level of a top-tier platform team, sized to a lean team 
 2. **Plan.** `architect` produces a dependency-ordered plan with decision tables for every fork; the owner approves it.
 3. **Squads.** Ready tasks are claimed and dispatched as parallel squads on disjoint claims. A task with unmet dependencies is never dispatched.
 4. **Merge.** Each PR merges under the merge rule in `CLAUDE.md`.
-5. **Integration.** After a wave merges, re-run the full backend and mobile suites on `main` (and the on-device checklist where relevant) to catch cross-package interactions.
+5. **Integration.** After a wave merges, re-run the full backend and mobile suites on `main` (and the emulator checklist where relevant) to catch cross-package interactions.
 </how_a_wave_runs>
 
 <error_budget>
 - **Rule of 2 — before a merge.** A task that fails verification twice is reverted by its developer (`git restore` the files, or discard the branch), who hands back a failure summary instead of a third attempt. The orchestrator escalates to the owner with the failing diffs, the logs and the options.
-- **After a merge** — two consecutive post-merge RED verdicts for the same merge: the session opens a revert PR of the squash commit, as `merge-guard` specifies (never a push to `main`, never force).
+- **After a merge** — two consecutive post-merge RED verdicts for the same merge: the session opens a revert PR of the squash commit, as `.claude/commands/merge.md` § Checks specifies (never a push to `main`, never force).
 - **Global stop.** If failures pile up across a run or the budget is breached, halt the whole run and escalate. A thrashing run stops; it does not keep spending.
 - Recovery targets a committed known-good state, re-verified by re-running the affected gates.
 </error_budget>

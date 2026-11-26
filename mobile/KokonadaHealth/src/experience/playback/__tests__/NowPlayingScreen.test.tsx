@@ -1,7 +1,7 @@
 import React from 'react';
 import * as RN from 'react-native';
 import ReactTestRenderer from 'react-test-renderer';
-import { Animated, AccessibilityInfo, Dimensions, StyleSheet } from 'react-native';
+import { Animated, AccessibilityInfo, Dimensions, Linking, StyleSheet } from 'react-native';
 
 jest.setTimeout(20000); // cold-require headroom for CI (same rationale as ProfileScreen, #84)
 
@@ -564,6 +564,137 @@ describe('NowPlayingScreen (Wave 2.8 reskin — playback contract preserved)', (
       const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
       await ReactTestRenderer.act(async () => { nowPlayingStore.getState().set({ track: NEXT, isPlaying: true }); });
       expect(mockAttributionProps[mockAttributionProps.length - 1].contentUri).toBe(NEXT.uri);
+    });
+  });
+
+  // ── DEC-193 (Spotify Developer Policy II.4.2: metadata and cover art "must be accompanied by a link
+  // back to the applicable album, content or playlist on the Spotify Service"): the title and the cover
+  // each link to the item's own open.spotify.com page, for Spotify content only. The real link-back
+  // wiring runs (spotifyLinkBack → spotifyContentLink → Linking.openURL); only the OS boundary is read.
+  describe('the title and the cover link to the item\'s Spotify page (DEC-193)', () => {
+    const ID = '11dFghVXANMlKmJXsNCbNl';
+    const SPOTIFY_TRACK = { ...TRACK, uri: `spotify:track:${ID}` };
+    const PAGE = `https://open.spotify.com/track/${ID}`;
+    const node = (tree: ReactTestRenderer.ReactTestRenderer, id: string) =>
+      tree.root.findAll((n) => n.props.testID === id)[0];
+    const press = async (n: any) => {
+      await ReactTestRenderer.act(async () => { n.props.onPress(); });
+      await ReactTestRenderer.act(async () => { await new Promise((r) => setImmediate(r)); });
+    };
+    // The preset's Linking.openURL is already a jest.fn, so spyOn returns it and registers no restore
+    // (see forceFace above): put it back to the preset's bare jest.fn() by hand after each test.
+    let openURL: jest.SpyInstance;
+    beforeEach(() => { openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as any); });
+    afterEach(() => { openURL.mockReset(); });
+
+    it('the title is a link to the track\'s open.spotify.com page, named for the track and Spotify', async () => {
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      const tree = await render();
+      const link = node(tree, 'now-playing-title-link');
+      expect(link).toBeTruthy();
+      expect(link.props.accessibilityRole).toBe('link');
+      expect(link.props.accessibilityLabel).toContain('Deep Current');
+      expect(link.props.accessibilityLabel).toContain('Spotify');
+      expect(link.findAll((n) => n.props.children === 'Deep Current').length).toBeGreaterThan(0); // it IS the title
+      await press(link);
+      expect(openURL.mock.calls).toEqual([[PAGE]]);
+    });
+
+    it('the cover is a link to the same page, named for the track and Spotify', async () => {
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/live.jpg', SPOTIFY_TRACK.uri);
+      const tree = await render();
+      const link = node(tree, 'now-playing-cover-link');
+      expect(link).toBeTruthy();
+      expect(link.props.accessibilityRole).toBe('link');
+      expect(link.props.accessibilityLabel).toContain('Deep Current');
+      expect(link.props.accessibilityLabel).toContain('Spotify');
+      expect(link.findAll((n) => n.props.testID === 'now-playing-cover').length).toBeGreaterThan(0); // it IS the cover
+      await press(link);
+      expect(openURL.mock.calls).toEqual([[PAGE]]);
+    });
+
+    it('no cover art, no cover link: the ♪ placeholder is not a link, while the title still is', async () => {
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/foreign.jpg', 'spotify:track:FOREIGN'); // not this track's
+      const tree = await render();
+      expect(node(tree, 'now-playing-cover-link')).toBeUndefined();
+      expect(texts(tree.toJSON()).join(' ')).toContain('♪');
+      expect(node(tree, 'now-playing-title-link')).toBeTruthy();
+    });
+
+    it.each([
+      ['a track with no URI', null],
+      ['a non-Spotify URI', 'youtube:abc'],
+      ['an unlinkable Spotify URI', 'spotify:episode:512ojhOuo1ktJprKbVcKyQ'],
+    ])('%s: no title link and no cover link, the title stays a plain header, and nothing opens', async (_label, uri) => {
+      const item = { ...TRACK, uri };
+      nowPlayingStore.getState().set({ track: item, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/any.jpg', uri); // paired with the item on screen
+      const tree = await render();
+      expect(node(tree, 'now-playing-title-link')).toBeUndefined();
+      expect(node(tree, 'now-playing-cover-link')).toBeUndefined();
+      expect(tree.root.findAll((n) => n.props.accessibilityRole === 'link')).toHaveLength(0);
+      const title = tree.root.findAll((n) => n.props.children === 'Deep Current' && n.props.accessibilityRole === 'header');
+      expect(title.length).toBeGreaterThan(0);
+      for (const p of tree.root.findAll((n) => typeof n.props.onPress === 'function')) await press(p);
+      expect(openURL).not.toHaveBeenCalled();
+    });
+
+    it('nothing playing: "Nothing playing yet" is not a link', async () => {
+      const tree = await render();
+      expect(node(tree, 'now-playing-title-link')).toBeUndefined();
+      expect(tree.root.findAll((n) => n.props.accessibilityRole === 'link')).toHaveLength(0);
+    });
+
+    it('after a track change both links open the NEW track\'s page, never the previous one', async () => {
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/first.jpg', SPOTIFY_TRACK.uri);
+      const tree = await render();
+      const NEXT = { ...TRACK, id: 't2', uri: 'spotify:track:4iV5W9uYEdYUVa79Axb7Rh', title: 'Second Light' };
+      await ReactTestRenderer.act(async () => {
+        nowPlayingStore.getState().set({ track: NEXT, isPlaying: true });
+        nowPlayingStore.getState().setCover('file:///cover/second.jpg', NEXT.uri);
+      });
+      expect(node(tree, 'now-playing-title-link').props.accessibilityLabel).toContain('Second Light');
+      await press(node(tree, 'now-playing-title-link'));
+      await press(node(tree, 'now-playing-cover-link'));
+      expect(openURL.mock.calls).toEqual([
+        ['https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh'],
+        ['https://open.spotify.com/track/4iV5W9uYEdYUVa79Axb7Rh'],
+      ]);
+    });
+
+    it('never throws into the UI when the page cannot open', async () => {
+      openURL.mockRejectedValue(new Error('No Activity found to handle Intent'));
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/live.jpg', SPOTIFY_TRACK.uri);
+      const tree = await render();
+      await press(node(tree, 'now-playing-title-link'));
+      await press(node(tree, 'now-playing-cover-link'));
+      expect(openURL).toHaveBeenCalledTimes(2);
+    });
+
+    // Nothing changes but the touch target: the title keeps its exact text style and line cap, and the
+    // link gives it a 48 dp target from its own bounds (hitSlop is invisible to TalkBack and
+    // Accessibility Scanner); the cover link fills the art box and the image keeps its own style.
+    it('only the touch target changes: the title keeps its style, the cover link fills the art box', async () => {
+      nowPlayingStore.getState().set({ track: SPOTIFY_TRACK, isPlaying: true });
+      nowPlayingStore.getState().setCover('file:///cover/live.jpg', SPOTIFY_TRACK.uri);
+      const tree = await render();
+      const titleLink = node(tree, 'now-playing-title-link');
+      expect(StyleSheet.flatten(titleLink.props.style).minHeight).toBeGreaterThanOrEqual(48);
+      const titleText = titleLink.findAll((n) => n.props.children === 'Deep Current' && n.props.accessibilityRole === 'header')[0];
+      expect(titleText.props.numberOfLines).toBe(2);
+      expect(StyleSheet.flatten(titleText.props.style)).toEqual({
+        fontSize: typography.size.title, fontWeight: typography.weight.bold, letterSpacing: typography.tracking.heading,
+        color: colors.light.content.primary, textAlign: 'center',
+      });
+      const coverLink = node(tree, 'now-playing-cover-link');
+      expect(StyleSheet.flatten(coverLink.props.style)).toMatchObject({ width: '100%', height: '100%' });
+      const cover = node(tree, 'now-playing-cover');
+      expect(cover.props.resizeMode).toBe('cover');
+      expect(StyleSheet.flatten(cover.props.style)).toMatchObject({ width: '100%', height: '100%' });
     });
   });
 

@@ -461,8 +461,9 @@ jobs:
         uses: dorny/paths-filter@v3
         with:
           # Every input that can change a sweep result: the token sources, the v2 colour, token,
-          # field, clock and motion code the sweeps load, both jest configs, the lockfile and this
-          # file. Pinned, with a check that it covers every file the sweep tests import
+          # field, clock and motion code the sweeps load, the Plate and CommitCTA components the
+          # hero sweeps load (the architect's Q3 ruling of 2026-11-25), both jest configs, the
+          # lockfile and this file. Pinned, with a check that it covers every file the sweep tests import
           # (mobile/KokonadaHealth/scripts/jest/__tests__/jestProjects.test.ts).
           filters: |
             sweeps:
@@ -472,6 +473,8 @@ jobs:
               - 'mobile/KokonadaHealth/src/design/v2/field/**'
               - 'mobile/KokonadaHealth/src/design/v2/clock/**'
               - 'mobile/KokonadaHealth/src/design/v2/motion/**'
+              - 'mobile/KokonadaHealth/src/design/v2/components/Plate/**'
+              - 'mobile/KokonadaHealth/src/design/v2/components/CommitCTA/**'
               - 'mobile/KokonadaHealth/jest.sweeps.config.js'
               - 'mobile/KokonadaHealth/jest.config.js'
               - 'mobile/KokonadaHealth/package-lock.json'
