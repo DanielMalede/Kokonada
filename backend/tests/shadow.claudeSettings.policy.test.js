@@ -5,11 +5,11 @@
 //    `git add -f x`, `git commit --no-verify -m x`, `git stash pop|apply`, and
 //    `gh pr update-branch --rebase 1`, which `Bash(gh pr update-branch *)` allows): each needs an
 //    un-starred form, as DEC-145's rules carry both `git push --force*` and `git *push --force*`,
-//    with the `git -C *` and PowerShell twins merge-guard-trigger.test.mjs requires;
+//    with the `git -C *` and PowerShell twins that claudeSettings.policy.test.js requires;
 //  - `git diff --output=`, `git diff --ext-diff`, `git ls-remote origin --exec=`, `git add --force`.
 // Green pins: attribution is the empty string, the whole DEC-145 list, no `*` as a `-c`/`-C` value,
 // no wrapper, file reader or uploader among the allows, an Edit twin for every Read deny, and the
-// flow strings of CLAUDE.md step 3 (sentinel.md § FILING), /ship, /merge and merge-guard.
+// flow strings of CLAUDE.md step 3 (sentinel.md § FILING), /ship, /merge and its § Checks.
 // `git branch -D x` expects `ask`, not `deny`: the custodian's CU270-02 on #270 moved the force
 // delete to the ask tier so that CLAUDE.md step 5's cleanup (`git branch -d`) stays possible.
 // A model only: the runtime's own reading is settled by the `claude -p --setting-sources ""
@@ -32,6 +32,8 @@ const { allow = [], ask = [], deny = [] } = SETTINGS.permissions || {};
 const esc = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
 const specs = (list, tool) =>
   list.filter((r) => r.startsWith(`${tool}(`) && r.endsWith(')')).map((r) => r.slice(tool.length + 1, -1));
+// RA-10: a permission entry's shape, `Tool` or `Tool(<spec>)`, the spec starting and ending with a non-space.
+const wellShaped = (r) => /^[A-Za-z_][\w-]*(?:\(\S(?:.*\S)?\))?$/s.test(r);
 
 // lenient: `*` matches any text and a trailing ` *` (the only wildcard) also matches the bare
 // command — the policy test's reading. strict: `*` needs one character and the bare command is not
@@ -95,6 +97,30 @@ describe('shadow: denies that must not depend on `*` matching nothing (RED at 1f
   }
 });
 
+// CU307-3 (#307): the nine pushes to main of claudeSettings.policy.test.js's H-5 block, under the strict reading. There
+// a starred deny such as `git *push * main *` matches with an empty `*` and can stand in for a missing
+// `git push * main *`; here every `*` needs a character, so each push must meet a deny that holds without that.
+describe('shadow: every push to main is denied under the strict reading too (CU307-3)', () => {
+  const pushesToMain = [
+    'git push -u origin main',
+    'git push -u origin main --no-verify',
+    'git push -u origin main --follow-tags',
+    'git push upstream main -q',
+    'git push origin -d main -q',
+    'git push -u origin main 2>&1',
+    'git -C wt push -u origin main --no-verify',
+    'git push origin +feat/x',
+    'git push origin HEAD:refs/heads/main',
+  ];
+  for (const tool of ['Bash', 'PowerShell']) {
+    for (const cmd of pushesToMain) {
+      it(`${tool}: denied under the strict reading: ${cmd}`, () => {
+        expect(decide(cmd, tool, true)).toBe('deny');
+      });
+    }
+  }
+});
+
 describe('shadow: allowed commands with an escape hatch (RED at 1f88913)', () => {
   const gaps = [
     'git diff --output=/tmp/x HEAD', // writes any file, .claude/settings.json included
@@ -145,6 +171,25 @@ describe('shadow: structure pins the policy test leaves loose', () => {
     expect(specs(allow, 'Read').filter((r) => r.startsWith('~'))).toEqual([]);
   });
 
+  // RA-10 (#307): `specs` reads only `Tool(<spec>)` entries, so a malformed one (`Bash(git push --force*` without
+  // its parenthesis) would drop out of the model unseen while every case still passed.
+  it('the shape reader accepts `Tool` and `Tool(<spec>)` only', () => {
+    expect(['Bash(git status)', 'Read(//c/x/**)', 'mcp__plugin_github_github__merge_pull_request',
+      'PowerShell(gh pr merge *--auto)', 'Bash(node -e "f(1)")', 'Bash(*)'].filter((r) => !wellShaped(r))).toEqual([]);
+    expect(['Bash(git push --force*', 'Bash git push', 'Bash()', 'Bash( git status)', 'Bash(git status )', '(git status)',
+      'Bash(x) y', ' Bash(x)', 'Bash(x)\n'].filter((r) => wellShaped(r))).toEqual([]);
+  });
+
+  it('every allow, ask and deny entry is `Tool` or `Tool(<spec>)`, and the model reads every entry of the tools it models', () => {
+    for (const [name, list] of Object.entries({ allow, ask, deny })) {
+      expect([name, list.filter((r) => typeof r !== 'string' || !wellShaped(r))]).toEqual([name, []]);
+      for (const tool of ['Bash', 'PowerShell', 'Read', 'Edit']) {
+        const named = list.filter((r) => r === tool || r.startsWith(`${tool}(`)).length;
+        expect([name, tool, named]).toEqual([name, tool, specs(list, tool).length]);
+      }
+    }
+  });
+
   it('the derived flow strings are the sentinel\'s five exact allows and one adb binary', () => {
     expect(SENTINEL_COMMANDS).toHaveLength(5);
     expect(ADB_PATHS).toHaveLength(1);
@@ -156,7 +201,7 @@ describe('shadow: the flows the policy test does not pin (green at 1f88913; red 
     // CLAUDE.md session start step 3 — .claude/agents/sentinel.md § FILING, the five strings, as
     // the allow list carries them:
     ...SENTINEL_COMMANDS,
-    // CLAUDE.md steps 1 and 6, /ship, /merge, merge-guard:
+    // CLAUDE.md steps 1 and 6, /ship, /merge and its § Checks:
     'git fetch --unshallow',
     'git fetch origin',
     'git merge origin/main',

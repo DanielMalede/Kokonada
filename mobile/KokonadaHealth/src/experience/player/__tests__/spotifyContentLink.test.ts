@@ -1,8 +1,8 @@
 // HX-4 (CMP-008, Spotify Developer Policy II.4): the link-back must land on the EXACT item whose
 // metadata and cover are on screen. This pure parser is the single gate for that: it accepts only a
 // Spotify URI for a track, album or playlist with a base-62 id, and yields both link targets — the
-// app URI (Spotify installed) and the open.spotify.com page (not installed, Spotify's documented web
-// fallback). Spotify documents the id as base-62 and documents no length, so no length is pinned.
+// app URI (OPEN SPOTIFY, Spotify installed) and the open.spotify.com page (the title's and the cover's
+// link, DEC-193). Spotify documents the id as base-62 and documents no length, so no length is pinned.
 
 import { parseSpotifyContentUri } from '../spotifyContentLink';
 import { PlaybackQueue } from '../../playback/playbackQueue';

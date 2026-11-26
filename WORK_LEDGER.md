@@ -76,10 +76,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-01
 
 ### M02
-- task: `own:scribe-2026-10-06` (own)
-- title: docs: scribe 2026-10-06: DEC-156 (the privacy page waits for the armed sweep), the post-J2 counsel annex and the session's TASKS rows
-- branch: `docs/scribe2-2026-10-06`
-- paths: `TASKS.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-156.md`, `docs/design-v2/counsel/gating-five-2026-10-04.md`, `docs/design-v2/counsel/post-j2-privacy-questions-2026-10-06.md`, `docs/plans/HALT_HEALTH_CONNECT_PLAY_BLOCKERS.md`
+- task: `own:v1-vision-frame` (own)
+- title: V1 Squad B: the field (B4) and the rest of the V1 lab, PR #B
+- branch: `design/v1-b`
+- paths: `TASKS.md`, `design-tokens/base.tokens.json`, `design-tokens/direction.abyss.tokens.json`, `design-tokens/direction.basin.tokens.json`, `design-tokens/direction.linen.tokens.json`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-081.md`, `mobile/KokonadaHealth/eslint.design-system.js`, `mobile/KokonadaHealth/jest.config.js`, `mobile/KokonadaHealth/jest.sweeps.config.js`, `mobile/KokonadaHealth/scripts/lint/__tests__/designSystemConfig.test.ts`, `mobile/KokonadaHealth/src/design/v2/**`, `mobile/KokonadaHealth/src/design/lab/**`, `mobile/KokonadaHealth/scripts/tokens/**`, `mobile/KokonadaHealth/scripts/jest/**`, `mobile/KokonadaHealth/scripts/field/**`, `mobile/KokonadaHealth/scripts/lab/capture-plans/**`, `mobile/KokonadaHealth/scripts/lab/reports/**`, `mobile/KokonadaHealth/src/state/cold/__tests__/**`, `.github/workflows/ci.yml`, `backend/tests/ciWorkflowPermissions.test.js`, `backend/tests/nodeRuntimePin.test.js`, `backend/tests/secretScanGates.test.js`, `.gitleaksignore`, `mobile/KokonadaHealth/index.js`, `mobile/KokonadaHealth/scripts/lab/capture.mjs`, `mobile/KokonadaHealth/scripts/lab/__tests__/**`, `mobile/KokonadaHealth/src/__tests__/shadow.experience.test.tsx`, `mobile/KokonadaHealth/scripts/lab/lib/**`, `mobile/KokonadaHealth/src/design/v2/clock/**`, `docs/design-v2/decisions/DEC-084.md`, `docs/design-v2/decisions/DEC-165.md`, `docs/design-v2/decisions/DEC-166.md`, `docs/design-v2/decisions/DEC-167.md`, `mobile/KokonadaHealth/scripts/lab/buildLabApk.mjs`, `docs/design-v2/decisions/DEC-168.md`, `docs/design-v2/decisions/DEC-169.md`, `docs/design-v2/decisions/DEC-170.md`, `docs/design-v2/decisions/DEC-171.md`, `docs/design-v2/decisions/DEC-172.md`, `docs/design-v2/decisions/DEC-173.md`, `docs/design-v2/decisions/DEC-174.md`, `docs/design-v2/decisions/DEC-175.md`, `docs/design-v2/decisions/DEC-176.md`, `mobile/KokonadaHealth/scripts/lab/__fixtures__/**`, `mobile/KokonadaHealth/src/experience/generate/__tests__/generationStatusStore.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/testing/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/scripts/lab/bundleLab.mjs`, `.claude/agents/merge-guard.md`, `backend/tests/shadow.mergeGuardSkips.test.js`
 - resources: none
 - state: claimed
 - started: 2026-10-06
@@ -139,19 +139,31 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-23
 
 ### M09
-- task: `own:ops417-qa116-pinned-callers` (own)
-- title: Stage 0 Q1b: the pinned-caller check (QA-116) and its dead list (OPS-417)
-- branch: `test/s0-q1b-callers`
-- paths: `mobile/KokonadaHealth/src/testing/guards/pinnedCallers.ts`, `mobile/KokonadaHealth/src/testing/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `docs/design-v2/registry/QA-116.md`, `TASKS.md`
+- task: `own:fast-track-process` (own)
+- title: Owner rulings of 2026-11-23: the session runs the merge-guard procedure itself (agent removed), emulator evidence plus one real-phone pass, a shorter /page, DEC-192
+- branch: `chore/fast-track-process`
+- paths: `CLAUDE.md`, `AGENTS.md`, `.claude/agents/merge-guard.md`, `.claude/agents/sentinel.md`, `.claude/agents/developer.md`, `.claude/agents/designer.md`, `.claude/agents/resilience-auditor.md`, `.claude/agents/architect.md`, `.claude/agents/compliance-auditor.md`, `.claude/agents/regulatory-researcher.md`, `.claude/commands/merge.md`, `.claude/commands/review-pr.md`, `.claude/commands/ship.md`, `.claude/commands/page.md`, `.claude/commands/device-qa.md`, `.claude/commands/fix-bug.md`, `.claude/commands/vision-frame.md`, `.claude/hooks/merge-guard-trigger.mjs`, `.claude/hooks/merge-guard-trigger.test.mjs`, `.claude/settings.json`, `backend/tests/mergeGuardHook.test.js`, `backend/tests/claudeSettings.policy.test.js`, `backend/tests/shadow.claudeSettings.policy.test.js`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `docs/ORCHESTRATOR_FABLE.md`, `docs/plans/DESIGN_V2_PLAN.md`, `docs/design-v2/DECISIONS.md`, `docs/design-v2/decisions/DEC-143.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/decisions/DEC-192.md`, `scripts/coord/coord.js`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-18
+- started: 2026-11-23
 
 ### M10
-_free_
+- task: `own:cmp008-get-spotify-free` (own)
+- title: CMP-008 / CA307-15: GET SPOTIFY FREE opens Spotify's Play Store listing (market:// then the Play web page) instead of open.spotify.com
+- branch: `fix/cmp008-get-spotify-free`
+- paths: `mobile/KokonadaHealth/src/experience/player/spotifyLinkBack.ts`, `mobile/KokonadaHealth/src/experience/player/spotifyContentLink.ts`, `mobile/KokonadaHealth/src/experience/player/SpotifyAttribution.tsx`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyLinkBack.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyContentLink.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/SpotifyAttribution.test.tsx`, `mobile/KokonadaHealth/src/experience/playback/NowPlayingScreen.tsx`, `mobile/KokonadaHealth/src/experience/playback/__tests__/NowPlayingScreen.test.tsx`, `docs/design-v2/registry/CMP-008.md`, `docs/design-v2/registry/CMP-009.md`, `docs/design-v2/registry/INDEX.md`, `docs/design-v2/decisions/DEC-193.md`, `docs/design-v2/decisions/DEC-112.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-25
 
 ### M11
-_free_
+- task: `own:stop-google-picture` (own)
+- title: The backend stops storing Google's profile picture URL (avatarUrl) at sign-in, per the owner's ruling of 2026-11-24 (B1 regulatory Q6)
+- branch: `fix/stop-google-picture`
+- paths: `backend/app/controllers/authController.js`, `backend/tests/auth.controller.test.js`, `backend/app/models/User.js`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-24
 
 ### M12
 _free_

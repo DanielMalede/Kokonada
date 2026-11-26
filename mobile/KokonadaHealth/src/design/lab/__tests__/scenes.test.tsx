@@ -2,12 +2,18 @@ import React from 'react';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
+import { LabMotionPortsContext } from '../scenes/FieldScene';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // MB-085. READY waits for every probe a scene DECLARES. A scene that renders fewer would stall
 // READY forever, and one that renders more would be refused at runtime, so the declaration and
 // the render must be the same list, scene by scene.
 
 const sv = { t: { value: 0 } } as never;
+// A policy scene (B8-6) takes its tier from the device's settings, which LabRoot provides: here they never answer.
+const unanswered = { read: () => new Promise<boolean>(() => {}), subscribe: () => () => {} };
+const PORTS = { reduceMotion: unanswered, powerSave: unanswered };
 
 describe('the lab scenes', () => {
   it('there is at least the smoke scene, with a positive finite period', () => {
@@ -40,7 +46,9 @@ describe('the lab scenes', () => {
     act(() => {
       tree = ReactTestRenderer.create(
         <ProbeRegistry onMeasure={() => {}}>
-          <Scene clock={sv} t={0} params={{ run: 'r', scene: id, clock: 'fixed', t: 0, stepMs: 0, frames: 1 }} />
+          <LabMotionPortsContext.Provider value={PORTS}>
+            <Scene clock={sv} t={0} params={{ run: 'r', scene: id, clock: 'fixed', t: 0, stepMs: 0, frames: 1 }} />
+          </LabMotionPortsContext.Provider>
         </ProbeRegistry>,
       );
     });

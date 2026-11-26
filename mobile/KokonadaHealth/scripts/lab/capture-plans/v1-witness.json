@@ -1,0 +1,86 @@
+{
+ "id": "v1-witness",
+ "app": {
+  "package": "com.kokonadahealth.lab",
+  "activity": "com.kokonadahealth.lab.DesignLabActivity"
+ },
+ "readyTimeoutMs": 30000,
+ "settleMs": 300,
+ "session": {
+  "stayOn": true
+ },
+ "shots": [
+  {
+   "id": "witness-dark",
+   "repeat": 2,
+   "scene": "witness.abyss.dark",
+   "args": {
+    "clock": "fixed",
+    "t": "11000",
+    "frames": "10"
+   },
+   "device": {
+    "fontScale": 1,
+    "night": "yes",
+    "animatorScale": 1,
+    "powerSave": false
+   },
+   "probes": [
+    "stage",
+    "region",
+    "W1a.joy",
+    "W1a.calm",
+    "W1a.reflective",
+    "W1a.intense",
+    "W1a.ground",
+    "W3.joy",
+    "W3.calm",
+    "W3.reflective",
+    "W3.intense",
+    "W3.ground"
+   ],
+   "expect": {
+    "direction": "abyss",
+    "face": "dark",
+    "hero": "one.joy",
+    "tier": "full"
+   }
+  },
+  {
+   "id": "witness-light",
+   "repeat": 2,
+   "scene": "witness.abyss.light",
+   "args": {
+    "clock": "fixed",
+    "t": "11000",
+    "frames": "10"
+   },
+   "device": {
+    "fontScale": 1,
+    "night": "no",
+    "animatorScale": 1,
+    "powerSave": false
+   },
+   "probes": [
+    "stage",
+    "region",
+    "W1a.joy",
+    "W1a.calm",
+    "W1a.reflective",
+    "W1a.intense",
+    "W1a.ground",
+    "W3.joy",
+    "W3.calm",
+    "W3.reflective",
+    "W3.intense",
+    "W3.ground"
+   ],
+   "expect": {
+    "direction": "abyss",
+    "face": "light",
+    "hero": "one.joy",
+    "tier": "full"
+   }
+  }
+ ]
+}

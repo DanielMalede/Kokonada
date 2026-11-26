@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { bundleLab } from '../bundleLab.mjs';
-import { apksignerCertificate, buildLabApk, gradleSpawn, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
+import { apksignerCertificate, buildLabApk, gradleSpawn, nativeJobPoolsInitScript, parseBuildArgs, pickDriveLetter, relinkAutolinking } from '../buildLabApk.mjs';
 import { Refused } from '../capture.mjs';
 import { makeStamp } from '../lib/stamp.mjs';
 import { zip } from '../__fixtures__/zipWriter';
@@ -22,6 +22,14 @@ const SENTINEL = 'kokonada-design-lab-sentinel-testfixture2';
 const MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]);
 const HBC = Buffer.concat([MAGIC, Buffer.from(`code ${SENTINEL} code`)]);
 const sha = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
+// UI-278: the token source and the generated token module app() writes, and the hashes a stamp of that tree names
+// (labStampTokens.test.ts holds the rest of it).
+const TOKEN_SOURCE = '{ "base": 1 }\n';
+const TOKEN_MODULE = 'export const BASE = 1;\n';
+const STAMPED_TOKENS = {
+  'design-tokens/base.tokens.json': sha(Buffer.from(TOKEN_SOURCE)),
+  'mobile/App/src/design/v2/tokens/tokens.generated.ts': sha(Buffer.from(TOKEN_MODULE)),
+};
 
 function app() {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-build-'));
@@ -33,6 +41,9 @@ function app() {
   };
   write('src/design/lab/sentinel.ts', `export const LAB_SENTINEL = '${SENTINEL}';\n`);
   write('android/app/src/lab/res/values/strings.xml', '<resources/>');
+  write('src/design/v2/tokens/tokens.generated.ts', TOKEN_MODULE);
+  fs.mkdirSync(path.join(repoRoot, 'design-tokens'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'design-tokens', 'base.tokens.json'), TOKEN_SOURCE);
   return { repoRoot, appRoot, write, read: (rel: string) => fs.readFileSync(path.join(appRoot, rel)), exists: (rel: string) => fs.existsSync(path.join(appRoot, rel)) };
 }
 
@@ -56,10 +67,10 @@ describe('bundleLab', () => {
     const a = app();
     a.write('android/app/src/lab/assets/stale.txt', 'old');
     a.write('android/app/src/lab/res/drawable-hdpi/old.png', 'old');
-    const result = await bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: (p: string) => p });
+    const result = await bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: (p: string) => p });
     expect(a.read('android/app/src/lab/assets/index.android.bundle').equals(HBC)).toBe(true);
     const stamp = JSON.parse(a.read('android/app/src/lab/assets/lab-stamp.json').toString());
-    expect(stamp).toEqual({ commit: SHA, porcelainEmpty: true, bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', dev: false, createdAt: '2026-10-04T09:00:00.000Z' });
+    expect(stamp).toEqual({ commit: SHA, porcelainEmpty: true, bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', dev: false, createdAt: '2026-10-04T09:00:00.000Z' });
     expect(result.stamp).toEqual(stamp);
     expect(a.exists('android/app/src/lab/assets/stale.txt')).toBe(false);
     expect(a.exists('android/app/src/lab/res/drawable-hdpi/old.png')).toBe(false);
@@ -69,7 +80,7 @@ describe('bundleLab', () => {
 
   it('refuses to run from a subst drive: Metro resolves the drive back to C: and breaks', async () => {
     const a = app();
-    await expect(bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: () => 'C:\\somewhere\\else' }))
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(), now: NOW, realpath: () => 'C:\\somewhere\\else' }))
       .rejects.toThrow(/real path/);
     expect(a.exists('android/app/src/lab/assets')).toBe(false);
   });
@@ -79,7 +90,7 @@ describe('bundleLab', () => {
     a.write('android/app/src/lab/assets/index.android.bundle', 'the previous, stamped bundle');
     let bundled = false;
     const spy = async (...args: Parameters<ReturnType<typeof bundler>>) => { bundled = true; return bundler()(...args); };
-    await expect(bundleLab({ appRoot: a.appRoot, git: { head: () => SHA, porcelain: () => ' M index.lab.js' }, bundle: spy, now: NOW, realpath: (p: string) => p }))
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: { head: () => SHA, porcelain: () => ' M index.lab.js' }, bundle: spy, now: NOW, realpath: (p: string) => p }))
       .rejects.toThrow(/uncommitted/);
     expect(bundled).toBe(false);
     expect(a.read('android/app/src/lab/assets/index.android.bundle').toString()).toBe('the previous, stamped bundle');
@@ -90,7 +101,7 @@ describe('bundleLab', () => {
     ['missing the sentinel', Buffer.concat([MAGIC, Buffer.from('no marker here')]), /sentinel/],
   ])('refuses a bundle that is %s, and leaves no bundle behind for Gradle to pack', async (_label, hbc, why) => {
     const a = app();
-    await expect(bundleLab({ appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p })).rejects.toThrow(why);
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p })).rejects.toThrow(why);
     expect(a.exists('android/app/src/lab/assets/index.android.bundle')).toBe(false);
   });
 
@@ -98,7 +109,7 @@ describe('bundleLab', () => {
     const a = app();
     let calls = 0;
     const git = { head: () => SHA, porcelain: () => (calls++ === 0 ? '' : '?? android/app/src/lab/assets/lab-stamp.json') };
-    await expect(bundleLab({ appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
+    await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
   });
 });
 
@@ -124,13 +135,13 @@ describe('buildLabApk', () => {
   const DEBUG_CERT = { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'a'.repeat(64) };
   function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT } = {}) {
     const a = app();
-    const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: {}, entry: 'index.lab.js', createdAt: NOW().toISOString() });
+    const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', createdAt: NOW().toISOString() });
     a.write('android/app/src/lab/assets/index.android.bundle', HBC);
     a.write('android/app/src/lab/assets/lab-stamp.json', JSON.stringify(stamp, null, 2));
     const autolinking = path.join(a.appRoot, 'android/build/generated/autolinking/autolinking.json');
     const real = JSON.stringify({ root: path.join(a.repoRoot, 'mobile', 'App'), project: { android: { packageName: 'x' } } }, null, 2);
     const drives = new Map<string, string>();
-    const calls: Array<{ cwd: string; args: string[]; env?: Record<string, string>; autolinking: string | null }> = [];
+    const calls: Array<{ cwd: string; args: string[]; env?: Record<string, string>; autolinking: string | null; init: string | null }> = [];
     const keystore = path.join(a.repoRoot, 'shared-debug.keystore');
     if (keystorePresent) fs.writeFileSync(keystore, 'keystore bytes');
     const signer = { apkCertificate: () => apkCert, keystoreCertificate: () => ({ sha256: DEBUG_CERT.sha256 }) };
@@ -140,7 +151,9 @@ describe('buildLabApk', () => {
       remove: (letter: string) => { drives.delete(letter); },
     };
     const gradle = ({ cwd, args, env }: { cwd: string; args: string[]; env?: Record<string, string> }) => {
-      calls.push({ cwd, args, env, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null });
+      const i = args.indexOf('-I');
+      const init = i >= 0 && fs.existsSync(args[i + 1]) ? fs.readFileSync(args[i + 1], 'utf8') : null;
+      calls.push({ cwd, args, env, autolinking: fs.existsSync(autolinking) ? fs.readFileSync(autolinking, 'utf8') : null, init });
       if (args[0] === 'help') {
         fs.mkdirSync(path.dirname(autolinking), { recursive: true });
         fs.writeFileSync(autolinking, real);
@@ -154,8 +167,8 @@ describe('buildLabApk', () => {
         { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(stamp, null, 2)) },
       ]));
     };
-    const run = (git = cleanGit) => buildLabApk({
-      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {}, keystore, signer,
+    const run = (git = cleanGit, extra: Record<string, unknown> = {}) => buildLabApk({
+      repoRoot: a.repoRoot, appRoot: a.appRoot, git, gradle, subst, exists: () => false, platform: 'win32', log: () => {}, keystore, signer, ...extra,
     });
     return { ...a, autolinking, real, drives, calls, run, keystore };
   }
@@ -214,6 +227,82 @@ describe('buildLabApk', () => {
   it('refuses an APK signed by any other certificate than the shared debug key', async () => {
     await expect(rig({ apkCert: { dn: 'CN=Kokonada Health, O=Kokonada', sha256: 'b'.repeat(64) } }).run()).rejects.toThrow(/not the debug key/);
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
+  });
+
+  // The dry run on a 14 GB machine needed Gradle's workers and the native build's ninja jobs capped (28m51s through an
+  // outside driver). The route now takes both caps itself; without them every call is exactly as before.
+  describe('the caps on Gradle workers and native build jobs', () => {
+    it('adds --max-workers to every Gradle call', async () => {
+      const r = rig();
+      await r.run(cleanGit, { limits: { maxWorkers: 2 } });
+      expect(r.calls.map((c) => c.args.slice(-1))).toEqual([['--max-workers=2'], ['--max-workers=2']]);
+      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+    });
+
+    it('caps the ninja job pools of every CMake module through an init script, which it removes after the build', async () => {
+      const r = rig();
+      await r.run(cleanGit, { limits: { maxWorkers: 2, nativeJobs: { compile: 3, link: 1 } } });
+      for (const call of r.calls) {
+        const i = call.args.indexOf('-I');
+        expect(i).toBeGreaterThan(-1);
+        expect(call.init).toBe(nativeJobPoolsInitScript({ compile: 3, link: 1 }));
+      }
+      const script = r.calls[1].args[r.calls[1].args.indexOf('-I') + 1];
+      expect(fs.existsSync(script)).toBe(false);
+    });
+
+    it('removes the init script when Gradle fails too', async () => {
+      const r = rig({ gradleFails: true });
+      await expect(r.run(cleanGit, { limits: { nativeJobs: { compile: 2, link: 1 } } })).rejects.toThrow(/assembleLab failed/);
+      const script = r.calls[1].args[r.calls[1].args.indexOf('-I') + 1];
+      expect(fs.existsSync(script)).toBe(false);
+    });
+
+    it('the init script sets the job pools on the CMake arguments of every Android module', () => {
+      const text = nativeJobPoolsInitScript({ compile: 3, link: 1 });
+      expect(text).toContain("'-DCMAKE_JOB_POOLS=kk_compile=3;kk_link=1'");
+      expect(text).toContain("'-DCMAKE_JOB_POOL_COMPILE=kk_compile'");
+      expect(text).toContain("'-DCMAKE_JOB_POOL_LINK=kk_link'");
+      expect(text).toContain("['com.android.library', 'com.android.application']");
+      expect(text).toContain('externalNativeBuild.cmake.arguments(*kkArgs)');
+    });
+
+    it.each([
+      ['no workers', { maxWorkers: 0 }, /maxWorkers must be an integer from 1 to 64/],
+      ['a fraction of a worker', { maxWorkers: 1.5 }, /maxWorkers must be an integer from 1 to 64/],
+      ['no compile jobs', { nativeJobs: { compile: 0, link: 1 } }, /nativeJobs must be \{ compile, link \}, integers from 1 to 64/],
+      ['no link count', { nativeJobs: { compile: 3 } }, /nativeJobs must be/],
+      ['a key it does not know', { maxWorkers: 2, ninja: 3 }, /ninja is not a build limit/],
+    ])('refuses %s before any drive or Gradle', async (_label, limits, why) => {
+      const r = rig();
+      await expect(r.run(cleanGit, { limits })).rejects.toThrow(why);
+      await expect(r.run(cleanGit, { limits })).rejects.toBeInstanceOf(Refused);
+      expect(r.calls).toEqual([]);
+      expect(r.drives.size).toBe(0);
+    });
+
+    it('refuses a temporary folder the Windows command line would split (a space in its path)', async () => {
+      const r = rig();
+      const spaced = fs.mkdtempSync(path.join(os.tmpdir(), 'lab tmp '));
+      await expect(r.run(cleanGit, { limits: { nativeJobs: { compile: 3, link: 1 } }, tmpDir: spaced })).rejects.toThrow(/init script path .* space/);
+      expect(r.calls).toEqual([]);
+    });
+  });
+});
+
+describe('the command line of buildLabApk', () => {
+  it('takes no option to mean no cap (the old behaviour), and reads both caps', () => {
+    expect(parseBuildArgs([])).toEqual({});
+    expect(parseBuildArgs(['--max-workers', '2', '--native-jobs', '3:1'])).toEqual({ maxWorkers: 2, nativeJobs: { compile: 3, link: 1 } });
+  });
+
+  it.each([
+    [['--max-workers'], /--max-workers needs a number/],
+    [['--max-workers', 'two'], /--max-workers needs a number/],
+    [['--native-jobs', '3'], /--native-jobs needs <compile>:<link>/],
+    [['--jobs', '3'], /unknown argument: --jobs/],
+  ])('refuses %j', (argv, why) => {
+    expect(() => parseBuildArgs(argv)).toThrow(why);
   });
 });
 

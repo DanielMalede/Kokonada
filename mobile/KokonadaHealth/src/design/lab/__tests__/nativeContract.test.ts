@@ -2,6 +2,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { LAB_EVENTS, LAB_PROPS } from '../LabRoot';
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // MB-085. The lab activity (Kotlin) and the lab runtime (JS) meet at a handful of names: the launch
 // options the activity passes as initial props, and the device events it sends. A rename on one side

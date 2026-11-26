@@ -98,9 +98,29 @@ export function parseWmDensity(text) {
   return Number(m[1]);
 }
 
+// The display's render rate, by the first source that prints one, in this order: the active mode's renderFrameRate
+// (AOSP), DisplayManager's mActiveRenderFrameRate, the active mode's peakRefreshRate (the S22+ on Android 16 prints these
+// two and no renderFrameRate in its mode), then the older renderFrameRate=, mRefreshRate= and refreshRate= keys. Each
+// key is a whole word, so peakRefreshRate= is never read as refreshRate=. A source that prints two different rates is a
+// null, never a guess.
+const RATE_NUMBER = '(\\d+(?:\\.\\d+)?)(?=[,}\\s]|$)';
+const RATE_SOURCES = [
+  (text) => distinct(text, ACTIVE_MODE).map((body) => RATES.renderFrameRate.exec(body)?.[1]),
+  (text) => distinct(text, new RegExp(`\\bmActiveRenderFrameRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, ACTIVE_MODE).map((body) => RATES.peakRefreshRate.exec(body)?.[1]),
+  (text) => distinct(text, new RegExp(`(?:^|[\\s,{])renderFrameRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, new RegExp(`\\bmRefreshRate=${RATE_NUMBER}`)),
+  (text) => distinct(text, new RegExp(`(?:^|[\\s,{])refreshRate=${RATE_NUMBER}`)),
+];
+
+/** The display's render rate in Hz from dumpsys display, or null when no source prints one, or one prints two. */
 export function parseRefreshRate(text) {
-  const m = /renderFrameRate=([\d.]+)/.exec(text) ?? /mRefreshRate=([\d.]+)/.exec(text) ?? /refreshRate=([\d.]+)/.exec(text);
-  return m ? Number(m[1]) : null;
+  for (const source of RATE_SOURCES) {
+    const rates = [...new Set(source(text).filter((v) => v !== undefined).map(Number))];
+    if (rates.length === 1) return rates[0];
+    if (rates.length > 1) return null;
+  }
+  return null;
 }
 
 const BAR_TYPES = new Set(['statusBars', 'navigationBars', 'captionBar', 'ITYPE_STATUS_BAR', 'ITYPE_NAVIGATION_BAR', 'ITYPE_CAPTION_BAR']);
@@ -126,6 +146,119 @@ export function parseGfxFrames(text) {
   const m = /Total frames rendered: (\d+)/.exec(text);
   if (!m) throw new Error(`cannot read the frames gfxinfo rendered from: ${text.trim().slice(0, 200)}`);
   return Number(m[1]);
+}
+
+/**
+ * The jank summary gfxinfo prints (framestats, informational): { frames, janky, jankPercent, reason }. All three null
+ * with a reason when the summary is absent or does not hold together; never a guess.
+ */
+export function parseJank(text) {
+  const none = (reason) => ({ frames: null, janky: null, jankPercent: null, reason });
+  const total = /Total frames rendered: (\d+)/.exec(text);
+  if (!total) return none('no "Total frames rendered" line in gfxinfo');
+  const jank = /Janky frames: (\d+) \((\d+(?:\.\d+)?)%\)/.exec(text);
+  if (!jank) return none('no "Janky frames" line in gfxinfo');
+  const frames = Number(total[1]);
+  const janky = Number(jank[1]);
+  const jankPercent = Number(jank[2]);
+  if (janky > frames) return none(`more janky frames than frames (${janky} of ${frames})`);
+  const expected = frames === 0 ? 0 : (100 * janky) / frames;
+  if (Math.abs(expected - jankPercent) > 0.01) return none(`the janky percentage ${jankPercent}% does not match ${janky} of ${frames} frames`);
+  return { frames, janky, jankPercent, reason: null };
+}
+
+// ---- the GPU and the display's colour facts (B8-5a, F5) ------------------------------------------
+// Read from adb, never from the app (no Kotlin change). Each parser reads lines SurfaceFlinger and DisplayManager print
+// in AOSP and fails closed: an absent line, a line printed twice with different values (two displays) or a line it
+// cannot split is null with a reason. Their reading on the emulator and the S22+ is the device session's first check.
+
+/** The distinct values of a line pattern's first group, trimmed. */
+const distinct = (text, pattern) => [...new Set(String(text).split(/\r?\n/).map((l) => pattern.exec(l)?.[1]?.trim()).filter((v) => v !== undefined))];
+
+const GLES_LINE = /^\s*GLES: (.*)$/;
+const GLES_VERSION = ', OpenGL ES ';
+
+/** `GLES: <vendor>, <renderer>, <version>` in dumpsys SurfaceFlinger: { renderer, gles, reason }. */
+export function parseGles(text) {
+  const none = (reason) => ({ renderer: null, gles: null, reason });
+  const lines = distinct(text, GLES_LINE);
+  if (lines.length === 0) return none('no GLES line in dumpsys SurfaceFlinger (a Vulkan RenderEngine prints none)');
+  if (lines.length > 1) return none(`${lines.length} different GLES lines in dumpsys SurfaceFlinger`);
+  const line = lines[0];
+  const parts = line.split(GLES_VERSION);
+  const renderer = (parts[0] ?? '').trim();
+  if (parts.length !== 2 || renderer === '' || parts[1].trim() === '') return none(`cannot split the GLES line into its renderer and its version: ${line.slice(0, 160)}`);
+  return { renderer, gles: `OpenGL ES ${parts[1].trim()}`, reason: null };
+}
+
+const COLOR_MODE_LINE = /^\s*Current color mode: (.+)$/;
+// AOSP's spelling, and the S22+'s on Android 16 (`Device supports wide color: 1`): both read, and they must agree.
+const WIDE_COLOR_LINE = /^\s*Device (?:has wide color built-in display|supports wide color): ([01])\s*$/;
+
+/** The current colour mode as SurfaceFlinger prints it, and whether the built-in display is wide colour. */
+export function parseDisplayColour(text) {
+  const reasons = [];
+  const modes = distinct(text, COLOR_MODE_LINE);
+  let colorMode = null;
+  if (modes.length === 1) colorMode = modes[0];
+  else reasons.push(modes.length === 0 ? 'no "Current color mode" line in dumpsys SurfaceFlinger' : `${modes.length} different "Current color mode" lines in dumpsys SurfaceFlinger (one per display)`);
+  const wide = distinct(text, WIDE_COLOR_LINE);
+  let wideColor = null;
+  if (wide.length === 1) wideColor = wide[0] === '1';
+  else reasons.push(wide.length === 0 ? 'no "Device supports wide color" or "Device has wide color built-in display" line in dumpsys SurfaceFlinger' : `${wide.length} different wide-colour lines in dumpsys SurfaceFlinger`);
+  return { colorMode, wideColor, reason: reasons.length ? reasons.join('; ') : null };
+}
+
+const ACTIVE_MODE = /mActiveSfDisplayMode=DisplayMode\{([^}]*)\}/;
+const RATES = {
+  renderFrameRate: /(?:^|[\s,{])renderFrameRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+  peakRefreshRate: /(?:^|[\s,{])peakRefreshRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+  vsyncRate: /(?:^|[\s,{])vsyncRate=(\d+(?:\.\d+)?)(?=[,}\s]|$)/,
+};
+
+/**
+ * The active display mode's render and vsync rates in dumpsys display: { refreshMode, reason }. The render rate is the
+ * mode's renderFrameRate, or its peakRefreshRate when it prints none (the S22+ on Android 16), and the fact names the key
+ * it was read from: `renderFrameRate 120 Hz, vsyncRate 120 Hz` or `peakRefreshRate 120.00001 Hz, vsyncRate 120.00001 Hz`.
+ */
+export function parseRefreshMode(text) {
+  const { mode, reason } = readDisplayMode(text);
+  return { refreshMode: mode, reason };
+}
+
+/**
+ * RA-52: the same reading as a fact a rate proof records: { refreshHz, mode, key, reason } — the active mode's render rate
+ * as a number, its mode string, and the key the rate was read from; all null with a reason when it cannot be read.
+ */
+export function readDisplayMode(text) {
+  const modes = distinct(text, ACTIVE_MODE).map((body) => {
+    const vsync = RATES.vsyncRate.exec(body);
+    const key = RATES.renderFrameRate.test(body) ? 'renderFrameRate' : 'peakRefreshRate';
+    const render = RATES[key].exec(body);
+    return render && vsync ? { refreshHz: Number(render[1]), mode: `${key} ${Number(render[1])} Hz, vsyncRate ${Number(vsync[1])} Hz`, key } : null;
+  }).filter((m) => m !== null);
+  const unique = [...new Map(modes.map((m) => [m.mode, m])).values()];
+  const none = (reason) => ({ refreshHz: null, mode: null, key: null, reason });
+  if (unique.length === 0) return none('no mActiveSfDisplayMode with renderFrameRate or peakRefreshRate, and vsyncRate, in dumpsys display');
+  if (unique.length > 1) return none(`${unique.length} different active display modes in dumpsys display`);
+  return { ...unique[0], reason: null };
+}
+
+/** The GPU and the display facts a manifest row records, read once for the run. A dumpsys that fails is its reason. */
+export async function readRenderFacts(adb) {
+  const dump = async (what) => {
+    try { return { text: await adb.shell(['dumpsys', what]), reason: null }; } catch (e) { return { text: null, reason: `dumpsys ${what}: ${e.message}` }; }
+  };
+  const sf = await dump('SurfaceFlinger');
+  const display = await dump('display');
+  const gl = sf.text === null ? { renderer: null, gles: null, reason: sf.reason } : parseGles(sf.text);
+  const colour = sf.text === null ? { colorMode: null, wideColor: null, reason: sf.reason } : parseDisplayColour(sf.text);
+  const refresh = display.text === null ? { refreshMode: null, reason: display.reason } : parseRefreshMode(display.text);
+  const reasons = [colour.reason, refresh.reason].filter((r) => r !== null);
+  return {
+    gl,
+    display: { colorMode: colour.colorMode, wideColor: colour.wideColor, refreshMode: refresh.refreshMode, reason: reasons.length ? reasons.join('; ') : null },
+  };
 }
 
 const prop = async (adb, name) => (await adb.shell(['getprop', name])).trim();

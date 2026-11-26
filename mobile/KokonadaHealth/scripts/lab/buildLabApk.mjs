@@ -1,6 +1,7 @@
 // Builds the Design Lab APK (OPS-100; V1 plan F-2, the Windows route).
 //
-//   node scripts/lab/buildLabApk.mjs       (after node scripts/lab/bundleLab.mjs)
+//   node scripts/lab/buildLabApk.mjs [--max-workers N] [--native-jobs C:L]   (after node scripts/lab/bundleLab.mjs)
+//   e.g. --max-workers 2 --native-jobs 3:1 on a 14 GB machine; without them Gradle and ninja run uncapped, as before.
 //
 // It refuses unless the stamp chain holds (HEAD and an empty porcelain are what bundleLab stamped,
 // and the bundle on disk is the stamped one). Then:
@@ -21,6 +22,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { Refused, verifyStampChain } from './lib/stamp.mjs';
@@ -42,6 +44,60 @@ export function pickDriveLetter({ inUse, exists, preferred = DEFAULT_DRIVES }) {
   throw new Error('no free drive letter for subst');
 }
 
+// ---- the caps (the B8 dry run: a 14 GB machine) ---------------------------------------------
+// `--max-workers N` caps Gradle's workers; `--native-jobs C:L` caps ninja's compile and link jobs in every Android module
+// with a CMake build, through an init script the build writes to a temporary folder and always removes. Without either,
+// every Gradle call is exactly what it was.
+
+const LIMIT_KEYS = ['maxWorkers', 'nativeJobs'];
+const capIn = (v) => Number.isInteger(v) && v >= 1 && v <= 64;
+
+/** Every problem with the build limits, as sentences. */
+function limitProblems(limits) {
+  if (limits === null || typeof limits !== 'object' || Array.isArray(limits)) return ['the build limits must be an object'];
+  const problems = Object.keys(limits).filter((k) => !LIMIT_KEYS.includes(k)).map((k) => `${k} is not a build limit`);
+  if (limits.maxWorkers !== undefined && !capIn(limits.maxWorkers)) problems.push('maxWorkers must be an integer from 1 to 64');
+  const n = limits.nativeJobs;
+  if (n !== undefined && !(n !== null && typeof n === 'object' && capIn(n.compile) && capIn(n.link) && Object.keys(n).length === 2)) {
+    problems.push('nativeJobs must be { compile, link }, integers from 1 to 64');
+  }
+  return problems;
+}
+
+/** The Gradle init script that sets ninja's job pools on the CMake arguments of every Android module. */
+export function nativeJobPoolsInitScript({ compile, link }) {
+  return [
+    '// Written by scripts/lab/buildLabApk.mjs --native-jobs, and removed after the build: caps ninja in every Android module with a CMake build.',
+    `def kkArgs = ['-DCMAKE_JOB_POOLS=kk_compile=${compile};kk_link=${link}', '-DCMAKE_JOB_POOL_COMPILE=kk_compile', '-DCMAKE_JOB_POOL_LINK=kk_link']`,
+    'allprojects { p ->',
+    "  ['com.android.library', 'com.android.application'].each { id ->",
+    '    p.plugins.withId(id) {',
+    "      p.extensions.getByName('android').defaultConfig.externalNativeBuild.cmake.arguments(*kkArgs)",
+    '    }',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+}
+
+/** The CLI's options: `--max-workers N` and `--native-jobs <compile>:<link>`; none means no cap. Throws Refused. */
+export function parseBuildArgs(argv) {
+  const limits = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--max-workers') {
+      const v = argv[++i];
+      if (!/^\d+$/.test(v ?? '')) throw new Refused('--max-workers needs a number');
+      limits.maxWorkers = Number(v);
+    } else if (a === '--native-jobs') {
+      const m = /^(\d+):(\d+)$/.exec(argv[++i] ?? '');
+      if (!m) throw new Refused('--native-jobs needs <compile>:<link>, e.g. 3:1');
+      limits.nativeJobs = { compile: Number(m[1]), link: Number(m[2]) };
+    } else throw new Refused(`unknown argument: ${a}`);
+  }
+  return limits;
+}
+
 /** Rewrites every absolute path under `from` to `to` in an autolinking.json, which stays valid JSON. */
 export function relinkAutolinking(text, from, to) {
   const escaped = (s) => JSON.stringify(s).slice(1, -1);
@@ -61,7 +117,11 @@ export function relinkAutolinking(text, from, to) {
  *           signer: { apkCertificate(apk: string): { dn: string, sha256: string },
  *                     keystoreCertificate(keystore: string): { sha256: string } } }} options
  */
-export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exists, platform = process.platform, log = () => {}, keystore, signer }) {
+export async function buildLabApk({
+  repoRoot, appRoot, git, gradle, subst, exists, platform = process.platform, log = () => {}, keystore, signer, limits = {}, tmpDir = os.tmpdir(),
+}) {
+  const limitErrors = limitProblems(limits);
+  if (limitErrors.length) throw new Refused(`the build limits are not valid:\n  ${limitErrors.join('\n  ')}`);
   const repo = path.resolve(repoRoot);
   const app = path.resolve(appRoot);
   const stampFile = path.join(app, LAB_ASSETS, 'lab-stamp.json');
@@ -76,11 +136,35 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
     throw new Refused(`the shared debug keystore is missing (${keystore}): every worktree signs the lab with that one key, so adb install -r keeps working`);
   }
 
+  // The caps go on every Gradle call. On Windows the wrapper's command line is passed verbatim (gradleSpawn), so the
+  // init script's path must be one word.
+  let initDir = null;
+  const capArgs = [];
+  if (limits.nativeJobs) {
+    const probe = path.join(tmpDir, 'lab-gradle-XXXXXX', 'native-jobs.init.gradle');
+    if (/[\s"]/.test(probe)) throw new Refused(`the init script path ${probe} has a space or a quote: the Windows command line would split it`);
+  }
+  if (limits.maxWorkers !== undefined) capArgs.push(`--max-workers=${limits.maxWorkers}`);
+  if (limits.nativeJobs) {
+    initDir = fs.mkdtempSync(path.join(tmpDir, 'lab-gradle-'));
+    const script = path.join(initDir, 'native-jobs.init.gradle');
+    fs.writeFileSync(script, nativeJobPoolsInitScript(limits.nativeJobs));
+    capArgs.push('-I', script);
+    log(`capping ninja at ${limits.nativeJobs.compile} compile and ${limits.nativeJobs.link} link jobs (${script})`);
+  }
+  try {
+    return await buildCapped({ repo, app, head, stamp, git, gradle, subst, exists, platform, log, keystore, signer, capArgs });
+  } finally {
+    if (initDir) fs.rmSync(initDir, { recursive: true, force: true });
+  }
+}
+
+async function buildCapped({ repo, app, head, stamp, git, gradle, subst, exists, platform, log, keystore, signer, capArgs }) {
   const androidDir = path.join(app, 'android');
   const autolinking = path.join(app, AUTOLINKING);
   log('regenerating autolinking.json from the real path');
   fs.rmSync(autolinking, { force: true });
-  gradle({ cwd: androidDir, args: ['help', '--console=plain', '-q'] });
+  gradle({ cwd: androidDir, args: ['help', '--console=plain', '-q', ...capArgs] });
   if (!fs.existsSync(autolinking)) throw new Error('Gradle did not write autolinking.json');
   const original = fs.readFileSync(autolinking);
 
@@ -102,7 +186,7 @@ export async function buildLabApk({ repoRoot, appRoot, git, gradle, subst, exist
     // The shared keystore reaches build.gradle as the project property kokonadaDebugKeystore.
     gradle({
       cwd,
-      args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain'],
+      args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain', ...capArgs],
       env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore },
     });
   } finally {
@@ -227,8 +311,9 @@ if (process.argv[1] && /buildLabApk\.mjs$/.test(process.argv[1])) {
   const appRoot = path.resolve(path.dirname(process.argv[1]), '../..');
   Promise.resolve()
     .then(() => {
+      const limits = parseBuildArgs(process.argv.slice(2));
       const tools = realTools(appRoot);
-      return buildLabApk({ ...tools, appRoot, log: (m) => console.log(m) });
+      return buildLabApk({ ...tools, appRoot, limits, log: (m) => console.log(m) });
     })
     .then(({ apk, apkSha256, signer }) => console.log(`built ${apk}\nsha256 ${apkSha256}\nsigned by ${signer.dn} (certificate sha256 ${signer.sha256})`))
     .catch((e) => {

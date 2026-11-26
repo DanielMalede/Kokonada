@@ -895,8 +895,6 @@ function main(argv, cwd) {
   return fn(cwd, flags);
 }
 
-// VALUE_FLAGS and BOOL_FLAGS: the merge-guard trigger reads coord.js's arguments the same way, and
-// its tests compare its list with these.
 module.exports = { main, parseArgs, Exit, redact, VALUE_FLAGS, BOOL_FLAGS };
 
 if (require.main === module) {

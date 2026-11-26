@@ -3,11 +3,12 @@ import ReactTestRenderer from 'react-test-renderer';
 import * as RN from 'react-native';
 
 // Mock the link-back ACTIONS so the component's DEFAULT deps don't pull the native playback graph,
-// and so the open-in-app / open-web-page actions are observable. The URI parser is pure and stays
-// real: whether a control is drawn is decided by the same gate the actions use.
+// and so the open-in-app / open-store-listing / open-web-page actions are observable. The URI parser
+// is pure and stays real: whether a control is drawn is decided by the same gate the actions use.
 jest.mock('../spotifyLinkBack', () => ({
   isSpotifyInstalled: jest.fn().mockResolvedValue(false),
   foregroundSpotify: jest.fn().mockResolvedValue(undefined),
+  openSpotifyStoreListing: jest.fn().mockResolvedValue(undefined),
   openSpotifyWebPage: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -16,6 +17,7 @@ import * as linkBack from '../spotifyLinkBack';
 
 const installedMock = linkBack.isSpotifyInstalled as jest.Mock;
 const foregroundMock = linkBack.foregroundSpotify as jest.Mock;
+const storeMock = linkBack.openSpotifyStoreListing as jest.Mock;
 const webPageMock = linkBack.openSpotifyWebPage as jest.Mock;
 
 const TRACK_URI = 'spotify:track:11dFghVXANMlKmJXsNCbNl';
@@ -43,6 +45,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   installedMock.mockResolvedValue(false);
   foregroundMock.mockResolvedValue(undefined);
+  storeMock.mockResolvedValue(undefined);
   webPageMock.mockResolvedValue(undefined);
 });
 afterEach(() => jest.restoreAllMocks());
@@ -143,14 +146,20 @@ describe('SpotifyAttribution — C2 link-back action opens the exact item', () =
     const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} />);
     await ReactTestRenderer.act(async () => { byId(tree, 'spotify-attribution-linkback').props.onPress(); });
     expect(foregroundMock.mock.calls).toEqual([[TRACK_URI]]);
+    expect(storeMock).not.toHaveBeenCalled();
     expect(webPageMock).not.toHaveBeenCalled();
   });
 
-  it('not installed: pressing opens the same item\'s web page (contentUri), never a store or download page', async () => {
+  // DEC-193 (supersedes DEC-112) reverses the pin that stood here, "not installed: pressing opens the
+  // same item's web page (contentUri), never a store or download page": Spotify's guidelines send GET
+  // SPOTIFY FREE to the app store. The item's own page is now the link of the title and the cover on
+  // Now Playing.
+  it('not installed: pressing opens Spotify\'s app-store listing (DEC-193), never the item\'s web page', async () => {
     installedMock.mockResolvedValue(false);
     const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} />);
     await ReactTestRenderer.act(async () => { byId(tree, 'spotify-attribution-linkback').props.onPress(); });
-    expect(webPageMock.mock.calls).toEqual([[TRACK_URI]]);
+    expect(storeMock.mock.calls).toEqual([[TRACK_URI]]);
+    expect(webPageMock).not.toHaveBeenCalled();
     expect(foregroundMock).not.toHaveBeenCalled();
   });
 
@@ -188,6 +197,7 @@ describe('SpotifyAttribution — reusable (injected deps override the default wi
     const tree = await render(<SpotifyAttribution contentUri={TRACK_URI} isSpotifyInstalled={async () => false} onGetSpotify={onGet} />);
     await ReactTestRenderer.act(async () => { byId(tree, 'spotify-attribution-linkback').props.onPress(); });
     expect(onGet.mock.calls).toEqual([[TRACK_URI]]);
+    expect(storeMock).not.toHaveBeenCalled();
     expect(webPageMock).not.toHaveBeenCalled();
   });
 });

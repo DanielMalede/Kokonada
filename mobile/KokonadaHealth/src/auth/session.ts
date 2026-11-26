@@ -1,5 +1,5 @@
 import * as Keychain from 'react-native-keychain';
-import { AuthSession, type TokenPair } from './authSession';
+import { AuthSession, type RefreshOutcome, type TokenPair } from './authSession';
 import { BACKEND_URL } from '../health/config';
 
 // The single authoritative token plane for the whole app. Both the socket client
@@ -10,28 +10,87 @@ import { BACKEND_URL } from '../health/config';
 
 const SESSION_SERVICE = 'com.kokonadahealth.session';
 
+// SA309-2: react-native-keychain 10 runs setGenericPassword in a coroutine on Dispatchers.Default under
+// a mutex and resetGenericPassword at once, without it (android KeychainModule.kt), so a reset issued
+// after a save could complete before that save's write. Every Keychain call here runs on ONE chain, in
+// the order it was issued: a sign-out after a rotation leaves nothing on disk, and a sign-in after that
+// leaves its own pair. A failed call never blocks the next.
+let keychainQueue: Promise<unknown> = Promise.resolve();
+function inIssueOrder<T>(op: () => Promise<T>): Promise<T> {
+  const run = keychainQueue.then(op, op);
+  keychainQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
+// RA-7: RN's fetch has no deadline (RN 0.86's Android OkHttp client is built with 0 ms timeouts) and
+// AbortSignal.timeout is not on Hermes, so a refresh the network never answered held the single flight
+// for good. It is aborted after REFRESH_TIMEOUT_MS, and settles then even if the fetch ignores the abort.
+const REFRESH_TIMEOUT_MS = 15_000;
+
+async function fetchWithDeadline(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Error('refresh timed out')); }, ms);
+  });
+  try {
+    return await Promise.race([fetch(url, { ...init, signal: controller.signal }), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// RA-2: how long a 429 from the authLimiter asks the phone to wait. express-rate-limit 8 with
+// standardHeaders (draft-6) sends RateLimit-Reset, and on a 429 Retry-After, both in seconds
+// (backend/app/middleware/rateLimiter.js); Retry-After may also be an HTTP date. Undefined when the
+// answer names no usable wait.
+function serverWaitMs(res: Response): number | undefined {
+  const headers = (res as { headers?: { get?: (name: string) => string | null } }).headers;
+  const read = (name: string): string => (typeof headers?.get === 'function' ? (headers.get(name) ?? '').trim() : '');
+  const retryAfter = read('Retry-After');
+  if (/^\d+$/.test(retryAfter)) return Number(retryAfter) * 1000;
+  if (retryAfter) {
+    const at = Date.parse(retryAfter);
+    if (!Number.isNaN(at)) return Math.max(0, at - Date.now());
+  }
+  const reset = read('RateLimit-Reset');
+  if (/^\d+$/.test(reset)) return Number(reset) * 1000;
+  return undefined;
+}
+
 export const keychainSession = {
-  loadTokens: async (): Promise<TokenPair | null> => {
+  loadTokens: (): Promise<TokenPair | null> => inIssueOrder(async () => {
     const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
     if (!creds || !creds.password) return null;
     try { return JSON.parse(creds.password) as TokenPair; } catch { return null; }
-  },
-  saveTokens: async (t: TokenPair) => {
+  }),
+  saveTokens: (t: TokenPair): Promise<void> => inIssueOrder(async () => {
     await Keychain.setGenericPassword('session', JSON.stringify(t), { service: SESSION_SERVICE });
-  },
-  clearTokens: async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); },
-  refreshEndpoint: async (refreshToken: string): Promise<TokenPair | null> => {
+  }),
+  clearTokens: (): Promise<void> => inIssueOrder(async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); }),
+  // C1: only the server's dead-family answer (401, authController.js `refresh`) is `dead`. A thrown
+  // fetch (offline, timed out, aborted), a 5xx, a 429 from the auth limiter, any other status or an
+  // unreadable 200 is `unavailable`: no verdict on the family, so the session must survive it.
+  refreshEndpoint: async (refreshToken: string): Promise<RefreshOutcome> => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/refresh`, {
+      const res = await fetchWithDeadline(`${BACKEND_URL}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) return null;
+      }, REFRESH_TIMEOUT_MS);
+      if (res.status === 401) return { kind: 'dead' };
+      if (res.status === 429) {
+        const retryAfterMs = serverWaitMs(res);
+        return retryAfterMs === undefined ? { kind: 'unavailable' } : { kind: 'unavailable', retryAfterMs };
+      }
+      if (!res.ok) return { kind: 'unavailable' };
       const { token, refreshToken: nextRefresh } = await res.json();
-      return { access: token, refresh: nextRefresh };
+      if (typeof token !== 'string' || !token || typeof nextRefresh !== 'string' || !nextRefresh) {
+        return { kind: 'unavailable' };
+      }
+      return { kind: 'ok', tokens: { access: token, refresh: nextRefresh } };
     } catch {
-      return null;
+      return { kind: 'unavailable' };
     }
   },
 };
