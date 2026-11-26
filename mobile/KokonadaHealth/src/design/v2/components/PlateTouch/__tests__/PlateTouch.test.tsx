@@ -7,7 +7,7 @@ import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { plateGeometry, pointToLocal, wheelLayout, type PlatePoint } from '../../Plate/geometry.ts';
 import type { PlateEntryHandle } from '../PlateEntry.tsx';
 import { PlateTouch, type PlateTouchProps } from '../PlateTouch.tsx';
-import { HAPTIC_GAP, touchSurface } from '../plateTouchModel.ts';
+import { HAPTIC_GAP, HIT_EDGE, touchSurface } from '../plateTouchModel.ts';
 
 // PlateTouch, the plate's gesture surface (F10 group A). It owns every input the plate takes: a tap or a drag
 // to place, a tap on the latest bead to remove it, and the latest bead's TalkBack Remove action (the plate's own TalkBack
@@ -26,7 +26,8 @@ afterAll(() => jest.useRealTimers());
 const TOKENS = { base: BASE, direction: DIRECTIONS.abyss };
 const PLATE = plateGeometry(TOKENS, 296, 1);
 const SURFACE = touchSurface(TOKENS, PLATE);
-const M = SURFACE.margin;
+/** How far the surface's view reaches past the plate box: the reach's margin and HIT_EDGE. */
+const M = SURFACE.outset;
 const R = PLATE.radius;
 const MAPPED: PlatePoint = { x: 0.123, y: -0.456 };
 
@@ -108,10 +109,11 @@ describe('PlateTouch: its element IDs (F2)', () => {
 });
 
 describe('PlateTouch: the surface', () => {
-  it('is the plate grown by the margin, centred on the plate box, LTR, and paints nothing', () => {
+  it('is the plate grown by its outset (the margin and HIT_EDGE), centred on the plate box, LTR, and paints nothing', () => {
     const { tree } = mount();
     const style = flat(node(tree, 'hero.plate.touch').props.style);
-    expect(style).toMatchObject({ position: 'absolute', left: -M, top: -M, width: SURFACE.size, height: SURFACE.size, direction: 'ltr' });
+    expect(style).toMatchObject({ position: 'absolute', left: -M, top: -M, width: SURFACE.side, height: SURFACE.side, direction: 'ltr' });
+    expect(M).toBe(SURFACE.margin + HIT_EDGE);
     for (const n of tree.root.findAll((x) => typeof x.type === 'string')) {
       const st = flat(n.props.style);
       for (const key of ['backgroundColor', 'borderColor', 'borderWidth', 'color', 'boxShadow', 'elevation']) expect(st[key]).toBeUndefined();
@@ -191,6 +193,56 @@ describe('PlateTouch: tap and drag to place', () => {
     touch(tree, { x: 1, y: 1 });
     expect(calls.onPlace).not.toHaveBeenCalled();
     expect(calls.fire).not.toHaveBeenCalled();
+  });
+});
+
+// F10 G8 round 2 (reach/): at exactly R + 16 dp the taps at 12 and 9 o'clock placed, at 3 and 6 o'clock nothing. A
+// view's hit rectangle on Android is half-open (View.pointInView: x >= 0 && x < width), and Yoga puts each absolute edge
+// on the pixel grid, so a surface whose right edge is exactly the reach turns a tap at the reach away before the model
+// sees it. Here the surface's rendered box is laid on the screen as Android lays it, at the densities Android ships and
+// at the round-2 device's geometry, and each tap goes through the surface's own handlers only if Android would hand it
+// to the surface; the model then decides. At exactly 16 dp past R every o'clock places; at 17 dp none does.
+describe('PlateTouch: the reach at the surface’s edges, as Android hit-tests the rendered box', () => {
+  /** [density, the plate box's left and top on the screen in dp] */
+  const screens: Array<[number, number, number]> = [
+    [2.625, 105 / 2.625, 865 / 2.625],
+    [1, 40, 120],
+    [1.5, 40.3, 120.7],
+    [2, 37.25, 101.75],
+    [2.625, 41.19, 99.81],
+    [3, 40.1, 130.9],
+    [3.5, 39.6, 111.4],
+    [4, 40.125, 100.375],
+  ];
+  const CLOCK: Array<[string, number, number]> = [
+    ['12', 0, -1],
+    ['3', 1, 0],
+    ['6', 0, 1],
+    ['9', -1, 0],
+  ];
+  it.each(screens)('density %p, the plate at (%p, %p) dp: 16 dp past R places at every o’clock, 17 dp at none', (density, plateLeft, plateTop) => {
+    const { tree, calls } = mount();
+    const box = flat(node(tree, 'hero.plate.touch').props.style);
+    // Yoga's pixel grid: each absolute edge rounded to a whole physical pixel.
+    const edge = (dp: number) => Math.round(dp * density);
+    const left = edge(plateLeft + box.left);
+    const top = edge(plateTop + box.top);
+    const right = edge(plateLeft + box.left + box.width);
+    const bottom = edge(plateTop + box.top + box.height);
+    const results: Record<string, boolean> = {};
+    for (const past of [SURFACE.margin, SURFACE.margin + 1]) {
+      for (const [clock, ux, uy] of CLOCK) {
+        calls.onPlace.mockClear();
+        // The tap in physical px, as the screen reports it.
+        const px = (plateLeft + R + ux * (R + past)) * density;
+        const py = (plateTop + R + uy * (R + past)) * density;
+        const inside = px >= left && px < right && py >= top && py < bottom;
+        if (inside) touch(tree, { x: (px - left) / density, y: (py - top) / density });
+        results[`${clock}h ${past === SURFACE.margin ? 16 : 17}dp`] = calls.onPlace.mock.calls.length === 1;
+      }
+    }
+    expect(SURFACE.margin).toBe(16);
+    expect(results).toEqual({ '12h 16dp': true, '3h 16dp': true, '6h 16dp': true, '9h 16dp': true, '12h 17dp': false, '3h 17dp': false, '6h 17dp': false, '9h 17dp': false });
   });
 });
 

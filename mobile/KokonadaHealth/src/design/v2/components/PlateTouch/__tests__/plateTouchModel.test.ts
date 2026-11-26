@@ -1,6 +1,6 @@
 import { BASE, DIRECTIONS } from '../../../tokens/tokens.generated.ts';
 import { plateGeometry, pointToLocal } from '../../Plate/geometry.ts';
-import { HAPTIC_GAP, hapticAllowed, hapticFor, touchIntent, touchSurface } from '../plateTouchModel.ts';
+import { HAPTIC_GAP, HIT_EDGE, hapticAllowed, hapticFor, REACH_SLACK, touchIntent, touchSurface } from '../plateTouchModel.ts';
 
 // PlateTouch's pure model: the touch surface's size, what a touch means, and which haptic it earns and when.
 // Everything is in the plate box's dp (x right, y down), the coordinate space of the plate's shared geometry
@@ -16,8 +16,16 @@ describe('touchSurface: the plate grown until the latest bead’s target fits in
     expect(SURFACE.hit).toBe(BASE.bead.hitTarget);
     expect(SURFACE.hit).toBeGreaterThanOrEqual(BASE.target.min);
     expect(SURFACE.margin).toBe(BASE.bead.hitTarget / 2 - PLATE.beadRadius);
-    expect(SURFACE.size).toBe(PLATE.diameter + 2 * SURFACE.margin);
     expect(SURFACE.reach).toBe(R + SURFACE.margin);
+  });
+
+  it('its view reaches HIT_EDGE past the reach on every side: a pixel or more at mdpi and up, so Android’s half-open box and Yoga’s rounding never cut the reach', () => {
+    expect(SURFACE.outset).toBe(SURFACE.margin + HIT_EDGE);
+    expect(SURFACE.side).toBe(PLATE.diameter + 2 * SURFACE.outset);
+    expect(HIT_EDGE * 1).toBeGreaterThanOrEqual(1);
+    // A pixel of edge beyond the half pixel rounding takes off it, and no more than a fraction of the reach's margin.
+    expect(HIT_EDGE).toBeGreaterThan(REACH_SLACK);
+    expect(HIT_EDGE).toBeLessThan(SURFACE.margin / 8);
   });
 
   it('a bead anywhere on the rim keeps its whole target inside the surface', () => {
@@ -36,7 +44,7 @@ describe('touchSurface: the plate grown until the latest bead’s target fits in
       for (const fontScale of [1, 2]) {
         const plate = plateGeometry(TOKENS, d, fontScale);
         const s = touchSurface(TOKENS, plate);
-        expect(s.size).toBe(d + 2 * s.margin);
+        expect(s.side).toBe(d + 2 * s.outset);
         expect(s.hit).toBe(BASE.bead.hitTarget);
       }
     }
@@ -56,10 +64,16 @@ describe('touchIntent: what a touch means', () => {
     expect(touchIntent(centre, end, PLATE, SURFACE, null)).toEqual({ kind: 'place', at: end });
   });
 
-  it('the plate reaches the surface’s inscribed circle (R plus the margin), and no further: a corner of the surface places nothing', () => {
+  it('the plate reaches the circle of R plus the margin, and half a pixel of rounding past it, no further: a corner of the surface places nothing', () => {
     const edge = { x: R + SURFACE.reach, y: R };
     expect(touchIntent(edge, edge, PLATE, SURFACE, null).kind).toBe('place');
-    const beyond = { x: R + SURFACE.reach + 0.01, y: R };
+    for (const [ux, uy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [Math.SQRT1_2, Math.SQRT1_2]]) {
+      const rounded = { x: R + ux * (SURFACE.reach + REACH_SLACK), y: R + uy * (SURFACE.reach + REACH_SLACK) };
+      expect(touchIntent(rounded, rounded, PLATE, SURFACE, null).kind).toBe('place');
+    }
+    // At mdpi and up a pixel's rounding is at most REACH_SLACK, so a touch a dp past the reach is never taken for one on it.
+    expect(REACH_SLACK).toBeLessThanOrEqual(0.5);
+    const beyond = { x: R + SURFACE.reach + REACH_SLACK + 0.01, y: R };
     expect(touchIntent(beyond, beyond, PLATE, SURFACE, null)).toEqual({ kind: 'none' });
     const corner = { x: -SURFACE.margin, y: -SURFACE.margin };
     expect(touchIntent(corner, corner, PLATE, SURFACE, null)).toEqual({ kind: 'none' });

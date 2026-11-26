@@ -3,7 +3,8 @@
 //   · Touch: a tap, or a drag released on the plate, places at its end; a tap on the latest bead's 48 dp target
 //     removes it, and only the latest is removable (DSN-012). The surface is the plate grown by the margin a rim
 //     bead's target reaches past the plate (plateTouchModel.ts), so the target's rendered bounds are touchable
-//     wherever the bead sits (QA-028). A scroll view may take a touch over, so a vertical drag scrolls (LEDGER §6);
+//     wherever the bead sits (QA-028), and its view HIT_EDGE further, so Android's half-open box never cuts the reach.
+//     A scroll view may take a touch over, so a vertical drag scrolls (LEDGER §6);
 //     a second finger cancels. Built on React Native's responder system: no gesture-handler root is needed.
 //   · The point: the page's screenToCircumplex (wheelGeometry.ts), passed in as toPoint and handed the plate's
 //     wheelLayout, maps the touch's end (QA-087, DSN-025: never mirrored or reimplemented in v2).
@@ -62,7 +63,7 @@ interface Gesture {
 export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, haptics, inert, entry, latestLabel, removeLabel }: PlateTouchProps) {
   const tokens = useTokens();
   const surface = touchSurface(tokens, plate);
-  const m = surface.margin;
+  const m = surface.outset;
   const slot = plateSlot(tokens, plate, 'latest');
   const latest = taps.length > 0 ? taps[taps.length - 1] : null;
 
@@ -82,7 +83,7 @@ export function PlateTouch({ plate, taps, toPoint, onPlace, onRemoveLatest, hapt
     else onPlace(place(intent.at));
   };
 
-  /** The touch's spot in the plate box: the surface is the box grown by the margin on every side. */
+  /** The touch's spot in the plate box: the surface is the box grown by its outset on every side. */
   const local = (e: GestureResponderEvent): Local => ({ x: e.nativeEvent.locationX - m, y: e.nativeEvent.locationY - m });
   const onResponderGrant = (e: GestureResponderEvent) => {
     gesture.current = { start: local(e), cancelled: e.nativeEvent.touches.length > 1 };

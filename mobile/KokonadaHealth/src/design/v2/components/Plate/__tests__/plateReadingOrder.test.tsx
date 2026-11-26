@@ -271,18 +271,18 @@ describe('the plate’s TalkBack order, as Android sorts it (ruling 9; the d5479
 });
 
 describe('the reading slots (readingOrder.ts): they order the nodes and change nothing else', () => {
-  it('the plate’s slots share the touch surface’s left, right and bottom; their tops rise READING_STEP apart in reading order; latest is the surface', () => {
+  it('the plate’s slots share the touch surface’s left, right and bottom (its outset: the margin and HIT_EDGE); their tops rise READING_STEP apart in reading order; latest is the surface', () => {
     for (const fontScale of [1, 2]) {
       const plate = plateGeometry(TOKENS, D, fontScale);
       const s = touchSurface(TOKENS, plate);
       const boxes = PLATE_READING_ORDER.map((slot) => plateSlot(TOKENS, plate, slot));
       for (const b of boxes) {
-        expect(b.left).toBe(-s.margin);
-        expect(b.width).toBe(s.size);
-        expect(b.top + b.height).toBe(-s.margin + s.size);
+        expect(b.left).toBe(-s.outset);
+        expect(b.width).toBe(s.side);
+        expect(b.top + b.height).toBe(-s.outset + s.side);
       }
-      expect(boxes.map((b) => b.top)).toEqual([-s.margin - 2 * READING_STEP, -s.margin - READING_STEP, -s.margin]);
-      expect(plateSlot(TOKENS, plate, 'latest')).toEqual({ left: -s.margin, top: -s.margin, width: s.size, height: s.size });
+      expect(boxes.map((b) => b.top)).toEqual([-s.outset - 2 * READING_STEP, -s.outset - READING_STEP, -s.outset]);
+      expect(plateSlot(TOKENS, plate, 'latest')).toEqual({ left: -s.outset, top: -s.outset, width: s.side, height: s.side });
       const words = plateSlot(TOKENS, plate, 'words');
       const tops = RIM_READING_ORDER.map((p) => rimWordSlot(TOKENS, plate, p));
       expect(tops.map((b) => b.top)).toEqual([0, 1, 2, 3].map((k) => k * READING_STEP));
@@ -308,7 +308,7 @@ describe('the reading slots (readingOrder.ts): they order the nodes and change n
     const bead = pointToLocal(latest, plate);
     const node = find(tree, 'hero.plate.bead.latest.a11y');
     expect(node.rect).toEqual(at(bead.x - s.hit / 2, bead.y - s.hit / 2, s.hit, s.hit));
-    expect(find(tree, 'hero.plate.touch').rect).toEqual(at(-s.margin, -s.margin, s.size, s.size));
+    expect(find(tree, 'hero.plate.touch').rect).toEqual(at(-s.outset, -s.outset, s.side, s.side));
     for (const position of RIM_READING_ORDER) {
       const word = find(tree, `hero.plate.word.${position}.a11y`);
       // The word inside the plate's box, as the arc law lays it (RimLabels.test.tsx holds the box to the law).

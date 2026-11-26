@@ -8,6 +8,14 @@
 // places at its end, so a tap and a drag to a spot both place; a touch that begins and ends on the latest
 // bead's target removes it, and only the latest is removable (DSN-012). The point itself is never computed
 // here: the page's screenToCircumplex maps the end, with the plate's wheelLayout (QA-087, DSN-025).
+//
+// The surface's view reaches HIT_EDGE past the reach on every side (F10 G8 round 2: at exactly R + 16 dp the taps at 3
+// and 6 o'clock placed nothing). Android hit-tests a view's box half-open (View.pointInView: x < width), and Yoga puts
+// each edge on the pixel grid, up to half a pixel inside; so a box that ends exactly at the reach turns a touch at the
+// reach away before the model sees it. The view is the box the touch reaches the model through; the model alone says
+// how far the plate reaches. And a touch is measured from the surface's edge as Yoga rounded it, up to half a pixel from
+// where the law puts that edge, so the model takes r ≤ reach + REACH_SLACK: half a pixel at mdpi and up, where a touch
+// a dp past the reach is still measured over half a dp past it (17 dp is never taken for 16).
 
 import { BASE } from '../../tokens/tokens.generated.ts';
 import type { PlateTokens } from '../Plate/geometry.ts';
@@ -19,11 +27,19 @@ export interface Local {
   readonly y: number;
 }
 
+/** How far the surface's view reaches past the reach on every side, in dp: over a physical pixel at mdpi and up, past rounding. */
+export const HIT_EDGE = 1;
+
+/** How far past the reach a touch is still on it, in dp: the half pixel layout rounding moves the edge it is measured from. */
+export const REACH_SLACK = 0.5;
+
 export interface TouchSurface {
-  /** How far the surface reaches past the plate box on every side, in dp. */
+  /** How far a touch reaches past the plate box on every side, in dp: what a rim bead's target reaches past the plate. */
   readonly margin: number;
-  /** The surface's side, in dp: the plate's diameter plus a margin on each side. */
-  readonly size: number;
+  /** How far the surface's view reaches past the plate box on every side, in dp: the margin and HIT_EDGE. */
+  readonly outset: number;
+  /** The surface view's side, in dp: the plate's diameter plus an outset on each side. */
+  readonly side: number;
   /** The latest bead's target, square, in dp (bead.hitTarget, at least target.min). */
   readonly hit: number;
   /** How far from the plate's centre a touch still lands on the plate, in dp: R plus the margin. */
@@ -33,7 +49,8 @@ export interface TouchSurface {
 export function touchSurface(t: PlateTokens, plate: PlateGeometry): TouchSurface {
   const hit = Math.max(t.base.bead.hitTarget, t.base.target.min);
   const margin = Math.max(0, hit / 2 - plate.beadRadius);
-  return { margin, size: plate.diameter + 2 * margin, hit, reach: plate.radius + margin };
+  const outset = margin + HIT_EDGE;
+  return { margin, outset, side: plate.diameter + 2 * outset, hit, reach: plate.radius + margin };
 }
 
 export type TouchIntent = { readonly kind: 'place'; readonly at: Local } | { readonly kind: 'remove' } | { readonly kind: 'none' };
@@ -52,7 +69,7 @@ export function touchIntent(start: Local, end: Local, plate: PlateGeometry, surf
     if (onTarget(start, bead, surface.hit) && onTarget(end, bead, surface.hit)) return { kind: 'remove' };
   }
   const r = Math.hypot(end.x - plate.centre[0], end.y - plate.centre[1]);
-  return r <= surface.reach ? { kind: 'place', at: end } : { kind: 'none' };
+  return r <= surface.reach + REACH_SLACK ? { kind: 'place', at: end } : { kind: 'none' };
 }
 
 /** The plate's haptic events (DSN-040; haptics.place, .replace and .remove). */

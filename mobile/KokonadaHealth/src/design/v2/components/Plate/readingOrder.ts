@@ -44,9 +44,9 @@ export interface SlotBox {
  * READING_STEP higher for each slot read after it. 'latest' is the touch surface itself.
  */
 export function plateSlot(tokens: PlateTokens, plate: PlateGeometry, slot: PlateSlot): SlotBox {
-  const { margin, size } = touchSurface(tokens, plate);
+  const { outset, side } = touchSurface(tokens, plate);
   const rise = (PLATE_READING_ORDER.length - 1 - PLATE_READING_ORDER.indexOf(slot)) * READING_STEP;
-  return { left: -margin, top: -margin - rise, width: size, height: size + rise };
+  return { left: -outset, top: -outset - rise, width: side, height: side + rise };
 }
 
 /**
