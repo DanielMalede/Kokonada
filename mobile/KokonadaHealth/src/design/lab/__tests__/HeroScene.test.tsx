@@ -82,7 +82,8 @@ import type { LabParams } from '../params';
 import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
-import { HERO_COPY, HERO_FONTS, HERO_SCENE_PROBES, HeroScene, heroScene } from '../scenes/HeroScene';
+import { HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_SCENE_PROBES, HeroScene, heroScene } from '../scenes/HeroScene';
+import { checkCopy } from '../../v2/copy/CopyPort';
 import { ShaderReportContext, type ShaderReport } from '../shaderReport';
 import { drawnFaces } from './__fixtures__/drawnFaces';
 import { labMounts } from './__fixtures__/labMounts';
@@ -206,10 +207,29 @@ describe('a hero scene before and after its view has a size', () => {
     h.layout();
     const copy = HERO_COPY[script];
     expect(h.props(RimLabels)).toMatchObject({ words: copy.words, a11y: copy.a11y, script });
-    expect(h.props(Well)).toMatchObject({ hint: copy.hint, script });
-    expect(h.props(CommitCTA).label).toBe(copy.cta);
     expect(h.props(PlateEntry)).toMatchObject({ label: copy.plateLabel, hint: copy.plateHint });
     expect(h.props(PlateTouch)).toMatchObject({ latestLabel: copy.latestLabel, removeLabel: copy.removeLabel });
+  });
+
+  // The hint and the label are keyed copy (B1 specs, the designer's revision of 2026-11-24): onboarding.plate.hint and
+  // onboarding.continue, two N keys. In Latin they come through the copy port (useCopy under the scene's CopyProvider); the
+  // port resolves in en alone until Hebrew joins it (D4-B), so the Hebrew scene reads the same keys from the lab's he table.
+  it.each([
+    ['latin', 'Tap the plate to place a point.', 'Continue'],
+    ['hebrew', 'אפשר לגעת בלוח כדי לסמן נקודה.', 'המשך'],
+  ] as const)('draws the %s hint and label from their keys, onboarding.plate.hint and onboarding.continue', async (script, hint, label) => {
+    const h = await mount(`hero.abyss.light.empty.${script}`);
+    h.layout();
+    expect(h.props(Well)).toMatchObject({ hint, script });
+    expect(h.props(CommitCTA).label).toBe(label);
+  });
+
+  it('holds its keyed copy as the port checks it: two N keys, en text for each, and he text for exactly the same keys', () => {
+    expect(HERO_COPY_SPEC).toEqual({ 'onboarding.plate.hint': { class: 'N' }, 'onboarding.continue': { class: 'N' } });
+    expect(checkCopy(HERO_COPY_SPEC, HERO_CATALOGS)).toEqual([]);
+    expect(Object.keys(HERO_HE_CATALOG).sort()).toEqual(Object.keys(HERO_CATALOGS.en).sort());
+    expect(Object.keys(HERO_COPY.latin)).not.toContain('hint');
+    expect(Object.keys(HERO_COPY.hebrew)).not.toContain('cta');
   });
 
   it.each(IDS)('%s draws its text in exactly the faces it declares, once laid out, as Android draws them', async (id) => {

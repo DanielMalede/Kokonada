@@ -4,9 +4,11 @@
 // holds its layers in the designer's order (ruling 9): PlateEntry, the list's button; RimLabels; BeadLayer; PlateTouch.
 // Under it, at the layout's CTA column, the Well holds the hint and CommitCTA, driven by useCtaMachine.
 //
-//   · Synthetic: the taps are the token extensions' hero scene `three` or none (`empty`); the words, the hint, the label
-//     and the accessible copy are the lab's own, in the script the id names, never the app's copy (the copy port is not
-//     built yet).
+//   · Synthetic: the taps are the token extensions' hero scene `three` or none (`empty`); the words and the accessible
+//     copy are the lab's own, in the script the id names. The hint and the label are keyed copy (onboarding.plate.hint,
+//     onboarding.continue, N keys of the B1 specs): in Latin through the copy port (useCopy under the scene's
+//     CopyProvider); the port resolves in en alone until Hebrew joins it at the cutover (D4-B), so the Hebrew scene reads
+//     the same keys from the lab's he table.
 //   · Every callback only updates the scene's state: a placement joins the taps (a ring of three, the oldest replaced, as
 //     the cold lane's), a removal takes the latest, and a commit, a haptic, the list's button and its focus are counted;
 //     nothing leaves the scene.
@@ -33,6 +35,8 @@ import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
 import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
 import { useBeadPresence } from '../../v2/components/Bead/useBeadPresence';
 import { CommitCTA, useCtaMachine } from '../../v2/components/CommitCTA/CommitCTA';
+import { createCopyPort, type Catalog, type CopySpec, type NeutralKeyOf } from '../../v2/copy/CopyPort';
+import { CopyProvider, useCopy } from '../../v2/copy/useCopy';
 import { plateGeometry, type PlatePoint } from '../../v2/components/Plate/geometry';
 import { Plate } from '../../v2/components/Plate/Plate';
 import { PlateEntry, type PlateEntryHandle } from '../../v2/components/PlateTouch/PlateEntry';
@@ -88,12 +92,31 @@ export const HERO_FONTS: readonly LabFaceId[] = [...new Set(HERO_SCRIPTS.flatMap
   fontFace(BASE.type.face.ui, BASE.type.ui.cta[s].weight, 'android').fontFamily,
 ]))] as LabFaceId[];
 
-/** The lab's synthetic copy, by script. */
+/** The keyed copy the hero draws: the Well's hint and the CTA's label, two N keys (B1 specs, rev. designer 2026-11-24). */
+export const HERO_COPY_SPEC = {
+  'onboarding.plate.hint': { class: 'N' },
+  'onboarding.continue': { class: 'N' },
+} as const satisfies CopySpec;
+type HeroKey = NeutralKeyOf<typeof HERO_COPY_SPEC>;
+
+/** Their en text, as the port reads it. */
+export const HERO_CATALOGS = {
+  en: { 'onboarding.plate.hint': 'Tap the plate to place a point.', 'onboarding.continue': 'Continue' } satisfies Record<HeroKey, string>,
+} as const satisfies { readonly en: Catalog };
+
+/** Their he text, by the same keys: the port has no he locale until the cutover (D4-B), so the Hebrew scene reads it here. */
+export const HERO_HE_CATALOG: Readonly<Record<HeroKey, string>> = {
+  'onboarding.plate.hint': 'אפשר לגעת בלוח כדי לסמן נקודה.',
+  'onboarding.continue': 'המשך',
+};
+
+/** One port, built once (a new port re-renders every reader). */
+const HERO_PORT = createCopyPort({ spec: HERO_COPY_SPEC, catalogs: HERO_CATALOGS });
+
+/** The lab's synthetic copy, by script (the keyed hint and label are not in it). */
 export interface HeroCopy {
   readonly words: RimWords;
   readonly a11y: RimWords;
-  readonly hint: string;
-  readonly cta: string;
   /** PlateEntry's label and hint (plate.a11y.label and plate.a11y.hint): the list's button. */
   readonly plateLabel: string;
   readonly plateHint: string;
@@ -105,8 +128,6 @@ export const HERO_COPY: Readonly<Record<HeroScript, HeroCopy>> = {
   latin: {
     words: { top: 'More energy', right: 'Pleasant', bottom: 'Less energy', left: 'Unpleasant' },
     a11y: { top: 'Top: more energy', right: 'Right: pleasant', bottom: 'Bottom: less energy', left: 'Left: unpleasant' },
-    hint: 'Tap the plate to place a point.',
-    cta: 'Continue',
     plateLabel: 'Plate',
     plateHint: 'Holds up to three points. Double-tap to open a list of every place.',
     latestLabel: 'Latest point',
@@ -115,8 +136,6 @@ export const HERO_COPY: Readonly<Record<HeroScript, HeroCopy>> = {
   hebrew: {
     words: { top: 'יותר אנרגיה', right: 'נעים', bottom: 'פחות אנרגיה', left: 'לא נעים' },
     a11y: { top: 'למעלה: יותר אנרגיה', right: 'ימין: נעים', bottom: 'למטה: פחות אנרגיה', left: 'שמאל: לא נעים' },
-    hint: 'הקישו על הלוח כדי להניח נקודה.',
-    cta: 'המשך',
     plateLabel: 'לוח',
     plateHint: 'אפשר להניח עד שלוש נקודות. הקישו פעמיים כדי לפתוח רשימה של כל המקומות.',
     latestLabel: 'הנקודה האחרונה',
@@ -157,11 +176,13 @@ export function HeroScene({ clock, params }: SceneProps) {
       <Probe id="stage" style={styles.stage}>
         <View testID="hero-scene.view" style={styles.stage} onLayout={onLayout}>
           <DirectionProvider direction={FIELD_DIRECTION} face={face}>
-            {size === null ? <Probe id="plate" style={UNPLACED} /> : (
-              <FieldFirstFrameReport.Provider value={onFirstFrame}>
-                <HeroStage scene={params.scene} face={face} taps={taps} script={script} width={size.width} height={size.height} clock={clock} tier={tier} />
-              </FieldFirstFrameReport.Provider>
-            )}
+            <CopyProvider port={HERO_PORT}>
+              {size === null ? <Probe id="plate" style={UNPLACED} /> : (
+                <FieldFirstFrameReport.Provider value={onFirstFrame}>
+                  <HeroStage scene={params.scene} face={face} taps={taps} script={script} width={size.width} height={size.height} clock={clock} tier={tier} />
+                </FieldFirstFrameReport.Provider>
+              )}
+            </CopyProvider>
           </DirectionProvider>
         </View>
       </Probe>
@@ -181,6 +202,8 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
 }) {
   const tokens = useTokens();
   const copy = HERO_COPY[script];
+  const port = useCopy<typeof HERO_COPY_SPEC>();
+  const keyed = (key: HeroKey) => (script === 'latin' ? port.text(key) : HERO_HE_CATALOG[key]);
   const layout = useMemo(() => heroLayout(FIELD_DIRECTION, width, height, PixelRatio.getFontScale()), [width, height]);
   const diameter = 2 * layout.radius;
   const plate = useMemo(() => plateGeometry(tokens, diameter, layout.fontScale), [tokens, diameter, layout.fontScale]);
@@ -256,8 +279,8 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
         </Probe>
       </View>
       <View testID="hero-scene.well-column" style={[styles.wellColumn, { left: inset, right: inset, top: wellTop }]} pointerEvents="box-none">
-        <Well actionShown={actionShown} hint={copy.hint} script={script} tier={tier}>
-          <CommitCTA machine={machine} label={copy.cta} onCommit={onCommit} tier={tier} />
+        <Well actionShown={actionShown} hint={keyed('onboarding.plate.hint')} script={script} tier={tier}>
+          <CommitCTA machine={machine} label={keyed('onboarding.continue')} onCommit={onCommit} tier={tier} />
         </Well>
       </View>
     </>
