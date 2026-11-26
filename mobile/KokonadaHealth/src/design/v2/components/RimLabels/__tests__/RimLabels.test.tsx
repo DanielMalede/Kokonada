@@ -180,8 +180,8 @@ function linearExit(b: RimBead, nowMs: number): number {
   if (b.leftAt === null) return b.startOpacity;
   return b.startOpacity * (1 - Math.min(1, Math.max(0, (nowMs - b.leftAt) / FADE)));
 }
-const liveBead = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, startOpacity: 1 });
-const leavingBead = (point: PlatePoint, leftAt: number | null, startOpacity = 1): RimBead => ({ point, leaving: true, leftAt, startOpacity });
+const liveBead = (point: PlatePoint): RimBead => ({ point, leaving: false, leftAt: null, playedAt: null, startOpacity: 1 });
+const leavingBead = (point: PlatePoint, leftAt: number | null, startOpacity = 1, playedAt: number | null = leftAt): RimBead => ({ point, leaving: true, leftAt, playedAt, startOpacity });
 
 // Test data standing in for the page's resolved copy (the shared plate.rim.* keys are R: the lab shows pseudo-text).
 const WORDS: RimWords = { top: 'More energy', right: 'Pleasant', bottom: 'Less energy', left: 'Unpleasant' };
@@ -524,6 +524,25 @@ describe('RimLabels: letters return on the bead’s own fade (the designer’s r
     frame(1016.5);
     frame(1033);
     expect(seen).toEqual([1016.5, 1033]);
+    view.unmount();
+  });
+
+  it('the stamp of when the bead’s view really began its exit (playedAt) reaches the exit function, on the same layer', () => {
+    const seen: Array<number | null> = [];
+    function recorded(b: RimBead, nowMs: number): number {
+      'worklet';
+      seen.push(b.playedAt);
+      return linearExit(b, nowMs);
+    }
+    const view = mount({ beads: [leavingBead(TOP, 1000, 1, null)], beadOpacity: recorded });
+    const [layer] = layers(view.canvas('top')).returning;
+    frame(1016);
+    view.update({ beads: [leavingBead(TOP, 1000, 1, 1300)], beadOpacity: recorded });
+    const after = layers(view.canvas('top')).returning;
+    expect(after).toHaveLength(1);
+    expect(after[0].opacity).toBe(layer.opacity);
+    frame(1316);
+    expect(seen).toEqual([null, 1300]);
     view.unmount();
   });
 

@@ -1,6 +1,6 @@
 import { emptyLedger, ledgerConfig, reconcile, type Ledger } from '../../../field/placementLedger.ts';
 import { STATICS } from '../../../tokens/tokens.statics.generated.ts';
-import { MAX_BEADS, presenceGone, presenceOf, presenceUpdate, type BeadPresence } from '../beadPresence.ts';
+import { MAX_BEADS, presenceExitStarted, presenceGone, presenceOf, presenceUpdate, type BeadPresence } from '../beadPresence.ts';
 import { entranceOpacity, PRESS_MS } from '../beadTimeline.ts';
 
 // Which beads are on the plate, entering or leaving (LEDGER §7: place, replace and remove move the bead; the
@@ -24,7 +24,7 @@ const leaving = (p: BeadPresence) => p.beads.filter((b) => b.leaving);
 const points = (beads: BeadPresence['beads']) => beads.map((b) => b.point);
 const ids = (beads: BeadPresence['beads']) => beads.map((b) => b.id);
 /** A bead shown whole from its first frame, live. */
-const whole = (id: number, point: { x: number; y: number }) => ({ id, point, leaving: false, placedAt: null, leftAt: null, startOpacity: 1 });
+const whole = (id: number, point: { x: number; y: number }) => ({ id, point, leaving: false, placedAt: null, leftAt: null, playedAt: null, startOpacity: 1 });
 const update = (p: BeadPresence, taps: ReadonlyArray<{ x: number; y: number }>, nowMs = T0) => presenceUpdate(p, taps, nowMs, 'full');
 
 describe('presenceOf: the mount shows every tap at once', () => {
@@ -45,14 +45,14 @@ describe('presenceOf: the mount shows every tap at once', () => {
 describe('presenceUpdate: a change, read by value', () => {
   it('a new tap enters with the next id, its entrance stamped now; the others stay as they were', () => {
     const p = update(presenceOf([A]), [A, B]);
-    expect(p.beads).toEqual([whole(0, A), { id: 1, point: B, leaving: false, placedAt: T0, leftAt: null, startOpacity: 1 }]);
+    expect(p.beads).toEqual([whole(0, A), { id: 1, point: B, leaving: false, placedAt: T0, leftAt: null, playedAt: null, startOpacity: 1 }]);
   });
 
   it('a fourth tap: the oldest leaves, the new one enters, the middle two stay', () => {
     const p = update(presenceOf([A, B, C]), [B, C, D]);
     expect(ids(live(p))).toEqual([1, 2, 3]);
     expect(points(live(p))).toEqual([B, C, D]);
-    expect(leaving(p)).toEqual([{ id: 0, point: A, leaving: true, placedAt: null, leftAt: T0, startOpacity: 1 }]);
+    expect(leaving(p)).toEqual([{ id: 0, point: A, leaving: true, placedAt: null, leftAt: T0, playedAt: null, startOpacity: 1 }]);
   });
 
   it('undo: the latest leaves', () => {
@@ -76,8 +76,8 @@ describe('presenceUpdate: a change, read by value', () => {
     const gone = update(presenceOf([A]), [], T0);
     const back = update(gone, [A], T0 + 50);
     expect(back.beads).toEqual([
-      { id: 0, point: A, leaving: true, placedAt: null, leftAt: T0, startOpacity: 1 },
-      { id: 1, point: A, leaving: false, placedAt: T0 + 50, leftAt: null, startOpacity: 1 },
+      { id: 0, point: A, leaving: true, placedAt: null, leftAt: T0, playedAt: null, startOpacity: 1 },
+      { id: 1, point: A, leaving: false, placedAt: T0 + 50, leftAt: null, playedAt: null, startOpacity: 1 },
     ]);
   });
 
@@ -96,7 +96,7 @@ describe('ruling 2: a leaving bead carries its leftAt and its opacity at that mo
     const placed = update(presenceOf([]), [A], T0);
     for (const after of [0, 30, 60, PRESS_MS, 500]) {
       const gone = update(placed, [], T0 + after);
-      expect(gone.beads).toEqual([{ id: 0, point: A, leaving: true, placedAt: T0, leftAt: T0 + after, startOpacity: entranceOpacity(after) }]);
+      expect(gone.beads).toEqual([{ id: 0, point: A, leaving: true, placedAt: T0, leftAt: T0 + after, playedAt: null, startOpacity: entranceOpacity(after) }]);
     }
     expect(entranceOpacity(30)).toBeGreaterThan(0);
     expect(entranceOpacity(30)).toBeLessThan(1);
@@ -146,6 +146,23 @@ describe('presenceGone: a leaving bead finished its exit', () => {
     expect(presenceGone(p, 1).beads).toEqual([whole(0, A)]);
     expect(presenceGone(p, 0)).toBe(p);
     expect(presenceGone(p, 42)).toBe(p);
+  });
+});
+
+describe('presenceExitStarted: the leaving bead’s view began its exit (the time the rim words read it on)', () => {
+  it('stamps playedAt on that leaving bead only, once: the first report stands', () => {
+    const p = update(presenceOf([A, B]), [A]);
+    const stamped = presenceExitStarted(p, 1, T0 + 300);
+    expect(stamped.beads).toEqual([whole(0, A), { id: 1, point: B, leaving: true, placedAt: null, leftAt: T0, playedAt: T0 + 300, startOpacity: 1 }]);
+    expect(stamped.next).toBe(p.next);
+    expect(presenceExitStarted(stamped, 1, T0 + 500)).toBe(stamped);
+  });
+
+  it('a live bead, an unknown id or an unreadable time changes nothing', () => {
+    const p = update(presenceOf([A, B]), [A]);
+    expect(presenceExitStarted(p, 0, T0 + 10)).toBe(p);
+    expect(presenceExitStarted(p, 42, T0 + 10)).toBe(p);
+    for (const at of [Number.NaN, Number.POSITIVE_INFINITY]) expect(presenceExitStarted(p, 1, at)).toBe(p);
   });
 });
 

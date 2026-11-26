@@ -133,19 +133,39 @@ describe('a late exit still plays (the d5479dc capture: whole to gone within one
 
 describe('beadOpacityAt: a bead’s opacity from its presence entry (ruling 2, for the rim words on the UI thread)', () => {
   it('a live bead is whole: the knock-out of a live bead is total', () => {
-    expect(beadOpacityAt({ leaving: false, leftAt: null, startOpacity: 1 }, 123)).toBe(1);
+    expect(beadOpacityAt({ leaving: false, leftAt: null, playedAt: null, startOpacity: 1 }, 123)).toBe(1);
   });
 
-  it('a leaving bead follows the exit from its leftAt and its startOpacity', () => {
+  it('a bead whose view started its exit on time follows the exit from its leftAt and its startOpacity', () => {
     const leftAt = 5000;
     for (const [start, t] of [[1, 0], [1, 60], [1, 220], [0.4, 0], [0.4, 120], [1, 900]] as const) {
-      expect(beadOpacityAt({ leaving: true, leftAt, startOpacity: start }, leftAt + t)).toBe(exitOpacity(start, t));
+      expect(beadOpacityAt({ leaving: true, leftAt, playedAt: leftAt, startOpacity: start }, leftAt + t)).toBe(exitOpacity(start, t));
     }
-    expect(beadOpacityAt({ leaving: true, leftAt, startOpacity: 1 }, leftAt + exitDuration(1))).toBe(0);
+    expect(beadOpacityAt({ leaving: true, leftAt, playedAt: leftAt, startOpacity: 1 }, leftAt + exitDuration(1))).toBe(0);
+  });
+
+  it('until its view begins the exit (playedAt null) the bead is where it was: its start, however long after leftAt', () => {
+    for (const t of [0, 100, 300, 10_000]) {
+      expect(beadOpacityAt({ leaving: true, leftAt: 5000, playedAt: null, startOpacity: 1 }, 5000 + t)).toBe(1);
+      expect(beadOpacityAt({ leaving: true, leftAt: 5000, playedAt: null, startOpacity: 0.4 }, 5000 + t)).toBe(0.4);
+    }
+  });
+
+  it.each([60, 300, 10_000])('a view %p ms late plays the whole exit from playedAt over exitPlayMs: the bead’s own compressed time', (late) => {
+    const leftAt = 5000;
+    const playedAt = leftAt + late;
+    for (const start of [1, 0.4]) {
+      const playMs = exitPlayMs(start, late);
+      const end = exitDuration(start);
+      const b = { leaving: true, leftAt, playedAt, startOpacity: start };
+      expect(beadOpacityAt(b, playedAt - 1)).toBe(start);
+      for (const f of [0, 0.1, 0.25, 0.5, 0.75, 0.9]) expect(beadOpacityAt(b, playedAt + f * playMs)).toBeCloseTo(exitOpacity(start, f * end), 12);
+      expect(beadOpacityAt(b, playedAt + playMs)).toBe(0);
+    }
   });
 
   it('a clock that reads earlier than leftAt holds the start (never above it)', () => {
-    expect(beadOpacityAt({ leaving: true, leftAt: 5000, startOpacity: 0.7 }, 4990)).toBe(0.7);
+    expect(beadOpacityAt({ leaving: true, leftAt: 5000, playedAt: 5000, startOpacity: 0.7 }, 4990)).toBe(0.7);
   });
 });
 

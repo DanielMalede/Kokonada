@@ -38,12 +38,13 @@ interface Options {
   readonly placedAt?: number | null;
   readonly leftAt?: number | null;
   readonly onLeft?: () => void;
+  readonly onExitStart?: (atMs: number) => void;
   readonly point?: { x: number; y: number };
   readonly slot?: number | 'leaving';
 }
 const element = (o: Options = {}) => (
   <DirectionProvider direction="abyss" face={o.face ?? 'dark'}>
-    <Bead point={o.point ?? POINT} plate={PLATE} placedAt={o.placedAt === undefined ? performance.now() : o.placedAt} leftAt={o.leftAt ?? null} slot={o.slot ?? 0} onLeft={o.onLeft ?? jest.fn()} />
+    <Bead point={o.point ?? POINT} plate={PLATE} placedAt={o.placedAt === undefined ? performance.now() : o.placedAt} leftAt={o.leftAt ?? null} slot={o.slot ?? 0} onLeft={o.onLeft ?? jest.fn()} onExitStart={o.onExitStart ?? jest.fn()} />
   </DirectionProvider>
 );
 function mount(o: Options = {}) {
@@ -354,6 +355,23 @@ describe('Bead: the exit (F1)', () => {
       const drawn = drawnLook(tree);
       if (drawn.colour > 0) expect([t, drawn.opacity]).toEqual([t, 1]);
     }
+  });
+
+  it('reports onExitStart once, at the moment its effect starts the exit’s clock, and never for an entrance', () => {
+    const onExitStart = jest.fn();
+    const placedAt = performance.now();
+    const tree = mount({ placedAt, onExitStart });
+    act(() => {
+      jest.advanceTimersByTime(ENTRANCE_END + 50);
+    });
+    expect(onExitStart).not.toHaveBeenCalled();
+    const leftAt = performance.now() - 300;
+    act(() => tree.update(element({ placedAt, leftAt, onExitStart })));
+    expect(onExitStart.mock.calls).toEqual([[leftAt + 300]]);
+    // The length it plays is the one beadOpacityAt derives from that stamp: exitPlayMs(start, playedAt − leftAt).
+    expect(timing.mock.calls[timing.mock.calls.length - 1][1].duration).toBe(EXIT_MIN_MS);
+    act(() => tree.update(element({ placedAt, leftAt, onExitStart: jest.fn() })));
+    expect(onExitStart).toHaveBeenCalledTimes(1);
   });
 
   it('an exit cut short by an unmount never reports onLeft', () => {

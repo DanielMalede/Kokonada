@@ -61,8 +61,19 @@ describe('useBeadPresence', () => {
     const placed = performance.now();
     advance(30);
     update([]);
-    expect(last().beads).toEqual([{ id: 0, point: A, leaving: true, placedAt: placed, leftAt: placed + 30, startOpacity: entranceOpacity(30) }]);
+    expect(last().beads).toEqual([{ id: 0, point: A, leaving: true, placedAt: placed, leftAt: placed + 30, playedAt: null, startOpacity: entranceOpacity(30) }]);
     expect(beadOpacityAt(last().beads[0], placed + 30)).toBe(entranceOpacity(30));
+  });
+
+  it('onExitStart stamps when the leaving bead’s view began its exit, and keeps the hook’s identity across renders', () => {
+    const { update, last, seen } = mount([A, B]);
+    const leftAt = performance.now();
+    update([A]);
+    expect(last().beads[1]).toMatchObject({ leaving: true, leftAt, playedAt: null });
+    act(() => last().onExitStart(1, leftAt + 250));
+    expect(last().beads[1]).toMatchObject({ leaving: true, leftAt, playedAt: leftAt + 250 });
+    expect(beadOpacityAt(last().beads[1], leftAt + 250)).toBe(1);
+    expect(new Set(seen.map((h) => h.onExitStart)).size).toBe(1);
   });
 
   it('onGone drops a leaving bead, and only a leaving one, and keeps the hook’s identity across renders', () => {
@@ -108,6 +119,7 @@ interface RimBead {
   readonly point: PlatePoint;
   readonly leaving: boolean;
   readonly leftAt: number | null;
+  readonly playedAt: number | null;
   readonly startOpacity: number;
 }
 type RimOpacityAt = (b: RimBead, nowMs: number) => number;

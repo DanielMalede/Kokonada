@@ -20,6 +20,7 @@
 // exit always plays its whole timeline from the bead as it was at leftAt (the clock at 0), over what is left of it and
 // never less than EXIT_MIN_MS (beadTimeline.ts exitPlayMs): a loaded JS thread compresses it, never skips it, so the
 // grey exit is always seen (at d5479dc an effect past the exit's end set the clock to its end: whole to gone at once).
+// The moment it starts that clock it reports to onExitStart, the one stamp the rim words read the exit from (playedAt).
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
 // are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the centre the field lights for the tap).
@@ -47,6 +48,8 @@ export interface BeadProps {
   readonly slot: number | 'leaving';
   /** The exit ended: the layer may drop the bead. */
   readonly onLeft: () => void;
+  /** Its exit's clock started at `atMs` (performance.now()): the time beadOpacityAt reads the exit from. */
+  readonly onExitStart: (atMs: number) => void;
 }
 
 const now = () => performance.now();
@@ -113,7 +116,7 @@ function highlight(tokens: DirectionTokens['bead']['highlight'], rb: number, fro
   };
 }
 
-export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps) {
+export function Bead({ point, plate, placedAt, leftAt, slot, onLeft, onExitStart }: BeadProps) {
   const { id, face, direction } = useTokens();
   const g = { bead: plate.beadRadius, setting: direction.bead.setting.width };
   const centre = pointToLocal(point, plate);
@@ -126,15 +129,19 @@ export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps
   const phase = useMemo(() => phaseFor(id, placedAt, leftAt), [id, placedAt, leftAt]);
   const reportLeft = useRef(onLeft);
   reportLeft.current = onLeft;
+  const reportStart = useRef(onExitStart);
+  reportStart.current = onExitStart;
   useEffect(() => {
     const { clock, origin, end, exit } = phase;
     if (clock === null) return undefined;
-    const elapsed = Math.max(0, now() - origin);
+    const at = now();
+    const elapsed = Math.max(0, at - origin);
     let duration: number;
     if (exit !== null) {
       // From the bead as it was at leftAt, over the rest of its timeline, never under EXIT_MIN_MS: compressed, never skipped.
       clock.setValue(0);
       duration = exitPlayMs(exit, elapsed);
+      reportStart.current(at);
     } else {
       if (!(elapsed < end)) {
         clock.setValue(end);

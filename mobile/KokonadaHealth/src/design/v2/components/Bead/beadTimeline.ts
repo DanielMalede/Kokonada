@@ -13,7 +13,11 @@
 //
 // Each step is the token's duration on its own curve (field/crossfade.ts rampProgress, the field's worklet). Every
 // function here is a worklet: hero A's rim words read a leaving bead's opacity on the UI thread (beadOpacityAt,
-// ruling 2), from its presence entry. `leftAt` and `nowMs` must be read on one clock (performance.now()).
+// ruling 2), from its presence entry. `leftAt`, `playedAt` and `nowMs` must be read on one clock (performance.now()).
+//
+// One exit, one timeline (F10 G8 round 2, f207 to f209: the letters were back while a late bead was still opaque): the
+// entry carries when the bead's view really began its exit (playedAt, which Bead reports), and beadOpacityAt reads the
+// exit on the very time Bead plays it, exitPlayMs from that lateness. Before its view begins, the bead is where it was.
 
 import { rampProgress } from '../../field/crossfade.ts';
 import { BASE } from '../../tokens/tokens.generated.ts';
@@ -83,13 +87,22 @@ export interface BeadExitStamp {
   readonly leaving: boolean;
   /** When its exit began, on the JS clock (performance.now()); null while it is live. */
   readonly leftAt: number | null;
+  /** When its view really began playing that exit (Bead's effect, on the same clock); null until then. */
+  readonly playedAt: number | null;
   /** Its opacity when its exit began. */
   readonly startOpacity: number;
 }
 
-/** A bead's opacity at `nowMs` (the clock leftAt was read on): 1 while live, else its exit's. */
+/**
+ * A bead's opacity at `nowMs` (the clock leftAt was read on): 1 while live; while it leaves, its exit as Bead plays it,
+ * the whole timeline from playedAt over exitPlayMs(startOpacity, playedAt − leftAt); held at its start opacity until its
+ * view begins the exit (playedAt null) and before playedAt.
+ */
 export function beadOpacityAt(b: BeadExitStamp, nowMs: number): number {
   'worklet';
   if (!b.leaving || b.leftAt === null) return 1;
-  return exitOpacity(b.startOpacity, nowMs - b.leftAt);
+  if (b.playedAt === null) return exitOpacity(b.startOpacity, 0);
+  const playMs = exitPlayMs(b.startOpacity, b.playedAt - b.leftAt);
+  const played = nowMs - b.playedAt;
+  return exitOpacity(b.startOpacity, played > 0 ? (played * exitDuration(b.startOpacity)) / playMs : 0);
 }

@@ -4,7 +4,7 @@
 //
 // Ruling 2 (2026-11-25): the page owns the presence (useBeadPresence: the store's taps and the motion tier) and shares
 // it with hero A's rim words; the layer only draws its beads, each from its own entry's stamps, and reports each exit
-// that ends to onGone with that bead's id. Mount it as a child of the plate's D×D box. The taps are the page's own
+// that ends to onGone and each exit its view really begins to onExitStart, with that bead's id. Mount it as a child of the plate's D×D box. The taps are the page's own
 // (P10: page state, never the cold lane, RA-39; P2: the cold lane through its port).
 
 import React from 'react';
@@ -20,9 +20,11 @@ export interface BeadLayerProps {
   readonly plate: PlateGeometry;
   /** A leaving bead's exit ended (the presence's onGone). */
   readonly onGone: (id: number) => void;
+  /** A leaving bead's view began its exit (the presence's onExitStart): the rim words read the exit from it. */
+  readonly onExitStart: (id: number, atMs: number) => void;
 }
 
-export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
+export function BeadLayer({ beads, plate, onGone, onExitStart }: BeadLayerProps) {
   const live = beads.filter((b) => !b.leaving);
   const order = [...beads.filter((b) => b.leaving), ...live];
   return (
@@ -35,7 +37,7 @@ export function BeadLayer({ beads, plate, onGone }: BeadLayerProps) {
       style={[styles.layer, { width: plate.diameter, height: plate.diameter }]}
     >
       {order.map((bead) => (
-        <Bead key={bead.id} point={bead.point} plate={plate} placedAt={bead.placedAt} leftAt={bead.leftAt} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} onLeft={() => onGone(bead.id)} />
+        <Bead key={bead.id} point={bead.point} plate={plate} placedAt={bead.placedAt} leftAt={bead.leftAt} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} onLeft={() => onGone(bead.id)} onExitStart={(atMs) => onExitStart(bead.id, atMs)} />
       ))}
     </View>
   );

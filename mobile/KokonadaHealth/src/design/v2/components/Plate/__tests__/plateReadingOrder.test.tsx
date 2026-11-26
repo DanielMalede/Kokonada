@@ -198,7 +198,7 @@ function Hero({ taps, fontScale, script }: { taps: readonly PlatePoint[]; fontSc
         <Plate diameter={D} fontScale={fontScale}>
           <PlateEntry ref={entry} plate={plate} label="Plate" hint="Opens a list" onOpenList={noop} onFocusChange={noop} inert={false} />
           <RimLabels diameter={D} fontScale={fontScale} words={script === 'hebrew' ? HE_WORDS : WORDS} a11y={A11Y} script={script} beads={presence.beads} beadOpacity={() => 1} />
-          <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} />
+          <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} onExitStart={presence.onExitStart} />
           <PlateTouch plate={plate} taps={taps} toPoint={() => ({ x: 0, y: 0 })} onPlace={noop} onRemoveLatest={noop} haptics={{ fire: noop }} inert={false} entry={entry} latestLabel="Latest point" removeLabel="Remove" />
         </Plate>
       </View>
