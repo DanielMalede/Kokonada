@@ -79,11 +79,16 @@ const reanimated = require('react-native-reanimated') as { __frame(dt: number): 
 
 // FieldFallback records its picture through Skia on the JS thread: here every Skia call is taken and draws nothing, so
 // its real model runs on FieldView's real props. Its pixels are held in real Skia (FieldFallback.skia.test.tsx).
+// Each render of the field's Canvas is counted: on the device every one is a JS commit that redraws the canvas from a
+// recording JS made (RN Skia's redraw()), not from the UI thread's latest image.
+const skiaRenders = { canvas: 0 };
 jest.mock('@shopify/react-native-skia', () => {
-  const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
   const inert: unknown = new Proxy(function stub() {}, { get: () => inert, apply: () => inert });
   return {
-    Canvas: Stub,
+    Canvas: ({ children }: { children?: React.ReactNode }) => {
+      skiaRenders.canvas += 1;
+      return children ?? null;
+    },
     Image: () => null,
     Picture: () => null,
     FilterMode: { Nearest: 0, Linear: 1 },
@@ -404,6 +409,68 @@ describe('the still tier (reduced motion): one fadeReduced ramp, frames until th
     expect(starts).toEqual([1, 1]);
     expect(placementFades(uniformsOf(r)!)).toEqual([1, 1, 1]);
     expect(reanimated.__active()).toBe(0);
+  });
+
+  // F10 G8 round 2 (still/, f002 to f005): after a placement at the still tier the field under the bead went blue,
+  // purple, blue, purple before it settled. DEC-168 and DEC-170: a change at the still tier is one fadeReduced ramp,
+  // monotone in u. So on every frame drawn after a placement on a sleeping still field, at a loaded device's uneven frame
+  // times, the placement's fade only rises and every rest lobe's only falls, each to its end, with no step back.
+  it.each([
+    ['even 16 ms frames', [16]],
+    ['a loaded device’s uneven frames', [16, 49, 7, 33, 120, 4, 16, 66, 16, 250, 8]],
+  ])('a placement on a sleeping still field changes it one way only: %s', (_, pattern) => {
+    const r = mount(baseProps({ tier: 'still', taps: [] }));
+    frames(60);
+    expect(reanimated.__active()).toBe(0);
+    const before = nodes(uniformsOf(r)!);
+    const rest = before.map((n, k) => (n.bead ? -1 : k)).filter((k) => k >= 0 && before[k].fade > 0);
+    expect(rest.length).toBeGreaterThan(0);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A] })} />));
+    const seen: Array<{ placement: number[]; rest: number[] }> = [];
+    for (let i = 0; i < 80 && reanimated.__active() > 0; i++) {
+      act(() => reanimated.__frame(pattern[i % pattern.length]));
+      const n = nodes(uniformsOf(r)!);
+      seen.push({ placement: n.filter((x) => x.bead).map((x) => x.fade), rest: rest.map((k) => (n[k].bead ? 0 : n[k].fade)) });
+    }
+    expect(reanimated.__active()).toBe(0);
+    const placement = seen.map((f) => (f.placement.length === 0 ? 0 : f.placement[0]));
+    for (let i = 1; i < placement.length; i++) if (placement[i] < placement[i - 1]) expect({ frame: i, placement: placement.slice(0, i + 1) }).toEqual({ frame: i, placement: 'only rising' });
+    for (let k = 0; k < rest.length; k++) {
+      const fade = seen.map((f) => f.rest[k]);
+      for (let i = 1; i < fade.length; i++) if (fade[i] > fade[i - 1]) expect({ lobe: k, frame: i, fade: fade.slice(0, i + 1) }).toEqual({ lobe: k, frame: i, fade: 'only falling' });
+      expect(fade[fade.length - 1]).toBe(0);
+    }
+    expect(placement[placement.length - 1]).toBe(1);
+  });
+
+  // The same capture's cause: the screen showed the pre-placement field again (f004) after the ramp's first frame (f003).
+  // The model never goes back (above), so the older image came from a redraw of the canvas from JS: each JS commit of
+  // the Canvas makes RN Skia stop its mapper and draw a recording JS made, and FieldView re-renders at the wake and at
+  // the start's hop to the page. Only the UI thread's mapper may put the field's frames on screen: the canvas is
+  // committed by JS when what it draws is new (its size, its effect), never by a placement, a wake, a sleep or a page
+  // that re-renders FieldView with equal props.
+  it('a placement, its ramp, the wake, the sleep and a page’s equal re-renders never re-commit the field’s canvas from JS', () => {
+    const onStart = jest.fn();
+    const r = mount(baseProps({ tier: 'still', taps: [], onStart }));
+    frames(60);
+    expect(reanimated.__active()).toBe(0);
+    const mountedCanvas = skiaRenders.canvas;
+    expect(mountedCanvas).toBeGreaterThanOrEqual(1);
+    // The page's re-render with equal props: a new layout object of the same values, as a root that rebuilds it.
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [], onStart, layout: { ...baseProps().layout } })} />));
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart })} />));
+    for (let i = 0; i < 120 && reanimated.__active() > 0; i++) {
+      act(() => reanimated.__frame(16));
+      // Through the ramp, the start's hop lands on the page, which re-renders FieldView with equal props.
+      if (i < 10) act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart, layout: { ...baseProps().layout } })} />));
+    }
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(reanimated.__active()).toBe(0);
+    expect(placementFades(uniformsOf(r)!)).toEqual([1]);
+    expect(skiaRenders.canvas - mountedCanvas).toBe(0);
+    // What it draws is new: a new size commits it, once.
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart, layout: { ...baseProps().layout, width: 361 } })} />));
+    expect(skiaRenders.canvas - mountedCanvas).toBe(1);
   });
 
   it('the moving tiers never stop', () => {
