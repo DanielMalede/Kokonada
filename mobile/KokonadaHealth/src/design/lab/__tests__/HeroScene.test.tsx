@@ -83,7 +83,7 @@ import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
 import {
-  HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_KNOCK_TAPS, HERO_SCENE_PROBES, HeroScene, heroInitial, heroScene,
+  HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_KNOCK_TAPS, HERO_SCENE_PROBES, HERO_TIMED_POINT, HERO_TIMED_SCHEDULE, HeroScene, heroInitial, heroScene,
 } from '../scenes/HeroScene';
 import { plateGeometry, pointToLocal } from '../../v2/components/Plate/geometry';
 import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
@@ -132,8 +132,8 @@ async function mount(scene: string, ports: MotionPorts = MOTION_ON) {
 }
 
 const IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty'].flatMap((taps) => ['latin', 'hebrew'].map((script) => `hero.abyss.${face}.${taps}.${script}`)));
-/** Every hero id: the faces × the taps (three, empty, and G8 round 2's knock and seam) × the scripts, each plain and with the outline dial. */
-const ALL_IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty', 'knock', 'seam'].flatMap((taps) => ['latin', 'hebrew'].flatMap((script) => [
+/** Every hero id: the faces × the taps (three, empty, G8 round 2's knock and seam, and timed) × the scripts, each plain and with the outline dial. */
+const ALL_IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty', 'knock', 'seam', 'timed'].flatMap((taps) => ['latin', 'hebrew'].flatMap((script) => [
   `hero.abyss.${face}.${taps}.${script}`, `hero.abyss.${face}.${taps}.${script}.outline`,
 ])));
 
@@ -145,7 +145,7 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('the hero scenes', () => {
-  it('are Abyss × {dark, light} × {three, empty, knock, seam} × {latin, hebrew} × {plain, outline}: 32 HeroScenes, the stage and the plate their probes', () => {
+  it('are Abyss × {dark, light} × {three, empty, knock, seam, timed} × {latin, hebrew} × {plain, outline}: 40 HeroScenes, the stage and the plate their probes', () => {
     const hero = Object.keys(SCENES).filter((id) => id.startsWith('hero.')).sort();
     expect(hero).toEqual([...ALL_IDS].sort());
     for (const id of ALL_IDS) {
@@ -384,6 +384,53 @@ describe('the round-2 evidence scenes', () => {
     expect([...taps].sort((a, b) => a.x - b.x)).toEqual([...seam].sort((a, b) => a.x - b.x));
     expect(taps[taps.length - 1].x).toBeLessThan(0);
     expect(taps[0].x).toBeGreaterThan(0);
+  });
+
+  // The entrance with no tap (G8 round 2, entrance/: the tap stalls the emulator's screen longer than press + respond, so
+  // the grey step and the colour after it were never seen): the scene places the bead on a timer from its stage's mount,
+  // through the very callback a touch uses, and takes it away and places it again, so one recording holds several.
+  it('timed: starts empty; on its schedule a bead enters at round 2’s entrance spot, leaves, and enters again, through the page’s own callbacks with no touch', async () => {
+    jest.useFakeTimers();
+    try {
+      const h = await mount('hero.abyss.dark.timed.latin');
+      h.layout();
+      expect(heroInitial('timed').taps).toEqual([]);
+      expect(h.props(BeadLayer).beads).toEqual([]);
+      let at = 0;
+      const until = (ms: number) => {
+        act(() => {
+          jest.advanceTimersByTime(ms - at);
+        });
+        at = ms;
+      };
+      const seen: string[] = [];
+      for (const [ms, action] of HERO_TIMED_SCHEDULE) {
+        until(ms - 1);
+        const before = h.props(BeadLayer).beads.filter((b) => !b.leaving).length;
+        until(ms);
+        const live = h.props(BeadLayer).beads.filter((b) => !b.leaving);
+        seen.push(`${ms} ${action} ${before}→${live.length}`);
+        if (action === 'place') {
+          expect(live).toHaveLength(1);
+          expect(live[0].point).toEqual(HERO_TIMED_POINT);
+          // An entrance, not a bead shown whole: it plays the grey step and then the colour.
+          expect(live[0].placedAt).not.toBeNull();
+        } else {
+          expect(live).toHaveLength(0);
+        }
+      }
+      expect(seen).toEqual(HERO_TIMED_SCHEDULE.map(([ms, action]) => `${ms} ${action} ${action === 'place' ? '0→1' : '1→0'}`));
+      expect(HERO_TIMED_SCHEDULE.filter(([, a]) => a === 'place').length).toBeGreaterThanOrEqual(3);
+      // The field, the touch layer and the beads read the same taps: the page's own state.
+      expect(h.props(PlateTouch).taps).toEqual(h.props(FieldView).taps);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('timed: its bead is round 2’s entrance tap, (306, 1066) px on that device’s plate (centre (540, 1300), R 435 px), intense', () => {
+    expect(HERO_TIMED_POINT.x).toBeCloseTo((306 - 540) / 435, 2);
+    expect(HERO_TIMED_POINT.y).toBeCloseTo(-(1066 - 1300) / 435, 2);
   });
 
   const outlines = (h: Awaited<ReturnType<typeof mount>>) => h.r.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === 'hero.lab.outline');

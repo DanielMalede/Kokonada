@@ -28,7 +28,7 @@
 //     own face (fonts.ts). The rim words are Skia text: the scene asks for the typeface provider (`typefaces`), and READY
 //     waits for its font manager too (LabRoot).
 
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
 import { Canvas, Circle } from '@shopify/react-native-skia';
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
@@ -67,15 +67,33 @@ export const HERO_SCENE_PROBES: readonly string[] = ['stage', 'plate'];
 export const HERO_RING = 3;
 /**
  * The taps a hero scene starts with: the token extensions' hero scene `three`, or none; and for G8 round 2's evidence,
- * `knock` (HERO_KNOCK_TAPS) and `seam` (the token scene `seam`, its intense bead placed last).
+ * `knock` (HERO_KNOCK_TAPS) and `seam` (the token scene `seam`, its intense bead placed last), and `timed`, which starts
+ * empty and places and takes away one bead on a timer (HERO_TIMED_SCHEDULE).
  */
-export const HERO_TAPS = ['three', 'empty', 'knock', 'seam'] as const;
+export const HERO_TAPS = ['three', 'empty', 'knock', 'seam', 'timed'] as const;
 /**
  * The knock-out scene's taps (G8 round 2): a bead on the top word's anchor, then one on the left word's, each 0.96 of the
  * way to the rim, where its centre sits on the ring's centre line, well within the bead radius + knockoutGap of the
  * letters of More energy / יותר אנרגיה and of Unpleasant / לא נעים. The left one is the latest.
  */
 export const HERO_KNOCK_TAPS: readonly PlatePoint[] = [{ x: 0, y: 0.96 }, { x: -0.96, y: 0 }];
+/**
+ * The timed scene's bead (G8 round 2's entrance): where that round's tap was, (306, 1066) px on its device's plate (centre
+ * (540, 1300), R 435 px), the intense quadrant, so the colour step is plain to measure.
+ */
+export const HERO_TIMED_POINT: PlatePoint = { x: -0.54, y: 0.54 };
+/**
+ * The timed scene's schedule, in ms from its stage's mount: the bead placed, taken away and placed again, through the
+ * page's own callbacks with no touch, so the entrance plays without the tap's stall on the emulator's screen, and one
+ * recording started at READY + 5 s holds three entrances and two exits, each well apart (motion.settle and more).
+ */
+export const HERO_TIMED_SCHEDULE: ReadonlyArray<readonly [number, 'place' | 'remove']> = [
+  [8000, 'place'],
+  [11000, 'remove'],
+  [14000, 'place'],
+  [17000, 'remove'],
+  [20000, 'place'],
+];
 /** The lab-only dial a hero id may end in: `.outline` draws the label band's inner and outer edges at 1 px. */
 export const HERO_OUTLINE = 'outline';
 /** The script its words, hint and label are in. */
@@ -174,7 +192,8 @@ function startingTaps(taps: HeroTaps): readonly PlatePoint[] {
     case 'knock': return HERO_KNOCK_TAPS;
     // The seam's beads by x, right first: the intense one, left of 12 o'clock, is placed last, so Remove takes it.
     case 'seam': return [...heroTaps('seam')].sort((a, b) => b.x - a.x);
-    case 'empty': return [];
+    case 'empty':
+    case 'timed': return [];
   }
 }
 
@@ -256,6 +275,12 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
   }, [store]);
   const onPlace = useCallback((point: PlatePoint) => apply(heroPlaced(latest.current, point)), [apply]);
   const onRemoveLatest = useCallback(() => apply(heroRemoved(latest.current)), [apply]);
+  // The timed scene: its schedule runs from this stage's mount through the same callbacks a touch reaches.
+  useEffect(() => {
+    if (taps !== 'timed') return undefined;
+    const timers = HERO_TIMED_SCHEDULE.map(([ms, action]) => setTimeout(() => (action === 'place' ? onPlace(HERO_TIMED_POINT) : onRemoveLatest()), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [taps, onPlace, onRemoveLatest]);
   const haptics = useMemo<PlateHaptics>(() => ({ fire: () => apply({ ...latest.current, haptics: latest.current.haptics + 1 }) }), [apply]);
   const onCommit = useCallback(() => apply({ ...latest.current, commits: latest.current.commits + 1 }), [apply]);
   const onOpenList = useCallback(() => apply({ ...latest.current, lists: latest.current.lists + 1 }), [apply]);
