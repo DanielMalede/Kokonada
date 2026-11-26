@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import { frameOf, layoutRules, type Box, type Rules } from './__fixtures__/yogaRtl';
@@ -86,9 +86,10 @@ describe('the shared Yoga RTL model', () => {
   const B = bead.setting.width;
 
   it('a paint-only style moves nothing: a corner radius, a border colour, a shadow and a background image', () => {
-    const paint = {
+    // Typed as React Native's own ViewStyle, so the gradient is a whole radial-gradient value, as Bead.tsx's is.
+    const paint: ViewStyle = {
       borderRadius: bead.diameter / 2, borderColor: ink, boxShadow: [{ offsetX: 0, offsetY: bead.shadow.offsetY, blurRadius: bead.shadow.blur, color: ink }],
-      experimental_backgroundImage: [{ type: 'radial-gradient', colorStops: [] }],
+      experimental_backgroundImage: [{ type: 'radial-gradient', shape: 'circle', size: 'closest-side', position: { top: '50%', left: '50%' }, colorStops: [{ color: ink }] }],
     };
     const tree = <View style={{ flex: 1 }}><View testID="p" style={{ position: 'absolute', left: 10, top: 20, width: 30, height: 40, ...paint }} /></View>;
     expect(frames(tree, LTR).p).toEqual({ x: 10, y: 20, width: 30, height: 40 });
