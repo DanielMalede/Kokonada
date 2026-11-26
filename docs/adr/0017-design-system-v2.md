@@ -3,7 +3,8 @@
 **Status:** Proposed · 2026-11-26
 **Implements:** `DEC-033` (DECIDED 2026-09-23: "מנוע העיצוב נשאר `StyleSheet` עם טוקנים ופרימיטיבים משלנו. `Tamagui` ו-`Moti` יוצאים, ו-`ADR-0017` מחליף את `ADR-0009`.") · `ARCH-013` (plan §6 B9)
 **Supersedes (on acceptance only):** ADR-0009. Until the owner accepts this ADR (`DAN-051`), ADR-0009 keeps its status (`ARCH-008`).
-**Related:** `DEC-130` (the V1 direction, Abyss), `DEC-081`, `DEC-172`, `DEC-174`, `DEC-192`, `ARCH-017`, `UI-093`, `UI-094`, `UI-160`, `UI-168`, `DAN-033`, `DAN-051`, ADR-0016
+**Authority while Proposed:** none. While it is Proposed this ADR changes no authority order: the clause of `CLAUDE.md` § Document map item 3 ("until ADR-0017 records the direction") takes effect on acceptance only.
+**Related:** `DEC-130` (the V1 direction, Abyss), `DEC-009`, `DEC-052`, `DEC-065` (OPEN), `DEC-081`, `DEC-172`, `DEC-174`, `DEC-192`, `ARCH-017`, `UI-093`, `UI-094`, `UI-160`, `UI-168`, `DAN-033`, `DAN-051`, ADR-0016
 
 ## Context
 
@@ -14,9 +15,37 @@ with our own tokens and primitives, and drops Tamagui and Moti. Neither is a dep
 `react-native-reanimated`, and no Tamagui or Moti package. The owner chose Abyss as the V1 direction on 2026-10-07
 (`DEC-130`), so the token sources ship exactly one direction.
 
-The v2 foundations exist on the integration branch `wip/v2-hero-lab` at `13635c2`. They are not on `main` yet. This
-ADR describes them as built there. Paths below are relative to `mobile/KokonadaHealth/` unless they start at the repo
-root. If a path has moved by the time the foundations land on `main`, this ADR is the defect to fix before acceptance.
+The v2 foundations are in two places. Paths below are relative to `mobile/KokonadaHealth/` unless they start at the
+repo root.
+
+**On `main` at `385e631` (#234):**
+
+- both token sources, `design-tokens/base.tokens.json` and `design-tokens/direction.abyss.tokens.json` (repo root);
+- the generator and its tests: `scripts/tokens/generate.mjs`, `scripts/tokens/lib/` and `scripts/tokens/__tests__/`.
+  On `main` it emits two modules;
+- in `src/design/v2/tokens/`: `tokens.generated.ts`, `tokens.extensions.generated.ts`, `useTokens.ts` and
+  `DirectionProvider.tsx`;
+- the laws and the dev preview: `src/design/v2/color/`, `clock/`, `motion/`, `field/` and `preview/`;
+- the Design Lab: `src/design/lab/`, its entry `index.lab.js` and its Android build type;
+- the token-only lint: `eslint.design-system.js` and `tools/eslint-plugin-kokonada/`;
+- the band evidence lane: `scripts/field/bandEvidence.mts`, its stamp and its test;
+- every guard under *Guards* that is not marked "(branch only)".
+
+**Only on the local, unpushed branch `wip/v2-hero-lab` at `13635c2`, not verifiable from `main`:**
+
+- `src/design/v2/tokens/tokens.statics.generated.ts`, with the generator's `RUNTIME_STATICS` allow-list and its third
+  emitted module;
+- all of `src/design/v2/components/` (Plate, RimLabels, Bead, PlateTouch, CommitCTA, Well);
+- `src/design/v2/typeface/` and `src/design/v2FaceSources.ts`;
+- the bundled faces in `assets/fonts/` (`main` holds only that folder's README);
+- the lab's font and hero scenes (`src/design/lab/fonts.ts`, `scenes/FontsScene.tsx`, `scenes/HeroScene.tsx`);
+- `FieldView`'s `onStart` carrying the live placements (on `main` it carries the admitted count alone);
+- their guards, each marked "(branch only)" under *Guards*.
+
+This ADR describes the second list as built at `13635c2`; the branch has moved on since. Below, "(branch only)" marks
+every item of the second list. Nothing this ADR says about a branch-only item is verified from `main`: each is
+re-checked when the foundations land, before acceptance (see *What stays open*). If a path has moved by then, this ADR
+is the defect to fix.
 
 Three of the rulings cited below were decided under `DEC-142` by the orchestrator, once the named agents agreed:
 `DEC-081` (2026-10-04), `DEC-172` and `DEC-174` (both 2026-10-06). The owner may reverse each of them. Their DECIDED
@@ -35,27 +64,34 @@ convention (see *Guards*).
 
 - `design-tokens/base.tokens.json` and `design-tokens/direction.abyss.tokens.json` (repo root) hold every v2 design
   value in DTCG form. They are the only place a colour, scale, motion or field value is authored.
-- `neverRed.*` in the base file is the owner's (`DEC-081`); the designer locks the other token groups. No other
-  direction may appear in the sources, the app or the scripts.
+- `neverRed.*` in the base file is locked under `DEC-081`; only a ruling changes it. The designer locks the other
+  token groups. No other direction may appear in the sources, the app or the scripts.
+- The token sources are the value of record. The designer's ledger explains a value and never overrides it (see
+  *DSN- design rules, and the ledger*).
 
 ### L1 — The generator
 
 - `scripts/tokens/generate.mjs` reads the sources (`lib/sources.mjs`), validates them (`lib/schema.mjs`) and emits
-  three modules (`lib/emit.mjs`). `--check` exits 1 if a committed module is stale. A schema error exits 1, naming the
-  path.
+  the generated modules (`lib/emit.mjs`): two on `main`, and the statics module as the third (branch only). `--check`
+  exits 1 if a committed module is stale. A schema error exits 1, naming the path.
 - The output is deterministic, byte for byte, and each module records the sha256 of every source file it was built
   from.
-- A move to Style Dictionary (F1, `UI-094`) must reproduce all three modules byte for byte, or it does not land.
+- A move to Style Dictionary (F1, `UI-094`) must reproduce every generated module byte for byte, or it does not land.
 
 ### L2 — The three generated modules (`DEC-172`)
 
-They live in `src/design/v2/tokens/` and nobody edits them by hand.
+They live in `src/design/v2/tokens/` and nobody edits them by hand. Two are on `main`; the statics module is branch
+only.
+
+The two display faces, dark and light, are equal, and every page is designed and checked in both (`DEC-009`: "לפי
+הטלפון, שני המצבים שווים", and what follows from it, "כל דף מתוכנן ונבדק בשניהם"). This ADR applies the same to every
+component: each is built and evidenced in both faces. `DEC-034` covers only the phone that reports no display mode.
 
 - `tokens.generated.ts` — the styling tokens: `BASE` and `DIRECTIONS`, by face. App code reads it through
   `useTokens()` under a `DirectionProvider`. `useTokens()` throws without a provider or for an unknown direction
   rather than paint with a guess. A phone that reports no display mode reads as the dark face (`DEC-034`).
-- `tokens.statics.generated.ts` — the field's runtime statics: the rest lobes, the drift tables, the fallback stops,
-  and the graph's edges and node tier.
+- `tokens.statics.generated.ts` (branch only) — the field's runtime statics: the rest lobes, the drift tables, the
+  fallback stops, and the graph's edges and node tier.
   - A pinned allow-list in the generator (`RUNTIME_STATICS`) selects them. The module is plain data with no imports,
     so worklets can capture it.
   - Changing the allow-list needs the designer's acknowledgement in its PR.
@@ -66,7 +102,8 @@ They live in `src/design/v2/tokens/` and nobody edits them by hand.
   not tree-shake, so any other importer would ship it.
 - The field's builder takes `FieldStatics` as a parameter. A composition root supplies it as a memoised prop, once
   per direction. No worklet reads the extensions module. Until the `fieldStatics` adapter replaces `staticsFor`
-  (`ARCH-017`, 1E), the lab passes the statics from the extensions module and the data sits in both modules.
+  (`ARCH-017`, 1E), the lab passes the statics from the extensions module, and once the statics module lands the data
+  sits in both modules.
 
 ### L3 — The laws: `src/design/v2/{color,tokens,clock,motion,field}`
 
@@ -85,11 +122,12 @@ They live in `src/design/v2/tokens/` and nobody edits them by hand.
   - `field/effect.ts` compiles the runtime effect once per process. An effect that cannot draw gives `FieldFallback`,
     and that answer is kept.
   - `FieldView` runs the placement ledger and the builder on the UI thread, once per drawn frame. The JS thread never
-    reads the ledger per frame: it hears only of a start (`onStart`, with the admitted count and the live
-    placements), the still tier's stop, and a failure.
+    reads the ledger per frame: it hears only of a start (`onStart`, with the admitted count; the live placements
+    are added to it on the branch only), the still tier's stop, and a failure.
   - A builder throw switches to `FieldFallback` for the rest of the mount.
   - `FieldView` is keyed by direction, face and scene, so a switch mounts a fresh ledger.
-  - The effect's status is never reported off the device (REG-066).
+  - The effect's status is not reported off the device today (REG-066). Whether a report is ever sent, and what it
+    carries, is `DEC-065` (OPEN, the owner's); this ADR does not decide it.
 - **The placement ledger** (`field/placementLedger.ts`) is the visual layer's only record of the placements.
   - It is derived from the cold-lane taps alone, read by value as `{x, y}`. It never imports `src/state` and persists
     nothing.
@@ -98,7 +136,9 @@ They live in `src/design/v2/tokens/` and nobody edits them by hand.
   - Crossfades are serialised: a crossfade never interrupts another, and starts are at least `motion.settle.duration`
     apart.
 
-### L4 — The components: `src/design/v2/components/` (F10)
+### L4 — The components: `src/design/v2/components/` (F10) (branch only)
+
+Every component below is branch only.
 
 - **Plate** — the plate's geometry, its rim, and its accessibility reading order.
 - **RimLabels** — the rim words, as Skia text on the arc.
@@ -106,8 +146,8 @@ They live in `src/design/v2/tokens/` and nobody edits them by hand.
   - Words that need a shaper are refused before they render (`visualOrder`).
   - Letters near a live bead are knocked out.
 - **Bead** — `BeadLayer`, `useBeadPresence` and `beadTimeline`. A translucent bead is achromatic; its colour sits on
-  an inner disc that is visible only while the bead is opaque. That way a bead composited over the field can never
-  make red.
+  an inner disc that is visible only while the bead is opaque. That a bead composited over the field never makes red
+  is proved by `src/design/v2/tokens/__tests__/neverRed.beadTwin.test.ts` (branch only).
 - **PlateTouch** — takes callbacks only, and hands each placing touch to its `toPoint` prop. Each page passes
   `screenToCircumplex` itself (QA-087, QA-088), so the ≤3-tap payload, the three lanes and the circumplex geometry are
   unchanged.
@@ -115,7 +155,9 @@ They live in `src/design/v2/tokens/` and nobody edits them by hand.
 - **CommitCTA** and its pure machine `ctaState` / `useCtaMachine`, under `DEC-174`:
   - It shows, and changes its tint, only at the field's admitted starts, from a placement live in the store.
   - It hides at once when the store empties, and the hide latches.
-  - It is pressable and exposed to accessibility only while shown, not hiding, and with a tap in the store.
+  - It is pressable and exposed to accessibility only while shown, not hiding, and with a tap in the store. In
+    `DEC-174`'s words, "a press commits the store's latest taps, never the ledger's": the ledger never supplies the
+    payload.
   - In any 1 s window it makes at most 5 changes and at most 2 general flashes. `DEC-016` and DSN-018 stand.
 - **Well** — hosts the hint and the action. Its first painted frame already has its final height.
 
@@ -125,19 +167,24 @@ Components may read the laws. No law imports a component.
 
 Roots measure the layout and inject every source a component needs. v2 imports nothing outside itself:
 
-- **Faces (F6).** `src/design/v2FaceSources.ts`, outside v2, holds each bundled face's Metro asset. The root mounts
-  `TypefaceProvider sources={V2_FACE_SOURCES}` above the page's Skia text.
+- **Faces (F6) (branch only).** `src/design/v2FaceSources.ts`, outside v2, holds each bundled face's Metro asset. The
+  root mounts `TypefaceProvider sources={V2_FACE_SOURCES}` above the page's Skia text.
   - The provider loads the faces into one Skia font manager.
   - A face that fails to load throws to the nearest error boundary, never quietly to the system face.
   - React Native text names its face through `fontFace(family, weight)`. On Android that is the bundled file's name
     with no `fontWeight`, and a face the app does not bundle throws.
   - The bundled faces are Heebo (300–600) and Bellefair 400.
+  - **The role rule (`DEC-052`).** Bellefair is the voice face. In `DEC-052`'s words it is "used only for the voice
+    sentences, at 24 px and up, and never in labels, buttons, numbers or legal text; if it does not work out, the
+    fallback is Frank Ruhl Libre 300". `DEC-138` keeps Bellefair as the voice face in every direction. Heebo is the
+    interface face for every other role: it is the designer's choice from the plan's shortlist
+    (`docs/plans/DESIGN_V2_PLAN.md:175`), not an owner ruling.
 - **Copy, through the copy port.** No component owns a string: the page resolves every label, hint and accessible
   text and passes it in.
   - The port is a contract today, not code.
   - Regulated (R) keys carry no text in a batch tree. Batch PRs carry keys, neutral copy and placeholders, and the
     regulated text lands only with the cutover (`DEC-192`, ruling 5 (F3-B), and rulings 9, 12 and 15).
-- **Statics.** The root supplies the field's statics (L2).
+- **Statics.** The root supplies the field's statics (L2). The statics module is branch only.
 - **The Design Lab** (`src/design/lab/`) composes the same components from synthetic data only.
   - It has its own entry (`index.lab.js`), its own Android build type and its own application id (`.lab`).
   - The release entry (`index.js`) never imports it. It is absent from every uploadable build, not merely
@@ -157,8 +204,10 @@ Roots measure the layout and inject every source a component needs. v2 imports n
 
 ### DSN- design rules, and the ledger
 
-- **DSN-** is reserved in `docs/design-v2/registry/INDEX.md` for design rules, and this ADR mints them in the L1
-  registry.
+- **DSN-** is reserved in `docs/design-v2/registry/INDEX.md` for design rules, which are minted under this ADR in the
+  L1 registry.
+- **No DSN rule is minted at this ADR's head** (`docs/design-v2/registry/INDEX.md:16`: "None exist yet."). Every DSN
+  id this ADR cites (DSN-013, DSN-018) is a draft id, and the list of rules is deferred (`ARCH-013`).
 - The designer authors each rule. A scribe writes it as `docs/design-v2/registry/DSN-nnn.md` and updates the INDEX
   in the same change.
 - **Numbering keeps the drafted numbers.** DSN-001 to DSN-012 are V0's findings, and the rest follow the V1 draft.
@@ -167,8 +216,10 @@ Roots measure the layout and inject every source a component needs. v2 imports n
 - A rule retired later stays in the registry, marked retired.
 - Until a rule is minted, a finding cites the ledger's section and the draft ID, or a CMP-, REG-, DEC- or QA- ID.
 - **What the ADR fixes, and what it leaves to the ledger.** This ADR fixes the layers, the boundaries and the laws
-  above. It leaves the taste laws, the per-page composition rules, and the token values inside the locked groups to
-  the designer's ledger of 2026-11-23 and its versions.
+  above. It leaves the taste laws, the per-page composition rules, and the reasons for the token values inside the
+  locked groups to the designer's ledger of 2026-11-23 and its versions.
+  - The token source is the value of record (L0). The ledger explains it and never overrides it: where the two
+    differ, the ledger is the defect.
   - The ledger ranks below this ADR once the ADR is accepted.
   - If the ledger contradicts a boundary or a law here, the ledger is the defect.
 
@@ -203,22 +254,29 @@ Roots measure the layout and inject every source a component needs. v2 imports n
 - The lab ships nowhere, so lab-only scenes can hold synthetic data and capture plans freely.
 - Never red is proved three ways: by sweeps in CI, by the band evidence lane by hand, and by device captures. A change
   to an input of the colour law obliges a fresh stamp.
-- Until `ARCH-017`'s 1E lands, the runtime statics sit in two modules. Until the CI sweeps filter covers
-  `components/Plate/**` and `components/CommitCTA/**`, E6 runs on the coarse grid only, and no verdict may claim E6
-  verbatim or close `UI-168`.
-- In fallback no admitted start arrives, so the CTA never shows. The architect's F10 G8 rulings of 2026-11-25 (F1,
-  S1) require the fallback to run the same ledger on JS and deliver starts the same way. Until that lands, a page with
-  a CTA cannot pass in fallback.
+- Until `ARCH-017`'s 1E lands, the runtime statics sit in two modules (branch only).
+- E6 is the flash-bound storm `DEC-174` pins ("the resilience-auditor's E6 with its five planted cases"; `UI-168`).
+  The CI sweeps filter covers `components/Plate/**` and `components/CommitCTA/**` on `main` since #234
+  (`.github/workflows/ci.yml`; `SWEEPS_FILTER` in `scripts/jest/__tests__/jestProjects.test.ts`), but the components
+  and `ctaStorms.test.ts` are branch only. Until they land and E6 runs on `main`, no verdict may claim E6 verbatim or
+  close `UI-168`.
+- In fallback no admitted start arrives, so under `DEC-174` as built a device in fallback never shows the commit
+  button (`OPS-541`, P0). The architect's F10 G8 rulings of 2026-11-25 (F1, S1) are said to require the fallback to
+  run the same ledger on JS and deliver starts the same way; they are not in the repo
+  (`Kokonada-private/design-v2/F10_G8_hero_architect_rulings_2026-11-25.md`), so this ADR does not rest on them.
+  Until `OPS-541` closes, a page with a CTA cannot pass in fallback.
 
 ## Guards
 
-Each boundary is held by these tests. Paths are relative to `mobile/KokonadaHealth/`.
+Each boundary is held by these tests. Paths are relative to `mobile/KokonadaHealth/`. An item marked "(branch only)"
+is on `wip/v2-hero-lab` at `13635c2` and not on `main`; every other path is on `main` at `385e631`.
 
 - **v2 isolation** (`src/design/v2/__tests__/isolation.test.ts`):
   - no relative import leaves `src/design/v2`, except the test fixture's two generator imports, pinned by file and
     specifier;
   - nothing outside a `__tests__` folder imports `__fixtures__`;
-  - no file under `field/`, `color/`, `tokens/`, `clock/` or `motion/` names a module under `components/`;
+  - no file under `field/`, `color/`, `tokens/`, `clock/` or `motion/` names a module under `components/` (branch
+    only);
   - every relative import names its file;
   - the design-system lint baseline holds no key under `src/design/v2/` or `src/design/lab/`;
   - each rule is also run against planted violations, which must fail.
@@ -227,39 +285,40 @@ Each boundary is held by these tests. Paths are relative to `mobile/KokonadaHeal
   v2, tests included. Only `tokens.generated.ts` is exempt.
 - **The generator** (`scripts/tokens/__tests__/generate.test.ts`, `schema.test.ts`, `freshness.test.ts`,
   `retiredDirections.test.ts`, `secretScanShape.test.ts`):
-  - each of the three modules is byte for byte what the generator makes;
+  - each generated module is byte for byte what the generator makes (the statics module: branch only);
   - each records its sources' sha256;
   - exactly one direction (Abyss) ships;
-  - the statics module is plain data at every depth;
+  - the statics module is plain data at every depth (branch only);
   - no retired direction appears outside Markdown.
 - **The extensions boundary** (`src/design/v2/tokens/__tests__/extensionsBoundary.test.ts`): only tests, the lab and
-  `design/v2/preview/` import the extensions module. The statics module stays outside the ban.
+  `design/v2/preview/` import the extensions module. The statics module stays outside the ban (branch only).
   `scripts/jest/__tests__/devPreviewExcluded.test.ts` keeps the preview out of release bundles.
 - **Worklet safety and the statics port** (`src/design/v2/__tests__/workletSafe.test.ts`,
-  `src/design/v2/field/__tests__/graphConformance.test.ts`).
+  `src/design/v2/field/__tests__/graphConformance.test.ts`). The statics module they will cover is branch only.
 - **Never red:**
   - `src/design/v2/color/__tests__/redBand.test.ts` and `mixSafe.test.ts`;
-  - `src/design/v2/tokens/__tests__/neverRed.field.test.ts`, `neverRed.edges.test.ts`, `neverRed.edgeAnchors.test.ts`,
-    `neverRed.beadTwin.test.ts` and `neverRed.full.abyss.sweeps.test.ts`;
+  - `src/design/v2/tokens/__tests__/neverRed.field.test.ts`, `neverRed.edges.test.ts`, `neverRed.edgeAnchors.test.ts`
+    and `neverRed.full.abyss.sweeps.test.ts`;
+  - `src/design/v2/tokens/__tests__/neverRed.beadTwin.test.ts` (branch only);
   - `bandCertificate.test.ts` and `betaPairFamily.test.ts`;
   - `src/design/v2/field/__tests__/fallbackNeverRed.skia.test.ts`;
-  - `src/design/v2/components/Plate/__tests__/rimNeverRed.test.ts`;
+  - `src/design/v2/components/Plate/__tests__/rimNeverRed.test.ts` (branch only);
   - the evidence lane's stamp: `scripts/field/__tests__/bandEvidence.test.ts`.
 - **The ledger and the field** (`src/design/v2/field/__tests__/placementLedger.test.ts`, `ledgerStorms*.test.ts`,
   `FieldView.test.tsx`, `frameCap.test.ts`, `flashCount.sweeps.test.ts`).
-- **The CTA (`DEC-174`):**
+- **The CTA (`DEC-174`) (branch only, all four files):**
   - `src/design/v2/components/CommitCTA/__tests__/ctaStorms.test.ts` (E6, with its planted cases);
   - `ctaStateClosure.test.ts`: the machine's import closure loads no React Native, no native library and nothing from
     `Bead/`;
   - `ctaState.test.ts` and `useCtaMachine.test.tsx`.
-- **The plate's taps never leave the page**
+- **The plate's taps never leave the page** (branch only)
   (`src/design/v2/components/PlateTouch/__tests__/plateTouchClosure.test.ts`): nothing in PlateTouch's closure writes
   the cold lane, opens a socket, persists, prompts for a permission or reaches a native module.
-- **Faces** (`src/design/v2/typeface/__tests__/faces.test.ts`, `TypefaceProvider.test.tsx`,
+- **Faces** (branch only, all six files) (`src/design/v2/typeface/__tests__/faces.test.ts`, `TypefaceProvider.test.tsx`,
   `typefaces.skia.test.ts`; `src/design/lab/__tests__/fonts.test.ts`, `labFontGate.test.tsx`,
   `labTypefaceGate.test.tsx`).
-- **Copy** (`src/design/v2/components/RimLabels/__tests__/rimWordsCopy.test.ts`): every locale's rim words pass
-  `visualOrder`.
+- **Copy** (branch only) (`src/design/v2/components/RimLabels/__tests__/rimWordsCopy.test.ts`): every locale's rim
+  words pass `visualOrder`.
 - **The lab's absence** (`src/design/lab/__tests__/labExclusion.test.ts`): statically, the release entry never
   reaches the lab. `scripts/lab/assertLabExcluded.mjs` proves it again on a real Metro and Hermes release bundle.
 
@@ -274,10 +333,17 @@ Each boundary is held by these tests. Paths are relative to `mobile/KokonadaHeal
 - **`DAN-051`, acceptance.** The owner accepts or amends this ADR at his V1 sitting. On acceptance ADR-0009 becomes
   "Superseded by 0017" (`ARCH-008`). The orchestrator's rulings cited here (`DEC-081`, `DEC-172`, `DEC-174`) stay
   reversible by him until then.
+- **The branch-only foundations.** Acceptance waits until the second list of *Context* is on `main` and every
+  statement this ADR makes about it has been re-checked there (`OPS-547`). Until then the precondition of `/page`
+  BATCH MODE that a batch needs "its foundations on main" (`.claude/commands/page.md`, PRECONDITIONS) is not met by
+  this ADR: a Proposed ADR that describes a local branch is not foundations on `main`.
+- **`DEC-065`, the shader-failure report** (OPEN, the owner's): whether a report is ever sent off the device, and what
+  it carries. This ADR records only that none is sent today (REG-066).
 - **The copy port** is a contract with no code yet. Its first implementation, and the catalogue that holds the R
   keys, come with the pages and the held regulated-copy branch (`DEC-192`, F3-B).
-- **iOS is frozen** (ADR-0016; no Mac). `fontFace`'s iOS form (family plus weight) and every v2 surface on iOS are
-  untested on a device. Device evidence is Android only, on emulators with one pass on the owner's phone at the
+- **iOS is frozen** by the owner's ruling of 2026-10-27 (no Mac; `MB-110`). ADR-0016 is cited only for the
+  Android-first launch; it does not freeze iOS. `fontFace`'s iOS form (family plus weight) and every v2 surface on
+  iOS are untested on a device. Device evidence is Android only, on emulators with one pass on the owner's phone at the
   cutover (`DEC-192`, ruling 2).
 - **The React Native upgrade** (`DEC-192`, F2-B: target 0.88.1, fallback 0.87.1) lands before any batch PR merges.
   The foundations described here are built on 0.86.0.
