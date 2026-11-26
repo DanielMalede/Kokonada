@@ -20,8 +20,7 @@ root. If a path has moved by the time the foundations land on `main`, this ADR i
 
 Three of the rulings cited below were decided under `DEC-142` by the orchestrator, once the named agents agreed:
 `DEC-081` (2026-10-04), `DEC-172` and `DEC-174` (both 2026-10-06). The owner may reverse each of them. Their DECIDED
-records are on the integration branch. On `main`, `DEC-081` still reads OPEN in `docs/design-v2/DECISIONS.md` until
-those records land.
+records are on `main` since #234 (`385e631`), in `docs/design-v2/DECISIONS.md`.
 
 `/page` batch mode needs this ADR at least Proposed before any page batch. The pages are built in batches and the
 owner reviews them at the end (`DEC-192`, rulings 1, 2 and 5). For that, the contract every page builds against has to
