@@ -28,10 +28,10 @@ const E = { x: -0.6, y: 0.6 };
 /** Past the longest exit: an opaque bead's colour step and opacity step. */
 const EXIT = exitDuration(1) + 50;
 
-/** The page as the rulings wire it: the presence from the store's taps, its beads, onGone and onExitStart to the layer. */
+/** The page as the rulings wire it: the presence from the store's taps, its beads and onGone to the layer. */
 function Page({ taps, tier }: { readonly taps: ReadonlyArray<{ x: number; y: number }>; readonly tier: MotionTier }) {
-  const { beads, onGone, onExitStart } = useBeadPresence(taps, tier);
-  return <BeadLayer beads={beads} plate={PLATE} onGone={onGone} onExitStart={onExitStart} />;
+  const { beads, onGone } = useBeadPresence(taps, tier);
+  return <BeadLayer beads={beads} plate={PLATE} onGone={onGone} />;
 }
 const element = (taps: ReadonlyArray<{ x: number; y: number }>, tier: MotionTier = 'full') => (
   <DirectionProvider direction="abyss" face="dark">
@@ -182,14 +182,12 @@ describe('BeadLayer draws the presence it is given (ruling 2)', () => {
     leaving: false,
     placedAt: null,
     leftAt: null,
-    playedAt: null,
-    playMs: null,
     startOpacity: 1,
     ...over,
   });
-  const direct = (list: readonly PresentBead[], onGone: (id: number) => void, onExitStart: (id: number, atMs: number, playMs: number) => void = jest.fn()) => (
+  const direct = (list: readonly PresentBead[], onGone: (id: number) => void) => (
     <DirectionProvider direction="abyss" face="dark">
-      <BeadLayer beads={list} plate={PLATE} onGone={onGone} onExitStart={onExitStart} />
+      <BeadLayer beads={list} plate={PLATE} onGone={onGone} />
     </DirectionProvider>
   );
 
@@ -201,19 +199,6 @@ describe('BeadLayer draws the presence it is given (ruling 2)', () => {
     });
     advance(EXIT);
     expect(onGone.mock.calls).toEqual([[7]]);
-  });
-
-  it('reports onExitStart with the bead’s own id once its exit’s clock is seen moving, never for a live bead', () => {
-    const onExitStart = jest.fn();
-    const leftAt = performance.now() - 120;
-    act(() => {
-      ReactTestRenderer.create(direct([entry(4, A, { placedAt: performance.now() }), entry(7, B, { leaving: true, leftAt })], jest.fn(), onExitStart));
-    });
-    expect(onExitStart).not.toHaveBeenCalled();
-    const exitCall = timing.mock.calls.find(([, config]) => config.toValue === exitDuration(1))!;
-    const [clock, config] = exitCall;
-    act(() => clock.setValue(exitDuration(1) / 2));
-    expect(onExitStart.mock.calls).toEqual([[7, performance.now() - config.duration / 2, config.duration]]);
   });
 
   it('hands each bead its entry’s stamps: a leaving bead’s exit plays from the bead at leftAt over what is left since leftAt', () => {

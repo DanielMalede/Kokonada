@@ -315,7 +315,7 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
             <PlateEntry ref={entry} plate={plate} label={copy.plateLabel} hint={copy.plateHint} onOpenList={onOpenList} onFocusChange={onEntryFocus} inert={false} />
             <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={presence.beads} beadOpacity={beadOpacityAt} />
             {outline ? <BandOutline plate={plate} /> : null}
-            <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} onExitStart={presence.onExitStart} />
+            <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} />
             <PlateTouch
               plate={plate}
               taps={state.taps}

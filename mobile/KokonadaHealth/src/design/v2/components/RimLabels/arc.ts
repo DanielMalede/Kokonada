@@ -59,16 +59,12 @@ export interface RimFontMetrics {
 /**
  * A bead as the rim words see it (the designer's ruling 2; Bead/'s presence makes them): where it sits, and whether it
  * is leaving. `leftAt` is when its fade-out began, in ms on the clock RimLabels reads each frame (Reanimated's frame
- * timestamp), null while it is live; `playedAt` is when the bead's own clock really started it, on the same clock, and
- * `playMs` how long it plays, both null until then (the exit function reads the fade on that time); `startOpacity` is its
- * opacity when the fade-out began (1 for a live bead).
+ * timestamp), null while it is live; `startOpacity` is its opacity when the fade-out began (1 for a live bead).
  */
 export type RimBead = {
   readonly point: PlatePoint;
   readonly leaving: boolean;
   readonly leftAt: number | null;
-  readonly playedAt: number | null;
-  readonly playMs: number | null;
   readonly startOpacity: number;
 };
 

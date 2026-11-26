@@ -11,10 +11,7 @@
 // Ruling 2 (2026-11-25): one presence serves the beads and hero A's rim words (useBeadPresence.ts). Each entry
 // carries when its entrance began (placedAt), when its exit began (leftAt) and its opacity at that moment
 // (startOpacity, from the entrance's timeline), so the letters near a leaving bead fade back in step with it
-// (beadTimeline.ts beadOpacityAt). The times are the caller's clock (performance.now() on the JS thread). When the
-// bead's native clock is seen to have started that exit, perhaps well after leftAt (a late effect, an op queue flushed
-// behind a re-render), the entry is stamped once more (playedAt and playMs, presenceExitStarted), so the letters read
-// the exit on the very time the bead plays it.
+// (beadTimeline.ts beadOpacityAt). The times are the caller's clock (performance.now() on the JS thread).
 //
 // The mount is the only reset: every tap present then is shown whole (no entrance), as a fresh ledger shows
 // its first input at fade 1. A leaving bead stays until its exit ends (presenceGone). Under reduced motion (the
@@ -37,10 +34,6 @@ export interface PresentBead {
   readonly placedAt: number | null;
   /** When its exit began; null while it is live. */
   readonly leftAt: number | null;
-  /** When its native clock really started the exit (Bead reports it); null until then, and while it is live. */
-  readonly playedAt: number | null;
-  /** How long that clock plays the exit, in ms; null until then, and while it is live. */
-  readonly playMs: number | null;
   /** Its opacity when its exit began; 1 while it is live. */
   readonly startOpacity: number;
 }
@@ -60,7 +53,7 @@ function readTaps(taps: readonly PlatePoint[]): PlatePoint[] {
 const same = (a: PlatePoint, b: PlatePoint) => a.x === b.x && a.y === b.y;
 
 /** A live bead shown whole from its first frame. */
-const whole = (id: number, point: PlatePoint): PresentBead => ({ id, point, leaving: false, placedAt: null, leftAt: null, playedAt: null, playMs: null, startOpacity: 1 });
+const whole = (id: number, point: PlatePoint): PresentBead => ({ id, point, leaving: false, placedAt: null, leftAt: null, startOpacity: 1 });
 
 export function presenceOf(taps: readonly PlatePoint[]): BeadPresence {
   const read = readTaps(taps);
@@ -70,7 +63,7 @@ export function presenceOf(taps: readonly PlatePoint[]): BeadPresence {
 /** The bead starts leaving at `nowMs`, from its opacity then (whole when it had no entrance). */
 function leave(bead: PresentBead, nowMs: number): PresentBead {
   const startOpacity = bead.placedAt === null ? 1 : entranceOpacity(nowMs - bead.placedAt);
-  return { ...bead, leaving: true, leftAt: nowMs, playedAt: null, playMs: null, startOpacity };
+  return { ...bead, leaving: true, leftAt: nowMs, startOpacity };
 }
 
 /** The presence after the store's taps change to `taps` at `nowMs`, in motion tier `tier`. */
@@ -107,11 +100,4 @@ export function presenceUpdate(prev: BeadPresence, taps: readonly PlatePoint[], 
 export function presenceGone(prev: BeadPresence, id: number): BeadPresence {
   if (!prev.beads.some((bead) => bead.id === id && bead.leaving)) return prev;
   return { beads: prev.beads.filter((bead) => bead.id !== id), next: prev.next };
-}
-
-/** The leaving bead `id`'s clock started its exit at `atMs` and plays it over `playMs`: stamped once, the first report standing. */
-export function presenceExitStarted(prev: BeadPresence, id: number, atMs: number, playMs: number): BeadPresence {
-  if (!Number.isFinite(atMs) || !(playMs > 0) || !Number.isFinite(playMs)) return prev;
-  if (!prev.beads.some((bead) => bead.id === id && bead.leaving && bead.playedAt === null)) return prev;
-  return { beads: prev.beads.map((bead) => (bead.id === id ? { ...bead, playedAt: atMs, playMs } : bead)), next: prev.next };
 }

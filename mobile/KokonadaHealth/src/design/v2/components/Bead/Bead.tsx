@@ -20,10 +20,6 @@
 // exit always plays its whole timeline from the bead as it was at leftAt (the clock at 0), over what is left of it and
 // never less than EXIT_MIN_MS (beadTimeline.ts exitPlayMs): a loaded JS thread compresses it, never skips it, so the
 // grey exit is always seen (at d5479dc an effect past the exit's end set the clock to its end: whole to gone at once).
-// The rim words read the exit from the clock itself (onExitStart): the native driver starts it only once its op queue is
-// flushed, which a loaded JS thread holds back behind a re-render (27f2bee: 240 to 300 ms after the effect), so the
-// effect's own time is not when the exit starts. Bead listens to the clock and, at its first moving value v, reports
-// now − (v ÷ end) × the length it plays: never before the clock really started, so the letters are never ahead of it.
 //
 // Place it inside the plate's LTR root (BeadLayer, or the plate box with direction 'ltr'): its left and top
 // are physical (R7, QA-088), from the plate's shared geometry (pointToLocal: the centre the field lights for the tap).
@@ -51,11 +47,6 @@ export interface BeadProps {
   readonly slot: number | 'leaving';
   /** The exit ended: the layer may drop the bead. */
   readonly onLeft: () => void;
-  /**
-   * Its exit's clock was seen moving: it started at `atMs` (performance.now(), read off the clock's first moving value)
-   * and plays the whole exit over `playMs`. The time and length beadOpacityAt reads the exit on.
-   */
-  readonly onExitStart: (atMs: number, playMs: number) => void;
 }
 
 const now = () => performance.now();
@@ -122,7 +113,7 @@ function highlight(tokens: DirectionTokens['bead']['highlight'], rb: number, fro
   };
 }
 
-export function Bead({ point, plate, placedAt, leftAt, slot, onLeft, onExitStart }: BeadProps) {
+export function Bead({ point, plate, placedAt, leftAt, slot, onLeft }: BeadProps) {
   const { id, face, direction } = useTokens();
   const g = { bead: plate.beadRadius, setting: direction.bead.setting.width };
   const centre = pointToLocal(point, plate);
@@ -135,27 +126,15 @@ export function Bead({ point, plate, placedAt, leftAt, slot, onLeft, onExitStart
   const phase = useMemo(() => phaseFor(id, placedAt, leftAt), [id, placedAt, leftAt]);
   const reportLeft = useRef(onLeft);
   reportLeft.current = onLeft;
-  const reportStart = useRef(onExitStart);
-  reportStart.current = onExitStart;
   useEffect(() => {
     const { clock, origin, end, exit } = phase;
     if (clock === null) return undefined;
     const elapsed = Math.max(0, now() - origin);
     let duration: number;
-    let listening: string | null = null;
     if (exit !== null) {
       // From the bead as it was at leftAt, over the rest of its timeline, never under EXIT_MIN_MS: compressed, never skipped.
       clock.setValue(0);
-      const playMs = exitPlayMs(exit, elapsed);
-      duration = playMs;
-      // When the clock is first seen moving, the moment it started: never earlier than it did.
-      const heard: string = clock.addListener(({ value }) => {
-        if (!(value > 0)) return;
-        clock.removeListener(heard);
-        listening = null;
-        reportStart.current(now() - (Math.min(value, end) / end) * playMs, playMs);
-      });
-      listening = heard;
+      duration = exitPlayMs(exit, elapsed);
     } else {
       if (!(elapsed < end)) {
         clock.setValue(end);
@@ -168,10 +147,7 @@ export function Bead({ point, plate, placedAt, leftAt, slot, onLeft, onExitStart
     animation.start(({ finished }) => {
       if (finished && exit !== null) reportLeft.current();
     });
-    return () => {
-      if (listening !== null) clock.removeListener(listening);
-      animation.stop();
-    };
+    return () => animation.stop();
   }, [phase]);
 
   const shadow = direction.bead.shadow;

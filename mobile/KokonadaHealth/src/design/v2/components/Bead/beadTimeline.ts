@@ -13,13 +13,7 @@
 //
 // Each step is the token's duration on its own curve (field/crossfade.ts rampProgress, the field's worklet). Every
 // function here is a worklet: hero A's rim words read a leaving bead's opacity on the UI thread (beadOpacityAt,
-// ruling 2), from its presence entry. `leftAt`, `playedAt` and `nowMs` must be read on one clock (performance.now()).
-//
-// One exit, one timeline (F10 G8 round 2, f207 to f209, and 27f2bee's capture: the letters were whole while the bead was
-// still opaque): the entry carries when the bead's native clock really started (playedAt) and how long it plays (playMs),
-// which Bead reads off the clock's own first moving value, never off its effect: the native driver starts the clock only
-// once its op queue is flushed, which a loaded JS thread holds back behind a re-render. beadOpacityAt reads the exit on
-// that time. Until the clock is seen moving, the bead is where it was.
+// ruling 2), from its presence entry. `leftAt` and `nowMs` must be read on one clock (performance.now()).
 
 import { rampProgress } from '../../field/crossfade.ts';
 import { BASE } from '../../tokens/tokens.generated.ts';
@@ -89,24 +83,13 @@ export interface BeadExitStamp {
   readonly leaving: boolean;
   /** When its exit began, on the JS clock (performance.now()); null while it is live. */
   readonly leftAt: number | null;
-  /** When its native clock really started that exit, on the same clock (Bead reads it off the clock); null until then. */
-  readonly playedAt: number | null;
-  /** How long that clock plays the whole exit, in ms (Bead's exitPlayMs); null until then. */
-  readonly playMs: number | null;
   /** Its opacity when its exit began. */
   readonly startOpacity: number;
 }
 
-/**
- * A bead's opacity at `nowMs` (the clock leftAt was read on): 1 while live; while it leaves, its exit as Bead plays it,
- * the whole timeline from playedAt over playMs; held at its start opacity until its clock is seen moving (playedAt or
- * playMs null, or not a usable number) and before playedAt.
- */
+/** A bead's opacity at `nowMs` (the clock leftAt was read on): 1 while live, else its exit's. */
 export function beadOpacityAt(b: BeadExitStamp, nowMs: number): number {
   'worklet';
   if (!b.leaving || b.leftAt === null) return 1;
-  const playMs = b.playMs;
-  if (b.playedAt === null || playMs === null || !(playMs > 0) || !Number.isFinite(b.playedAt)) return exitOpacity(b.startOpacity, 0);
-  const played = nowMs - b.playedAt;
-  return exitOpacity(b.startOpacity, played > 0 ? (played * exitDuration(b.startOpacity)) / playMs : 0);
+  return exitOpacity(b.startOpacity, nowMs - b.leftAt);
 }
