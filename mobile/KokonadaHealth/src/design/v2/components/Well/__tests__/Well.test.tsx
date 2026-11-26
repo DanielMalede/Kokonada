@@ -63,16 +63,24 @@ type Measurable = {
   getBoundingClientRect?: () => object;
 };
 const VIEW = View as unknown as { prototype: Measurable };
+// The preset's measure and measureInWindow are already jest.fn, and jest.spyOn on an existing mock installs nothing and
+// registers no restore (QA-112): their own implementations are captured and put back by identity after each test.
+const measure = VIEW.prototype.measure as unknown as jest.Mock;
+const measureInWindow = VIEW.prototype.measureInWindow as unknown as jest.Mock;
+const PRESET_MEASURE = measure.getMockImplementation();
+const PRESET_MEASURE_IN_WINDOW = measureInWindow.getMockImplementation();
 let laidOutHeight = 40;
 beforeEach(() => {
-  jest.spyOn(VIEW.prototype, 'measure').mockImplementation((cb) => cb(0, 0, 336, laidOutHeight, 0, 0));
-  jest.spyOn(VIEW.prototype, 'measureInWindow').mockImplementation((cb) => cb(0, 0, 336, laidOutHeight));
+  measure.mockImplementation((cb: (...v: number[]) => void) => cb(0, 0, 336, laidOutHeight, 0, 0));
+  measureInWindow.mockImplementation((cb: (...v: number[]) => void) => cb(0, 0, 336, laidOutHeight));
   Object.defineProperty(VIEW.prototype, 'getBoundingClientRect', {
     configurable: true,
     value: () => ({ x: 0, y: 0, width: 336, height: laidOutHeight, top: 0, left: 0, right: 336, bottom: laidOutHeight }),
   });
 });
 afterEach(() => {
+  measure.mockImplementation(PRESET_MEASURE);
+  measureInWindow.mockImplementation(PRESET_MEASURE_IN_WINDOW);
   delete VIEW.prototype.getBoundingClientRect;
 });
 

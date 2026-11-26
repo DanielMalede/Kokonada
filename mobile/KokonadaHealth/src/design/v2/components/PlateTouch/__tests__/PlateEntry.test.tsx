@@ -38,11 +38,18 @@ function mount(extra: Partial<PlateEntryProps> = {}, ref = createRef<PlateEntryH
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as Record<string, any>;
 const activate = (n: ReactTestRenderer.ReactTestInstance) => act(() => n.props.onAccessibilityAction({ nativeEvent: { actionName: 'activate' } }));
 
-let focusEvent: jest.SpyInstance;
+// The preset already installs sendAccessibilityEvent as a jest.fn, and jest.spyOn on an existing mock installs nothing
+// and registers no restore (QA-112): its own implementation is captured and put back by identity, its calls cleared.
+const focusEvent = AccessibilityInfo.sendAccessibilityEvent as unknown as jest.Mock;
+const PRESET_SEND = focusEvent.getMockImplementation();
 beforeEach(() => {
-  focusEvent = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => undefined);
+  focusEvent.mockClear();
+  focusEvent.mockImplementation(() => undefined);
 });
-afterEach(() => focusEvent.mockRestore());
+afterEach(() => {
+  focusEvent.mockImplementation(PRESET_SEND);
+  focusEvent.mockClear();
+});
 
 describe('PlateEntry: the plate’s TalkBack node (ruling 9)', () => {
   it('is a View over the plate’s D×D box, at its origin, that paints nothing and holds no string of its own', () => {
