@@ -335,8 +335,8 @@ function BandOutline({ plate }: { plate: PlateGeometry }) {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
     >
-      <Circle testID="hero.lab.outline.inner" cx={cx} cy={cy} r={plate.ringInner} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
-      <Circle testID="hero.lab.outline.outer" cx={cx} cy={cy} r={plate.radius} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
+      <Circle cx={cx} cy={cy} r={plate.ringInner} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
+      <Circle cx={cx} cy={cy} r={plate.radius} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
     </Canvas>
   );
 }

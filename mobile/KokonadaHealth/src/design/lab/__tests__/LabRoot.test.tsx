@@ -518,7 +518,7 @@ describe('the status bar', () => {
   });
 
   it('reads the face of every scene in the catalogue from its id, and only smoke has none', () => {
-    const faces = Object.keys(SCENES).map((id) => [id, sceneFace(id)]);
+    const faces = Object.keys(SCENES).map((id) => [id, sceneFace(id)] as const);
     expect(faces.filter(([, f]) => f === null)).toEqual([['smoke', null]]);
     for (const [id, f] of faces) if (f !== null) expect([id, f]).toEqual([id, id.split('.')[2]]);
     expect(sceneFace('grain.abyss.dusk')).toBeNull();

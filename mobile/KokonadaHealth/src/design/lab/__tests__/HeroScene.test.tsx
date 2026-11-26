@@ -393,11 +393,12 @@ describe('the round-2 evidence scenes', () => {
     h.layout();
     const [canvas] = outlines(h);
     expect(canvas.props).toMatchObject({ pointerEvents: 'none', accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' });
-    const circles = canvas.findAll((n) => n.props.testID !== undefined && String(n.props.testID).startsWith('hero.lab.outline.'));
+    // Its two circles, the inner edge then the outer (Skia's Circle takes no testID: read the canvas's own children).
+    const circles = React.Children.toArray(canvas.props.children) as React.ReactElement<Record<string, unknown>>[];
     const plate = h.props(BeadLayer).plate;
-    expect(circles.map((c) => [c.props.testID, c.props.cx, c.props.cy, c.props.r, c.props.style, c.props.strokeWidth])).toEqual([
-      ['hero.lab.outline.inner', plate.centre[0], plate.centre[1], plate.ringInner, 'stroke', 1 / 2.625],
-      ['hero.lab.outline.outer', plate.centre[0], plate.centre[1], plate.radius, 'stroke', 1 / 2.625],
+    expect(circles.map((c) => [c.props.cx, c.props.cy, c.props.r, c.props.style, c.props.strokeWidth])).toEqual([
+      [plate.centre[0], plate.centre[1], plate.ringInner, 'stroke', 1 / 2.625],
+      [plate.centre[0], plate.centre[1], plate.radius, 'stroke', 1 / 2.625],
     ]);
     // Over the words and under the beads.
     const layers = React.Children.toArray(h.props(Plate).children) as React.ReactElement[];
