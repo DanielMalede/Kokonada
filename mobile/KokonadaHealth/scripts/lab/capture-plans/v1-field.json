@@ -1,0 +1,1220 @@
+{
+  "id": "v1-field",
+  "app": {
+    "package": "com.kokonadahealth.lab",
+    "activity": "com.kokonadahealth.lab.DesignLabActivity"
+  },
+  "readyTimeoutMs": 30000,
+  "settleMs": 300,
+  "session": {
+    "stayOn": true
+  },
+  "shots": [
+    {
+      "id": "dark-rest-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.rest.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-rest-low",
+      "repeat": 2,
+      "scene": "field.abyss.dark.rest.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-rest-still",
+      "repeat": 2,
+      "scene": "field.abyss.dark.rest.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "dark-one-joy-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.joy.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-one-joy-low",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.joy.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-one-joy-still",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.joy.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.joy",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "dark-three-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.three.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-three-low",
+      "repeat": 2,
+      "scene": "field.abyss.dark.three.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-three-still",
+      "repeat": 2,
+      "scene": "field.abyss.dark.three.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "dark-one-intense-full",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.intense.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-one-intense-low",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.intense.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "dark-one-intense-still",
+      "repeat": 2,
+      "scene": "field.abyss.dark.one.intense.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "one.intense",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "light-rest-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.rest.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-rest-low",
+      "repeat": 2,
+      "scene": "field.abyss.light.rest.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-rest-still",
+      "repeat": 2,
+      "scene": "field.abyss.light.rest.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "light-one-joy-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.joy.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-one-joy-low",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.joy.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-one-joy-still",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.joy.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.joy",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "light-three-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.three.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-three-low",
+      "repeat": 2,
+      "scene": "field.abyss.light.three.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-three-still",
+      "repeat": 2,
+      "scene": "field.abyss.light.three.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "three",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "light-one-intense-full",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.intense.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-one-intense-low",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.intense.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-one-intense-still",
+      "repeat": 2,
+      "scene": "field.abyss.light.one.intense.still",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "one.intense",
+        "tier": "still"
+      }
+    },
+    {
+      "id": "fallback-dark-rest",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.rest",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-j",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.J",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-three",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.three",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-i",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.I",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-c-right",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.C.right",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-j-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.J.top",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-c",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.C",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-r",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.R",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-one-neutral",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.one.neutral",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-reach-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.reach.top",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-dark-reach-bottom",
+      "repeat": 2,
+      "scene": "fallback.abyss.dark.reach.bottom",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-rest",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.rest",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-j",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.J",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-three",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.three",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-i",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.I",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-c-right",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.C.right",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-j-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.J.top",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-c",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.C",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-r",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.R",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-one-neutral",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.one.neutral",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-reach-top",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.reach.top",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "fallback-light-reach-bottom",
+      "repeat": 2,
+      "scene": "fallback.abyss.light.reach.bottom",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": null,
+        "tier": null
+      }
+    },
+    {
+      "id": "dark-three-full-moving-control",
+      "repeat": 1,
+      "scene": "field.abyss.dark.three.full",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "full"
+      },
+      "proof": {
+        "kind": "draws-frames",
+        "seconds": 10
+      }
+    },
+    {
+      "id": "dark-three-still-reduced-motion",
+      "repeat": 1,
+      "scene": "field.abyss.dark.three.still",
+      "args": {
+        "clock": "realtime",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 0,
+        "powerSave": false
+      },
+      "probes": [
+        "stage"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "three",
+        "tier": "still"
+      },
+      "proof": {
+        "kind": "zero-frames",
+        "seconds": 10
+      }
+    }
+  ]
+}

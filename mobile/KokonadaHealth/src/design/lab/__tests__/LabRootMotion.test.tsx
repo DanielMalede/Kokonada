@@ -2,6 +2,12 @@ import React from 'react';
 import { EventEmitter } from 'events';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { LabRoot } from '../LabRoot';
+import { labMounts } from './__fixtures__/labMounts';
+
+// Each test's LabRoot is unmounted after it, so no setting-read deadline (UI-241) outlives the test (UI-261).
+const mounts = labMounts();
+// SCENES reaches FieldView, whose fieldImage.tsx reads Skia's FilterMode on load: the setup stub lacks it (__fixtures__/skiaHeadless.ts).
+jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadless').skiaHeadless());
 
 // OPS-100 (round-1 review: "the 0-frames check needs a positive control"). On the real-time clock the
 // field moves only when reduced motion is OFF. So a still shot (reduced motion on) must draw 0 frames,
@@ -45,7 +51,7 @@ function mount(clock: string, source: ReturnType<typeof reduceMotionSource>['sou
       <LabRoot labArgs={LAUNCH(clock)} nonStringKeys={[]} deps={{ emit: () => {}, events, frames, reduceMotion: source }} />,
     );
   });
-  return tree;
+  return mounts.track(tree);
 }
 
 beforeEach(() => { mockClockCalls.length = 0; });

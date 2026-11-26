@@ -75,4 +75,30 @@ describe('design-system rule scope', () => {
   it('require-disable-reason is an ERROR on a screen', async () => {
     expect(await severityFor('src/experience/profile/ProfileScreen.tsx', 'kokonada/require-disable-reason')).toBe(2);
   });
+
+  // v2 (plan §1): src/design/v2 starts at zero violations, and the one file the rules do not
+  // apply to is the token module the generator writes from design-tokens/*.tokens.json. It holds
+  // the palette's hex values by definition, as tokens.ts does for v1.
+  it.each(RULES)('%s is OFF in the generated v2 token module, and only there', async (rule) => {
+    expect(await severityFor('src/design/v2/tokens/tokens.generated.ts', rule)).toBe(0);
+  });
+
+  it.each(RULES)('%s is an ERROR in any other *.generated.ts under v2', async (rule) => {
+    expect(await severityFor('src/design/v2/field/blueNoise.generated.ts', rule)).toBe(2);
+    expect(await severityFor('src/design/v2/tokens/other.generated.ts', rule)).toBe(2);
+  });
+
+  it.each(RULES)('%s is an ERROR in a v2 file beside the generated module, and in the v2 colour core', async (rule) => {
+    expect(await severityFor('src/design/v2/tokens/useTokens.ts', rule)).toBe(2);
+    expect(await severityFor('src/design/v2/tokens/__tests__/tokens.rules.test.ts', rule)).toBe(2);
+    expect(await severityFor('src/design/v2/color/oklab.ts', rule)).toBe(2);
+  });
+
+  it.each(RULES)('%s is an ERROR in the design lab', async (rule) => {
+    expect(await severityFor('src/design/lab/LabRoot.tsx', rule)).toBe(2);
+  });
+
+  it('require-disable-reason stays an ERROR in the generated module', async () => {
+    expect(await severityFor('src/design/v2/tokens/tokens.generated.ts', 'kokonada/require-disable-reason')).toBe(2);
+  });
 });

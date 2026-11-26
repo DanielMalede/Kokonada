@@ -539,7 +539,7 @@ describe('DEC-192 · § Checks step 8d\'s filter parses in gh\'s jq from Git Bas
   });
 
   test('step 7 reads the message of every commit of B..H with git log, never gh\'s capped commit list', () => {
-    has(STEP7, 'git log --format=%B "$B..$H"', 'never `gh pr view --json commits`, which returns at most 100 commits (`OPS-464`, #234\'s row)');
+    has(STEP7, 'git log --format=%B "$B..$H"', 'never `gh pr view --json commits`, which returns at most 100 commits (`OPS-464`)');
     expect(CHECKS_TEXT).not.toContain('.commits[]');
   });
 });
@@ -607,7 +607,7 @@ function namesIn(list) {
 }
 const CI_JOBS = ciJobs(read('.github/workflows/ci.yml'));
 
-describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234\'s sharded one only once it is on main (RA-2, CU307-1, CU307-2, ARCH-307-7, SA-5)', () => {
+describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, #234\'s sharded one since it merged (RA-2, CU307-1, CU307-2, ARCH-307-7, SA-5)', () => {
   test('the job reader takes a job\'s name (its id when absent) and if: in either order, and expands a matrix name over its list', () => {
     const fixture = ['name: CI', 'on: [push]', 'jobs:',
       '  first:', '    if: needs.a.outputs.x == \'true\'', '    name: First job', '    runs-on: x',
@@ -625,7 +625,7 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
   });
 
   test('3a\'s today list is the check runs ci.yml at this tree reports, its matrices expanded', () => {
-    const today = sub3('a').match(/Today `ci\.yml` has (\d+) jobs, [^:]*?(\d+) check runs: (.*?)\.(?: |$)/);
+    const today = sub3('a').match(/Today, at H, (\d+) jobs report (\d+) check runs[^:]*: (.*?)\.(?: |$)/);
     expect(today).not.toBeNull();
     const runs = CI_JOBS.flatMap(checkRuns);
     expect(runs.length).toBeGreaterThan(0);
@@ -633,19 +633,20 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
     expect(namesIn(today[3]).sort()).toEqual([...runs].sort());
   });
 
-  test('3a expands a matrix name over its values, and gives #234\'s 21 check runs only for once #234\'s ci.yml is on main', () => {
+  test('3a expands a matrix name over its values, and lists #234\'s check runs as today\'s', () => {
     has(sub3('a'), 'grep -E \'^    name: |^        [a-z0-9_-]+: \\[\'', 'expand it over the matrix list the grep prints after it',
       '(#234\'s `shard: [1, 2, 3, 4, 5, 6, 7, 8]` makes `Mobile — jest shard 1/8` to `Mobile — jest shard 8/8`)',
-      'Once #234\'s `ci.yml` is on main, 11 jobs report 21 check runs once both matrices expand');
+      'Today, at H, 11 jobs report 21 check runs once both matrices expand');
     expect(sub3('a')).not.toContain('${{');
-    expect(sub3('a')).not.toContain('Today, at H, 11 jobs');
+    expect(sub3('a')).not.toContain('Once #234\'s');
   });
 
-  test('3e: while ci.yml has no sweeps job the sweeps rule is inert, and its text is #234\'s, for once #234\'s ci.yml is on main or at H', () => {
-    // #234 adds the sweeps jobs; that change fails this case, and 3e changes with it.
-    expect(CI_JOBS.filter((j) => /sweeps/i.test(`${j.id} ${j.name}`))).toEqual([]);
-    has(sub3('e'), 'While no sweeps job is in `ci.yml` at M or at H (before #234 merges), this sweeps rule is inert: their absence is not RED.',
-      'Once #234\'s `ci.yml` is on main or at H, the never-red sweeps:');
+  test('3e: ci.yml has the sweeps jobs since #234, and the sweeps rule is never inert', () => {
+    // #234 added the sweeps jobs; 3e changed with it.
+    expect(CI_JOBS.filter((j) => /sweeps/i.test(`${j.id} ${j.name}`)).length).toBeGreaterThan(0);
+    has(sub3('e'), 'The never-red sweeps: the four shards');
+    expect(sub3('e')).not.toMatch(/\binert\b/);
+    expect(sub3('e')).not.toContain('Once #234\'s');
   });
 
   test('3e accepts the sweep shards\' skip under both names, and holds them and the gate to success when the filter fired', () => {
@@ -655,10 +656,10 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
       'If the PR\'s changed paths match the `sweeps:` filter in `ci.yml` at H, every `Mobile — never-red sweeps shard <i>/4` and the gate must be `success`: a skip, a run under the template name or any other conclusion is `RED (FAILING)`.');
   });
 
-  test('3e names the guard that exists, and #234\'s gate and test only as #234\'s', () => {
+  test('3e names both guards, and the gate Mobile — jest as never skipped', () => {
     has(sub3('e'), '`backend/tests/instructionLayerWaiver.test.js` fails while this step leaves out a job that a job-level `if:` in `ci.yml` can skip',
-      '`backend/tests/shadow.mergeGuardSkips.test.js` (future, #234)',
-      'once #234\'s `ci.yml` is on main or at H, that includes its gate `Mobile — jest` (job `mobile`, `if: always()`), which runs whatever its needed jobs did and is never skipped.');
+      '`backend/tests/shadow.mergeGuardSkips.test.js` does the same for every job, matrix and gate of `ci.yml`.',
+      'Any other skip is `RED (UNVERIFIED)`, and that includes the gate `Mobile — jest` (job `mobile`, `if: always()`), which runs whatever its needed jobs did and is never skipped.');
     expect(sub3('e')).not.toContain('Any other skip is `RED (UNVERIFIED)`: the gate `Mobile — jest`');
   });
 
@@ -699,17 +700,16 @@ describe('DEC-192 · § Checks steps 3a, 3e and 4 read today\'s ci.yml, and #234
     expect(missing).toEqual([]);
   });
 
-  test('step 4 holds today\'s single jest job to a summary first, and #234\'s shards and gates only where the run\'s commit has them', () => {
+  test('step 4 holds each jest shard to a summary, an unsharded run before #234 likewise, and each gate to its line', () => {
     has(STEP4, 'grep -E \'Test Suites: |Tests: |needed jobs ended: \'',
-      'While `ci.yml` at the run\'s commit has no `mobile-jest-shard` matrix (today, and main before #234), `Mobile — jest` is the single jest job: it must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed (`Test Suites: <n> passed, <n> total`; a failed or skipped suite is not passed), and no gate line.',
-      'Where the run\'s commit has #234\'s `mobile-jest-shard` matrix (once #234\'s `ci.yml` is on main or at H), each of the eight `Mobile — jest shard <i>/8` must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed.',
-      '`mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts` (future, #234)',
-      'Its gate `Mobile — jest` runs no tests (`OPS-456`, #234\'s row): its log must read `needed jobs ended: success success (2 expected)`.',
+      'Each of the eight `Mobile — jest shard <i>/8` must print a `Tests:` line and a `Test Suites:` line whose suites are more than zero and all passed (`Test Suites: <n> passed, <n> total`; a failed or skipped suite is not passed).',
+      'A run on a commit whose `ci.yml` has no `mobile-jest-shard` matrix (main before #234) has `Mobile — jest` as its single jest job, held to the same two lines and no gate line.',
+      '`mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`, which asks jest itself',
+      'Its gate `Mobile — jest` runs no tests (`OPS-456`): its log must read `needed jobs ended: success success (2 expected)`.',
       'When the sweeps filter fired (3e), each of the four `Mobile — never-red sweeps shard <i>/4` must print a `Tests:` line',
       'the gate `Mobile — never-red sweeps at full resolution` must read `needed jobs ended: success success (2 expected)`',
-      '· Once #234\'s `ci.yml` is on main or at H, the sweep shards and their gate `Mobile — never-red sweeps at full resolution` skipped:');
-    // The case that holds at M today comes before #234's.
-    expect(STEP4.indexOf('While `ci.yml` at the run\'s commit has no')).toBeLessThan(STEP4.indexOf('Where the run\'s commit has #234\'s'));
+      '· The sweep shards and their gate `Mobile — never-red sweeps at full resolution` skipped:');
+    expect(STEP4).not.toContain('Once #234\'s');
     expect(STEP4).not.toMatch(/add up to/);
   });
 });
@@ -1011,7 +1011,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
       'a PR that puts a page into navigation (the cutover PR, a single-page /page PR) or touches a page already in navigation needs each such page\'s /page G13 check passing at H',
       'a lab-only batch PR, one page-record line per page of its batch from its batch record, its other rows read as code',
       'any other PR touching a lab-only page\'s PAGE SLICE or SHARED BASE, its code rows alone: the staleness it causes stays in the batch record and is cleared before the cutover at the latest',
-      'a design-tokens/** file no charter names, designer (OPS-390, #234\'s row)');
+      'a design-tokens/** file no charter names, designer (OPS-390)');
     expect(j15).not.toMatch(/G0–G12/);
     // The paths it covers do not change.
     has(j15, '| docs/design-v2/pages/** (future), design-tokens/** (future), and every path in a page charter\'s PAGE SLICE or SHARED BASE at M or at H');
@@ -1039,7 +1039,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
       '(1) A PR that puts a page into navigation (the cutover PR, a single-page `/page` PR) or touches a page already in navigation is covered',
       '(2) A lab-only batch PR (`/page` BATCH MODE) is reviewed like code', 'read from its batch record at H',
       '(3) Any other PR that touches a lab-only page\'s PAGE SLICE or SHARED BASE (a `/fix-bug` PR, a token or component sweep, a backend contract change) puts no `page-record` line in the record: it is reviewed by its code rows alone, and the page verdicts it makes stale stay stale in the batch record until `/page` clears them, before the cutover at the latest.',
-      'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (`OPS-390`, #234\'s row).');
+      'A `design-tokens/**` file that no page charter names needs the `designer`\'s line for J15 (`OPS-390`).');
   });
 
   test('/review-pr step 2 reads the same three kinds', () => {
@@ -1054,7 +1054,7 @@ describe('DEC-192 · J15 binds at navigation (F1-B), and the checks read it so',
       'For a lab-only page (/page BATCH MODE, not yet in navigation), the fix merges on its code rows (row J15): the stale verdicts stay in the batch record, and /page re-runs them before the cutover at the latest.');
   });
 
-  test('J15 and /review-pr cite OPS-390 as #234\'s row, which it is: no row at this tree', () => {
+  test('J15 and /review-pr cite OPS-390 as a row at this tree, since #234 merged it', () => {
     const rows = idsIn(TASKS_MD);
     for (const text of [jRow('J15'), read('.claude/commands/review-pr.md')]) {
       const cited = [...text.matchAll(/\b((?:OPS|DAN|BE|MB|UI|ARCH)-\d+)\b`?(, #234's row)?/g)];

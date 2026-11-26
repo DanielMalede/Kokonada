@@ -3,7 +3,7 @@ import * as path from 'path';
 import ts from 'typescript';
 import { pinFailures, isProductionPath, scanPinnedExports, type PinScan } from '../guards/pinnedCallers';
 import { APP_ROOT, productionFiles } from '../guards/productionImports';
-import { loadTsConfig } from '../guards/tsProgram';
+import { createTsProgram, loadTsConfig, relToApp } from '../guards/tsProgram';
 
 // QA-116's guard (Stage 0 Q1b): a callable production export that a test imports must have a production
 // caller, unless the dead list names it. Every planted source below is an in-memory overlay read by the
@@ -158,11 +158,25 @@ describe('QA-116 · the real tree', () => {
     expect(real.releaseFiles).toBeGreaterThan(100);
   });
 
-  it('a caller only in the Design Lab does not count: useRealtimeFieldClock is called from LabRoot.tsx alone', () => {
-    const clock = find(real, 'src/design/v2/clock/fieldClock.ts#useRealtimeFieldClock');
-    expect(clock!.tests.length).toBeGreaterThan(0);
-    expect(clock!.callers).toEqual([]);
-  });
+  it('a caller only in the Design Lab does not count: lsbDelta is called from witnessLayout.ts alone', () => {
+    // Re-anchored from useRealtimeFieldClock, which the dev preview now calls: lsbDelta is a device-witness helper that only the Design Lab calls.
+    const LAB_CALLER = 'src/design/lab/witness/witnessLayout.ts';
+    const LSB_DELTA = 'src/design/v2/color/displayP3.ts#lsbDelta';
+    const { program } = createTsProgram([at(LAB_CALLER)], parsed);
+    const checker = program.getTypeChecker();
+    const labCalls: string[] = [];
+    const visit = (node: ts.Node): void => {
+      const decl = ts.isCallExpression(node) ? checker.getResolvedSignature(node)?.declaration : undefined;
+      if (decl && ts.isFunctionDeclaration(decl) && decl.name) labCalls.push(`${relToApp(decl.getSourceFile().fileName)}#${decl.name.text}`);
+      ts.forEachChild(node, visit);
+    };
+    visit(program.getSourceFile(at(LAB_CALLER))!);
+    expect(labCalls).toContain(LSB_DELTA); // the precondition: the lab file really calls that declaration
+    const delta = find(real, LSB_DELTA);
+    expect(delta).toBeDefined();
+    expect(delta!.tests.length).toBeGreaterThan(0);
+    expect(delta!.callers).toEqual([]);
+  }, TIMEOUT);
 
   it('hrGlowColor is pinned and its only production caller is BioAura.tsx (the precondition of the removal control)', () => {
     const glow = find(real, 'src/experience/aura/auraBreath.ts#hrGlowColor');

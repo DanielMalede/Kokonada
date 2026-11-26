@@ -1,0 +1,126 @@
+{
+  "id": "v1-grain",
+  "app": {
+    "package": "com.kokonadahealth.lab",
+    "activity": "com.kokonadahealth.lab.DesignLabActivity"
+  },
+  "readyTimeoutMs": 30000,
+  "settleMs": 300,
+  "session": {
+    "stayOn": true
+  },
+  "shots": [
+    {
+      "id": "dark-full",
+      "repeat": 2,
+      "scene": "grain.abyss.dark.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "grain.x1.00",
+        "grain.x0.71",
+        "grain.x0.50"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "dark-low",
+      "repeat": 2,
+      "scene": "grain.abyss.dark.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "yes",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "grain.x1.00",
+        "grain.x0.71",
+        "grain.x0.50"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "dark",
+        "hero": "rest",
+        "tier": "low"
+      }
+    },
+    {
+      "id": "light-full",
+      "repeat": 2,
+      "scene": "grain.abyss.light.full",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "grain.x1.00",
+        "grain.x0.71",
+        "grain.x0.50"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "full"
+      }
+    },
+    {
+      "id": "light-low",
+      "repeat": 2,
+      "scene": "grain.abyss.light.low",
+      "args": {
+        "clock": "fixed",
+        "t": "11000",
+        "frames": "10"
+      },
+      "device": {
+        "fontScale": 1,
+        "night": "no",
+        "animatorScale": 1,
+        "powerSave": false
+      },
+      "probes": [
+        "stage",
+        "grain.x1.00",
+        "grain.x0.71",
+        "grain.x0.50"
+      ],
+      "expect": {
+        "direction": "abyss",
+        "face": "light",
+        "hero": "rest",
+        "tier": "low"
+      }
+    }
+  ]
+}
