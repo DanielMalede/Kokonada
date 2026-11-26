@@ -335,6 +335,18 @@ describe('the signer apksigner prints (the lab APK must carry the shared debug c
     expect(apksignerCertificate(BUILD_TOOLS_37)).toEqual(DEBUG);
   });
 
+  // RA308-7. What build-tools 37 really printed for the lab APK: the scheme version is dotted ("V3.0"), so the
+  // label holds a regex metacharacter and the digest line must be matched by the label taken literally.
+  it('reads the dotted scheme label build-tools 37 really printed (V3.0 Signer: certificate …)', () => {
+    const out = crlf([
+      'V3.0 Signer: certificate DN: CN=Android Debug, O=Android, C=US',
+      `V3.0 Signer: certificate SHA-256 digest: ${DIGEST}`,
+      `V3.0 Signer: certificate SHA-1 digest: ${'cd'.repeat(20)}`,
+      `V3.0 Signer: certificate MD5 digest: ${'ef'.repeat(16)}`,
+    ]);
+    expect(apksignerCertificate(out)).toEqual({ dn: 'CN=Android Debug, O=Android, C=US', sha256: DIGEST });
+  });
+
   it('refuses output that names no signer, or a signer with no SHA-256 digest', () => {
     expect(() => apksignerCertificate(crlf(['Verifies', 'Number of signers: 0']))).toThrow(/no signer/);
     expect(() => apksignerCertificate(crlf(['V2 Signer: certificate DN: CN=Android Debug, O=Android, C=US']))).toThrow(/no signer/);
@@ -365,5 +377,40 @@ describe('the real Gradle wrapper call', () => {
     const r = spawnSync(command, args, { ...options, encoding: 'utf8' });
     expect(r.stdout.trim()).toBe('WRAPPER :app:assembleLab KEY=/k/debug.keystore');
     expect(r.status).toBe(0);
+  });
+});
+
+describe('the Gradle wrapper is pinned (SA308-1, SA308-2)', () => {
+  // The wrapper downloads and runs a Gradle distribution on every build machine, and gradle-wrapper.jar is a
+  // binary that runs before anything else. Both are held to Gradle's own published checksums:
+  //   https://downloads.gradle.org/distributions/gradle-9.4.1-bin.zip.sha256            (the distribution)
+  //   https://downloads.gradle.org/distributions/gradle-9.4.1-wrapper.jar.sha256        (the wrapper jar)
+  // The three constants below move TOGETHER: a new distributionUrl needs that version's two published values,
+  // read from gradle.org, never computed from whatever the tree or a download happens to hold.
+  // (A .properties file escapes the colon, so the line reads "https\://…".)
+  const DISTRIBUTION_URL = String.raw`https\://services.gradle.org/distributions/gradle-9.4.1-bin.zip`;
+  const DISTRIBUTION_SHA256 = '2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb';
+  const WRAPPER_JAR_SHA256 = '55243ef57851f12b070ad14f7f5bb8302daceeebc5bce5ece5fa6edb23e1145c';
+
+  const wrapperDir = path.resolve(__dirname, '../../../android/gradle/wrapper');
+  const property = (name: string) => {
+    const text = fs.readFileSync(path.join(wrapperDir, 'gradle-wrapper.properties'), 'utf8');
+    const found = text.split(/\r?\n/).filter((line) => line.startsWith(`${name}=`));
+    expect(found).toHaveLength(1);
+    return found[0].slice(name.length + 1);
+  };
+
+  it('names the distribution these checksums were published for', () => {
+    expect(property('distributionUrl')).toBe(DISTRIBUTION_URL);
+  });
+
+  it('carries distributionSha256Sum, 64 hex characters, equal to the published value', () => {
+    const sum = property('distributionSha256Sum');
+    expect(sum).toMatch(/^[0-9a-f]{64}$/);
+    expect(sum).toBe(DISTRIBUTION_SHA256);
+  });
+
+  it('holds a gradle-wrapper.jar whose SHA-256 is the published one', () => {
+    expect(sha(fs.readFileSync(path.join(wrapperDir, 'gradle-wrapper.jar')))).toBe(WRAPPER_JAR_SHA256);
   });
 });
