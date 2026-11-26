@@ -316,6 +316,7 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
 }
 
 /** The outline dial's ink: a magenta no face and no field paints, so a capture can tell it from the words and the field. */
+// eslint-disable-next-line kokonada/no-color-literals -- a lab-only diagnostic stroke that must be no token's colour, so a capture tells it from the words and the field
 const OUTLINE_INK = '#FF00FF';
 
 /**
