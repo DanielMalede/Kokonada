@@ -30,6 +30,7 @@
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { PixelRatio, StyleSheet, View } from 'react-native';
+import { Canvas, Circle } from '@shopify/react-native-skia';
 import { screenToCircumplex } from '../../../experience/wheel/wheelGeometry';
 import { BeadLayer } from '../../v2/components/Bead/BeadLayer';
 import { beadOpacityAt } from '../../v2/components/Bead/beadTimeline';
@@ -37,7 +38,7 @@ import { useBeadPresence } from '../../v2/components/Bead/useBeadPresence';
 import { CommitCTA, useCtaMachine } from '../../v2/components/CommitCTA/CommitCTA';
 import { createCopyPort, type Catalog, type CopySpec, type NeutralKeyOf } from '../../v2/copy/CopyPort';
 import { CopyProvider, useCopy } from '../../v2/copy/useCopy';
-import { plateGeometry, type PlatePoint } from '../../v2/components/Plate/geometry';
+import { plateGeometry, type PlateGeometry, type PlatePoint } from '../../v2/components/Plate/geometry';
 import { Plate } from '../../v2/components/Plate/Plate';
 import { PlateEntry, type PlateEntryHandle } from '../../v2/components/PlateTouch/PlateEntry';
 import { PlateTouch, type PlateHaptics } from '../../v2/components/PlateTouch/PlateTouch';
@@ -64,20 +65,34 @@ import { useMeasuredView } from './useMeasuredView';
 export const HERO_SCENE_PROBES: readonly string[] = ['stage', 'plate'];
 /** How many taps the plate holds: the cold lane's ring (a placement on a full plate replaces the oldest). */
 export const HERO_RING = 3;
-/** The taps a hero scene starts with: the token extensions' hero scene `three`, or none. */
-export const HERO_TAPS = ['three', 'empty'] as const;
+/**
+ * The taps a hero scene starts with: the token extensions' hero scene `three`, or none; and for G8 round 2's evidence,
+ * `knock` (HERO_KNOCK_TAPS) and `seam` (the token scene `seam`, its intense bead placed last).
+ */
+export const HERO_TAPS = ['three', 'empty', 'knock', 'seam'] as const;
+/**
+ * The knock-out scene's taps (G8 round 2): a bead on the top word's anchor, then one on the left word's, each 0.96 of the
+ * way to the rim, where its centre sits on the ring's centre line, well within the bead radius + knockoutGap of the
+ * letters of More energy / יותר אנרגיה and of Unpleasant / לא נעים. The left one is the latest.
+ */
+export const HERO_KNOCK_TAPS: readonly PlatePoint[] = [{ x: 0, y: 0.96 }, { x: -0.96, y: 0 }];
+/** The lab-only dial a hero id may end in: `.outline` draws the label band's inner and outer edges at 1 px. */
+export const HERO_OUTLINE = 'outline';
 /** The script its words, hint and label are in. */
 export const HERO_SCRIPTS = ['latin', 'hebrew'] as const;
 export type HeroTaps = (typeof HERO_TAPS)[number];
 export type HeroScript = (typeof HERO_SCRIPTS)[number];
 
-export const heroSceneId = (face: Face, taps: HeroTaps, script: HeroScript) => `hero.${FIELD_DIRECTION}.${face}.${taps}.${script}`;
+export const heroSceneId = (face: Face, taps: HeroTaps, script: HeroScript, outline = false) =>
+  `hero.${FIELD_DIRECTION}.${face}.${taps}.${script}${outline ? `.${HERO_OUTLINE}` : ''}`;
 
-/** A hero scene's face, taps and script, from its id: an id that is not a hero scene is a programming error. */
-export function heroScene(id: string): { readonly face: Face; readonly taps: HeroTaps; readonly script: HeroScript } {
+/** A hero scene's face, taps, script and dial, from its id: an id that is not a hero scene is a programming error. */
+export function heroScene(id: string): { readonly face: Face; readonly taps: HeroTaps; readonly script: HeroScript; readonly outline: boolean } {
   for (const face of FIELD_FACES) {
     for (const taps of HERO_TAPS) {
-      for (const script of HERO_SCRIPTS) if (heroSceneId(face, taps, script) === id) return { face, taps, script };
+      for (const script of HERO_SCRIPTS) {
+        for (const outline of [false, true]) if (heroSceneId(face, taps, script, outline) === id) return { face, taps, script, outline };
+      }
     }
   }
   throw new Error(`"${id}" is not a lab hero scene`);
@@ -152,8 +167,19 @@ export interface HeroState {
   readonly entryFocused: boolean;
 }
 
+/** A scene's starting taps, oldest first. */
+function startingTaps(taps: HeroTaps): readonly PlatePoint[] {
+  switch (taps) {
+    case 'three': return heroTaps('three');
+    case 'knock': return HERO_KNOCK_TAPS;
+    // The seam's beads by x, right first: the intense one, left of 12 o'clock, is placed last, so Remove takes it.
+    case 'seam': return [...heroTaps('seam')].sort((a, b) => b.x - a.x);
+    case 'empty': return [];
+  }
+}
+
 export function heroInitial(taps: HeroTaps): HeroState {
-  return { taps: taps === 'three' ? heroTaps('three') : [], commits: 0, haptics: 0, lists: 0, entryFocused: false };
+  return { taps: startingTaps(taps), commits: 0, haptics: 0, lists: 0, entryFocused: false };
 }
 
 /** A placement: it joins the taps, and on a full plate the oldest goes. */
@@ -167,7 +193,7 @@ export function heroRemoved(s: HeroState): HeroState {
 }
 
 export function HeroScene({ clock, params }: SceneProps) {
-  const { face, taps, script } = heroScene(params.scene);
+  const { face, taps, script, outline } = heroScene(params.scene);
   const { tier, observed, unreadable } = usePolicyTier(params.scene);
   const { onFirstFrame, setFellBack } = useFieldSceneReport(params.scene, observed, unreadable);
   const { size, onLayout } = useMeasuredView();
@@ -179,7 +205,7 @@ export function HeroScene({ clock, params }: SceneProps) {
             <CopyProvider port={HERO_PORT}>
               {size === null ? <Probe id="plate" style={UNPLACED} /> : (
                 <FieldFirstFrameReport.Provider value={onFirstFrame}>
-                  <HeroStage scene={params.scene} face={face} taps={taps} script={script} width={size.width} height={size.height} clock={clock} tier={tier} />
+                  <HeroStage scene={params.scene} face={face} taps={taps} script={script} outline={outline} width={size.width} height={size.height} clock={clock} tier={tier} />
                 </FieldFirstFrameReport.Provider>
               )}
             </CopyProvider>
@@ -190,11 +216,12 @@ export function HeroScene({ clock, params }: SceneProps) {
   );
 }
 
-function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
+function HeroStage({ scene, face, taps, script, outline, width, height, clock, tier }: {
   scene: string;
   face: Face;
   taps: HeroTaps;
   script: HeroScript;
+  outline: boolean;
   width: number;
   height: number;
   clock: FieldClock;
@@ -262,6 +289,7 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
           <Plate diameter={diameter} fontScale={layout.fontScale}>
             <PlateEntry ref={entry} plate={plate} label={copy.plateLabel} hint={copy.plateHint} onOpenList={onOpenList} onFocusChange={onEntryFocus} inert={false} />
             <RimLabels diameter={diameter} fontScale={layout.fontScale} words={copy.words} a11y={copy.a11y} script={script} beads={presence.beads} beadOpacity={beadOpacityAt} />
+            {outline ? <BandOutline plate={plate} /> : null}
             <BeadLayer beads={presence.beads} plate={plate} onGone={presence.onGone} />
             <PlateTouch
               plate={plate}
@@ -287,6 +315,31 @@ function HeroStage({ scene, face, taps, script, width, height, clock, tier }: {
   );
 }
 
+/** The outline dial's ink: a magenta no face and no field paints, so a capture can tell it from the words and the field. */
+const OUTLINE_INK = '#FF00FF';
+
+/**
+ * The outline dial (G8 round 2, lab only): the label band's inner edge (ringInner) and outer edge (R) as 1 px strokes, over
+ * the words and under the beads, so a capture shows whether any letter touches either edge. Hidden from TalkBack and touch.
+ */
+function BandOutline({ plate }: { plate: PlateGeometry }) {
+  const hair = 1 / PixelRatio.get();
+  const [cx, cy] = plate.centre;
+  return (
+    <Canvas
+      testID="hero.lab.outline"
+      style={[styles.outline, { width: plate.diameter, height: plate.diameter }]}
+      colorSpace="srgb"
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+    >
+      <Circle testID="hero.lab.outline.inner" cx={cx} cy={cy} r={plate.ringInner} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
+      <Circle testID="hero.lab.outline.outer" cx={cx} cy={cy} r={plate.radius} style="stroke" strokeWidth={hair} color={OUTLINE_INK} />
+    </Canvas>
+  );
+}
+
 const UNPLACED = { position: 'absolute' as const, left: 0, top: 0, width: 0, height: 0 };
 
 const styles = StyleSheet.create({
@@ -296,4 +349,5 @@ const styles = StyleSheet.create({
   // The touch surface reaches past the plate's box (PlateTouch's margin), so nothing between them clips it.
   plate: { position: 'absolute', overflow: 'visible' },
   wellColumn: { position: 'absolute' },
+  outline: { position: 'absolute', left: 0, top: 0 },
 });

@@ -82,7 +82,11 @@ import type { LabParams } from '../params';
 import { ProbeRegistry } from '../probe/Probe';
 import { SCENES } from '../scenes';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from '../scenes/FieldScene';
-import { HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_SCENE_PROBES, HeroScene, heroScene } from '../scenes/HeroScene';
+import {
+  HERO_CATALOGS, HERO_COPY, HERO_COPY_SPEC, HERO_FONTS, HERO_HE_CATALOG, HERO_KNOCK_TAPS, HERO_SCENE_PROBES, HeroScene, heroInitial, heroScene,
+} from '../scenes/HeroScene';
+import { plateGeometry, pointToLocal } from '../../v2/components/Plate/geometry';
+import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import { checkCopy } from '../../v2/copy/CopyPort';
 import { ShaderReportContext, type ShaderReport } from '../shaderReport';
 import { drawnFaces } from './__fixtures__/drawnFaces';
@@ -128,6 +132,10 @@ async function mount(scene: string, ports: MotionPorts = MOTION_ON) {
 }
 
 const IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty'].flatMap((taps) => ['latin', 'hebrew'].map((script) => `hero.abyss.${face}.${taps}.${script}`)));
+/** Every hero id: the faces × the taps (three, empty, and G8 round 2's knock and seam) × the scripts, each plain and with the outline dial. */
+const ALL_IDS = ['dark', 'light'].flatMap((face) => ['three', 'empty', 'knock', 'seam'].flatMap((taps) => ['latin', 'hebrew'].flatMap((script) => [
+  `hero.abyss.${face}.${taps}.${script}`, `hero.abyss.${face}.${taps}.${script}.outline`,
+])));
 
 beforeEach(() => {
   mockUi.timestamp = 0;
@@ -137,17 +145,19 @@ beforeEach(() => {
 afterEach(() => jest.restoreAllMocks());
 
 describe('the hero scenes', () => {
-  it('are Abyss × {dark, light} × {three, empty} × {latin, hebrew}: eight HeroScenes, the stage and the plate their probes', () => {
+  it('are Abyss × {dark, light} × {three, empty, knock, seam} × {latin, hebrew} × {plain, outline}: 32 HeroScenes, the stage and the plate their probes', () => {
     const hero = Object.keys(SCENES).filter((id) => id.startsWith('hero.')).sort();
-    expect(hero).toEqual([...IDS].sort());
-    for (const id of IDS) {
+    expect(hero).toEqual([...ALL_IDS].sort());
+    for (const id of ALL_IDS) {
       expect([id, SCENES[id].Component, SCENES[id].probes, SCENES[id].fonts]).toEqual([id, HeroScene, HERO_SCENE_PROBES, HERO_FONTS]);
       expect(SCENES[id].periodMs).toBe(BASE.field.clock.T);
       // The rim words are Skia text in the bundled faces: LabRoot mounts the typeface provider, and READY waits for it (F6).
       expect([id, SCENES[id].typefaces]).toEqual([id, true]);
     }
     expect(HERO_SCENE_PROBES).toEqual(['stage', 'plate']);
-    expect(heroScene('hero.abyss.light.empty.hebrew')).toEqual({ face: 'light', taps: 'empty', script: 'hebrew' });
+    expect(heroScene('hero.abyss.light.empty.hebrew')).toEqual({ face: 'light', taps: 'empty', script: 'hebrew', outline: false });
+    expect(heroScene('hero.abyss.dark.knock.latin.outline')).toEqual({ face: 'dark', taps: 'knock', script: 'latin', outline: true });
+    expect(() => heroScene('hero.abyss.dark.three.latin.outlines')).toThrow('is not a lab hero scene');
     expect(() => heroScene('hero.abyss.dusk.three.latin')).toThrow('"hero.abyss.dusk.three.latin" is not a lab hero scene');
   });
 
@@ -348,5 +358,55 @@ describe('what it tells LabRoot', () => {
       // The beads take the tier through the scene's presence (useBeadPresence), not as a BeadLayer prop.
       expect([h.props(FieldView).tier, h.props(Well).tier, h.props(CommitCTA).tier]).toEqual([tier, tier, tier]);
     }
+  });
+});
+
+// G8 round 2 (the designer's REVISE for evidence): scenes the captures need, all synthetic, all lab-only.
+describe('the round-2 evidence scenes', () => {
+  const layout = heroLayout('abyss', W, H, 1);
+  const g = plateGeometry({ base: BASE, direction: DIRECTIONS.abyss } as never, 2 * layout.radius, 1);
+  const reach = g.beadRadius + BASE.plate.labelBand.knockoutGap;
+  /** The point on the ring's centre line where a word is anchored (arc.ts: top at -90 degrees, left at 180). */
+  const anchor = (theta: number) => ({ x: g.centre[0] + g.ringMid * Math.cos(theta), y: g.centre[1] + g.ringMid * Math.sin(theta) });
+
+  it('knock: a bead on the top word (More energy) and then one on the left word (Unpleasant), each within the knock-out reach of its anchor', () => {
+    expect(heroInitial('knock').taps).toEqual(HERO_KNOCK_TAPS);
+    const [top, left] = HERO_KNOCK_TAPS.map((p) => pointToLocal(p, g));
+    expect(Math.hypot(top.x - anchor(-Math.PI / 2).x, top.y - anchor(-Math.PI / 2).y)).toBeLessThanOrEqual(reach);
+    expect(Math.hypot(left.x - anchor(Math.PI).x, left.y - anchor(Math.PI).y)).toBeLessThanOrEqual(reach);
+    expect(HERO_KNOCK_TAPS).toHaveLength(2);
+  });
+
+  it("seam: the token scene's two beads beside 12 o'clock, the intense one (left of 12) placed last, so it is the latest", () => {
+    const seam = heroTaps('seam');
+    expect(seam).toHaveLength(2);
+    const taps = heroInitial('seam').taps;
+    expect([...taps].sort((a, b) => a.x - b.x)).toEqual([...seam].sort((a, b) => a.x - b.x));
+    expect(taps[taps.length - 1].x).toBeLessThan(0);
+    expect(taps[0].x).toBeGreaterThan(0);
+  });
+
+  const outlines = (h: Awaited<ReturnType<typeof mount>>) => h.r.root.findAll((n) => typeof n.type !== 'string' && n.props.testID === 'hero.lab.outline');
+
+  it("the outline dial draws the label band's inner and outer edges, ringInner and R, as 1 px strokes, hidden from TalkBack and from touch", async () => {
+    const h = await mount('hero.abyss.dark.three.hebrew.outline');
+    h.layout();
+    const [canvas] = outlines(h);
+    expect(canvas.props).toMatchObject({ pointerEvents: 'none', accessibilityElementsHidden: true, importantForAccessibility: 'no-hide-descendants' });
+    const circles = canvas.findAll((n) => n.props.testID !== undefined && String(n.props.testID).startsWith('hero.lab.outline.'));
+    const plate = h.props(BeadLayer).plate;
+    expect(circles.map((c) => [c.props.testID, c.props.cx, c.props.cy, c.props.r, c.props.style, c.props.strokeWidth])).toEqual([
+      ['hero.lab.outline.inner', plate.centre[0], plate.centre[1], plate.ringInner, 'stroke', 1 / 2.625],
+      ['hero.lab.outline.outer', plate.centre[0], plate.centre[1], plate.radius, 'stroke', 1 / 2.625],
+    ]);
+    // Over the words and under the beads.
+    const layers = React.Children.toArray(h.props(Plate).children) as React.ReactElement[];
+    expect(layers.map((l) => l.type)).toEqual([PlateEntry, RimLabels, expect.anything(), BeadLayer, PlateTouch]);
+  });
+
+  it('a plain id has no outline', async () => {
+    const h = await mount('hero.abyss.dark.three.hebrew');
+    h.layout();
+    expect(outlines(h)).toEqual([]);
   });
 });
