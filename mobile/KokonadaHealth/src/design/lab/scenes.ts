@@ -5,7 +5,7 @@
 import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
 import type { Face } from '../v2/tokens/tokens.generated';
-import { FIELD_SCENES } from './fieldScenes';
+import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES } from './fieldScenes';
 import type { LabFaceId } from './fonts';
 import type { LabParams } from './params';
 import { COST_SCENES } from './sceneGroups/cost';
@@ -97,3 +97,12 @@ export const SCENES: Readonly<Record<string, Scene>> = composeScenes({
   smoke: { periodMs: SMOKE_PERIOD_MS, probes: SMOKE_PROBES, Component: SmokeScene },
   ...fieldScenes,
 }, SCENE_GROUPS);
+
+/**
+ * The face a scene draws on, from its id: every scene but smoke is `<group>.<direction>.<face>[.…]` (composeScenes holds
+ * a group's ids to it; the field and fallback catalogue names its own the same way). Null for an id that names none.
+ */
+export function sceneFace(id: string): Face | null {
+  const [, direction, face] = id.split('.');
+  return direction === FIELD_DIRECTION && (FIELD_FACES as readonly string[]).includes(face) ? (face as Face) : null;
+}

@@ -27,7 +27,7 @@
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from 'react-native';
+import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio, StatusBar } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { Skia } from '@shopify/react-native-skia';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
@@ -47,7 +47,7 @@ import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
 import type { ProbeRect } from './probe/geometry';
 import { createCommandGate, createReadyGate, formatLine, parseCommand, type LineKind } from './protocol';
-import { SCENES, type Scene } from './scenes';
+import { SCENES, sceneFace, type Scene } from './scenes';
 import { createSettingReads } from './settingRead';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from './scenes/FieldScene';
 import { LAB_SENTINEL } from './sentinel';
@@ -546,8 +546,11 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
   }, []);
 
   const SceneComponent = scene.Component;
+  // The status bar's icons on the scene's face (LEDGER §6, CMP-110): dark on light, light on dark; none named, the activity's own.
+  const face = sceneFace(params.scene);
   return (
     <ProbeRegistry onMeasure={onMeasure}>
+      {face === null ? null : <StatusBar barStyle={face === 'light' ? 'dark-content' : 'light-content'} />}
       <ShaderReportContext.Provider value={reportShader}>
         <SceneFactsContext.Provider value={reportFacts}>
           <LabMotionPortsContext.Provider value={motionPorts}>

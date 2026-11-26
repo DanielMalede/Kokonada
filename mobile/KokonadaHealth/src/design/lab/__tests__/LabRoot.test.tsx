@@ -1,12 +1,12 @@
 import React from 'react';
 import { EventEmitter } from 'events';
-import { I18nManager, PixelRatio, Text, View } from 'react-native';
+import { I18nManager, PixelRatio, StatusBar, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { CostReportContext, type CostReport } from '../cost/costResult';
 import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
-import type { Scene } from '../scenes';
+import { SCENES, sceneFace, type Scene } from '../scenes';
 import { ShaderReportContext } from '../shaderReport';
 import { fakeSkia } from './__fixtures__/fakeSkiaBackend';
 import { labMounts } from './__fixtures__/labMounts';
@@ -486,5 +486,35 @@ describe('teardown', () => {
     expect(h.emitter.listenerCount(LAB_EVENTS.command)).toBe(0);
     expect(h.emitter.listenerCount(LAB_EVENTS.powerSave)).toBe(0);
     expect(h.frames.queue.length).toBe(0);
+  });
+});
+
+// LEDGER §6, CMP-110: on the light face the status bar's icons were white on light. LabRoot sets the bar's appearance from
+// the face the scene id names (`<group>.abyss.<face>[.…]`, composeScenes): dark icons on light, light icons on dark; a
+// scene with no face (smoke) leaves the activity's own.
+describe('the status bar', () => {
+  const still: Scene = { periodMs: 1000, probes: ['stage'], Component: () => <Probe id="stage"><View /></Probe> };
+  const scenes = { smoke: still, 'grain.abyss.light': still, 'hero.abyss.dark.three.latin': still, 'fallback.abyss.light.one.C.right': still };
+  const launch = (scene: string) => ({ labArgs: { run: 'sb', scene, clock: 'fixed', t: '0', frames: '1' }, nonStringKeys: [], powerSave: false });
+  const bars = (h: ReturnType<typeof setup>) => h.tree.root.findAllByType(StatusBar).map((n) => n.props.barStyle);
+
+  it.each([
+    ['grain.abyss.light', 'dark-content'],
+    ['fallback.abyss.light.one.C.right', 'dark-content'],
+    ['hero.abyss.dark.three.latin', 'light-content'],
+  ])('%s sets its icons to %s', (scene, barStyle) => {
+    expect(bars(setup(launch(scene), { scenes }))).toEqual([barStyle]);
+  });
+
+  it('a scene with no face sets none', () => {
+    expect(bars(setup(launch('smoke'), { scenes }))).toEqual([]);
+  });
+
+  it('reads the face of every scene in the catalogue from its id, and only smoke has none', () => {
+    const faces = Object.keys(SCENES).map((id) => [id, sceneFace(id)]);
+    expect(faces.filter(([, f]) => f === null)).toEqual([['smoke', null]]);
+    for (const [id, f] of faces) if (f !== null) expect([id, f]).toEqual([id, id.split('.')[2]]);
+    expect(sceneFace('grain.abyss.dusk')).toBeNull();
+    expect(sceneFace('grain.other.dark')).toBeNull();
   });
 });
