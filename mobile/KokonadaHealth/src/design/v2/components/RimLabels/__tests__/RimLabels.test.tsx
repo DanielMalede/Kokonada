@@ -74,7 +74,7 @@ jest.mock('@shopify/react-native-skia', () => {
       };
     },
   };
-  return { Canvas: Stub, Group, Picture: () => null, Skia, matchFont, __fake: fake };
+  return { Canvas: Stub, Group, Paint: () => null, Picture: () => null, Skia, matchFont, __fake: fake };
 });
 
 // The UI thread: the stateful fake the beads' driver is tested on (Bead/__tests__/__fixtures__/uiThread.ts). A derived
@@ -87,7 +87,7 @@ const fake = () => jest.requireMock('@shopify/react-native-skia').__fake as {
   recordings: Array<{ blobs: Array<{ ids: number[]; xforms: number[][]; colour: unknown; antiAlias: unknown }>; bounds: { width: number; height: number }; disposed: number }>;
   managers: Array<{ families: string[]; disposed: number }>;
 };
-const skia = () => jest.requireMock('@shopify/react-native-skia') as { Group: unknown; Picture: unknown };
+const skia = () => jest.requireMock('@shopify/react-native-skia') as { Group: unknown; Paint: unknown; Picture: unknown };
 const reanimated = jest.requireMock('react-native-reanimated') as Record<string, (...args: unknown[]) => unknown>;
 const ui = (jest.requireMock('react-native-reanimated') as { __ui: import('../../Bead/__tests__/__fixtures__/uiThread.ts').UiThread }).__ui;
 const callbacks = () => ui.callbacks();
@@ -108,7 +108,7 @@ function layers(canvas: Node) {
     kept: drawn.filter((n) => groupOf(n, canvas) === null).map((n) => n.props.picture as FakePicture),
     returning: drawn
       .filter((n) => groupOf(n, canvas) !== null)
-      .map((n) => ({ picture: n.props.picture as FakePicture, opacity: groupOf(n, canvas)!.props.opacity as { value: number } })),
+      .map((n) => ({ picture: n.props.picture as FakePicture, opacity: (groupOf(n, canvas)!.props.layer as { props: { opacity: { value: number } } }).props.opacity })),
   };
 }
 /** The letters a picture draws: each glyph id with its RSXform. */
@@ -440,6 +440,29 @@ describe('RimLabels: letters return on the bead’s own look (the designer’s r
     // The driver has written no look for the bead yet: it may still be whole, so its letters stay out.
     expect(layer.opacity.value).toBe(0);
     for (const p of ['right', 'bottom', 'left'] as const) expect(layers(view.canvas(p)).returning).toEqual([]);
+    view.unmount();
+  });
+
+  // UI-320's second cause, found on the emulator at 679e194: Skia draws a Picture with no paint
+  // (node_modules/@shopify/react-native-skia/cpp/api/recorder/Drawings.h, PictureCmd: canvas->drawPicture(picture)), and a
+  // Group's own opacity only scales the paints of the drawings under it (Paint.h SavePaintCmd, not standalone), so it
+  // never reached the returning letters: at every head they were back whole in the first frame they were mounted, never
+  // as a fade. A layer does reach them: the Group saves a layer with its paint, and the layer is composited at that
+  // paint's alpha (RNRecorder.h SaveLayer).
+  it('draws the returning picture in a layer whose paint carries the opacity; the Group has no opacity of its own, which a Picture would ignore', () => {
+    const looks = looksOf({ 3: { opacity: 0.25, start: 1 } });
+    const view = mount({ beads: [leavingBead(TOP, 3)], looks });
+    const canvas = view.canvas('top');
+    const [picture] = canvas.findAll((n) => n.type === skia().Picture).filter((n) => groupOf(n, canvas) !== null);
+    const group = groupOf(picture, canvas)!;
+    expect(group.props.opacity).toBeUndefined();
+    const layer = group.props.layer as React.ReactElement<{ opacity: { value: number } }>;
+    expect(React.isValidElement(layer)).toBe(true);
+    expect(layer.type).toBe(skia().Paint);
+    expect(layer.props.opacity.value).toBe(0.75);
+    // The kept letters are drawn plainly, in no layer.
+    const [kept] = canvas.findAll((n) => n.type === skia().Picture).filter((n) => groupOf(n, canvas) === null);
+    expect(kept).toBeDefined();
     view.unmount();
   });
 

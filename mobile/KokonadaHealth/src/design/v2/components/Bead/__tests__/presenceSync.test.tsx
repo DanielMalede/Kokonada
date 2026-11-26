@@ -88,7 +88,8 @@ function mount(taps: readonly PlatePoint[], tier: MotionTier = 'full') {
       .filter((n) => groupOf(n, root) !== null)
       .map((n) => ({
         letters: (n.props.picture as { recording: { blobs: Array<{ ids: number[] }> } }).recording.blobs.flatMap((b) => b.ids),
-        opacity: () => (groupOf(n, root)!.props.opacity as { value: number }).value,
+        // The layer's paint carries the opacity (a Group's own opacity never reaches a Picture: RimLabels.test.tsx).
+        opacity: () => (groupOf(n, root)!.props.layer as { props: { opacity: { value: number } } }).props.opacity.value,
       }));
   };
   const kept = (position = 'top') => {

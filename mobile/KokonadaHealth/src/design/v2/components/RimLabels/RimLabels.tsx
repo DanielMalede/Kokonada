@@ -30,7 +30,7 @@
 
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Canvas, Group, Picture, Skia, matchFont, type SkFontMgr, type SkPicture } from '@shopify/react-native-skia';
+import { Canvas, Group, Paint, Picture, Skia, matchFont, type SkFontMgr, type SkPicture } from '@shopify/react-native-skia';
 import { useDerivedValue } from 'react-native-reanimated';
 import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
 import { useTypefaceFontMgr } from '../../typeface/TypefaceProvider.tsx';
@@ -121,12 +121,15 @@ interface ReturningLayer {
 /**
  * Letters returning together: their picture, at the opacity the beads they follow leave them, derived on the UI thread
  * from those beads' looks in the frame the driver writes them (lettersOpacity). It is mounted only while they return,
- * and with no look yet for a bead it is at 0, where the letters were: out.
+ * and with no look yet for a bead it is at 0, where the letters were: out. The picture is drawn in a layer whose paint
+ * carries that opacity (UI-320: at every head before, the opacity sat on the Group, where a Picture ignores it, so the
+ * letters were back whole in one frame).
  */
 function Returning({ picture, ids, looks }: { readonly picture: SkPicture; readonly ids: readonly number[]; readonly looks: RimLooksValue }) {
   const opacity = useDerivedValue(() => lettersOpacity(ids, looks.value), [ids, looks]);
+  // In a layer of its own: Skia draws a Picture with no paint, so a Group's opacity never reaches it; the layer's does.
   return (
-    <Group opacity={opacity}>
+    <Group layer={<Paint opacity={opacity} />}>
       <Picture picture={picture} />
     </Group>
   );

@@ -1,7 +1,7 @@
 // A stateful fake of the part of Skia the rim words draw with (RimLabels.test.tsx holds the same fake inline). Its font
 // measures as Heebo does by the designer's budget basis (LEDGER rev §11: 0.50 em a Latin letter, 0.56 em a Hebrew one),
 // with a fixed ascent and descent; its recorder keeps every text blob drawn and every dispose. Group renders its children
-// and keeps its props (a returning layer's opacity, a value the UI thread sets). Canvas counts its renders by testID: each
+// and keeps its props (a returning layer's paint, whose opacity is a value the UI thread derives). Canvas counts its renders by testID: each
 // one is a JS commit of that canvas, which on the device makes Skia draw a recording made on JS (the replay hazard).
 //
 // Use it from a jest.mock factory: jest.mock('@shopify/react-native-skia', () => require('<path>/skiaWords').skiaWordsMock()).
@@ -62,5 +62,5 @@ export function skiaWordsMock() {
       };
     },
   };
-  return { Canvas, Group, Picture: () => null, Skia, matchFont, __fake: fake };
+  return { Canvas, Group, Paint: () => null, Picture: () => null, Skia, matchFont, __fake: fake };
 }
