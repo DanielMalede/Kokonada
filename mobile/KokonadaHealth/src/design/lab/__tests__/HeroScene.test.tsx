@@ -524,13 +524,17 @@ describe('the round-2 evidence scenes', () => {
         }
         return n;
       };
-      const plain = await framesUntilGone({});
-      const slow = await framesUntilGone({ beadTimeScale: 8 });
-      // 16 ms a frame, the first one starting the clock; the commit's own few ms of lateness may take a frame off.
-      expect(plain).toBeGreaterThanOrEqual(Math.ceil(exit / 16) - 2);
-      expect(plain).toBeLessThanOrEqual(Math.ceil(exit / 16) + 1);
-      expect(slow).toBeGreaterThanOrEqual(8 * (plain - 2));
-      expect(slow).toBeLessThanOrEqual(8 * plain + 1);
+      // Fake timers hold the JS clock still, so no commit is late and nothing is compressed: the counts are exact.
+      jest.useFakeTimers();
+      try {
+        const plain = await framesUntilGone({});
+        const slow = await framesUntilGone({ beadTimeScale: 8 });
+        // 16 ms a frame, the first one starting the clock.
+        expect(plain).toBe(Math.ceil(exit / 16) + 1);
+        expect(slow).toBe(Math.ceil((8 * exit) / 16) + 1);
+      } finally {
+        jest.useRealTimers();
+      }
     });
 
     it('busyWait holds the JS thread until the clock has moved the ms asked, and not at all for 0 or less', () => {
