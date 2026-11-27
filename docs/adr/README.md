@@ -29,4 +29,5 @@ consequences** — so the locked decisions and future ones are traceable and
 | [0014](0014-embedding-v2.md) | Embedding v2: separately-normalised audio/genre blocks, IDF genre bag over the `mbid:` slice, tempo on a circle | Accepted |
 | [0015](0015-withdrawal-erases-learned-personalization.md) | Withdrawing Art. 9 consent erases RewardEvent and PersonalWeights; the per-provider-disconnect exclusion stands unchanged | Accepted |
 | [0016](0016-launch-platform.md) | Launch platform: **Android-first**. iOS builds green on CI; the residual blocker is sign+submit+verify, behind an Apple enrolment that does not exist. Launch ~2027, no deadline | Accepted |
+| [0017](0017-design-system-v2.md) | Design system v2: StyleSheet with our own tokens and primitives; token pipeline, isolated v2 layers, never-red | Proposed |
 | [0018](0018-garmin-music-fence.md) | The Garmin music fence: until Garmin permits it in writing, Health API data reaches no store a generation reads (a frozen code constant, closed by default, plus a `VitalSample` read filter); PR-B's display store is written out as its approved-plan text | Accepted |
