@@ -555,18 +555,20 @@ describe('the round-2 evidence scenes', () => {
 
     it('stall: every change of the taps holds the JS thread that long in its commit; the mount and a re-render with the same taps do not', async () => {
       // The timers are fake, so no motion the placement starts outlives the test; the clock the stall reads is the real one.
+      // A stall long enough that a loaded machine's ordinary commit (tens of ms) cannot be taken for one.
+      const STALL = 300;
       jest.useFakeTimers({ doNotFake: ['performance'] });
       try {
-        const h = await mount('hero.abyss.dark.empty.latin', MOTION_ON, { stall: 40 });
+        const h = await mount('hero.abyss.dark.empty.latin', MOTION_ON, { stall: STALL });
         const t0 = performance.now();
         h.layout();
-        expect(performance.now() - t0).toBeLessThan(40);
+        expect(performance.now() - t0).toBeLessThan(STALL);
         const t1 = performance.now();
         act(() => h.props(PlateTouch).onPlace({ x: 0.2, y: 0.2 }));
-        expect(performance.now() - t1).toBeGreaterThanOrEqual(40);
+        expect(performance.now() - t1).toBeGreaterThanOrEqual(STALL);
         const t2 = performance.now();
         act(() => h.props(CommitCTA).onCommit());
-        expect(performance.now() - t2).toBeLessThan(40);
+        expect(performance.now() - t2).toBeLessThan(STALL);
       } finally {
         jest.useRealTimers();
       }
