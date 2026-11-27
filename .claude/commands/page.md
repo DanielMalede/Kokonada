@@ -2,7 +2,7 @@
 description: Run design-v2 pages through the pipeline — in batches by default (BATCH MODE), or one page through gates G0–G14 in fixed order — every verdict recorded with its input SHA.
 argument-hint: [batch B1–B3, or page id P1–P14]
 ---
-Run $ARGUMENTS through the page pipeline of docs/plans/DESIGN_V2_PLAN.md: a batch (B1–B3) in BATCH MODE, the default for design v2's pages, or one page (P1–P14) in the single-page mode below. ultrathink. You are the orchestrator: you dispatch and record; you never judge a gate and never build.
+Run $ARGUMENTS through the page pipeline of docs/plans/DESIGN_V2_PLAN.md: a batch (B1–B3) in BATCH MODE, the default for design v2's pages, or one page (P1–P14) in the single-page mode below. You are the orchestrator: you dispatch and record; you never judge a gate and never build.
 
 BATCH MODE — the default for design v2's pages (DEC-192: I do not go through each page; everything is built end to end, and at the end I review every page and answer for each gate). It changes the single-page mode below only where it says so; everything else there applies to each page of a batch as written: the record's verbatim rule, inputSha, the inputs and staleness rules, the owner gates, the re-run rules and the severities.
 - PRECONDITIONS. A batch needs its foundations on main, DEC-130 DECIDED and ADR-0017 at least Proposed. The full Stage 0 list (the single-page mode's PRECONDITIONS) is a precondition of the cutover PR only.
