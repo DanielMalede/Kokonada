@@ -115,7 +115,7 @@ function layers(canvas: Node) {
 const lettersOf = (p: FakePicture) => p.recording.blobs.flatMap((b) => b.ids.map((id, k) => ({ id, xform: b.xforms[k] })));
 
 /** The looks the beads' driver writes, as RimLabels reads them: a shared value the test writes as the UI thread would. */
-type Looks = { value: Record<number, { opacity: number; start: number | null }> };
+type Looks = { value: Record<number, { before: number | null; start: number | null }> };
 const looksOf = (value: Looks['value'] = {}): Looks => ({ value });
 const liveBead = (point: PlatePoint, id = 0): RimBead => ({ id, point, leaving: false });
 const leavingBead = (point: PlatePoint, id = 0): RimBead => ({ id, point, leaving: true });
@@ -411,7 +411,8 @@ describe('RimLabels: letters return on the bead’s own look (the designer’s r
   const RIGHT_OF_TOP = { x: 0.06, y: 1 };
   const idsWhere = (e: ReturnType<typeof expected>, state: string) => e.layout.glyphs.filter((g) => g.state === state).map((g) => e.ids[g.index]);
   const byPlace = (a: { xform: number[] }, b: { xform: number[] }) => a.xform[2] - b.xform[2] || a.xform[3] - b.xform[3];
-  const leaving = (opacity: number, start: number | null = 1) => ({ opacity, start });
+  /** A leaving bead's look as the letters read it: its opacity the frame before, and its start opacity. */
+  const leaving = (before: number | null, start: number | null = 1) => ({ before, start });
 
   it('a live bead keeps its letters out, in no picture, and nothing runs while it stays', () => {
     const view = mount({ beads: [liveBead(TOP)] });
@@ -439,6 +440,9 @@ describe('RimLabels: letters return on the bead’s own look (the designer’s r
     });
     // The driver has written no look for the bead yet: it may still be whole, so its letters stay out.
     expect(layer.opacity.value).toBe(0);
+    // Its first exit look has no frame before it: still out (option (b): the letters trail the bead by a frame).
+    view.update({ beads: [leavingBead(TOP)], looks: looksOf({ 0: { before: null, start: 1 } }) });
+    expect(layers(view.canvas('top')).returning[0].opacity.value).toBe(0);
     for (const p of ['right', 'bottom', 'left'] as const) expect(layers(view.canvas(p)).returning).toEqual([]);
     view.unmount();
   });
@@ -450,7 +454,7 @@ describe('RimLabels: letters return on the bead’s own look (the designer’s r
   // as a fade. A layer does reach them: the Group saves a layer with its paint, and the layer is composited at that
   // paint's alpha (RNRecorder.h SaveLayer).
   it('draws the returning picture in a layer whose paint carries the opacity; the Group has no opacity of its own, which a Picture would ignore', () => {
-    const looks = looksOf({ 3: { opacity: 0.25, start: 1 } });
+    const looks = looksOf({ 3: { before: 0.25, start: 1 } });
     const view = mount({ beads: [leavingBead(TOP, 3)], looks });
     const canvas = view.canvas('top');
     const [picture] = canvas.findAll((n) => n.type === skia().Picture).filter((n) => groupOf(n, canvas) !== null);

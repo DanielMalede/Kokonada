@@ -62,7 +62,7 @@ describe('beadDriver.ts', () => {
     ], require);
     expect(firstFrame(mutant.driverStep, 0)).toEqual({ opacity: 1, colour: 1, letters: 0 });
     expect(firstFrame(mutant.driverStep, 300).opacity).toBeLessThan(0.2);
-    expect(firstFrame(mutant.driverStep, 1000)).toEqual({ opacity: 0, colour: 0, letters: 1 });
+    expect(firstFrame(mutant.driverStep, 1000)).toMatchObject({ opacity: 0, colour: 0 });
   });
 
   it('planted: an entrance played 1:1 from its stamp is whole in its first frame when 600 ms late', () => {
@@ -72,6 +72,17 @@ describe('beadDriver.ts', () => {
     const first = (step: Step) => step([{ id: 1, leaving: false, entered: true, late: 600 }], {}, {}, 9000, { motion: beadMotion('abyss', 'full'), timeScale: 1 }).looks[1];
     expect(first(driverStep)).toMatchObject({ opacity: 0, colour: 0 });
     expect(first(mutant.driverStep)).toMatchObject({ opacity: 1, colour: 1 });
+  });
+});
+
+describe('RimLabels/arc.ts', () => {
+  it('planted: letters that read the current frame’s look (e803fe9) are back beside a bead that was whole the frame before', () => {
+    const looks = { 1: { opacity: 0.4, colour: 0, scale: 1, start: 1, before: 1 } };
+    expect(lettersOpacity([1], looks)).toBe(0);
+    const mutant = loadMutant<{ lettersOpacity: typeof lettersOpacity }>(path.join(RIM, 'arc.ts'), [
+      { find: 'const before = look === undefined ? null : look.before;', replace: 'const before = look === undefined ? null : (look as unknown as { opacity: number }).opacity;' },
+    ], require);
+    expect(mutant.lettersOpacity([1], looks)).toBe(0.6);
   });
 });
 

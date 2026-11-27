@@ -18,8 +18,9 @@
 //   · The knock-out (DSN-028; the designer's ruling 2): letters near a live bead are not drawn, from the frame it appears.
 //     Letters near leaving beads only are drawn in a returning picture of their own, one per set of beads they follow,
 //     whose opacity is derived on the UI thread from those beads' own looks (lettersOpacity; UI-320, the designer's
-//     rulings of 2026-11-26): 1 − the largest share of its start opacity a followed bead still has, so the letters are
-//     exactly 0 while a bead is at its start opacity and can never run ahead of it, however late its motion starts.
+//     rulings of 2026-11-26 and 2026-11-27): 1 − the largest share of its start opacity a followed bead had in the frame
+//     before, so the letters are exactly 0 while a bead holds its start opacity, may trail it by one frame and never run
+//     ahead of it, however late its motion starts.
 //     Under reduced motion a bead is gone in one frame and its letters are kept in that frame. When the beads are gone
 //     the letters are kept, drawn as they were. The node and its copy stay whole.
 //   · At rest it is static: it redraws only when its words, its beads or its geometry change, and it has no clock of

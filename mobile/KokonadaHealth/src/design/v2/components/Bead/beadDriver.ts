@@ -1,7 +1,8 @@
-// The beads' one clock (UI-320, UI-321; the architect's ruling and the designer's rulings of 2026-11-26). F1, as amended:
-// every channel of a bead's look (opacity, colour disc, scale), and everything that follows it (the returning rim
-// letters), is computed off the JS thread from one clock per bead and written in the same frame; no frame's look waits
-// on JS.
+// The beads' one clock (UI-320, UI-321; the architect's ruling and the designer's rulings of 2026-11-26 and 2026-11-27).
+// F1, as amended: every channel of a bead's look (opacity, colour disc, scale) is computed off the JS thread from one
+// clock per bead and written in the same frame; what follows the bead (the returning rim letters) is computed off the
+// JS thread from the bead's look of the frame before, so it may trail the bead by one frame and never leads it; no
+// frame's look waits on JS.
 //
 //   · JS says who is on the plate and in which phase (a BeadPlay per bead in motion: useBeadClock.ts makes them from the
 //     presence). It never says when: a bead's clock starts at the first UI frame that sees it in its phase (t0), never
@@ -12,20 +13,28 @@
 //     whole timeline over what is left of it and never over less than motion.respond (playMs): never skipped, and the
 //     scale on the same clock. Only time compresses, so F1 holds under every ratio.
 //   · One atomic look: driverStep returns every bead's opacity, colour and scale together, and the frame callback
-//     writes them in one assignment. A leaving bead's look carries `start`, its opacity when its exit began, which is
-//     all the rim words need (RimLabels/arc.ts returningOpacity).
+//     writes them in one assignment. A leaving bead's look carries `start`, its opacity when its exit began, and
+//     `before`, its opacity in the frame before: the rim words read those two and nothing of the current frame
+//     (RimLabels/arc.ts lettersOpacity), since the bead's view may reach the screen a frame after the words' surface.
+//   · The driver runs one frame past a bead's end: in that frame `before` is 0, so its letters land whole on the UI
+//     thread, and only then may the driver rest.
 //   · No look yet means not drawn whole: a bead placed with an entrance is at opacity 0 until its first UI frame
 //     (restLook); a leaving bead stays as it was.
-//   · An exit reports once, in the frame it ends (`gone`). Nothing else leaves the UI thread.
+//   · An exit reports once, in the frame the bead itself ends (`gone`). Nothing else leaves the UI thread.
 //
 // Every function here is a worklet, and none reads a clock: the frame's timestamp is its only time.
 
 import { entranceLook, exitLook, type BeadLook, type BeadMotion } from './beadModel.ts';
 import { exitDuration, playMs, PRESS_MS, RESPOND_MS } from './beadTimeline.ts';
 
-/** A bead's look as the driver writes it: with `start`, its opacity when its exit began (null while it enters or rests). */
+/**
+ * A bead's look as the driver writes it: with `start`, its opacity when its exit began (null while it enters or rests),
+ * and `before`, its opacity in the exit's frame before this one (null in its first exit frame, and while it enters or
+ * rests): what the letters that follow it read.
+ */
 export interface DrivenLook extends BeadLook {
   readonly start: number | null;
+  readonly before: number | null;
 }
 
 /** Every look the driver holds, by bead id: the beads in motion, and those that entered and now rest. */
@@ -52,6 +61,8 @@ export interface BeadRun {
   /** An exit's start: the bead as it was drawn. */
   readonly from: BeadLook;
   readonly done: boolean;
+  /** An exit's frame past its end has been written: its letters have landed. */
+  readonly trailed: boolean;
 }
 
 export type BeadRuns = Readonly<Record<number, BeadRun>>;
@@ -68,7 +79,7 @@ export interface DriverFrame {
   readonly looks: BeadLooks;
   /** The beads whose exit ended in this frame. */
   readonly gone: readonly number[];
-  /** A bead is still entering or leaving: false, and the driver may rest. */
+  /** A bead is still entering or leaving, or left in this frame and its letters land in the next: false, and the driver may rest. */
   readonly moving: boolean;
 }
 
@@ -104,10 +115,10 @@ export function driverStep(plays: readonly BeadPlay[], runs: BeadRuns, looks: Be
         const seen = looks[p.id];
         const from = seen !== undefined ? { opacity: seen.opacity, colour: seen.colour, scale: seen.scale } : restLook(p.entered, config.motion);
         const end = exitDuration(from.opacity);
-        run = { leaving: true, t0: timestamp, end, play: playMs(end, p.late) * stretch, from, done: false };
+        run = { leaving: true, t0: timestamp, end, play: playMs(end, p.late) * stretch, from, done: false, trailed: false };
       } else {
         const end = entranceEnd(config.motion);
-        run = { leaving: false, t0: timestamp, end, play: playMs(end, p.late) * stretch, from: restLook(true, config.motion), done: false };
+        run = { leaving: false, t0: timestamp, end, play: playMs(end, p.late) * stretch, from: restLook(true, config.motion), done: false, trailed: false };
       }
     }
     const clock = ((timestamp - run.t0) * run.end) / run.play;
@@ -115,14 +126,21 @@ export function driverStep(plays: readonly BeadPlay[], runs: BeadRuns, looks: Be
     const over = !(clock < run.end) || (run.leaving && !(run.from.opacity > 0));
     if (run.leaving) {
       const l = exitLook(run.from, over ? run.end : clock);
-      nextLooks[p.id] = { opacity: over ? 0 : l.opacity, colour: over ? 0 : l.colour, scale: l.scale, start: run.from.opacity };
+      // What the letters read: the bead as this exit drew it the frame before; in its first frame, nothing yet.
+      const last = looks[p.id];
+      const before = last !== undefined && last.start !== null ? last.opacity : null;
+      nextLooks[p.id] = { opacity: over ? 0 : l.opacity, colour: over ? 0 : l.colour, scale: l.scale, start: run.from.opacity, before };
       if (over && !run.done) gone.push(p.id);
     } else {
       const l = entranceLook(config.motion, over ? run.end : clock);
-      nextLooks[p.id] = { opacity: l.opacity, colour: l.colour, scale: l.scale, start: null };
+      nextLooks[p.id] = { opacity: l.opacity, colour: l.colour, scale: l.scale, start: null, before: null };
     }
-    nextRuns[p.id] = over && !run.done ? { leaving: run.leaving, t0: run.t0, end: run.end, play: run.play, from: run.from, done: true } : run;
-    if (!over) moving = true;
+    // An exit that ended in an earlier frame has now written its frame past the end.
+    const trailed = run.leaving && run.done;
+    nextRuns[p.id] = (over && !run.done) || (trailed && !run.trailed)
+      ? { leaving: run.leaving, t0: run.t0, end: run.end, play: run.play, from: run.from, done: true, trailed }
+      : run;
+    if (!over || (run.leaving && !run.done)) moving = true;
   }
   return { runs: nextRuns, looks: nextLooks, gone, moving };
 }

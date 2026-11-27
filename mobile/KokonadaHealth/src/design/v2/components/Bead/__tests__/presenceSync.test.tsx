@@ -16,8 +16,12 @@ import type { UiThread } from './__fixtures__/uiThread.ts';
 // everything off the JS thread back by d ms after a removal (the first frame, and the motion's start), then samples, at
 // every frame and with no render in between, the bead's opacity as drawn and its returning letters' opacity:
 //
-//     letters === 1 − bead opacity ÷ its opacity before it left        (to 1e-6)
+//     letters in frame n === 1 − the bead's opacity in frame n−1 ÷ its opacity before it left   (to 1e-6)
+//     letters in frame n  <=  1 − the bead's opacity in frame n ÷ its opacity before it left    (never ahead)
 //     letters > 0  ⇒  the bead's colour disc is at 0
+//
+// (the designer's ruling of 2026-11-27, option (b): the letters read the bead's look of the frame before, so they may
+// trail it by one frame and never lead it; a bead with no look of the frame before has its whole share).
 //
 // At 27107e1 the letters ran on the wall clock from leftAt and the bead on a clock of its own that started d later: at
 // d = 300 the first frame had the letters at 0.9 beside a bead still whole.
@@ -157,15 +161,17 @@ function removal(d: number, base: (jsNow: number) => number = (t) => t) {
 /** The law's breaches over a removal's samples. */
 function breaches({ a0, samples }: ReturnType<typeof removal>): string[] {
   const out: string[] = [];
-  for (const s of samples) {
-    if (Math.abs(s.letters - (1 - s.bead / a0)) > 1e-6) out.push(`${s.ms} ms: letters ${s.letters.toFixed(4)} beside a bead at ${s.bead.toFixed(4)} of ${a0}`);
+  samples.forEach((s, i) => {
+    const share = i === 0 ? 1 : samples[i - 1].bead / a0;
+    if (Math.abs(s.letters - (1 - share)) > 1e-6) out.push(`${s.ms} ms: letters ${s.letters.toFixed(4)}, the bead was at ${(share * a0).toFixed(4)} of ${a0} the frame before`);
+    if (s.letters > 1 - s.bead / a0 + 1e-6) out.push(`${s.ms} ms: letters ${s.letters.toFixed(4)} ahead of a bead at ${s.bead.toFixed(4)} of ${a0}`);
     if (s.letters > 0 && s.colour !== 0) out.push(`${s.ms} ms: letters ${s.letters.toFixed(4)} beside a bead in colour (${s.colour.toFixed(4)})`);
-  }
+  });
   return out;
 }
 
-describe('T2: a removal whose motion starts late: the letters are the bead’s own fade at every frame', () => {
-  it.each([0, 16, 100, 300, 1000])('held back %p ms: letters === 1 − bead opacity ÷ its start, and above 0 only once its colour is 0', (d) => {
+describe('T2: a removal whose motion starts late: the letters are the bead’s own fade, one frame behind, at every frame', () => {
+  it.each([0, 16, 100, 300, 1000])('held back %p ms: letters === 1 − the bead’s opacity the frame before ÷ its start, never ahead of it, and above 0 only once its colour is 0', (d) => {
     const run = removal(d);
     expect(run.a0).toBe(1);
     expect(breaches(run)).toEqual([]);
@@ -192,12 +198,13 @@ describe('T2: a removal whose motion starts late: the letters are the bead’s o
     const nearRightOnly = beside[0].letters;
     ui.frame(0);
     ui.frame(200);
+    ui.frame(216);
     expect(beside[0].opacity()).toBeGreaterThan(0);
     // Now the older goes too, 200 ms into the first one's exit: three groups, and those near both follow the later bead.
     view.update([]);
     const groups = view.returning();
     expect(groups).toHaveLength(3);
-    ui.frame(216);
+    ui.frame(232);
     ui.frame(400);
     const first = view.opacityOf('hero.plate.bead.leaving');
     expect(first).not.toBeNull();
@@ -217,6 +224,7 @@ describe('T5: between leave and gone, a parent’s re-render commits no word can
     view.update([]);
     ui.frame(0);
     ui.frame(120);
+    const beadAt120 = view.opacityOf('hero.plate.bead.leaving')!;
     const renders = { ...skia.__fake.canvasRenders };
     const recorded = skia.__fake.recordings.length;
     expect(Object.keys(renders).sort()).toEqual(['hero.plate.word.bottom', 'hero.plate.word.left', 'hero.plate.word.right', 'hero.plate.word.top']);
@@ -226,9 +234,11 @@ describe('T5: between leave and gone, a parent’s re-render commits no word can
     view.rerender();
     expect(skia.__fake.canvasRenders).toEqual(renders);
     expect(skia.__fake.recordings).toHaveLength(recorded);
-    // The returning layer goes on with the bead through it all.
+    // The returning layer goes on with the bead through it all, a frame behind it: at 200 ms it shows the bead of 120 ms.
     const [layer] = view.returning();
-    expect(layer.opacity()).toBeCloseTo(1 - view.opacityOf('hero.plate.bead.leaving')!, 9);
+    expect(beadAt120).toBeLessThan(1);
+    expect(layer.opacity()).toBeCloseTo(1 - beadAt120, 9);
+    expect(layer.opacity()).toBeLessThan(1 - view.opacityOf('hero.plate.bead.leaving')!);
   });
 
   it('a change that is real still commits: the word’s canvas renders once more with its new pictures', () => {

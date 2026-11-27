@@ -258,10 +258,17 @@ describe('the three letter states (the designer’s ruling 2): kept, out near a 
   });
 });
 
-// The designer's rulings of 2026-11-26 (UI-320): the letters are read from the looks the beads' own driver writes each
-// frame, by bead id, never from a clock of their own: 1 − the largest share of its start opacity any followed bead still has.
-describe('lettersOpacity (the letters’ law): 1 − max over the followed beads of opacity ÷ start opacity', () => {
-  const look = (opacity: number, start: number | null) => ({ opacity, start });
+// The designer's rulings of 2026-11-26 and 2026-11-27 (UI-320, option (b)): the letters are read from the looks the beads'
+// driver writes each frame, by bead id, never from a clock of their own: 1 − the largest share of its start opacity any
+// followed bead had in the frame before (`before`), so they may trail a bead by one frame and never lead it.
+describe('lettersOpacity (the letters’ law): 1 − max over the followed beads of their opacity the frame before ÷ start opacity', () => {
+  const look = (before: number | null, start: number | null) => ({ before, start });
+
+  it('reads the frame before and nothing of the current frame: a bead with no look of the frame before has its whole share', () => {
+    expect(lettersOpacity([3], { 3: { before: 0.5, start: 1, opacity: 0 } as never })).toBe(0.5);
+    expect(lettersOpacity([3], { 3: look(null, 1) })).toBe(0);
+    expect(lettersOpacity([3], { 3: look(null, 0) })).toBe(0);
+  });
 
   it.each([1, 0.6])('follows one bead exactly: at 100, 75, 50, 25 and 0%% of its start opacity (%p) the letters are at 0, 0.25, 0.5, 0.75 and 1', (start) => {
     for (const share of [1, 0.75, 0.5, 0.25, 0]) expect(lettersOpacity([3], { 3: look(start * share, start) })).toBeCloseTo(1 - share, 12);

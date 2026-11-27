@@ -9,8 +9,10 @@ import { beadMotion, entranceLook, exitLook } from '../beadModel.ts';
 import { entranceColour, entranceOpacity, exitDuration, exitOpacity, playMs, PLAY_FLOOR_MS, PRESS_MS, RESPOND_MS } from '../beadTimeline.ts';
 
 // UI-320 and UI-321 (the architect's ruling and the designer's rulings of 2026-11-26). One clock per bead on the UI
-// thread: the bead's look and the rim letters that follow it are both read from it, so however late the first UI frame
-// comes, the letters are exactly 1 − opacity ÷ start opacity, and exactly 0 while the bead is at its start opacity.
+// thread: the bead's look is written from it each frame, and the rim letters that follow the bead are read from the
+// bead's look of the frame before (the designer's ruling of 2026-11-27, option (b)): letters in frame n are exactly
+// 1 − opacity in frame n−1 ÷ start opacity, so they may trail the bead by one frame and never lead it, however late the
+// first UI frame comes. The driver runs one frame past the bead's end, where the letters land whole.
 // A late motion is compressed onto motion.respond at the least, never skipped: the entrance's grey step is always seen.
 
 const MOTION = beadMotion('abyss', 'full');
@@ -56,7 +58,7 @@ const SKIPPING = fromStamp(false);
 const entering = (late = 0, id = ID): BeadPlay => ({ id, leaving: false, entered: true, late });
 const leaving = (late = 0, entered = false, id = ID): BeadPlay => ({ id, leaving: true, entered, late });
 
-/** The frames of one exit: a bead that left at `leftAt`, its first UI frame `d` ms later, then a frame every `dt` to its end. */
+/** The frames of one exit: a bead that left at `leftAt`, its first UI frame `d` ms later, then a frame every `dt` until the driver may rest. */
 function exitFrames(step: Step, d: number, from: 'whole' | number, dt = FRAME) {
   const thread = ui(step);
   const leftAt = 5000;
@@ -69,32 +71,37 @@ function exitFrames(step: Step, d: number, from: 'whole' | number, dt = FRAME) {
     expect(thread.looks()[ID].opacity).toBe(entranceOpacity(from));
   }
   const before = thread.looks()[ID] ?? restLook(false, MOTION);
-  const frames: Array<{ t: number; opacity: number; colour: number; start: number; letters: number }> = [];
-  for (t = leftAt + d; thread.gone.length === 0 && frames.length < 5000; t += dt) {
-    thread.frame([leaving(d, from !== 'whole')], t);
+  const frames: Array<{ t: number; opacity: number; colour: number; start: number; letters: number; gone: boolean; moving: boolean }> = [];
+  for (t = leftAt + d; frames.length < 5000; t += dt) {
+    const out = thread.frame([leaving(d, from !== 'whole')], t);
     const look = thread.looks()[ID];
-    frames.push({ t, opacity: look.opacity, colour: look.colour, start: look.start!, letters: lettersOpacity([ID], thread.looks()) });
+    frames.push({ t, opacity: look.opacity, colour: look.colour, start: look.start!, letters: lettersOpacity([ID], thread.looks()), gone: out.gone.length > 0, moving: out.moving });
+    if (!out.moving) break;
   }
   return { frames, before, leftAt, first: leftAt + d };
 }
 
-/** T1's law over an exit's frames: the problems found, none when it holds. */
-function lawProblems(run: ReturnType<typeof exitFrames>, lettersAt = (f: { t: number; letters: number }) => f.letters): string[] {
+type Frame = ReturnType<typeof exitFrames>['frames'][number];
+
+/** T1's law (option (b)) over an exit's frames: the problems found, none when it holds. `lettersAt` reads a frame's letters. */
+function lawProblems(run: ReturnType<typeof exitFrames>, lettersAt: (f: Frame, i: number) => number = (f) => f.letters): string[] {
   const problems: string[] = [];
   const a0 = run.before.opacity;
   run.frames.forEach((f, i) => {
-    const letters = lettersAt(f);
-    if (Math.abs(letters - (1 - f.opacity / a0)) > 1e-12) problems.push(`frame ${i}: letters ${letters} beside a bead at ${f.opacity} of ${a0}`);
+    const letters = lettersAt(f, i);
+    // The frame before: the first frame has none, and a bead with no look of the frame before has its whole share.
+    const share = i === 0 ? 1 : run.frames[i - 1].opacity / a0;
+    if (Math.abs(letters - (1 - share)) > 1e-12) problems.push(`frame ${i}: letters ${letters}, the bead was at ${i === 0 ? 'no look' : run.frames[i - 1].opacity} of ${a0} the frame before`);
+    if (letters > 1 - f.opacity / a0 + 1e-12) problems.push(`frame ${i}: letters ${letters} ahead of a bead at ${f.opacity} of ${a0}`);
     if (letters > 0 && f.colour !== 0) problems.push(`frame ${i}: letters ${letters} beside a bead in colour ${f.colour}`);
-    if (f.opacity === a0 && letters !== 0) problems.push(`frame ${i}: letters ${letters} beside a bead at its start opacity`);
   });
   const [first] = run.frames;
   if (first.opacity !== a0 || first.colour !== run.before.colour) problems.push(`the first frame is not the bead as it was: ${JSON.stringify(first)}`);
   return problems;
 }
 
-describe('T1: the letters are the bead’s own look, however late its first UI frame comes', () => {
-  it.each([0, 16, 100, 300, 1000])('an opaque bead whose first exit frame comes %p ms after leftAt: at every frame the letters are exactly 1 − opacity ÷ start, and above 0 only once the colour is 0', (d) => {
+describe('T1: the letters are the bead’s look of the frame before, however late its first UI frame comes', () => {
+  it.each([0, 16, 100, 300, 1000])('an opaque bead whose first exit frame comes %p ms after leftAt: in every frame the letters are exactly 1 − its opacity the frame before ÷ start, never ahead of it, and above 0 only once the colour is 0', (d) => {
     const run = exitFrames(driverStep, d, 'whole');
     expect(lawProblems(run)).toEqual([]);
     // The whole timeline is seen, from the first UI frame: the hold in colour, the grey, then gone.
@@ -104,12 +111,28 @@ describe('T1: the letters are the bead’s own look, however late its first UI f
       const clock = ((f.t - run.first) * exitDuration(1)) / play;
       if (clock < exitDuration(1)) expect([i, f.opacity]).toEqual([i, exitOpacity(1, clock)]);
     });
-    expect(run.frames.filter((f) => f.opacity === 1 && f.colour === 0 && f.letters === 0).length + run.frames.filter((f) => f.opacity > 0 && f.opacity < 1).length).toBeGreaterThanOrEqual(6);
-    const last = run.frames[run.frames.length - 1];
-    expect(last).toMatchObject({ opacity: 0, colour: 0, letters: 1 });
-    // It ends when it was due, or motion.respond after its first frame when that is later: compressed, never skipped.
-    expect(last.t - run.first).toBeGreaterThanOrEqual(Math.max(exitDuration(1) - d, PLAY_FLOOR_MS));
-    expect(last.t - run.first).toBeLessThan(Math.max(exitDuration(1) - d, PLAY_FLOOR_MS) + FRAME);
+    expect(run.frames.filter((f) => f.opacity > 0 && f.opacity < 1).length).toBeGreaterThanOrEqual(6);
+    expect(run.frames.filter((f) => f.letters > 0 && f.letters < 1).length).toBeGreaterThanOrEqual(6);
+    // The bead ends when it was due, or motion.respond after its first frame when that is later: compressed, never skipped.
+    const end = run.frames.findIndex((f) => f.opacity === 0);
+    expect(run.frames[end].t - run.first).toBeGreaterThanOrEqual(Math.max(exitDuration(1) - d, PLAY_FLOOR_MS));
+    expect(run.frames[end].t - run.first).toBeLessThan(Math.max(exitDuration(1) - d, PLAY_FLOOR_MS) + FRAME);
+  });
+
+  it('the bead’s end and the letters’ landing: onGone in the frame the bead reaches 0, the letters whole in the one frame after it, and only then may the driver rest', () => {
+    for (const d of [0, 300]) {
+      const { frames } = exitFrames(driverStep, d, 'whole');
+      const end = frames.findIndex((f) => f.opacity === 0);
+      expect(frames.map((f) => f.gone).indexOf(true)).toBe(end);
+      expect(frames.filter((f) => f.gone)).toHaveLength(1);
+      // In the bead's end frame the letters still trail: they are at what the bead had left the frame before.
+      expect(frames[end].letters).toBeLessThan(1);
+      expect(frames[end].letters).toBe(1 - frames[end - 1].opacity);
+      expect(frames[end].moving).toBe(true);
+      // One frame past the end: whole, written on the UI thread, and the driver says it may rest.
+      expect(frames).toHaveLength(end + 2);
+      expect(frames[end + 1]).toMatchObject({ opacity: 0, colour: 0, letters: 1, gone: false, moving: false });
+    }
   });
 
   it.each([0, 16, 100, 300, 1000])('a bead caught translucent in its entrance, its first exit frame %p ms late: the same law from its own start opacity', (d) => {
@@ -118,13 +141,24 @@ describe('T1: the letters are the bead’s own look, however late its first UI f
     expect(run.before.opacity).toBeLessThan(1);
     expect(lawProblems(run)).toEqual([]);
     for (const f of run.frames) expect(f.colour).toBe(0);
+    expect(run.frames[run.frames.length - 1].letters).toBe(1);
   });
 
-  it('the letters never run ahead: they do not go down, and are whole only in the frame the bead is gone', () => {
+  it('the letters never run ahead: they do not go down, and are whole only after the bead is gone', () => {
     for (const d of [0, 300]) {
       const { frames } = exitFrames(driverStep, d, 'whole', 4);
       for (let i = 1; i < frames.length; i++) expect(frames[i].letters).toBeGreaterThanOrEqual(frames[i - 1].letters);
       expect(frames.filter((f) => f.letters === 1).map((f) => f.opacity)).toEqual([0]);
+      for (const f of frames) expect(f.letters).toBeLessThanOrEqual(1 - f.opacity);
+    }
+  });
+
+  it('mutant: letters that read the current frame’s look (e803fe9) break the law in every frame the bead moves', () => {
+    const current = (run: ReturnType<typeof exitFrames>) => lawProblems(run, (f) => 1 - f.opacity / run.before.opacity);
+    for (const d of [0, 300]) {
+      const problems = current(exitFrames(driverStep, d, 'whole'));
+      expect(problems.length).toBeGreaterThanOrEqual(10);
+      expect(problems[0]).toMatch(/^frame \d+: letters 0\.\d+, the bead was at (1|0\.9999\d*) of 1 the frame before$/);
     }
   });
 
@@ -135,21 +169,24 @@ describe('T1: the letters are the bead’s own look, however late its first UI f
 
   it('mutant: letters read from leftAt on the wall clock (27107e1) are whole beside an opaque bead once the first frame is late', () => {
     const wall = (run: ReturnType<typeof exitFrames>) => lawProblems(run, (f) => 1 - exitOpacity(1, f.t - run.leftAt));
-    expect(wall(exitFrames(driverStep, 0, 'whole'))).toEqual([]);
     const late = wall(exitFrames(driverStep, 300, 'whole'));
     expect(late.length).toBeGreaterThan(0);
-    expect(late[0]).toMatch(/^frame 0: letters 0\.9\d* beside a bead at 1 of 1$/);
+    expect(late.join('\n')).toMatch(/frame 0: letters 0\.9\d* ahead of a bead at 1 of 1/);
   });
 
-  it('a leaving bead with no entrance and no look yet starts whole; one placed with an entrance and never drawn leaves from nothing, gone in its first frame', () => {
+  it('a leaving bead with no entrance and no look yet starts whole, its letters out; one placed with an entrance and never drawn leaves from nothing: gone in its first frame, its letters back in the next, never NaN', () => {
     const whole = ui();
     whole.frame([leaving(0, false)], 100);
-    expect(whole.looks()[ID]).toEqual({ opacity: 1, colour: 1, scale: 1, start: 1 });
+    expect(whole.looks()[ID]).toEqual({ opacity: 1, colour: 1, scale: 1, start: 1, before: null });
+    expect(lettersOpacity([ID], whole.looks())).toBe(0);
     const never = ui();
     const out = never.frame([leaving(0, true)], 100);
-    expect(never.looks()[ID]).toEqual({ opacity: 0, colour: 0, scale: MOTION.scaleFrom, start: 0 });
-    expect([out.gone, out.moving]).toEqual([[ID], false]);
-    // Its letters are back, never NaN (start opacity 0).
+    expect(never.looks()[ID]).toEqual({ opacity: 0, colour: 0, scale: MOTION.scaleFrom, start: 0, before: null });
+    expect([out.gone, out.moving]).toEqual([[ID], true]);
+    // No look of the frame before: its whole share, so the letters stay out for this frame.
+    expect(lettersOpacity([ID], never.looks())).toBe(0);
+    const next = never.frame([leaving(0, true)], 116);
+    expect([next.gone, next.moving]).toEqual([[], false]);
     expect(lettersOpacity([ID], never.looks())).toBe(1);
   });
 });
@@ -322,9 +359,16 @@ describe('the driver’s bookkeeping', () => {
     for (let t = 0; t <= 2000; t += FRAME) thread.frame([entering()], t);
     expect(thread.gone).toEqual([]);
     const seen: number[][] = [];
-    for (let t = 3000; t <= 4000; t += 10) seen.push([...thread.frame([leaving(0, true)], t).gone]);
+    const moving: boolean[] = [];
+    for (let t = 3000; t <= 4000; t += 10) {
+      const out = thread.frame([leaving(0, true)], t);
+      seen.push([...out.gone]);
+      moving.push(out.moving);
+    }
     expect(seen.filter((g) => g.length > 0)).toEqual([[ID]]);
     expect(seen.findIndex((g) => g.length > 0)).toBe(exitDuration(1) / 10);
+    // The driver runs one frame past the bead's end, for the letters, and no further.
+    expect(moving.lastIndexOf(true)).toBe(exitDuration(1) / 10);
   });
 
   it('says whether anything still moves: true through a motion, false from the frame it ends', () => {
@@ -341,7 +385,8 @@ describe('the driver’s bookkeeping', () => {
     thread.frame([leaving(0, false, 1), leaving(0, false, 2)], 1200);
     expect(thread.looks()[1].opacity).toBe(exitOpacity(1, 200));
     expect(thread.looks()[2].opacity).toBe(1);
-    // Letters near both follow the one that fades last; near the first alone, the first.
+    thread.frame([leaving(0, false, 1), leaving(0, false, 2)], 1216);
+    // Letters near both follow the one that fades last; near the first alone, the first, as it was the frame before.
     expect(lettersOpacity([1, 2], thread.looks())).toBe(0);
     expect(lettersOpacity([1], thread.looks())).toBe(1 - exitOpacity(1, 200));
   });

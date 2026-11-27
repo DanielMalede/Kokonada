@@ -179,9 +179,13 @@ export function returningGroups(layout: RimWordLayout): ReturningGroup[] {
   return [...groups.values()];
 }
 
-/** What the letters read of a bead's look (Bead/beadDriver.ts DrivenLook): its opacity now, and its opacity when its exit began. */
+/**
+ * What the letters read of a bead's look (Bead/beadDriver.ts DrivenLook): its opacity in the frame before this one, and
+ * its opacity when its exit began. Nothing of the current frame.
+ */
 export interface RimLook {
-  readonly opacity: number;
+  /** Null in the exit's first frame, and while the bead enters or rests: no look of the frame before. */
+  readonly before: number | null;
   /** Null while the bead enters or rests: it has no exit yet. */
   readonly start: number | null;
 }
@@ -195,22 +199,25 @@ export interface RimLooksValue {
 }
 
 /**
- * The letters' law (the designer's rulings of 2026-11-26, UI-320): the opacity of letters returning as the leaving beads
- * they follow fade, read from those beads' own looks: one less the largest share of its start opacity any of them still
- * has, opacity ÷ start, held to [0, 1]. So it is exactly 0 while a bead is at its start opacity (the exit's hold), and
- * near several beads it follows the one that fades last. A bead with no look yet, or whose look has no start yet, has
- * all of its share: the letters stay out. One that began invisible (start 0 or less) has none: the letters are 1, never
- * NaN. A start or an opacity that is not a number keeps the letters out, as a bead that may still be there.
+ * The letters' law (the designer's rulings of 2026-11-26 and 2026-11-27, UI-320): the opacity of letters returning as
+ * the leaving beads they follow fade, read from those beads' looks of the frame before: one less the largest share of its
+ * start opacity any of them had then, before ÷ start, held to [0, 1]. So the letters may trail a bead by one frame and
+ * never lead it (the bead's view can reach the screen a frame after the words' surface), they are exactly 0 while a bead
+ * holds its start opacity, and near several beads they follow the one that fades last. A bead with no look yet, or whose
+ * look has no start or no frame before it yet, has all of its share: the letters stay out. One that began invisible
+ * (start 0 or less) has none once it has a frame before: the letters are 1, never NaN. A start or an opacity that is not
+ * a number keeps the letters out, as a bead that may still be there.
  */
 export function lettersOpacity(ids: readonly number[], looks: RimLooks): number {
   'worklet';
   let share = 0;
   for (let i = 0; i < ids.length; i++) {
     const look = looks[ids[i]];
+    const before = look === undefined ? null : look.before;
     let s = 1;
-    if (look !== undefined && look.start !== null && Number.isFinite(look.start)) {
+    if (look !== undefined && before !== null && look.start !== null && Number.isFinite(look.start)) {
       if (look.start <= 0) s = 0;
-      else if (Number.isFinite(look.opacity)) s = Math.min(1, Math.max(0, look.opacity / look.start));
+      else if (Number.isFinite(before)) s = Math.min(1, Math.max(0, before / look.start));
     }
     if (s > share) share = s;
   }

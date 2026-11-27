@@ -181,10 +181,10 @@ const ENTER: BeadPlay = { id: 0, leaving: false, entered: true, late: 0 };
 
 describe('Bead: it draws the look the driver wrote, in the frame it was written', () => {
   it('reads its own look by its id, live: opacity, colour disc and scale change with the shared value and with no render', () => {
-    const looks = shared({ 0: { opacity: 0.4, colour: 0, scale: 0.8, start: null }, 1: { opacity: 1, colour: 1, scale: 1, start: null } });
+    const looks = shared({ 0: { opacity: 0.4, colour: 0, scale: 0.8, start: null, before: null }, 1: { opacity: 1, colour: 1, scale: 1, start: null, before: null } });
     const tree = mount({ entered: true, looks });
     expect(drawnLook(tree)).toEqual({ opacity: 0.4, colour: 0, scale: 0.8 });
-    looks.value = { 0: { opacity: 1, colour: 0.25, scale: 0.97, start: null } };
+    looks.value = { 0: { opacity: 1, colour: 0.25, scale: 0.97, start: null, before: null } };
     expect(drawnLook(tree)).toEqual({ opacity: 1, colour: 0.25, scale: 0.97 });
   });
 

@@ -103,12 +103,12 @@ describe('useBeadClock: an entrance', () => {
     expect(h.looks()[0]).toBeUndefined();
     const t0 = 50_000;
     ui.frame(t0);
-    expect(h.looks()[0]).toEqual({ opacity: 0, colour: 0, scale: beadMotion('abyss', 'full').scaleFrom, start: null });
+    expect(h.looks()[0]).toEqual({ opacity: 0, colour: 0, scale: beadMotion('abyss', 'full').scaleFrom, start: null, before: null });
     frames(t0 + 10, t0 + END - 10);
     expect(h.looks()[0].scale).toBeLessThan(1);
     expect(active()).toBe(1);
     frames(t0 + END, t0 + END + 20);
-    expect(h.looks()[0]).toEqual({ opacity: 1, colour: 1, scale: 1, start: null });
+    expect(h.looks()[0]).toEqual({ opacity: 1, colour: 1, scale: 1, start: null, before: null });
     expect(active()).toBe(0);
     expect(h.onGone).not.toHaveBeenCalled();
   });
@@ -200,6 +200,33 @@ describe('useBeadClock: an exit', () => {
     act(() => tree.update(element(leaving, 'third')));
     frames(0, 500);
     expect(calls).toEqual(['third:4']);
+  });
+});
+
+describe('useBeadClock: the rest word (the designer’s ruling of 2026-11-27)', () => {
+  it('is sent one frame after the bead’s end frame, where the letters’ look lands, carries no look, and causes no render', () => {
+    const bead = whole(4);
+    const h = mount([bead]);
+    h.update([left(bead, performance.now())]);
+    const renders = h.seen.renders;
+    for (let t = 0; t < exitDuration(1); t += 10) ui.frame(t);
+    expect(ui.jsCalls).toEqual([]);
+    // The bead's end frame: onGone is on its way, the letters still read the frame before, and the driver goes on.
+    ui.frame(exitDuration(1));
+    expect(ui.jsCalls.map((c) => c.args)).toEqual([[4]]);
+    expect(h.looks()[4].opacity).toBe(0);
+    expect(h.looks()[4].before).toBeGreaterThan(0);
+    // One frame past it: the look of the frame before is the bead gone, so the letters land whole; then the rest word.
+    ui.frame(exitDuration(1) + 10);
+    expect(h.looks()[4]).toMatchObject({ opacity: 0, before: 0 });
+    expect(ui.jsCalls).toHaveLength(2);
+    expect(ui.jsCalls[1].args.every((arg) => typeof arg === 'number')).toBe(true);
+    expect(active()).toBe(1);
+    act(() => ui.flushJS());
+    expect(active()).toBe(0);
+    expect(h.onGone.mock.calls).toEqual([[4]]);
+    // Neither word set any state: the hook's component never rendered again.
+    expect(h.seen.renders).toBe(renders);
   });
 });
 
