@@ -1744,6 +1744,89 @@ describe('#307 round 5 · every finding of the review at c10abaa that #307 does 
   });
 });
 
+// DEC-199 (own:agent-models-fable): every session and every sub-agent runs on Fable at effort medium. A dispatch can
+// name a model family only, never a version, and a dispatch without one falls to the agent file's `model:` line; so
+// every agent file says `model: inherit` and a sub-agent runs on the model the owner set for the session. DEC-155
+// ruling 6's second sentence stands: no model version number anywhere in the layer.
+describe('DEC-199 · every session and sub-agent on Fable at effort medium: the agent files inherit the session\'s model', () => {
+  const mdIn = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel)).filter((f) => f.endsWith('.md')).sort().map((f) => `${rel}/${f}`);
+  const AGENT_FILES = mdIn('.claude/agents');
+  const COMMAND_FILES = mdIn('.claude/commands');
+  const LAYER = ['CLAUDE.md', ...AGENT_FILES, ...COMMAND_FILES];
+  // The front matter's lines: what stands between the file's first line, `---`, and the next `---` line.
+  const frontLines = (file) => {
+    const lines = read(file).split('\n');
+    const end = lines.indexOf('---', 1);
+    return lines[0] === '---' && end > 0 ? lines.slice(1, end) : [];
+  };
+  const linesMatching = (files, re) => files.flatMap((file) => read(file).split('\n')
+    .map((l, i) => (re.test(l) ? `${file}:${i + 1}` : null)).filter(Boolean));
+  // A model family followed by a number ("<family> 5", "<family>-5", "<family>5"), or a model id.
+  const VERSION = /(opus|fable|sonnet|haiku)[ -]?\d/i;
+  const MODEL_ID = /claude-[a-z]+-\d/i;
+
+  test('the corpus is the ten agent files and the seventeen command files, so an empty read cannot pass', () => {
+    expect(AGENT_FILES.map((f) => path.basename(f, '.md'))).toEqual(['architect', 'compliance-auditor', 'coordinator', 'custodian',
+      'designer', 'developer', 'regulatory-researcher', 'resilience-auditor', 'security-auditor', 'sentinel']);
+    expect(COMMAND_FILES).toHaveLength(17);
+    AGENT_FILES.forEach((file) => expect([file, frontLines(file).length > 3]).toEqual([file, true]));
+  });
+
+  test('every agent file has exactly one `model:` line, `inherit`, and exactly one `effort:` line, `medium`', () => {
+    const seen = AGENT_FILES.map((file) => [file,
+      frontLines(file).filter((l) => /^\s*model\s*:/.test(l)), frontLines(file).filter((l) => /^\s*effort\s*:/.test(l))]);
+    expect(seen).toEqual(AGENT_FILES.map((file) => [file, ['model: inherit'], ['effort: medium']]));
+  });
+
+  test('no agent file, command file or CLAUDE.md carries the dispatch keyword, and no agent body asks for maximum depth', () => {
+    expect(linesMatching(LAYER, /ultrathink/i)).toEqual([]);
+    expect(linesMatching(AGENT_FILES, /maximum reasoning|max(imum)? effort|effort:? max\b/i)).toEqual([]);
+    AGENT_FILES.forEach((file) => has(read(file), 'Operate at the effort your front matter sets, on the session\'s model'));
+  });
+
+  test('no model version number and no model id anywhere in the layer (DEC-155 ruling 6)', () => {
+    // The detector itself, on text built here so that this file holds none: each must be caught.
+    ['opus 5', 'Fable-5', 'sonnet4', 'HAIKU 4.5'].forEach((s) => expect([s, VERSION.test(s)]).toEqual([s, true]));
+    expect(MODEL_ID.test(['claude', 'fable', '5', '2'].join('-'))).toBe(true);
+    ['docs/ORCHESTRATOR_FABLE.md', 'every sub-agent runs on Fable.', 'DEC-155 ruling 6'].forEach((s) => expect([s, VERSION.test(s) || MODEL_ID.test(s)]).toEqual([s, false]));
+    expect(linesMatching(LAYER, VERSION)).toEqual([]);
+    expect(linesMatching(LAYER, MODEL_ID)).toEqual([]);
+  });
+
+  test('CLAUDE.md § Models is the one paragraph: Fable, `model: inherit`, `effort: medium`, no dispatch keyword, no version, DEC-199', () => {
+    const models = section(ROOT_MD, 'Models').filter((l) => l.trim() !== '');
+    expect(models).toEqual(['Every session and every sub-agent runs on Fable. The owner switches the session\'s model; every agent file says `model: inherit` and `effort: medium`, so a sub-agent runs on the session\'s model at effort medium, and no dispatch names a model. No dispatch prompt carries `ultrathink`. No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).']);
+    has(models.join('\n'), '`model: inherit`', '`effort: medium`', 'DEC-199');
+    expect(ROOT_MD).not.toMatch(/Opus executes|`model: opus`|`effort: max`/);
+  });
+
+  test('ORCHESTRATOR_FABLE.md `<model_economy>` points at § Models and no longer splits the work between two models', () => {
+    const doc = read('docs/ORCHESTRATOR_FABLE.md');
+    const economy = doc.slice(doc.indexOf('<model_economy>'), doc.indexOf('</model_economy>'));
+    has(economy, '`CLAUDE.md` § Models', '- Persist every plan and every ground-truth brief under `docs/`',
+      '- Batch the owner\'s decisions into one question round', '- Do not re-read large documents every turn');
+    expect(economy).not.toMatch(/\bOpus\b|scarce|ultrathink/i);
+  });
+
+  test('DEC-199 records the owner\'s five rulings verbatim, refines DEC-155, and the index carries it', () => {
+    const dec = read('docs/design-v2/decisions/DEC-199.md');
+    has(dec, 'status: DECIDED', 'ruled: 2026-11-27',
+      '"אני רוצה שהסוכנים יפסיקו לרות על מצב uktra ויעברו למצב medium ועדיין ישארו על opus 5.5"',
+      '"תעביר את כל הסוכנים שיעבדו על fable ולא על opus וגם אתה תעבור לfable ממש עכשיו"',
+      '"תפעיל את כל הסוכנים על fable 5.1 במצב medium ואני אעביר אותך גם למצב הזה"',
+      '"תכין את ה־PR לתיקון מודל הסוכנים"', '"inherit (מומלץ)"',
+      '"Fable plans, Opus executes. No model version numbers anywhere in the layer."',
+      '## The owner\'s rulings, verbatim', '## The scribe\'s notes', '**What it does not settle.**');
+    has(dec.split('\n').find((l) => l.startsWith('- refines:')) || '', 'DEC-155 (ruling 6)');
+    has(read('docs/design-v2/decisions/DEC-155.md'), '- refined by: DEC-199 (2026-11-27):');
+    has(decRow('DEC-199'), 'DECIDED (ruled 2026-11-27)');
+    has(decRow('DEC-155'), 'DEC-199');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-199**')) || '', '"inherit (מומלץ)"');
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **Reserved, not yet written:**')) || '',
+      'DEC-194 to DEC-198 are held by the B1 records branch (`own:b1-dec-records`)');
+  });
+});
+
 // ARCH-307-19: closing a pinned row must never turn its pin red. This case closes every open row of a copy of
 // TASKS.md and runs every row pin of this file on it, with the ID set and the header invariant. Jest collects every
 // describe before it runs a case, so the list of row pins is whole wherever this case sits.
