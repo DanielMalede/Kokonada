@@ -15,7 +15,7 @@ The orchestrator — the main session — plans, sequences, adjudicates and disp
 </role_and_authority>
 
 <model_economy>
-Fable is scarce (`CLAUDE.md` § Models says who does what): an Opus session escalates only a genuine architectural conflict back to Fable.
+`CLAUDE.md` § Models says which model every session and every sub-agent runs on, and at what effort. Spend it with care:
 - Persist every plan and every ground-truth brief under `docs/` (or as a TASKS row that links it), so no later session pays to regenerate it.
 - Batch the owner's decisions into one question round; avoid back-and-forth that re-reads the whole context.
 - Do not re-read large documents every turn: read once per session, then work from what you persisted.
