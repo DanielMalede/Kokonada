@@ -19,8 +19,8 @@ jest.mock('@shopify/react-native-skia', () => require('./__fixtures__/skiaHeadle
 // Jest cannot load a font file (the preset transforms images only), so the app's face sources are each face registered
 // as the Metro asset require('…/assets/fonts/<id>.ttf') makes on the device (TypefaceProvider.test.tsx does the same).
 jest.mock('../../v2FaceSources', () => {
-  // eslint-disable-next-line @react-native/no-deep-imports -- the registry a Metro asset is registered in; React Native exports it at no other path
-  const mockRegistry = require('react-native/Libraries/Image/AssetRegistry');
+  // The registry Metro registers an asset in: from React Native 0.88, react-native's own AssetRegistry.
+  const mockRegistry = require('react-native').AssetRegistry;
   const ids = ['Heebo-Light', 'Heebo-Regular', 'Heebo-Medium', 'Heebo-SemiBold', 'Bellefair-Regular'];
   const asset = (name: string) => mockRegistry.registerAsset({ __packager_asset: true, httpServerLocation: '/assets/assets/fonts', name, type: 'ttf', scales: [1], hash: name, fileSystemLocation: '/assets/fonts' });
   return { V2_FACE_SOURCES: Object.fromEntries(ids.map((id) => [id, asset(id)])) };

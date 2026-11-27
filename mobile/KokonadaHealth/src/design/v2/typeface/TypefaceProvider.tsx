@@ -18,8 +18,12 @@ import { loadTypefaces, type FaceSources, type ReadFace } from './typefaces.ts';
 
 const TypefaceContext = createContext<SkFontMgr | undefined>(undefined);
 
-/** Reads a face's Metro asset from the URI React Native resolves it to. */
-const readAsset: ReadFace<number> = (source) => Skia.Data.fromURI(Image.resolveAssetSource(source).uri);
+/** Reads a face's Metro asset from the URI React Native resolves it to. A source with no asset registered is refused by name. */
+const readAsset: ReadFace<number> = (source) => {
+  const asset = Image.resolveAssetSource(source);
+  if (!asset) return Promise.reject(new Error(`React Native has no asset registered for the face source ${source}`));
+  return Skia.Data.fromURI(asset.uri);
+};
 
 export type TypefaceProviderProps<S> = { readonly children?: ReactNode } & (
   | { readonly sources: FaceSources<number>; readonly read?: undefined }

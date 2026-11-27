@@ -43,7 +43,7 @@ export interface PlateEntryProps {
 export function PlateEntry({ plate, label, hint, onOpenList, onFocusChange, inert, ref }: PlateEntryProps) {
   const tokens = useTokens();
   const slot = plateSlot(tokens, plate, 'entry');
-  const node = useRef<View>(null);
+  const node = useRef<React.ComponentRef<typeof View>>(null);
   const hidden = useRef(inert);
   hidden.current = inert;
   useImperativeHandle(ref, () => ({

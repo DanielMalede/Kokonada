@@ -53,8 +53,9 @@ const fake = () => jest.requireMock('@shopify/react-native-skia').__fake as {
 };
 
 /** Each bundled face as a Metro asset, the way require('…/assets/fonts/<id>.ttf') registers it on the device. */
-// eslint-disable-next-line @react-native/no-deep-imports -- the registry a Metro asset is registered in; React Native exports it at no other path
-const registry = require('react-native/Libraries/Image/AssetRegistry') as { registerAsset(a: object): number };
+// The registry Metro registers an asset in (its transformer.assetRegistryPath, 'react-native/asset-registry', hands out this
+// very object): from React Native 0.88 it is exported by react-native itself.
+const registry = (require('react-native') as { AssetRegistry: { registerAsset(a: object): number } }).AssetRegistry;
 const asset = (name: string) =>
   registry.registerAsset({ __packager_asset: true, httpServerLocation: '/assets/assets/fonts', name, type: 'ttf', scales: [1], hash: name, fileSystemLocation: '/assets/fonts' });
 const METRO = Object.fromEntries(BUNDLED_FACES.map((f) => [f.id, asset(f.id)])) as FaceSources<number>;
@@ -99,7 +100,7 @@ describe('TypefaceProvider', () => {
     act(() => { root = ReactTestRenderer.create(<TypefaceProvider sources={METRO}><Reader /></TypefaceProvider>); });
     expect(seen).toEqual([undefined]);
     await flush();
-    const expectedUris = BUNDLED_FACES.map((f) => Image.resolveAssetSource(METRO[f.id]).uri);
+    const expectedUris = BUNDLED_FACES.map((f) => Image.resolveAssetSource(METRO[f.id])!.uri);
     expect(expectedUris.every((u) => /Heebo|Bellefair/.test(u))).toBe(true);
     expect(fake().uris).toEqual(expectedUris);
     expect(fake().managers).toHaveLength(1);
@@ -140,6 +141,17 @@ describe('TypefaceProvider', () => {
     await flush();
     expect(root.toJSON()).toMatch(/^caught: Heebo-Medium \(\d+\) is not a font Skia can read$/);
     expect(fake().managers[0].disposed).toBe(1);
+    error.mockRestore();
+  });
+
+  // React Native 0.88: Image.resolveAssetSource answers nothing for an id no asset is registered under.
+  it('a source React Native has no asset for is refused by name, never read as the URI of nothing', async () => {
+    const unknown = { ...METRO, 'Heebo-Medium': 987654 } as Record<BundledFaceId, number>;
+    const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+    let root!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { root = ReactTestRenderer.create(<Boundary><TypefaceProvider sources={unknown}><Reader /></TypefaceProvider></Boundary>); });
+    await flush();
+    expect(root.toJSON()).toBe('caught: React Native has no asset registered for the face source 987654');
     error.mockRestore();
   });
 });
