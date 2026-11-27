@@ -5,8 +5,9 @@
 // (@react-native/jest-preset/jest/mocks/useColorScheme.js:13), so an unforced render only ever sees
 // the light face; the ConsentSheet cross-face bug (1.08:1) hid there. This harness captures the
 // preset's implementation, installs its own, and restores the captured one by identity: no spyOn
-// (QA-112). Its useColorScheme behaves like RN 0.86's real hook, a useSyncExternalStore over the
-// colour-scheme source, so a mid-session face change re-renders mounted consumers.
+// (QA-112). Its useColorScheme behaves like RN's real hook (unchanged from 0.86 to 0.88), a
+// useSyncExternalStore over the colour-scheme source, so a mid-session face change re-renders mounted
+// consumers.
 
 import { useSyncExternalStore } from 'react';
 import * as RN from 'react-native';

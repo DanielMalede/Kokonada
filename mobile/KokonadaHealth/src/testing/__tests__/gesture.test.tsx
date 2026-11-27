@@ -17,7 +17,7 @@ const MUTANT_TIMEOUT_MS = 30000; // given per test, only to the tests that compi
 // that accepts ANY method name and swallows every callback, so the wheel's gesture-to-commit path
 // (RadialWheel.tsx:65-71) never runs in jest. The fake builders record each callback and fire them in
 // RNGH's order (onBegin, onStart, onEnd(success), onFinalize(success)), respect the tap limits they
-// were configured with, and accept only the builder methods the real RNGH 3.0.2 classes have.
+// were configured with, and accept only the builder methods the real RNGH classes have (3.4.0).
 // Pass rule: QA-089's planted mutation fails: one fired gesture commits exactly one tap, and the
 // wheel with runOnJS(commitTap) removed (in memory) commits none.
 
@@ -83,7 +83,7 @@ describe('QA-110 · the builders are the real ones, not a Proxy', () => {
     expect(() => (Gesture.Tap() as any).onDoubleTapEnd(() => {})).toThrow(/is not a function/);
   });
 
-  it('the fake builder methods are exactly the public methods of the real RNGH 3.0.2 classes', () => {
+  it('the fake builder methods are exactly the public methods of the installed RNGH classes', () => {
     const real = realBuilderMethods();
     expect(real.Tap.length).toBeGreaterThan(20);
     expect([...FAKE_BUILDER_METHODS.Tap].sort()).toEqual(real.Tap);

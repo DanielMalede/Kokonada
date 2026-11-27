@@ -232,6 +232,20 @@ export function gradleSpawn({ cwd, args, env = {} }, platform = process.platform
   return ['cmd.exe', ['/d', '/s', '/c', `""${wrapper}" ${args.join(' ')}"`], { ...options, windowsVerbatimArguments: true }];
 }
 
+/**
+ * The first signer's certificate (its DN and SHA-256 digest) in `apksigner verify --print-certs` output.
+ * Build-tools 36 prints "Signer #1 certificate DN: …"; build-tools 37 (React Native 0.88 builds with it)
+ * labels each line by the scheme it verified, "V2 Signer: certificate DN: …". The digest is read from
+ * the same signer's lines as the DN.
+ */
+export function apksignerCertificate(out) {
+  const dn = /^(Signer #1|V[\d.]+ Signer(?: #1)?:) certificate DN: (.+?)\s*$/m.exec(out);
+  const label = dn ? dn[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+  const digest = label ? new RegExp(`^${label} certificate SHA-256 digest: ([0-9a-f]{64})\\s*$`, 'm').exec(out) : null;
+  if (!dn || !digest) throw new Error('apksigner printed no signer');
+  return { dn: dn[2], sha256: digest[1] };
+}
+
 // apksigner from the Android SDK that android/local.properties names (or ANDROID_HOME), newest build-tools.
 function apksignerCommand(appRoot, args) {
   const props = path.join(appRoot, 'android/local.properties');
@@ -272,11 +286,11 @@ function realTools(appRoot) {
     signer: {
       apkCertificate: (apk) => {
         const [command, args] = apksignerCommand(appRoot, ['verify', '--print-certs', apk]);
-        const out = run(command, args);
-        const dn = /Signer #1 certificate DN: (.*)/.exec(out);
-        const digest = /Signer #1 certificate SHA-256 digest: ([0-9a-f]+)/.exec(out);
-        if (!dn || !digest) throw new Error(`apksigner printed no signer for ${apk}`);
-        return { dn: dn[1].trim(), sha256: digest[1] };
+        try {
+          return apksignerCertificate(run(command, args));
+        } catch (e) {
+          throw new Error(`${e.message} for ${apk}`);
+        }
       },
       // The standard debug keystore's public password; this reads the certificate, not the key.
       keystoreCertificate: (keystore) => {

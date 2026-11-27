@@ -67,10 +67,27 @@ export function findMarkers(markers, buf) {
   return found;
 }
 
+/**
+ * Every source a v3 sourcemap names: a flat map's `sources`, or, in an index map, the sources of every
+ * section's own map. Metro 0.87 (React Native 0.88) writes an index map, one section per module. A
+ * section it cannot read (one that points at a `url`, or carries no map) is refused, never skipped.
+ */
+function mapSources(map) {
+  if (Array.isArray(map.sections)) {
+    return map.sections.flatMap((section, i) => {
+      if (!section || typeof section.map !== 'object' || section.map === null) {
+        throw new Error(`the sourcemap's section ${i} carries no map it can read${section && section.url ? ` (url ${section.url})` : ''}`);
+      }
+      return mapSources(section.map);
+    });
+  }
+  return Array.isArray(map.sources) ? map.sources : [];
+}
+
 /** The lab sources a sourcemap lists. Throws on a map with no sources: an empty map proves nothing. */
 export function labSourcesInMap(json) {
-  const sources = JSON.parse(json).sources;
-  if (!Array.isArray(sources) || sources.length === 0) throw new Error('the sourcemap lists no sources');
+  const sources = mapSources(JSON.parse(json));
+  if (sources.length === 0) throw new Error('the sourcemap lists no sources');
   return sources.filter((s) => {
     const posix = String(s).split('\\').join('/');
     return posix.includes('/src/design/lab/') || posix.startsWith('src/design/lab/')
@@ -143,12 +160,29 @@ function run(command, args, cwd) {
 }
 
 /**
+ * The React Native CLI that runs `react-native bundle`: the file the package's own `bin` names, reached
+ * through its package.json. Since React Native 0.87 the package `exports` no longer list `./cli.js`, so
+ * `require.resolve('react-native/cli.js')` throws ERR_PACKAGE_PATH_NOT_EXPORTED; `./package.json` is
+ * still exported, and `bin` is what npm itself links as node_modules/.bin/react-native.
+ */
+export function reactNativeCli(appRoot) {
+  const require = createRequire(path.join(appRoot, 'package.json'));
+  const manifest = require.resolve('react-native/package.json');
+  const { bin } = JSON.parse(fs.readFileSync(manifest, 'utf8'));
+  const rel = typeof bin === 'string' ? bin : bin?.['react-native'];
+  if (typeof rel !== 'string' || rel === '') throw new Error(`react-native's package.json names no react-native bin (${manifest})`);
+  const cli = path.join(path.dirname(manifest), rel);
+  if (!fs.existsSync(cli)) throw new Error(`react-native's bin names ${rel}, which is not there (${cli})`);
+  return cli;
+}
+
+/**
  * Metro then hermesc, with the flags of BundleHermesCTask. Returns the three outputs' paths. Assets
  * go to `assetsDest` (the lab's own res folder for the lab build) or beside the outputs.
  */
 export function releaseBundle(appRoot, entry, platform, outDir, { assetsDest = path.join(outDir, 'res') } = {}) {
   const require = createRequire(path.join(appRoot, 'package.json'));
-  const cli = require.resolve('react-native/cli.js');
+  const cli = reactNativeCli(appRoot);
   const [binDir, binName] = HERMESC_DIRS[process.platform] || [];
   if (!binDir) throw new Error(`no hermesc for ${process.platform}`);
   const hermesc = path.join(path.dirname(require.resolve('hermes-compiler/package.json')), 'hermesc', binDir, binName);
