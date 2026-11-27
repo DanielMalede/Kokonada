@@ -1779,7 +1779,10 @@ describe('DEC-199 · every session and sub-agent on Fable at effort medium: the 
   });
 
   test('no agent file, command file or CLAUDE.md carries the dispatch keyword, and no agent body asks for maximum depth', () => {
-    expect(linesMatching(LAYER, /ultrathink/i)).toEqual([]);
+    expect(linesMatching([...AGENT_FILES, ...COMMAND_FILES], /ultrathink/i)).toEqual([]);
+    // CLAUDE.md names the keyword once, in the sentence of § Models that bans it, and nowhere else.
+    expect(ROOT_MD.match(/ultrathink/gi)).toEqual(['ultrathink']);
+    has(section(ROOT_MD, 'Models').join(' '), 'No dispatch prompt carries `ultrathink`.');
     expect(linesMatching(AGENT_FILES, /maximum reasoning|max(imum)? effort|effort:? max\b/i)).toEqual([]);
     AGENT_FILES.forEach((file) => has(read(file), 'Operate at the effort your front matter sets, on the session\'s model'));
   });

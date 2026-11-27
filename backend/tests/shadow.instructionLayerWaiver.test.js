@@ -196,10 +196,13 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
   const layer = () => Object.fromEntries(FILES.map((f) => [f, read(f)]));
   const isAgent = (f) => /^\.claude\/agents\/[^/]+\.md$/.test(f);
   const KEYWORD = ['ultra', 'think'].join('');
+  const BAN = `No dispatch prompt carries \`${KEYWORD}\`.`;
   function faults(files) {
     const out = [];
     for (const [file, text] of Object.entries(files)) {
-      if (new RegExp(KEYWORD, 'i').test(text)) out.push(`${file}: the dispatch keyword`);
+      // The one sentence of CLAUDE.md § Models that bans the keyword names it; nothing else may.
+      const scanned = file === 'CLAUDE.md' ? text.replace(BAN, '') : text;
+      if (new RegExp(KEYWORD, 'i').test(scanned)) out.push(`${file}: the dispatch keyword`);
       if (/(opus|fable|sonnet|haiku)[ -]?\d/i.test(text) || /claude-[a-z]+-\d/i.test(text)) out.push(`${file}: a model version`);
       if (!isAgent(file)) continue;
       const parts = text.split(/^---$/m);
@@ -228,6 +231,8 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
     ['M15 the model line dropped', AGENT, (t) => t.replace('model: inherit\n', ''), `${AGENT}: model`],
     ['M15 the effort line dropped', AGENT, (t) => t.replace('effort: medium\n', ''), `${AGENT}: effort`],
     ['M16 the dispatch keyword back in a command', COMMAND, (t) => `${t}\n${KEYWORD}.\n`, `${COMMAND}: the dispatch keyword`],
+    ['M16 the dispatch keyword asked for in CLAUDE.md', 'CLAUDE.md', (t) => t.replace(BAN, `Every dispatch prompt carries \`${KEYWORD}\`.`), 'CLAUDE.md: the dispatch keyword'],
+    ['M16 the keyword a second time in CLAUDE.md', 'CLAUDE.md', (t) => `${t}\n${BAN}\n`, 'CLAUDE.md: the dispatch keyword'],
     ['M17 a version number in CLAUDE.md', 'CLAUDE.md', (t) => t.replace('runs on Fable.', 'runs on Fable 5.'), 'CLAUDE.md: a model version'],
     ['M17 a model id in an agent body', AGENT, (t) => `${t}\nRun as ${['claude', 'fable', '5'].join('-')}.\n`, `${AGENT}: a model version`],
     ['M19 front matter that never closes', AGENT, (t) => t.replace(/\n---\n/, '\n'), `${AGENT}: no front matter`],
@@ -242,7 +247,7 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
   test('§ Models says what the files hold, and names the ruling', () => {
     const models = sectionText(ROOT_MD, 'Models');
     ['Every session and every sub-agent runs on Fable.', 'every agent file says `model: inherit` and `effort: medium`', 'no dispatch names a model',
-      'No dispatch prompt carries', 'No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).'].forEach((s) => expect(models).toContain(s));
+      BAN, 'No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).'].forEach((s) => expect(models).toContain(s));
     expect(models).not.toMatch(/Opus|`effort: max`/);
   });
 });
