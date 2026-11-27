@@ -4,8 +4,9 @@
 // The unit project's gesture-handler mock (jest.setup.js:61-68) is a Proxy: every builder call returns
 // another Proxy and every callback is swallowed, so a plate's gesture-to-commit path never runs in
 // jest. This fake replaces Gesture.Tap / Gesture.Pan / GestureDetector on that mock (capture-and-
-// restore). Its builders carry exactly the public methods of the real RNGH 3.0.2 classes (pinned by
-// realBuilderMethods(), which re-reads the library source), so a misspelt or removed method throws as
+// restore). Its builders carry exactly the public methods of the real RNGH classes, 3.4.0 since the RN
+// 0.88.1 upgrade and the same set as 3.0.2 (pinned by realBuilderMethods(), which re-reads the library
+// source), so a misspelt or removed method throws as
 // it would on device. A mounted GestureDetector registers its gesture; tap() and pan() fire the
 // recorded callbacks in RNGH's order: onBegin, onStart, onUpdate/onChange per move, onEnd(e, success),
 // onFinalize(e, success). A tap past its maxDuration (RNGH default 500 ms) or maxDistance fails

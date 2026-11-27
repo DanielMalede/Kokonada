@@ -258,16 +258,18 @@ export function gradleSpawn({ cwd, args, env = {} }, platform = process.platform
 }
 
 /**
- * The one signer certificate in `apksigner verify --print-certs` output. Each version names its signers its own way:
- * up to build-tools 36.0.0 "Signer #1 certificate DN: ...", from 37.0.0 "V2 Signer: certificate DN: ..." (by scheme).
- * So every "<signer> certificate DN" and "<signer> certificate SHA-256 digest" pair counts, whatever the signer is called,
- * and all of them must be one certificate: the lab is signed by one key alone.
- * @param {string} output
+ * The one signer certificate (its DN and SHA-256 digest) in `apksigner verify --print-certs` output. Each version names
+ * its signers its own way: build-tools 36 prints "Signer #1 certificate DN: …"; build-tools 37 (React Native 0.88 builds
+ * with it) labels each line by the scheme it verified, "V2 Signer: certificate DN: …", "V3.0 Signer: certificate DN: …".
+ * So every "<signer> certificate DN" and "<signer> certificate SHA-256 digest" pair counts, whatever the signer is
+ * called, each digest read from the same signer's lines as its DN, and all of them must be one certificate: the lab is
+ * signed by one key alone (OPS-477).
+ * @param {string} out
  * @returns {{ dn: string, sha256: string }}
  */
-export function apkSignerCertificate(output) {
+export function apksignerCertificate(out) {
   const signers = new Map();
-  for (const line of output.split(/\r?\n/)) {
+  for (const line of out.split(/\r?\n/)) {
     const m = /^(.+?) certificate (DN|SHA-256 digest): (.+)$/.exec(line.trim());
     if (m) signers.set(m[1], { ...signers.get(m[1]), [m[2] === 'DN' ? 'dn' : 'sha256']: m[3].trim() });
   }
@@ -320,7 +322,11 @@ function realTools(appRoot) {
     signer: {
       apkCertificate: (apk) => {
         const [command, args] = apksignerCommand(appRoot, ['verify', '--print-certs', apk]);
-        return apkSignerCertificate(run(command, args));
+        try {
+          return apksignerCertificate(run(command, args));
+        } catch (e) {
+          throw new Error(`${e.message} for ${apk}`);
+        }
       },
       // The standard debug keystore's public password; this reads the certificate, not the key.
       keystoreCertificate: (keystore) => {

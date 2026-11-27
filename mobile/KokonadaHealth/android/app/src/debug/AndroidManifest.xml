@@ -1,0 +1,11 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Merged into the `debug` build type only. React Native 0.87+ (react-android's debug library)
+         declares ACCESS_LOCAL_NETWORK so a debug build on Android 17 (API 37) can reach Metro over
+         Wi-Fi. Removed here, so the debug variant declares exactly the permissions it declared on
+         React Native 0.86 (scripts/lab/uploadPermissions.mjs, MB-093). The cost: on an API 37 device a
+         debug build reaches Metro only through `adb reverse`, which is loopback and needs no
+         permission; release and the lab never carried it. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" tools:node="remove" />
+</manifest>

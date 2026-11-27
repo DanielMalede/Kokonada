@@ -17,7 +17,7 @@ import { installPlatformFakes, type PlatformFakes } from '../platform';
 // and RN Animated loops are replaced by fakes that record active callbacks and loops and advance a
 // controllable clock. The global stubs (jest.setup.js) evaluate a derived value once, draw no frame and
 // give useClock a constant, so stillness and teardown cannot be observed under them (MB-044).
-// Semantics kept from Reanimated 4.5.1 and Skia 2.6.9 (node_modules sources):
+// Semantics kept from Reanimated 4.7.2 (unchanged here from 4.5.1) and Skia 2.6.9 (node_modules sources):
 //   · a frame callback registers in an effect keyed on [callback, autostart]; its first frame after a
 //     (re)activation has timeSincePreviousFrame null and timeSinceFirstFrame 0 (FrameCallbackRegistryUI);
 //   · Skia's useClock IS useSharedValue + useFrameCallback(t => clock.value = t.timeSinceFirstFrame);

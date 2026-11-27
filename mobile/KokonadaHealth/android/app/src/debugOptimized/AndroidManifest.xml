@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Merged into the `debugOptimized` build type only: the React Native Gradle plugin creates it from
+         `debug` (initWith). From React Native 0.88, react-android gives it the debug DevSupport
+         manifest, so it would declare ACCESS_LOCAL_NETWORK (removed for the same reason as in
+         src/debug/AndroidManifest.xml) and SYSTEM_ALERT_WINDOW, which this variant did not declare on
+         0.86. Both are removed, so every variant declares exactly the permissions it declared on React
+         Native 0.86 (scripts/lab/uploadPermissions.mjs, MB-093). -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" tools:node="remove" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" tools:node="remove" />
+</manifest>

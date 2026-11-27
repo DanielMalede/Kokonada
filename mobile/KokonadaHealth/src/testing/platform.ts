@@ -8,11 +8,13 @@
 // every add through one registry: live counts per module and event, emit, and a leak check that
 // names where each surviving listener was added.
 //
-// Semantics kept from RN 0.86: remove() is idempotent and removes only its own registration;
+// Semantics kept from RN 0.86, re-read at 0.88.1 (only types and docs changed): remove() is
+// idempotent and removes only its own registration;
 // Android's BackHandler walks handlers last-added-first and stops at the first that returns true,
 // exiting the app when none does; useWindowDimensions reads Dimensions.get/addEventListener, so it
 // follows set(); I18nManager has no listener API, and forceRTL/allowRTL take effect at the next start
-// (isRTL = forced || (allowed && device RTL), I18nUtil.kt:22-24). Appearance.getColorScheme belongs to
+// (isRTL = forced || (allowed && device RTL), I18nUtil.kt:21-23; since 0.88 the device RTL is the active
+// locale's, configuration.locales[0], not the first installed locale). Appearance.getColorScheme belongs to
 // the face harness (faces.ts): emitting an Appearance change here also drives it when installed.
 
 import * as RN from 'react-native';
@@ -117,7 +119,7 @@ export function installPlatformFakes(initial: PlatformInitial = {}): PlatformFak
     return add('AppState', event, handler);
   });
   patcher.define(S, 'currentState', { get: () => appState });
-  // RN 0.86's AppState has no removeEventListener (the preset's mock still carries one).
+  // RN's AppState (0.86 to 0.88) has no removeEventListener (the preset's mock still carries one).
   patcher.set(S, 'removeEventListener', undefined);
 
   // ── Keyboard ─────────────────────────────────────────────────────────────────────────────────────
@@ -165,7 +167,7 @@ export function installPlatformFakes(initial: PlatformInitial = {}): PlatformFak
   const P = RN.Appearance as unknown as Record<string, unknown>;
   patcher.set(P, 'addChangeListener', (handler: (...args: any[]) => unknown) => add('Appearance', 'change', handler));
 
-  // ── I18nManager (state only: RN 0.86 exposes no listener) ───────────────────────────────────────
+  // ── I18nManager (state only: RN 0.86 to 0.88 expose no listener) ────────────────────────────────
   const I = RN.I18nManager as unknown as Record<string, unknown>;
   const constants = (RN.I18nManager.getConstants?.() ?? {}) as { localeIdentifier?: string };
   const rtl = {
