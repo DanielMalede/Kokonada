@@ -133,7 +133,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:b1-dec-records` (own)
 - title: Design v2 batch B1 decision records: DEC-194 (the owner's rulings) and DEC-195 to DEC-198 (forks ruled under DEC-142), status updates on DEC-044, DEC-050, DEC-056, DEC-075
 - branch: `docs/b1-dec-records`
-- paths: `docs/design-v2/decisions/DEC-194.md`, `docs/design-v2/decisions/DEC-195.md`, `docs/design-v2/decisions/DEC-196.md`, `docs/design-v2/decisions/DEC-197.md`, `docs/design-v2/decisions/DEC-198.md`, `docs/design-v2/decisions/DEC-044.md`, `docs/design-v2/decisions/DEC-050.md`, `docs/design-v2/decisions/DEC-056.md`, `docs/design-v2/decisions/DEC-075.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
+- paths: `docs/design-v2/decisions/DEC-194.md`, `docs/design-v2/decisions/DEC-195.md`, `docs/design-v2/decisions/DEC-196.md`, `docs/design-v2/decisions/DEC-197.md`, `docs/design-v2/decisions/DEC-198.md`, `docs/design-v2/decisions/DEC-044.md`, `docs/design-v2/decisions/DEC-050.md`, `docs/design-v2/decisions/DEC-056.md`, `docs/design-v2/decisions/DEC-075.md`, `docs/design-v2/decisions/DEC-200.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-27
