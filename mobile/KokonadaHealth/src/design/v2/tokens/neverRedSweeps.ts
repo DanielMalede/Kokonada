@@ -15,12 +15,12 @@
 // import, so the caller passes them in. Sweep-only: never imported by app code.
 
 import { graphSegments, pivotComposite, samplesAround, samplesUpTo, sweepNeverRed, type BlendGraph, type NeverRedReport, type NeverRedSweep } from '../color/blendSpace.ts';
-import { maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
+import { blendCandidates, maxInBandOnPixelBlend, maxInBandOnSrgbBlend, type BlendMax, type Bytes } from '../color/edgeSweep.ts';
 import { mixSafe } from '../color/mixSafe.ts';
 import { mixOklab, type Oklab, type Srgb } from '../color/oklab.ts';
 import { ditherReachable, hueInBand, maxInBandChromaInTriangle, maxInBandChromaOfPixels, type RedBand } from '../color/redBand.ts';
 import { sweepOklabToSrgb, sweepSrgbToOklab } from '../color/sweepConvert.ts';
-import { edgeMixOklab } from '../field/fieldLaw.ts';
+import { edgeMixOklab, encodeSrgb8 } from '../field/fieldLaw.ts';
 import { BASE, DIRECTIONS, type ColorValue, type DirectionId, type Face } from './tokens.generated.ts';
 
 export interface GraphEdges {
@@ -381,21 +381,31 @@ export function faceLitFieldKs(id: DirectionId, face: Face, kStep: number): numb
   return d.field.mask.face > 0 ? upTo(d.field.cap[face], kStep) : [];
 }
 
-export function edgeFamiliesFor(
+/** The surfaces an ink lands on, lit, in float and as 8-bit pixels: the face side's, and the ring's with its bands. */
+interface LitSurfaces {
+  readonly faceFloat: Oklab[];
+  readonly faceBytes: Bytes[];
+  readonly ringFloat: Oklab[];
+  readonly ringBytes: Bytes[];
+}
+
+/** What litSurfaces samples: edgeSweepInputs' grid, or F1's (beadTwinFamiliesFor). */
+type LitSurfaceInputs = Pick<EdgeSweepInputs, 'floatKStep' | 'byteKStep' | 'presences' | 'shimmers' | 'lShifts' | 'byteLShifts' | 'byteDitherAmplitude'>;
+
+function litSurfaces(
   id: DirectionId,
   face: Face,
-  resolution: SweepResolution = 'coarse',
-  grounds = plateShadowGrounds(id, face),
-  ringEdge: Record<string, Oklab> = ringEdgeGrounds(id, face, resolution),
-  ringOuter: Record<string, Oklab> = ringOuterGrounds(id, face, resolution),
-): EdgeFamilyMax[] {
+  inputs: LitSurfaceInputs,
+  grounds: ReturnType<typeof plateShadowGrounds>,
+  ringEdge: Record<string, Oklab>,
+  ringOuter: Record<string, Oklab>,
+): LitSurfaces {
   const d = DIRECTIONS[id];
   const c = d.color[face];
   const tier = tierFor(face);
   const kp = d.field.pivot;
-  const { floatKStep, byteKStep, presences, shimmers, lShifts, byteLShifts, byteDitherAmplitude, ctaMixSteps } = edgeSweepInputs(id, resolution);
+  const { floatKStep, byteKStep, presences, shimmers, lShifts, byteLShifts, byteDitherAmplitude } = inputs;
   const anchors = QUADRANTS.map((q) => lab(BASE.emotion[q][tier]));
-  const srgb = (x: Oklab) => sweepOklabToSrgb(x);
 
   // Surfaces lit by a halo (no shimmer: marks never shimmer) or by the field (which shimmers).
   const lit = (ground: Oklab, nodes: Oklab[], ks: readonly number[], turns: readonly number[]): Oklab[] => {
@@ -428,9 +438,8 @@ export function edgeFamiliesFor(
     return [...out.values()];
   };
   const ring = lab(c.plate.ring);
-  // The face, and each face an inner shadow reaches; the ground, and each ground an outer shadow reaches.
+  // The face, and each face an inner shadow reaches.
   const faceGrounds = Object.values(grounds.face);
-  const groundGrounds = Object.values(grounds.ground);
   const fieldNodes = [...anchors, lab(c.field.restGlow)];
   // A face-side surface: lit by the halos, and by the field where the face's mask lets it in.
   const faceLit = (surfaces: Oklab[], kStep: number): Oklab[] =>
@@ -451,6 +460,27 @@ export function edgeFamiliesFor(
   const ringBytes = quantised(byteShifted(ringLit([ring, ...bandGrounds, ...outerGrounds], byteKStep)));
   const faceFloat = shifted(faceLit([...faceGrounds, ...bandGrounds], floatKStep));
   const faceBytes = quantised(byteShifted(faceLit([...faceGrounds, ...bandGrounds], byteKStep)));
+  return { faceFloat, faceBytes, ringFloat, ringBytes };
+}
+
+export function edgeFamiliesFor(
+  id: DirectionId,
+  face: Face,
+  resolution: SweepResolution = 'coarse',
+  grounds = plateShadowGrounds(id, face),
+  ringEdge: Record<string, Oklab> = ringEdgeGrounds(id, face, resolution),
+  ringOuter: Record<string, Oklab> = ringOuterGrounds(id, face, resolution),
+): EdgeFamilyMax[] {
+  const d = DIRECTIONS[id];
+  const c = d.color[face];
+  const tier = tierFor(face);
+  const inputs = edgeSweepInputs(id, resolution);
+  const { presences, ctaMixSteps } = inputs;
+  const anchors = QUADRANTS.map((q) => lab(BASE.emotion[q][tier]));
+  const srgb = (x: Oklab) => sweepOklabToSrgb(x);
+  const { faceFloat, faceBytes, ringFloat, ringBytes } = litSurfaces(id, face, inputs, grounds, ringEdge, ringOuter);
+  // The ground, and each ground an outer shadow reaches.
+  const groundGrounds = Object.values(grounds.ground);
 
   const shadows: Ink[] = [{ colour: c.bead.shadow, coverage: c.bead.shadow.alpha }];
   const levels = ['none', 'e1', 'e2', 'raised', 'recessed'] as const;
@@ -515,6 +545,277 @@ export function edgeFamiliesFor(
     pairsOf('CTA fill · ground', ctaFills.flatMap((f) => groundGrounds.map((g): [Oklab, Oklab] => [f, g])));
   }
   return families.map((family) => family.result());
+}
+
+// ---------------------------------------------------------------- the bead's grey twin (F1, F10 G8-2a/2b)
+//
+// F1 (P0, the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. Below opacity 1
+// it shows only its grey disc, its achromatic twin (the fill at its own OKLab L with chroma 0, and the highlight drawn
+// from it); the colour disc over it fades only while the bead is opaque (components/Bead/beadTimeline.ts). So the
+// colours a bead can show over the field are:
+//   · the grey disc at every opacity α over every surface a bead sits on: the face lit by the halos and the field, and
+//     the ring with its inner and outer bands lit by the halos (litSurfaces, as for the setting and the shadow), in
+//     every grey from the darkest fill's twin to the lightest highlight's, which the radial gradient spans;
+//   · the colour disc at every fraction over its grey twin, at each step of the highlight's gradient.
+// The setting ring and the shadow keep their families above. Float sweeps the design band over the grid's grey levels;
+// the 8-bit pass is exact over every grey byte, coverage and rounding (greyOverPixelsMax). The fills are DSN-017's, read
+// from the tokens here (a lower layer never imports a component); Bead's own tests hold them to beadModel.ts.
+// Planted control: the pre-F1 bead, its coloured fill at α over the face lit by another family, must fail.
+
+export interface BeadTwinGrid {
+  /** The k step of the float surfaces (halo and field). */
+  readonly floatKStep: number;
+  /** The k step of the 8-bit surfaces (the nearest pixels of each lit colour at L − A, L and L + A). */
+  readonly byteKStep: number;
+  /** The node presences, as shares of the direction's bead chroma scale. */
+  readonly presenceShares: readonly number[];
+  /** The turns of a field-lit colour: null takes −shimmer, 0 and +shimmer. */
+  readonly shimmerStepDeg: number | null;
+  /** The ring's inner (α) and outer (β) bands at every 1/bandSteps, strictly inside (0, 1). */
+  readonly bandSteps: number;
+  /** The float pass's greys: floatGreys + 1 levels from the darkest to the lightest (8-bit takes every grey byte). */
+  readonly floatGreys: number;
+  /** DSN-017's ramp p for each quadrant's fill: 0 is the neutral bead, 1 the anchor. */
+  readonly ramps: readonly number[];
+  /** The highlight's gradient, every 1/gradientSteps from its centre (0) to the fill (1). */
+  readonly gradientSteps: number;
+}
+
+/** F1's grids: 'coarse' in the default run (neverRed.beadTwin.test.ts), 'full' in the sweeps project. */
+export const BEAD_TWIN_GRIDS: Record<SweepResolution, BeadTwinGrid> = {
+  coarse: { floatKStep: 0.05, byteKStep: 0.1, presenceShares: [1], shimmerStepDeg: null, bandSteps: 4, floatGreys: 4, ramps: [0, 0.5, 1], gradientSteps: 4 },
+  full: { floatKStep: 0.01, byteKStep: 0.1, presenceShares: [0.25, 0.5, 1], shimmerStepDeg: null, bandSteps: 10, floatGreys: 8, ramps: [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1], gradientSteps: 10 },
+};
+
+export interface BeadTwinInk {
+  readonly quadrant: (typeof QUADRANTS)[number];
+  readonly p: number;
+  readonly fill: Oklab;
+  readonly highlight: Oklab;
+}
+
+export interface BeadTwinInks {
+  /** Each quadrant's fill at the grid's ramps (DSN-017), with its highlight (bead.highlight.mix toward white). */
+  readonly fills: readonly BeadTwinInk[];
+  /** The darkest and lightest OKLab L the grey disc paints: the darkest fill's twin and the lightest highlight's. */
+  readonly greyL: readonly [number, number];
+  /** The same as 8-bit greys (the byte beadModel.ts greyHex repeats); the gradient paints every byte between. */
+  readonly greyBytes: readonly [number, number];
+}
+
+const WHITE: Oklab = { L: 1, a: 0, b: 0 };
+const twinOf = (c: Oklab): Oklab => ({ L: c.L, a: 0, b: 0 });
+/** The 8-bit grey an achromatic L paints: the encode's middle byte, which greyHex repeats on every channel. */
+const greyByte = (L: number) => encodeSrgb8({ L, a: 0, b: 0 })[1];
+
+export function beadTwinInks(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse'): BeadTwinInks {
+  const d = DIRECTIONS[id];
+  const neutral = lab(d.color[face].bead.neutral);
+  const tier = tierFor(face);
+  const mix = d.bead.highlight.mix;
+  const fills: BeadTwinInk[] = [];
+  for (const quadrant of QUADRANTS) {
+    const anchor = lab(BASE.emotion[quadrant][tier]);
+    for (const p of BEAD_TWIN_GRIDS[resolution].ramps) {
+      const chroma = p * d.bead.chromaScale;
+      const fill = { L: neutral.L + (anchor.L - neutral.L) * p, a: anchor.a * chroma, b: anchor.b * chroma };
+      fills.push({ quadrant, p, fill, highlight: mixOklab(fill, WHITE, mix) });
+    }
+  }
+  // A fill's L runs straight from the neutral bead's to its anchor's, and its highlight is lighter still.
+  const Ls = [neutral.L, ...QUADRANTS.map((q) => lab(BASE.emotion[q][tier]).L)];
+  const greyL = [Math.min(...Ls), mixOklab(twinOf({ L: Math.max(...Ls), a: 0, b: 0 }), WHITE, mix).L] as const;
+  return { fills, greyL, greyBytes: [greyByte(greyL[0]), greyByte(greyL[1])] };
+}
+
+// Bound once: a global lookup is ten times slower in jest's sandbox (redBand.ts), and these loops run millions of times.
+const MATH = Math;
+
+/** Below this chroma the hue is powerless (redBand.ts, edgeSweep.ts): no colour there is red. */
+const ACHROMATIC_CHROMA = 0.000004;
+
+/** The pixels (g + dr, g, g + db), g 0..255: their in-band chroma (−1 off the byte cube or the band), and a range-maximum table. */
+interface GreyLine {
+  readonly base: Float64Array;
+  readonly max: number;
+  levels: Float64Array[] | null;
+}
+
+const GREY_LINES = new Map<RedBand, Map<number, GreyLine>>();
+
+function greyLine(redBand: RedBand, dr: number, db: number): GreyLine {
+  let lines = GREY_LINES.get(redBand);
+  if (lines === undefined) {
+    lines = new Map();
+    GREY_LINES.set(redBand, lines);
+  }
+  const key = (dr + 512) * 1024 + (db + 512);
+  let line = lines.get(key);
+  if (line === undefined) {
+    const base = new Float64Array(256);
+    let top = -1;
+    for (let g = 0; g < 256; g++) {
+      const r = g + dr;
+      const b = g + db;
+      let chroma = -1;
+      if (r >= 0 && r <= 255 && b >= 0 && b <= 255) {
+        const p = sweepSrgbToOklab([r / 255, g / 255, b / 255]);
+        const C = MATH.hypot(p.a, p.b);
+        if (C > ACHROMATIC_CHROMA && hueInBand(MATH.atan2(p.b, p.a) / DEG, redBand)) chroma = C;
+      }
+      base[g] = chroma;
+      if (chroma > top) top = chroma;
+    }
+    line = { base, max: top, levels: null };
+    lines.set(key, line);
+  }
+  return line;
+}
+
+/** The largest value of a line over g in [lo, hi], from its sparse table (built on the first query that needs it). */
+function lineMax(line: GreyLine, lo: number, hi: number): number {
+  if (line.levels === null) {
+    const levels = [line.base];
+    for (let w = 1; 2 * w <= 256; w *= 2) {
+      const prev = levels[levels.length - 1];
+      const next = new Float64Array(256);
+      for (let g = 0; g + 2 * w <= 256; g++) next[g] = MATH.max(prev[g], prev[g + w]);
+      levels.push(next);
+    }
+    line.levels = levels;
+  }
+  let k = 0;
+  let span = 1;
+  while (span * 2 <= hi - lo + 1) {
+    span *= 2;
+    k++;
+  }
+  return MATH.max(line.levels[k][lo], line.levels[k][hi - span + 1]);
+}
+
+/**
+ * The largest in-band chroma of any 8-bit pixel a grey ink (every grey byte from v0 to v1) can make over the 8-bit
+ * background `bg`, at every coverage a/255 from 1 to 254 and every rounding either way on each channel: exact, as a
+ * superset. Each channel of the blend is x_c = ((255 − a)·bg_c + a·v)/255, and a pixel takes ⌊x_c⌋ or ⌈x_c⌉; the
+ * differences r − g and b − g then lie within 2 of (255 − a)·(bg_r − bg_g)/255 and (255 − a)·(bg_b − bg_g)/255 whatever
+ * the grey, and g within [⌊x_g(v0)⌋, ⌈x_g(v1)⌉]. So the pixels are on a few lines (g + dr, g, g + db), each read by its
+ * range maximum, never a grey at a time.
+ */
+export function greyOverPixelsMax(bg: Bytes, v0: number, v1: number, redBand: RedBand = CHECK_BAND): BlendMax & { readonly pixel?: Bytes } {
+  const EPS = 1e-9;
+  let best: BlendMax & { pixel?: Bytes } = { chroma: 0, hue: NaN, coverage: NaN };
+  for (let a = 1; a <= 254; a++) {
+    const s = (255 - a) / 255;
+    const eRG = s * (bg[0] - bg[1]);
+    const eBG = s * (bg[2] - bg[1]);
+    const gLo = MATH.max(0, MATH.floor(s * bg[1] + (a * v0) / 255 - EPS));
+    const gHi = MATH.min(255, MATH.ceil(s * bg[1] + (a * v1) / 255 + EPS));
+    for (let dr = MATH.floor(eRG - 2 - EPS) + 1; dr <= MATH.ceil(eRG + 2 + EPS) - 1; dr++) {
+      for (let db = MATH.floor(eBG - 2 - EPS) + 1; db <= MATH.ceil(eBG + 2 + EPS) - 1; db++) {
+        const lo = MATH.max(gLo, -dr, -db);
+        const hi = MATH.min(gHi, 255 - dr, 255 - db);
+        if (lo > hi) continue;
+        const line = greyLine(redBand, dr, db);
+        if (!(line.max > best.chroma)) continue;
+        const m = lineMax(line, lo, hi);
+        if (!(m > best.chroma)) continue;
+        let g = lo;
+        while (line.base[g] !== m) g++;
+        const pixel: Bytes = [g + dr, g, g + db];
+        const p = sweepSrgbToOklab([pixel[0] / 255, pixel[1] / 255, pixel[2] / 255]);
+        best = { chroma: m, hue: ((MATH.atan2(p.b, p.a) / DEG) % 360 + 360) % 360, coverage: a / 255, pixel };
+      }
+    }
+  }
+  return best;
+}
+
+/** The surfaces F1's grid samples: litSurfaces' inputs at its own k steps and presences, nearest 8-bit pixels. */
+function beadTwinSurfaceInputs(id: DirectionId, grid: BeadTwinGrid): LitSurfaceInputs {
+  const d = DIRECTIONS[id];
+  const deg = d.field.shimmer.deg;
+  const amplitude = amplitudeFor(id);
+  const lShifts = [-amplitude, 0, amplitude];
+  return {
+    floatKStep: grid.floatKStep,
+    byteKStep: grid.byteKStep,
+    presences: grid.presenceShares.map((p) => p * d.bead.chromaScale),
+    shimmers: grid.shimmerStepDeg === null ? samplesAround(deg, deg || 1) : samplesAround(deg, grid.shimmerStepDeg),
+    lShifts,
+    byteLShifts: lShifts,
+    byteDitherAmplitude: 0,
+  };
+}
+
+/**
+ * F1's families for one direction and face: the grey disc at every α over the face-lit and the ring-halo surfaces, and
+ * the colour disc at every fraction over its grey twin. With `plant`, the pre-F1 bead joins: its coloured fills at α
+ * over the face-lit surfaces, which must break both bands.
+ */
+export function beadTwinFamiliesFor(id: DirectionId, face: Face, resolution: SweepResolution = 'coarse', options: { readonly plant?: boolean } = {}): EdgeFamilyMax[] {
+  const grid = BEAD_TWIN_GRIDS[resolution];
+  const bandAt = (edge: BandEdge): Record<string, Oklab> => {
+    const { from, to, label } = bandSides(id, face, edge);
+    const out: Record<string, Oklab> = {};
+    for (let i = 1; i < grid.bandSteps; i++) out[`${label} ${i / grid.bandSteps}`] = edgeMixOklab(from, to, i / grid.bandSteps);
+    return out;
+  };
+  const surfaces = litSurfaces(id, face, beadTwinSurfaceInputs(id, grid), plateShadowGrounds(id, face), bandAt('alpha'), bandAt('beta'));
+  const inks = beadTwinInks(id, face, resolution);
+  const [L0, L1] = inks.greyL;
+  const [v0, v1] = inks.greyBytes;
+  const greyFloats = Array.from({ length: grid.floatGreys + 1 }, (_, i) => sweepOklabToSrgb({ L: L0 + ((L1 - L0) * i) / grid.floatGreys, a: 0, b: 0 }));
+  const faceSrgb = surfaces.faceFloat.map((x) => sweepOklabToSrgb(x));
+
+  const grey = (family: string, float: readonly Srgb[], bytes: readonly Bytes[]): EdgeFamilyMax => {
+    const sweep = new Family(family);
+    for (const bg of float) for (const ink of greyFloats) sweep.float(bg, ink, 1);
+    let check: BlendMax & { pixel?: Bytes } = { chroma: 0, hue: NaN, coverage: NaN };
+    for (const bg of bytes) {
+      const found = greyOverPixelsMax(bg, v0, v1);
+      if (found.chroma > check.chroma) check = found;
+    }
+    return { family, design: sweep.design, check, pixelBlends: bytes.length * (v1 - v0 + 1) };
+  };
+
+  // The colour disc over its grey twin: at each step s of the highlight's gradient, the colour's pixel over the grey's.
+  const twin = new Family('bead colour disc · grey twin');
+  const lerp = (x: Srgb, y: Srgb, s: number): Srgb => [x[0] + (y[0] - x[0]) * s, x[1] + (y[1] - x[1]) * s, x[2] + (y[2] - x[2]) * s];
+  const greyBytesOf = (L: number): Bytes => {
+    const v = greyByte(L);
+    return [v, v, v];
+  };
+  for (const { fill, highlight } of inks.fills) {
+    const colour = [sweepOklabToSrgb(highlight), sweepOklabToSrgb(fill)] as const;
+    const greys = [sweepOklabToSrgb(twinOf(highlight)), sweepOklabToSrgb(twinOf(fill))] as const;
+    const colourBytes = [encodeSrgb8(highlight) as Bytes, encodeSrgb8(fill) as Bytes] as const;
+    const greyBytes = [greyBytesOf(highlight.L), greyBytesOf(fill.L)] as const;
+    for (let i = 0; i <= grid.gradientSteps; i++) {
+      const s = i / grid.gradientSteps;
+      twin.float(lerp(greys[0], greys[1], s), lerp(colour[0], colour[1], s), 1);
+      // The gradient's own pixel rounds either way; a grey stop pair rounds alike on every channel, so it stays grey.
+      const greyPixels = blendCandidates(greyBytes[0], greyBytes[1], s * 255).filter((p) => p[0] === p[1] && p[1] === p[2]);
+      for (const g of greyPixels) for (const c of blendCandidates(colourBytes[0], colourBytes[1], s * 255)) twin.pixels(g, c, 1);
+    }
+  }
+
+  const out = [
+    grey('face lit · bead grey disc at α', faceSrgb, surfaces.faceBytes),
+    grey('ring halo · bead grey disc at α', surfaces.ringFloat.map((x) => sweepOklabToSrgb(x)), surfaces.ringBytes),
+    twin.result(),
+  ];
+  if (options.plant) {
+    // The two hues either side of the band (joy below it, intense above it), each over the face the other lights.
+    const planted = new Family('face lit · bead colour fill at α (planted: the pre-F1 bead)');
+    for (const { fill } of inks.fills.filter((f) => f.p === 1 && (f.quadrant === 'joy' || f.quadrant === 'intense'))) {
+      const ink = sweepOklabToSrgb(fill);
+      const inkBytes = encodeSrgb8(fill) as Bytes;
+      for (const bg of faceSrgb) planted.float(bg, ink, 1);
+      for (const bg of surfaces.faceBytes) planted.pixels(bg, inkBytes, 1);
+    }
+    out.push(planted.result());
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- the sweeps project (UI-073)

@@ -43,7 +43,7 @@
 //
 // Math.* stays inline: the fallback gradients may compute their stops with this law on the UI thread.
 
-import { oklabToSrgb, type Oklab } from '../color/oklab.ts';
+import { oklabToSrgb, srgbToOklab, type Oklab } from '../color/oklab.ts';
 import { blueNoiseValue } from './blueNoise.ts';
 
 /** Node ids: the four quadrants and the rest glow. */
@@ -642,6 +642,27 @@ export function fieldOklab(frame: FieldFrame, x: number, y: number): Oklab {
 export function encodeSrgb8(lab: Oklab): [number, number, number] {
   const rgb = oklabToSrgb(lab);
   return [0, 1, 2].map((c) => Math.round(Math.min(1, Math.max(0, rgb[c])) * 255)) as [number, number, number];
+}
+
+const byte = (v: number) => {
+  const s = Math.round(v).toString(16).toUpperCase();
+  return s.length < 2 ? '0' + s : s;
+};
+
+/**
+ * `#RRGGBB` of the 8-bit sRGB pixel an OKLab colour paints (encodeSrgb8). Here, beside the encoding, so DEC-174's
+ * machine and the bead name one hex for one colour, and the machine needs nothing from React Native (F3).
+ */
+export function srgbHex(lab: Oklab): string {
+  const [r, g, b] = encodeSrgb8(lab);
+  return '#' + byte(r) + byte(g) + byte(b);
+}
+
+/** A `#RRGGBB` read back to OKLab (the colour a painted pixel is). Anything else is a RangeError. */
+export function hexLab(hex: string): Oklab {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new RangeError(`"${hex}" is not #RRGGBB`);
+  const channel = (i: number) => parseInt(hex.slice(i, i + 2), 16) / 255;
+  return srgbToOklab([channel(1), channel(3), channel(5)]);
 }
 
 /** The pixel at (x, y) as the shader draws it: 8-bit sRGB. */

@@ -372,20 +372,48 @@ function checkDirectionRefs(file, json, ids, errors) {
   walk(json, '');
 }
 
+/** A number token's value, through its aliases; undefined when the token is missing or not a finite number. */
+function numberAt(tokens, path) {
+  if (!tokens.has(path)) {
+    return undefined;
+  }
+  const value = resolveAlias(tokens, path).token?.$value;
+  return finite(value) ? value : undefined;
+}
+
 /**
  * UI-112 (the owner's option (b)): field.rest's lobes are one table for both faces, or one per face,
  * exactly { dark, light }. A table is a non-empty list of [x, y] finite centres, × R.
+ *
+ * DEC-172, G4 (the designer's corrected bound and the architect's re-rule): the lobes are runtime statics, so
+ * each table holds at most two, which keeps one shared slot free for a leaving placement, and each centre lies
+ * within field.lobe.centreAlpha + centreBeta of the plate centre, the direction's own lobe rule (+1e-9).
  */
 const FACES = ['dark', 'light'];
-function checkRestLobes(file, json, errors) {
+const MAX_REST_LOBES = 2;
+const LOBE_BOUND_SLACK = 1e-9;
+function checkRestLobes(file, json, tokens, errors) {
   const say = (message) => errors.push(`${file}: field.rest: ${message}`);
   const lobes = kokonada(json.field?.rest).lobes;
+  const alpha = numberAt(tokens, 'field.lobe.centreAlpha');
+  const beta = numberAt(tokens, 'field.lobe.centreBeta');
+  const bound = alpha !== undefined && beta !== undefined ? alpha + beta : undefined;
+  if (bound === undefined) {
+    say('the rest lobes are bounded by field.lobe.centreAlpha + field.lobe.centreBeta, and this file has no such numbers');
+  }
   const table = (t, where) => {
     if (!(Array.isArray(t) && t.length > 0)) {
       return say(`${where}: the rest lobes are a non-empty list of [x, y], got ${JSON.stringify(t)}`);
     }
+    if (t.length > MAX_REST_LOBES) {
+      say(`${where}: at most ${MAX_REST_LOBES} rest lobes, so one shared slot stays free for a leaving placement (DEC-172), got ${t.length}`);
+    }
     t.forEach((lobe, i) => {
-      if (!(Array.isArray(lobe) && lobe.length === 2 && lobe.every(finite))) say(`${where}[${i}]: a rest lobe is [x, y], two finite numbers, got ${JSON.stringify(lobe)}`);
+      if (!(Array.isArray(lobe) && lobe.length === 2 && lobe.every(finite))) {
+        say(`${where}[${i}]: a rest lobe is [x, y], two finite numbers, got ${JSON.stringify(lobe)}`);
+      } else if (bound !== undefined && !(Math.hypot(lobe[0], lobe[1]) <= bound + LOBE_BOUND_SLACK)) {
+        say(`${where}[${i}]: a rest lobe lies within centreAlpha + centreBeta = ${bound} of the centre (DEC-172), got |c| = ${Math.hypot(lobe[0], lobe[1])}`);
+      }
     });
     return undefined;
   };
@@ -400,6 +428,116 @@ function checkRestLobes(file, json, errors) {
   } else {
     say(`lobes: one table [[x, y], …] for both faces, or { dark, light }, got ${JSON.stringify(lobes ?? null)}`);
   }
+}
+
+/**
+ * DEC-172, G4: the base file's runtime statics, which tokens.statics.generated.ts holds. The drift tables name the
+ * same slots, lobe0, lobe1 …, with whole harmonics of at least 1 and finite phases; the fallback's stops rise
+ * strictly from 0 to 1, with weights in [0, 1] that never rise; the blend graph joins every pair of its nodes
+ * exactly once, and gives each face a node tier, core or deep.
+ */
+function checkDrift(file, json, errors) {
+  const say = (message) => errors.push(`${file}: field.clock: ${message}`);
+  const drift = kokonada(json.field?.clock).drift;
+  if (!(isObject(drift) && isObject(drift.harmonics) && isObject(drift.phases))) {
+    return say(`drift: the drift tables { harmonics, phases } are runtime statics (DEC-172), got ${JSON.stringify(drift ?? null)}`);
+  }
+  const slots = Object.keys(drift.harmonics);
+  const named = new Set(slots.map((_, i) => `lobe${i}`));
+  if (slots.length === 0 || !slots.every((slot) => named.has(slot))) {
+    say(`drift.harmonics: the slots are lobe0, lobe1 …, got ${JSON.stringify(slots)}`);
+  }
+  const phaseSlots = Object.keys(drift.phases);
+  if (!(phaseSlots.length === slots.length && phaseSlots.every((slot) => slots.includes(slot)))) {
+    say(`drift.phases: the same slots as drift.harmonics (${slots.join(', ')}), got ${JSON.stringify(phaseSlots)}`);
+  }
+  for (const [slot, pair] of Object.entries(drift.harmonics)) {
+    if (!(Array.isArray(pair) && pair.length === 2 && pair.every((k) => Number.isInteger(k) && k >= 1))) {
+      say(`drift.harmonics.${slot}: [kx, ky], two whole harmonics of 1/T, each at least 1, got ${JSON.stringify(pair)}`);
+    }
+  }
+  for (const [slot, pair] of Object.entries(drift.phases)) {
+    if (!(Array.isArray(pair) && pair.length === 2 && pair.every(finite))) {
+      say(`drift.phases.${slot}: [φx, φy], two finite phases in radians, got ${JSON.stringify(pair)}`);
+    }
+  }
+  return undefined;
+}
+
+function checkFallbackStops(file, json, errors) {
+  const say = (message) => errors.push(`${file}: field.fallback: ${message}`);
+  const stops = kokonada(json.field?.fallback).stops;
+  const list = (v) => Array.isArray(v) && v.length >= 2 && v.every(finite);
+  if (!(isObject(stops) && list(stops.position) && list(stops.weight))) {
+    return say(`stops: { position, weight }, two lists of at least two finite numbers, are runtime statics (DEC-172), got ${JSON.stringify(stops ?? null)}`);
+  }
+  const { position, weight } = stops;
+  if (position.length !== weight.length) {
+    say(`stops: position and weight are as long as each other, got ${position.length} and ${weight.length}`);
+  }
+  if (position[0] !== 0 || position[position.length - 1] !== 1) {
+    say(`stops.position: runs from 0 to 1, got ${position[0]} to ${position[position.length - 1]}`);
+  }
+  position.forEach((p, i) => {
+    if (i > 0 && !(p > position[i - 1])) say(`stops.position[${i}]: rises strictly, got ${p} after ${position[i - 1]}`);
+  });
+  weight.forEach((w, i) => {
+    if (!(w >= 0 && w <= 1)) say(`stops.weight[${i}]: lies in [0, 1], got ${w}`);
+    if (i > 0 && w > weight[i - 1]) say(`stops.weight[${i}]: never rises, got ${w} after ${weight[i - 1]}`);
+  });
+  return undefined;
+}
+
+const TIERS = new Set(['core', 'deep']);
+function checkBlendGraph(file, json, errors) {
+  const say = (message) => errors.push(`${file}: field.graph: ${message}`);
+  const graph = kokonada(json.field?.graph);
+  const nodes = isObject(graph.nodes) ? Object.keys(graph.nodes) : [];
+  if (nodes.length < 2) {
+    say(`nodes: the blend graph names at least two nodes, got ${JSON.stringify(graph.nodes ?? null)}`);
+  }
+  const tier = graph.nodeTier;
+  if (!(isObject(tier) && Object.keys(tier).sort().join() === FACES.join())) {
+    say(`nodeTier: one tier per face, exactly ${FACES.join(' and ')}, a runtime static (DEC-172), got ${JSON.stringify(tier ?? null)}`);
+  } else {
+    for (const face of FACES) if (!TIERS.has(tier[face])) say(`nodeTier.${face}: core or deep, got ${JSON.stringify(tier[face])}`);
+  }
+  const edges = graph.edges;
+  if (!(isObject(edges) && Array.isArray(edges.straight) && Array.isArray(edges.waypoint))) {
+    return say(`edges: { straight, waypoint, restIntense } are runtime statics (DEC-172), got ${JSON.stringify(edges ?? null)}`);
+  }
+  const listed = [
+    ...edges.straight.map((edge, i) => [`edges.straight[${i}]`, edge]),
+    ...edges.waypoint.map((edge, i) => [`edges.waypoint[${i}]`, edge]),
+    ['edges.restIntense', edges.restIntense],
+  ];
+  const joined = new Map();
+  for (const [where, edge] of listed) {
+    if (!(Array.isArray(edge) && edge.length === 2 && edge.every((n) => typeof n === 'string'))) {
+      say(`${where}: an edge is a pair of node names, got ${JSON.stringify(edge ?? null)}`);
+      continue;
+    }
+    const unknown = edge.filter((n) => !nodes.includes(n));
+    if (unknown.length > 0) {
+      say(`${where}: ${unknown.join(' and ')} is not a node of the graph (${nodes.join(', ')})`);
+      continue;
+    }
+    if (edge[0] === edge[1]) {
+      say(`${where}: joins ${edge[0]} to itself`);
+      continue;
+    }
+    const pair = [...edge].sort().join('–');
+    if (joined.has(pair)) say(`${where}: joins ${pair} again, as ${joined.get(pair)} does`);
+    else joined.set(pair, where);
+  }
+  // topTwoSoft can pick any two nodes, so every pair needs exactly one edge.
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const pair = [nodes[i], nodes[j]].sort().join('–');
+      if (!joined.has(pair)) say(`edges: ${pair} is never joined; every pair of nodes is joined exactly once`);
+    }
+  }
+  return undefined;
 }
 
 /** sources: [{ name, json }]. */
@@ -419,11 +557,14 @@ export function validateSources(sources) {
   const baseTokens = base ? checkFile(base.name, base.json, errors, notes) : new Map();
   if (base) {
     checkOwnerDecisions(base.name, base.json, errors);
+    checkDrift(base.name, base.json, errors);
+    checkFallbackStops(base.name, base.json, errors);
+    checkBlendGraph(base.name, base.json, errors);
   }
   for (const source of sources.filter((s) => DIRECTION_FILE.test(s.name))) {
     const tokens = checkFile(source.name, source.json, errors, notes);
     checkLightShadows(source.name, tokens, errors);
-    checkRestLobes(source.name, source.json, errors);
+    checkRestLobes(source.name, source.json, tokens, errors);
     directions.push({ file: source.name, tokens });
   }
   if (directions.length === 0) {

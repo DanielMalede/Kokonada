@@ -38,6 +38,34 @@ describe('parseLabArgs: what a valid launch becomes', () => {
   });
 });
 
+// F10 G8 round 2 (UI-320, UI-321): two lab-only dials for the hero's timed scenes. `stall` is a JS busy-wait in ms at each
+// change of the taps; `beadTimeScale` stretches the beads' motion. Both are optional, and absent they are not in the params.
+describe('parseLabArgs: the hero dials', () => {
+  it('takes stall (ms) and beadTimeScale as plain decimals', () => {
+    expect(ok({ ...FIXED, stall: '300', beadTimeScale: '8' })).toEqual({ run: 'r-1', scene: 'smoke', clock: 'fixed', t: 1500, stepMs: 0, frames: 3, stall: 300, beadTimeScale: 8 });
+    expect(ok({ ...FIXED, stall: '0', beadTimeScale: '1' })).toMatchObject({ stall: 0, beadTimeScale: 1 });
+  });
+
+  it('absent, neither is in the params: a launch without them is the launch it always was', () => {
+    expect(Object.keys(ok(FIXED)).sort()).toEqual(['clock', 'frames', 'run', 'scene', 'stepMs', 't']);
+  });
+
+  it.each([
+    ['a negative stall', { ...FIXED, stall: '-1' }, /stall must be in \[0, 2000\]/],
+    ['a stall past two seconds', { ...FIXED, stall: '2001' }, /stall must be in \[0, 2000\]/],
+    ['a stall that is not a number', { ...FIXED, stall: 'long' }, /stall must be a finite decimal number/],
+    ['a time scale under 1 (it would hide a frame of skew)', { ...FIXED, beadTimeScale: '0.5' }, /beadTimeScale must be in \[1, 16\]/],
+    ['a time scale past 16', { ...FIXED, beadTimeScale: '17' }, /beadTimeScale must be in \[1, 16\]/],
+    ['a time scale in exponent form', { ...FIXED, beadTimeScale: '1e1' }, /beadTimeScale must be a finite decimal number/],
+  ])('refuses %s', (_label, raw, why) => {
+    expect(errorsOf(raw).join('\n')).toMatch(why);
+  });
+
+  it('refuses either as an extra that is not a string', () => {
+    expect(errorsOf(FIXED, ['stall', 'beadTimeScale'])).toEqual(['stall must be a string extra (--es), not another type', 'beadTimeScale must be a string extra (--es), not another type']);
+  });
+});
+
 describe('parseLabArgs: what is refused, with the reason', () => {
   it.each([
     ['an unknown key', { ...FIXED, colour: 'red' }, /unknown key "colour"/],

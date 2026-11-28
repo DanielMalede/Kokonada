@@ -79,11 +79,16 @@ const reanimated = require('react-native-reanimated') as { __frame(dt: number): 
 
 // FieldFallback records its picture through Skia on the JS thread: here every Skia call is taken and draws nothing, so
 // its real model runs on FieldView's real props. Its pixels are held in real Skia (FieldFallback.skia.test.tsx).
+// Each render of the field's Canvas is counted: on the device every one is a JS commit that redraws the canvas from a
+// recording JS made (RN Skia's redraw()), not from the UI thread's latest image.
+const skiaRenders = { canvas: 0 };
 jest.mock('@shopify/react-native-skia', () => {
-  const Stub = ({ children }: { children?: React.ReactNode }) => children ?? null;
   const inert: unknown = new Proxy(function stub() {}, { get: () => inert, apply: () => inert });
   return {
-    Canvas: Stub,
+    Canvas: ({ children }: { children?: React.ReactNode }) => {
+      skiaRenders.canvas += 1;
+      return children ?? null;
+    },
     Image: () => null,
     Picture: () => null,
     FilterMode: { Nearest: 0, Linear: 1 },
@@ -406,6 +411,68 @@ describe('the still tier (reduced motion): one fadeReduced ramp, frames until th
     expect(reanimated.__active()).toBe(0);
   });
 
+  // F10 G8 round 2 (still/, f002 to f005): after a placement at the still tier the field under the bead went blue,
+  // purple, blue, purple before it settled. DEC-168 and DEC-170: a change at the still tier is one fadeReduced ramp,
+  // monotone in u. So on every frame drawn after a placement on a sleeping still field, at a loaded device's uneven frame
+  // times, the placement's fade only rises and every rest lobe's only falls, each to its end, with no step back.
+  it.each([
+    ['even 16 ms frames', [16]],
+    ['a loaded device’s uneven frames', [16, 49, 7, 33, 120, 4, 16, 66, 16, 250, 8]],
+  ])('a placement on a sleeping still field changes it one way only: %s', (_, pattern) => {
+    const r = mount(baseProps({ tier: 'still', taps: [] }));
+    frames(60);
+    expect(reanimated.__active()).toBe(0);
+    const before = nodes(uniformsOf(r)!);
+    const rest = before.map((n, k) => (n.bead ? -1 : k)).filter((k) => k >= 0 && before[k].fade > 0);
+    expect(rest.length).toBeGreaterThan(0);
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A] })} />));
+    const seen: Array<{ placement: number[]; rest: number[] }> = [];
+    for (let i = 0; i < 80 && reanimated.__active() > 0; i++) {
+      act(() => reanimated.__frame(pattern[i % pattern.length]));
+      const n = nodes(uniformsOf(r)!);
+      seen.push({ placement: n.filter((x) => x.bead).map((x) => x.fade), rest: rest.map((k) => (n[k].bead ? 0 : n[k].fade)) });
+    }
+    expect(reanimated.__active()).toBe(0);
+    const placement = seen.map((f) => (f.placement.length === 0 ? 0 : f.placement[0]));
+    for (let i = 1; i < placement.length; i++) if (placement[i] < placement[i - 1]) expect({ frame: i, placement: placement.slice(0, i + 1) }).toEqual({ frame: i, placement: 'only rising' });
+    for (let k = 0; k < rest.length; k++) {
+      const fade = seen.map((f) => f.rest[k]);
+      for (let i = 1; i < fade.length; i++) if (fade[i] > fade[i - 1]) expect({ lobe: k, frame: i, fade: fade.slice(0, i + 1) }).toEqual({ lobe: k, frame: i, fade: 'only falling' });
+      expect(fade[fade.length - 1]).toBe(0);
+    }
+    expect(placement[placement.length - 1]).toBe(1);
+  });
+
+  // The same capture's cause: the screen showed the pre-placement field again (f004) after the ramp's first frame (f003).
+  // The model never goes back (above), so the older image came from a redraw of the canvas from JS: each JS commit of
+  // the Canvas makes RN Skia stop its mapper and draw a recording JS made, and FieldView re-renders at the wake and at
+  // the start's hop to the page. Only the UI thread's mapper may put the field's frames on screen: the canvas is
+  // committed by JS when what it draws is new (its size, its effect), never by a placement, a wake, a sleep or a page
+  // that re-renders FieldView with equal props.
+  it('a placement, its ramp, the wake, the sleep and a page’s equal re-renders never re-commit the field’s canvas from JS', () => {
+    const onStart = jest.fn();
+    const r = mount(baseProps({ tier: 'still', taps: [], onStart }));
+    frames(60);
+    expect(reanimated.__active()).toBe(0);
+    const mountedCanvas = skiaRenders.canvas;
+    expect(mountedCanvas).toBeGreaterThanOrEqual(1);
+    // The page's re-render with equal props: a new layout object of the same values, as a root that rebuilds it.
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [], onStart, layout: { ...baseProps().layout } })} />));
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart })} />));
+    for (let i = 0; i < 120 && reanimated.__active() > 0; i++) {
+      act(() => reanimated.__frame(16));
+      // Through the ramp, the start's hop lands on the page, which re-renders FieldView with equal props.
+      if (i < 10) act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart, layout: { ...baseProps().layout } })} />));
+    }
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(reanimated.__active()).toBe(0);
+    expect(placementFades(uniformsOf(r)!)).toEqual([1]);
+    expect(skiaRenders.canvas - mountedCanvas).toBe(0);
+    // What it draws is new: a new size commits it, once.
+    act(() => r.update(<FieldView {...baseProps({ tier: 'still', taps: [A], onStart, layout: { ...baseProps().layout, width: 361 } })} />));
+    expect(skiaRenders.canvas - mountedCanvas).toBe(1);
+  });
+
   it('the moving tiers never stop', () => {
     mount(baseProps({ tier: 'full', taps: [A] }));
     frames(50);
@@ -467,7 +534,7 @@ describe('no worklet in FieldView.tsx names a React ref (RA-28)', () => {
 
   it('the scan sees FieldView’s refs and its frame worklet, and no worklet names a ref', () => {
     const scan = refsInWorklets(SOURCE);
-    expect(scan.refs).toEqual(['currentGeneration', 'forcedDraws', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
+    expect(scan.refs).toEqual(['currentGeneration', 'fallbackLedger', 'forcedDraws', 'listener', 'mounted', 'seq', 'shownLayout', 'shownTaps']);
     expect(scan.worklets).toBeGreaterThan(0);
     expect(scan.offenders).toEqual([]);
   });
@@ -722,5 +789,293 @@ describe('the frame cap (UI-171)', () => {
     expect(reanimated.__active()).toBe(1);
     frames(1, 2);
     expect(counts.build).toBe(3);
+  });
+});
+
+// DEC-174's CTA hears the field's starts (the architect's F10 G8 rulings, Q1: option A, filtered by option 1b). The
+// frame worklet reads the start's target from the ledger (admittedLive) and sends it with the admitted count in one hop,
+// runOnJS(deliverStart)(admitted, live). deliverStart reads the listener through a ref, so a new onStart never re-makes
+// the worklet (F7); it drops a start that lands after the unmount; and it keeps only what the taps FieldView last wrote
+// still hold (stillLive). The signature is additive: a listener that takes the count alone still hears it (the legacy
+// tests above, unedited).
+describe('the start carries its live placements to the CTA (T1–T6, the architect’s Q1)', () => {
+  type LivePlacement = import('../placementLedger.ts').LivePlacement;
+  const { mountedLive } = require('../placementLedger.ts') as typeof import('../placementLedger.ts');
+  const C = { x: -0.5, y: 0.45 };
+  const at = (id: number, t: { x: number; y: number }): LivePlacement => ({ id, x: t.x, y: t.y });
+  const listen = () => {
+    const calls: Array<[number, readonly LivePlacement[]]> = [];
+    return { calls, onStart: (admitted: number, live: readonly LivePlacement[]) => { calls.push([admitted, live]); } };
+  };
+  /** Steps frames with every crossing to JS held back until one is queued, and returns its landing. */
+  const holdOneCrossing = () => {
+    ui.deferred = [];
+    for (let i = 0; i < 10 && ui.deferred.length === 0; i++) act(() => reanimated.__frame(16));
+    const queued = ui.deferred;
+    ui.deferred = null;
+    expect(queued).toHaveLength(1);
+    return () => act(() => { for (const land of queued) land(); });
+  };
+
+  it('T1: a start hands onStart its admitted count and the target’s store-live placements, in one crossing: [A] → [A, B] is (1, [A0, B1]); a pop is (1, [A0])', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(5);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A)]]]);
+    expect(ui.runOnJS).toBe(2);
+  });
+
+  it('T2: onStart is read through a ref: a new listener on every render keeps one frame worklet, and the newest one hears the start', () => {
+    const module = require('react-native-reanimated') as { useFrameCallback: (...args: unknown[]) => unknown };
+    const spy = jest.spyOn(module, 'useFrameCallback');
+    try {
+      const heard: string[] = [];
+      const r = mount(baseProps({ taps: [A], onStart: () => { heard.push('first'); } }));
+      frames(3);
+      for (let i = 0; i < 3; i++) act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart: () => { heard.push(`render ${i}`); } })} />));
+      act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart: () => { heard.push('newest'); } })} />));
+      frames(60);
+      expect(heard).toEqual(['newest']);
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(5);
+      expect(new Set(spy.mock.calls.map((c) => c[0])).size).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('T3: a start whose hop lands after the unmount reaches nobody; React’s simulated unmount and remount (StrictMode) keeps the listener', () => {
+    const gone = listen();
+    const r = mount(baseProps({ taps: [A], onStart: gone.onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart: gone.onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.unmount());
+    mounted.splice(mounted.indexOf(r), 1);
+    land();
+    expect(gone.calls).toEqual([]);
+
+    const strict = listen();
+    let s!: ReactTestRenderer.ReactTestRenderer;
+    act(() => { s = ReactTestRenderer.create(<React.StrictMode><FieldView {...baseProps({ taps: [A], onStart: strict.onStart })} /></React.StrictMode>); });
+    mounted.push(s);
+    frames(3);
+    act(() => s.update(<React.StrictMode><FieldView {...baseProps({ taps: [A, B], onStart: strict.onStart })} /></React.StrictMode>));
+    frames(60);
+    expect(strict.calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+  });
+
+  it('T4: a start whose hop lands after an undo carries only what the taps FieldView last wrote still hold', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.update(<FieldView {...baseProps({ taps: [A], onStart })} />));
+    land();
+    expect(calls).toEqual([[1, [at(0, A)]]]);
+    // and the start the undo makes next carries the store as it is
+    frames(60);
+    expect(calls).toEqual([[1, [at(0, A)]], [1, [at(0, A)]]]);
+  });
+
+  it('T5: a face switch mounts a fresh ledger: the old one’s start in flight is dropped, and the new one numbers its placements as mountedLive does', () => {
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    const land = holdOneCrossing();
+    act(() => r.update(<FieldView {...baseProps({ face: 'light', taps: [A, B], onStart })} />));
+    land();
+    expect(calls).toEqual([]);
+    frames(3);
+    expect(calls).toEqual([]);
+    act(() => r.update(<FieldView {...baseProps({ face: 'light', taps: [A, B, C], onStart })} />));
+    frames(60);
+    expect(calls).toEqual([[1, [...mountedLive([A, B]), at(2, C)]]]);
+  });
+
+  // F7, read from the source: the frame worklet's dependency list names no onStart (only deliverStart, which reads it
+  // through the ref), so a page that passes an inline listener never re-makes the worklet.
+  it('T6: the frame worklet’s dependencies name deliverStart and never onStart (static, with a planted control)', () => {
+    const isWorklet = (fn: ts.Node) => {
+      const body = (fn as ts.FunctionLikeDeclarationBase).body;
+      return body !== undefined && ts.isBlock(body) && body.statements.length > 0 && ts.isExpressionStatement(body.statements[0])
+        && ts.isStringLiteral(body.statements[0].expression) && body.statements[0].expression.text === 'worklet';
+    };
+    /** The dependency lists of the useCallback worklets in a source, each with where its closing bracket sits. */
+    const workletDeps = (source: string) => {
+      const file = ts.createSourceFile('FieldView.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+      const out: Array<{ names: string[]; close: number }> = [];
+      const visit = (n: ts.Node) => {
+        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'useCallback' && n.arguments.length === 2) {
+          const [fn, deps] = n.arguments;
+          if (isWorklet(fn) && ts.isArrayLiteralExpression(deps)) out.push({ names: deps.elements.map((e) => e.getText(file)), close: deps.getEnd() - 1 });
+        }
+        ts.forEachChild(n, visit);
+      };
+      visit(file);
+      return out;
+    };
+    const source = fs.readFileSync(path.resolve(__dirname, '../FieldView.tsx'), 'utf8');
+    const deps = workletDeps(source);
+    expect(deps).toHaveLength(1);
+    expect(deps[0].names).toContain('deliverStart');
+    expect(deps[0].names).not.toContain('onStart');
+    // Planted: onStart written back into the worklet's dependencies is seen.
+    const planted = source.slice(0, deps[0].close) + ', onStart' + source.slice(deps[0].close);
+    expect(workletDeps(planted)[0].names).toEqual([...deps[0].names, 'onStart']);
+  });
+});
+
+// F1 (S1, the architect's F10 G8 findings): while FieldFallback draws, the frame worklet does not run, so no start would
+// reach the CTA and it would never show. FieldView runs the same ledger on JS instead: one reconcile at each change and
+// then per animation frame, only while the ledger needs frames (needsFrames), its starts delivered the same way
+// (deliverStart). It builds nothing: FieldFallback draws from the props. A builder throw hands the UI thread's ledger to
+// JS, so its ids and its spacing carry on, and the start of the frame that threw is still heard. F5: `active` (default
+// true) gates every frame, the UI thread's and the fallback's, so a blurred page (P10) draws nothing; the ledger reads
+// the taps written meanwhile on its first frame once active again. The animation frames run on jest's fake timers.
+describe('fallback starts (F1) and the active gate (F5)', () => {
+  type LivePlacement = import('../placementLedger.ts').LivePlacement;
+  const SETTLE = BASE.motion.settle.duration;
+  const C = { x: -0.5, y: 0.45 };
+  const at = (id: number, t: { x: number; y: number }): LivePlacement => ({ id, x: t.x, y: t.y });
+  const listen = () => {
+    const calls: Array<[number, readonly LivePlacement[]]> = [];
+    const times: number[] = [];
+    const onStart = (admitted: number, live: readonly LivePlacement[]) => {
+      calls.push([admitted, live]);
+      times.push(performance.now());
+    };
+    return { calls, times, onStart };
+  };
+  const advance = (ms: number) => act(() => { jest.advanceTimersByTime(ms); });
+  beforeEach(() => {
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    for (const r of mounted.splice(0)) act(() => r.unmount());
+    expect(jest.getTimerCount()).toBe(0);
+    jest.useRealTimers();
+  });
+
+  it('F1: in fallback a start still reaches onStart, [A] → [A, B] is (1, [A0, B1]); frames are asked for only while the ledger needs them, and nothing is built', () => {
+    effectState.status = 'fallback';
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(jest.getTimerCount()).toBe(0);
+    advance(1000);
+    expect(calls).toEqual([]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    expect(jest.getTimerCount()).toBe(1);
+    advance(SETTLE + 100);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(counts.build).toBe(0);
+    expect(reanimated.__active()).toBe(0);
+  });
+
+  it('F1: a toggle storm in fallback: several starts, each at least motion.settle after the last, nothing built, and no frame asked for at rest', () => {
+    effectState.status = 'fallback';
+    const { times, onStart } = listen();
+    const r = mount(baseProps({ taps: [], onStart }));
+    for (let t = 0, k = 0; t < 3000; t += 17, k++) {
+      act(() => r.update(<FieldView {...baseProps({ taps: k % 2 === 0 ? [A] : [], onStart })} />));
+      advance(17);
+    }
+    advance(3 * SETTLE);
+    expect(times.length).toBeGreaterThan(3);
+    for (let i = 1; i < times.length; i++) expect([i, times[i] - times[i - 1] >= SETTLE]).toEqual([i, true]);
+    expect(jest.getTimerCount()).toBe(0);
+    expect(counts.build).toBe(0);
+  });
+
+  it('F1: a builder throw hands the UI thread’s ledger to JS: the throwing frame’s start is heard, and the next keeps the ids and waits out the spacing', () => {
+    const { calls, times, onStart } = listen();
+    const layout = { ...baseProps().layout, quietRects: [{ x: 10, y: 10, width: 20, height: 20 }] };
+    const r = mount(baseProps({ taps: [A], layout, quietPresence: [1], onStart }));
+    frames(3);
+    // A presence outside [0, 1] makes the builder throw (checkQuietPresence) on the frame that starts B.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], layout, quietPresence: [2], onStart })} />));
+    frames(1);
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
+    const built = counts.build;
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], layout, quietPresence: [2], onStart })} />));
+    advance(2 * SETTLE);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A), at(1, B), at(2, C)]]]);
+    expect(times[1] - times[0]).toBeGreaterThanOrEqual(SETTLE);
+    expect(counts.build).toBe(built);
+    expect(reanimated.__active()).toBe(0);
+  });
+
+  it('F5: inactive, no frame runs and nothing is built at any tier; once active, the first frame reads what changed meanwhile', () => {
+    for (const tier of ['full', 'low', 'still'] as const) {
+      const { calls, onStart } = listen();
+      const r = mount(baseProps({ tier, taps: [A], onStart }));
+      frames(3);
+      const drawn = counts.build;
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A], onStart, active: false })} />));
+      expect([tier, reanimated.__active()]).toEqual([tier, 0]);
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A, B], stress: 0.5, onStart, active: false })} />));
+      frames(625);
+      expect([tier, counts.build - drawn, reanimated.__active(), calls]).toEqual([tier, 0, 0, []]);
+      act(() => r.update(<FieldView {...baseProps({ tier, taps: [A, B], stress: 0.5, onStart })} />));
+      expect([tier, reanimated.__active()]).toEqual([tier, 1]);
+      frames(1);
+      expect([tier, counts.build - drawn, calls]).toEqual([tier, 1, [[1, [at(0, A), at(1, B)]]]]);
+      for (const m of mounted.splice(0)) act(() => m.unmount());
+    }
+  });
+
+  it('F5 in fallback: going inactive cancels the frame asked for and none is asked for meanwhile; active again, a crossfade carries on where it stopped, and a change made meanwhile starts at once', () => {
+    effectState.status = 'fallback';
+    const { calls, onStart } = listen();
+    const r = mount(baseProps({ taps: [A], onStart }));
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect([calls.length, jest.getTimerCount()]).toEqual([1, 1]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart, active: false })} />));
+    expect(jest.getTimerCount()).toBe(0);
+    advance(2000);
+    expect(jest.getTimerCount()).toBe(0);
+    // Active again: the ledger's clock stood still meanwhile (L19), so the crossfade carries on, then the frames stop.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart })} />));
+    expect(jest.getTimerCount()).toBe(1);
+    advance(SETTLE + 100);
+    expect(jest.getTimerCount()).toBe(0);
+    // A change made while inactive is read on the first step once active, and starts at once.
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], onStart, active: false })} />));
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], onStart, active: false })} />));
+    advance(2000);
+    expect([calls.length, jest.getTimerCount()]).toEqual([1, 0]);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B, C], onStart })} />));
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]], [1, [at(0, A), at(1, B), at(2, C)]]]);
+    expect(counts.build).toBe(0);
+  });
+
+  it('F1: a throw ends the UI thread’s work at once, before JS hears of it: no further build and no second handoff while the switch is in flight', () => {
+    const { calls, onStart } = listen();
+    const layout = { ...baseProps().layout, quietRects: [{ x: 10, y: 10, width: 20, height: 20 }] };
+    const r = mount(baseProps({ taps: [A], layout, quietPresence: [1], onStart }));
+    frames(3);
+    act(() => r.update(<FieldView {...baseProps({ taps: [A, B], layout, quietPresence: [2], onStart })} />));
+    ui.deferred = [];
+    frames(1);
+    const built = counts.build;
+    const queued = ui.deferred.length;
+    expect(queued).toBe(2); // the start, then the failure
+    frames(10);
+    expect([counts.build - built, ui.deferred.length]).toEqual([0, queued]);
+    const landing = ui.deferred;
+    ui.deferred = null;
+    act(() => { for (const land of landing) land(); });
+    expect(r.root.findAllByType(FieldFallback)).toHaveLength(1);
+    expect(calls).toEqual([[1, [at(0, A), at(1, B)]]]);
   });
 });

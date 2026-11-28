@@ -120,6 +120,59 @@ describe('src/design/v2 imports nothing from outside v2', () => {
   });
 });
 
+// The layers (the architect's F10 G8 rulings, task 3): the field, the colour law, the tokens, the clock and motion sit
+// below the components. A component may read them (ctaState reads the ledger); none of them names a module under
+// components/, tests included, so a change to a component can never move the field or its laws.
+const LOWER_LAYERS = ['field', 'color', 'tokens', 'clock', 'motion'] as const;
+
+/** The relative specifiers in `source` (a file at `file`) that resolve under v2's components/. */
+function importsOfComponents(source: string, file: string): string[] {
+  return moduleSpecifiers(source).filter((spec) => {
+    if (!spec.startsWith('.')) return false;
+    const target = path.relative(V2, path.resolve(path.dirname(file), spec)).split(path.sep).join('/');
+    return target === 'components' || target.startsWith('components/');
+  });
+}
+
+const inLowerLayer = (file: string) => (LOWER_LAYERS as readonly string[]).includes(rel(file).split('/')[0]);
+
+describe('the field, colour, tokens, clock and motion never import a component', () => {
+  it('the scan sees every lower layer, their tests, and the components it keeps them from', () => {
+    const seen = FILES.map(rel);
+    for (const layer of LOWER_LAYERS) expect([layer, seen.some((f) => f.startsWith(`${layer}/`))]).toEqual([layer, true]);
+    expect(seen).toEqual(expect.arrayContaining(['field/__tests__/FieldView.test.tsx', 'components/CommitCTA/ctaState.ts']));
+  });
+
+  it('no file under field/, color/, tokens/, clock/ or motion/ names a module under components/', () => {
+    const offenders = FILES.filter(inLowerLayer).flatMap((file) => importsOfComponents(fs.readFileSync(file, 'utf8'), file).map((spec) => `${rel(file)} -> ${spec}`));
+    expect(offenders).toEqual([]);
+  });
+
+  // Planted: each source is assembled at run time, so no file here names a component.
+  const q = String.fromCharCode(39);
+  it.each([
+    ['field/planted.ts', 'import { srgbHex } from ' + q + '../components/Bead/beadModel.ts' + q + ';', '../components/Bead/beadModel.ts'],
+    ['field/__tests__/planted.test.ts', 'export { CommitCTA } from ' + q + '../../components/CommitCTA/CommitCTA.tsx' + q + ';', '../../components/CommitCTA/CommitCTA.tsx'],
+    ['tokens/planted.ts', 'import type { PlatePoint } from ' + q + '../components/Plate/geometry.ts' + q + ';', '../components/Plate/geometry.ts'],
+    ['color/planted.ts', 'const m = require(' + q + '../components/PlateTouch/plateTouchModel.ts' + q + ');', '../components/PlateTouch/plateTouchModel.ts'],
+    ['motion/planted.ts', 'jest.mock(' + q + '../components/Plate/geometry.ts' + q + ');', '../components/Plate/geometry.ts'],
+    ['clock/planted.ts', 'const lazy = import(' + q + '../components' + q + ');', '../components'],
+  ])('flags a planted %s that names a component', (file, source, spec) => {
+    const at = path.join(V2, ...file.split('/'));
+    expect(inLowerLayer(at)).toBe(true);
+    expect(importsOfComponents(source, at)).toEqual([spec]);
+  });
+
+  it('does not flag a lower layer naming another, a folder of its own called components, or a component naming the field', () => {
+    const field = path.join(V2, 'field', 'planted.ts');
+    const fromField = 'import { oklabToSrgb } from ' + q + '../color/oklab.ts' + q + ';\nimport { x } from ' + q + './components/x.ts' + q + ';';
+    expect(importsOfComponents(fromField, field)).toEqual([]);
+    const component = path.join(V2, 'components', 'CommitCTA', 'planted.ts');
+    expect(inLowerLayer(component)).toBe(false);
+    expect(importsOfComponents('import { stillLive } from ' + q + '../../field/placementLedger.ts' + q + ';', component)).toEqual([]);
+  });
+});
+
 // One spelling for a relative import (architect round 1, a nit made a rule): it names its file,
 // `./oklab.ts`, never `./oklab`, as the rest of v2 writes it.
 function extensionlessImports(source: string, fileName: string): string[] {

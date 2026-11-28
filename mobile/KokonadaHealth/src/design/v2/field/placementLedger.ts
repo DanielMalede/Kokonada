@@ -54,6 +54,10 @@
 //
 // Slots: one pool of NODE_SLOTS. A node keeps its slot from the frame it enters until its fade
 // reaches 0; freed slots are reused lowest first.
+//
+// The CTA's reading (DEC-174; the architect's F10 G8 rulings, Q1): at a start, the target's placements that the
+// store holds (admittedLive); when the hop to JS lands, those the taps still hold (stillLive); at a mount, what a
+// fresh ledger's reset shows (mountedLive).
 
 import { clampFrameDt } from '../clock/frameDt.ts';
 import { BASE, DIRECTIONS, type DirectionId } from '../tokens/tokens.generated.ts';
@@ -528,4 +532,63 @@ export function fades(l: Ledger): LedgerFades {
 export function needsFrames(l: Ledger): boolean {
   'worklet';
   return l.running !== null || l.leaves.length > 0 || l.enters.length > 0 || l.clock - l.lastStart < BASE.motion.settle.duration;
+}
+
+/** A placement of an admitted start's target that the store holds: its ledger id and its point, as the ledger reads it. */
+export interface LivePlacement {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * An admitted start's target, read from the ledger: the placements it shows (not leaving) that are live in the
+ * store, oldest first. What the CTA hears at a start (DEC-174): FieldView's frame worklet reads it there.
+ */
+export function admittedLive(ledger: Ledger): LivePlacement[] {
+  'worklet';
+  const live: LivePlacement[] = [];
+  for (const s of ledger.shown) {
+    if (s.phase === 'out') continue;
+    let inStore = false;
+    for (const p of ledger.store) if (p.id === s.id) inStore = true;
+    if (inStore) live.push({ id: s.id, x: s.x, y: s.y });
+  }
+  live.sort((a, b) => a.id - b.id);
+  return live;
+}
+
+/**
+ * The placements of a start's target that `taps` still hold (the architect's option 1b): the hop to JS lands after the
+ * store may have moved on, so FieldView keeps only what the taps it last wrote still hold. Each tap, read as the ledger
+ * reads it (readTaps), vouches for one placement at its point, the oldest first (the ledger's own diff keeps the
+ * earliest of equal taps); the result keeps the target's order. By value, as the ledger reads the store: a tap undone
+ * and placed again at the same point is still live.
+ */
+export function stillLive(live: readonly LivePlacement[], taps: readonly Tap[]): LivePlacement[] {
+  'worklet';
+  const unclaimed = readTaps(taps);
+  const kept: boolean[] = live.map(() => false);
+  const oldestFirst = live.map((_, i) => i).sort((a, b) => live[a].id - live[b].id);
+  for (const i of oldestFirst) {
+    let at = -1;
+    for (let k = 0; k < unclaimed.length && at < 0; k++) if (sameTap(unclaimed[k], live[i])) at = k;
+    if (at >= 0) {
+      unclaimed.splice(at, 1);
+      kept[i] = true;
+    }
+  }
+  const out: LivePlacement[] = [];
+  for (let i = 0; i < live.length; i++) if (kept[i]) out.push({ id: live[i].id, x: live[i].x, y: live[i].y });
+  return out;
+}
+
+/**
+ * What a fresh ledger shows on its first frame (its reset, with no start), as admittedLive reads it: the taps read as
+ * the ledger reads them, ids 0, 1, … in store order. The CTA's state at a mount (useCtaMachine), so the machine and a
+ * FieldView mounted with the same taps agree on every id.
+ */
+export function mountedLive(taps: readonly Tap[]): LivePlacement[] {
+  'worklet';
+  return readTaps(taps).map((t, i) => ({ id: i, x: t.x, y: t.y }));
 }

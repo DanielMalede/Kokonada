@@ -11,7 +11,7 @@ import { progress, crossfade, overlapOmega } from '../crossfade.ts';
 import { buildFieldFrame, lobeAnchor, nodeAt } from '../fieldFrame.ts';
 import { NODE_SLOTS } from '../fieldLaw.ts';
 import { frameState, geometry, stormDeps } from '../ledgerStorms.ts';
-import { ADMISSION, emptyLedger, fades, ledgerConfig, needsFrames, reconcile, type Ledger, type LedgerConfig, type LedgerFades, type Tap } from '../placementLedger.ts';
+import { ADMISSION, admittedLive, emptyLedger, fades, ledgerConfig, mountedLive, needsFrames, reconcile, stillLive, type Ledger, type LedgerConfig, type LedgerFades, type LivePlacement, type Tap } from '../placementLedger.ts';
 import { staticsFor } from '../statics.ts';
 import { packFrame } from '../uniforms.ts';
 
@@ -835,5 +835,78 @@ describe('UI-134: the drift key, a re-add inherits it, never the ordinal or the 
     const { at } = run(emptyLedger(ABYSS), s, -1, 2200, 'settle', { 0: () => s.add(C), 700: () => s.undo(), 800: () => s.add(C), 900: () => s.add(C) });
     expect(at(1300).ledger.starts).toBe(3);
     expect(keys(at(2200).f)).toEqual([[1, 1, 0, 'live'], [2, 2, 2, 'live']]);
+  });
+});
+
+// DEC-174's CTA hears the field's admitted starts (the architect's F10 G8 rulings, Q1: option A, filtered by option 1b).
+// At a start FieldView's frame worklet reads the target from the ledger (admittedLive). The hop to JS lands later, and the
+// store may have moved on by then, so JS keeps only what the taps FieldView last wrote still hold (stillLive). A mount reads
+// what a fresh ledger's reset shows (mountedLive), so the CTA and a FieldView mounted with the same taps agree on every id.
+// Each one is a worklet (workletSafe.test.ts) and reads the taps exactly as the ledger does.
+describe('the live placements a start carries to the CTA (DEC-174; the architect’s Q1)', () => {
+  const live = (id: number, t: Tap): LivePlacement => ({ id, x: t.x, y: t.y });
+
+  it('admittedLive: the placements shown and not leaving that the store holds, oldest first; a waiting enter and a leaver are not in it', () => {
+    const s = store();
+    const { at } = run(emptyLedger(ABYSS), s, -1, 1300, 'settle', { 0: () => s.add(J), 600: () => s.add(C), 700: () => s.add(R), 800: () => s.undo(), 900: () => s.undo() });
+    expect(admittedLive(at(0).ledger)).toEqual([live(0, J)]);
+    expect(admittedLive(at(600).ledger)).toEqual([live(0, J), live(1, C)]);
+    // R waits behind the running crossfade: in the store, not yet admitted, so not in the target.
+    expect(at(700).ledger.enters.map((e) => e.id)).toEqual([2]);
+    expect(admittedLive(at(700).ledger)).toEqual([live(0, J), live(1, C)]);
+    // C is still entering, but the store no longer holds it.
+    expect(admittedLive(at(900).ledger)).toEqual([live(0, J)]);
+    // and at the next start it leaves.
+    expect(at(1200).ledger.starts).toBe(3);
+    expect(fades(at(1200).ledger).placements.map((p) => [p.id, p.role])).toEqual([[0, 'live'], [1, 'leaving']]);
+    expect(admittedLive(at(1200).ledger)).toEqual([live(0, J)]);
+  });
+
+  it('stillLive keeps the placements whose points the taps still hold, read as the ledger reads them, in the target’s order', () => {
+    const target = [live(0, J), live(1, C), live(2, R)];
+    expect(stillLive(target, [J, C, R])).toEqual(target);
+    // an undo, a fourth tap that shifted the oldest out, a clear
+    expect(stillLive(target, [J, C])).toEqual([live(0, J), live(1, C)]);
+    expect(stillLive(target, [C, R, I])).toEqual([live(1, C), live(2, R)]);
+    expect(stillLive(target, [])).toEqual([]);
+    // the newest three of a raw input, as the ledger reads it (J is a fourth from the end)
+    expect(stillLive(target, [J, I, C, R])).toEqual([live(1, C), live(2, R)]);
+    // a non-finite coordinate is 0, as the ledger stores it
+    expect(stillLive([live(4, tap(0, 0.5))], [tap(NaN, 0.5)])).toEqual([live(4, tap(0, 0.5))]);
+    // by value, as the ledger reads the store: a tap undone and placed again at the same point is still live
+    expect(stillLive([live(0, J)], [{ ...J }])).toEqual([live(0, J)]);
+  });
+
+  it('stillLive: each tap vouches for one placement at its point, the oldest first, whatever order the target lists them in', () => {
+    expect(stillLive([live(3, J), live(1, J)], [J])).toEqual([live(1, J)]);
+    expect(stillLive([live(1, J), live(3, J)], [J, J])).toEqual([live(1, J), live(3, J)]);
+    expect(stillLive([live(1, J), live(3, J), live(5, J)], [C, J])).toEqual([live(1, J)]);
+  });
+
+  it('stillLive is pure: it leaves its inputs as they were and shares no object with them', () => {
+    const target = [live(0, J), live(1, C)];
+    const taps = [J, C];
+    const before = JSON.stringify([target, taps]);
+    const out = stillLive(target, taps);
+    expect(JSON.stringify([target, taps])).toBe(before);
+    expect(out).toEqual(target);
+    expect(out).not.toBe(target);
+    out.forEach((p, i) => expect(p).not.toBe(target[i]));
+  });
+
+  it('mountedLive is what a fresh ledger shows on its first frame, as admittedLive reads it: ids 0, 1, …, and no start', () => {
+    const cases: Tap[][] = [[], [J], [J, C], [J, C, R], [J, C, R, I, n(1)], [tap(NaN, 0.5), tap(0.4, Infinity)], [J, J]];
+    for (const taps of cases) {
+      for (const mode of ['settle', 'reduced'] as const) {
+        const first = reconcile(emptyLedger(ABYSS), { seq: 0, taps }, 0, mode);
+        expect(first.starts).toBe(0);
+        expect(mountedLive(taps)).toEqual(admittedLive(first));
+      }
+    }
+    expect(mountedLive([J, C, R, I])).toEqual([live(0, C), live(1, R), live(2, I)]);
+  });
+
+  it('a mount’s target is live in the store that made it: stillLive keeps all of it', () => {
+    for (const taps of [[J], [J, C, R], [J, J, C], [tap(NaN, 0.5)]]) expect(stillLive(mountedLive(taps), taps)).toEqual(mountedLive(taps));
   });
 });
