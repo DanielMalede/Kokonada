@@ -76,13 +76,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-01
 
 ### M02
-- task: `own:agent-models-fable` (own)
-- title: Every build agent runs on Fable at effort medium: agent front matter, CLAUDE.md § Models, the dispatch keyword in the command files
-- branch: `chore/agent-models-fable`
-- paths: `.claude/agents/architect.md`, `.claude/agents/compliance-auditor.md`, `.claude/agents/coordinator.md`, `.claude/agents/custodian.md`, `.claude/agents/designer.md`, `.claude/agents/developer.md`, `.claude/agents/regulatory-researcher.md`, `.claude/agents/resilience-auditor.md`, `.claude/agents/security-auditor.md`, `.claude/agents/sentinel.md`, `.claude/commands/claim.md`, `.claude/commands/compliance-check.md`, `.claude/commands/fix-bug.md`, `.claude/commands/graph.md`, `.claude/commands/kickoff.md`, `.claude/commands/page.md`, `.claude/commands/plan.md`, `.claude/commands/review-pr.md`, `.claude/commands/runtime-agent.md`, `.claude/commands/ship.md`, `.claude/commands/spotify-quota.md`, `.claude/commands/status.md`, `.claude/commands/vision-frame.md`, `CLAUDE.md`, `docs/ORCHESTRATOR_FABLE.md`, `backend/tests/instructionLayerWaiver.test.js`, `backend/tests/shadow.instructionLayerWaiver.test.js`, `TASKS.md`, `docs/design-v2/decisions/DEC-199.md`, `docs/design-v2/decisions/DEC-155.md`, `docs/design-v2/DECISIONS.md`, `backend/tests/claudeSettings.policy.test.js`
+- task: `own:b2b3-dec-records` (own)
+- title: Design v2 B2/B3 decision records: DEC-194 appended with owner items 108-131, DEC-201 and DEC-203 (forks ruled under DEC-142)
+- branch: `docs/b2b3-dec-records`
+- paths: `docs/design-v2/decisions/DEC-194.md`, `docs/design-v2/decisions/DEC-201.md`, `docs/design-v2/decisions/DEC-203.md`, `docs/design-v2/decisions/DEC-039.md`, `docs/design-v2/registry/CMP-018.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
 - resources: none
-- state: in-review · PR #313
-- started: 2026-11-27
+- state: claimed
+- started: 2026-11-28
 
 ### M03
 - task: `own:ra1-heart-discovery-cache` (own)
@@ -139,10 +139,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-28
 
 ### M09
-- task: `OPS-506` (TASKS)
-- title: The src/pages boundary guard: the import graph from App.tsx reaches no batch page entry outside the Design Lab route, proven on a planted import, run in CI
-- branch: `chore/ops506-pages-boundary-guard`
-- paths: `mobile/KokonadaHealth/scripts/lab/assertPagesBoundary.mjs`, `mobile/KokonadaHealth/scripts/lab/__tests__/assertPagesBoundary.test.ts`, `mobile/KokonadaHealth/scripts/lab/__fixtures__/pagesBoundary/**`, `mobile/KokonadaHealth/scripts/lab/README.md`, `.github/workflows/ci.yml`, `mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`, `TASKS.md`
+- task: `own:gen-targets-log-trim` (own)
+- title: The [gen.targets] log keeps only tempoBand and counts: no emotion tap, valence, energy, bpm or confidence in the server log (C-P4-0, RA-91 S0)
+- branch: `fix/gen-targets-log-trim`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/tests/genTargetsLog.test.js`, `backend/tests/wave4.liveLogZeroKnowledge.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-28
