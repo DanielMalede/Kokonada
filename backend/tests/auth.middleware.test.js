@@ -15,6 +15,14 @@ jest.mock('../app/models/User', () => ({
   findById: (...args) => mockFindById(...args),
 }));
 
+// The denylist answers "not revoked" unless a case says otherwise (the real one does the same with no
+// Redis); RA-8 needs a revoked jti.
+const mockIsRevoked = jest.fn(async () => false);
+jest.mock('../app/utils/tokenDenylist', () => ({
+  isRevoked: (...args) => mockIsRevoked(...args),
+  revoke: jest.fn(async () => true),
+}));
+
 const authMiddleware = require('../app/middleware/auth');
 
 function buildRes() {
@@ -319,6 +327,35 @@ describe('auth middleware', () => {
       await authMiddleware(req, res, next);
 
       expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+  // RA-8 (#320): the mobile client tells an auth verdict from a route's own 401 by the absence of a
+  // `code`, so every auth-middleware 401 body is pinned exactly. These two were not.
+  describe('every 401 body is exact, and carries no code (RA-8)', () => {
+    it('a revoked token answers exactly {error:"Token revoked"}, with no DB lookup', async () => {
+      mockIsRevoked.mockResolvedValueOnce(true);
+      const req  = { cookies: {}, headers: { authorization: `Bearer ${signToken({ userId: 'user-123' })}` } };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Token revoked' });
+      expect(next).not.toHaveBeenCalled();
+      expect(mockFindById).not.toHaveBeenCalled();
+    });
+
+    it('a ?ct= that does not verify answers exactly {error:"Invalid or expired token"}', async () => {
+      const req  = { cookies: {}, headers: {}, query: { ct: 'not.a.jwt' }, path: '/api/integrations/spotify/connect' };
+      const res  = buildRes();
+      const next = jest.fn();
+
+      await authMiddleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid or expired token' });
       expect(next).not.toHaveBeenCalled();
     });
   });
