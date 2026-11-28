@@ -14,10 +14,13 @@
 //     tall as the row unless it has a height; a column stacks them from the top, flex 1 taking what is left, each as wide
 //     as the column unless it has a width, and a child with a width sits at the cross-start edge (the right under rtl)
 //     unless the column centres its items. `justifyContent: 'center'` centres the stack on the main axis.
+//   · a uniform `borderWidth` leaves its node where it is and lays its children inside the border, absolute and in-flow
+//     alike (Yoga places both inside it); a paint-only style (a colour, an opacity, an overflow, a transform, a corner
+//     radius, a border colour, a shadow, a background image) moves nothing.
 //
-// Fail-closed: any other style key or value that moves a node (a margin, a padding, row-reverse, a percentage) is an
-// error, never a guess, so a scene that starts placing Views another way fails its RTL test until the model knows it.
-// yogaRtlModel.test.tsx pins each rule.
+// Fail-closed: any other style key or value that moves a node (a margin, a padding, one side's border, row-reverse, a
+// percentage) is an error, never a guess, so a scene that starts placing Views another way fails its RTL test until the
+// model knows it. yogaRtlModel.test.tsx pins each rule.
 
 import type ReactTestRenderer from 'react-test-renderer';
 
@@ -56,9 +59,9 @@ export function hostChildren(node: Node): Node[] {
   return out;
 }
 
-/** Style keys that do not move a node, and the values of the keys that do, which this model knows. */
-const INERT = new Set(['backgroundColor', 'opacity', 'overflow', 'transform']);
-const KNOWN = new Set(['flex', 'direction', 'flexDirection', 'alignItems', 'justifyContent', 'position', 'left', 'right', 'top', 'bottom', 'start', 'end', 'width', 'height']);
+/** Style keys that do not move a node (paint only), and the values of the keys that do, which this model knows. */
+const INERT = new Set(['backgroundColor', 'opacity', 'overflow', 'transform', 'borderRadius', 'borderColor', 'boxShadow', 'experimental_backgroundImage']);
+const KNOWN = new Set(['flex', 'direction', 'flexDirection', 'alignItems', 'justifyContent', 'position', 'left', 'right', 'top', 'bottom', 'start', 'end', 'width', 'height', 'borderWidth']);
 
 function checked(node: Node): Record<string, unknown> {
   const s = flat(node.props.style);
@@ -66,7 +69,7 @@ function checked(node: Node): Record<string, unknown> {
   for (const [k, v] of Object.entries(s)) {
     if (INERT.has(k) || v === undefined) continue;
     if (!KNOWN.has(k)) throw problem(k);
-    if (['left', 'right', 'top', 'bottom', 'start', 'end', 'width', 'height'].includes(k) && typeof v !== 'number') throw problem(`${k} ${JSON.stringify(v)}`);
+    if (['left', 'right', 'top', 'bottom', 'start', 'end', 'width', 'height', 'borderWidth'].includes(k) && typeof v !== 'number') throw problem(`${k} ${JSON.stringify(v)}`);
     if (k === 'flex' && v !== 1) throw problem(`flex ${JSON.stringify(v)}`);
     if (k === 'direction' && v !== 'ltr' && v !== 'rtl' && v !== 'inherit') throw problem(`direction ${JSON.stringify(v)}`);
     if (k === 'flexDirection' && v !== 'row' && v !== 'column') throw problem(`flexDirection ${JSON.stringify(v)}`);
@@ -156,15 +159,24 @@ function place(node: Node, parent: Node | null, parentBox: Box, parentDir: Dir, 
   return { x, y: parentBox.y + lead + before, width: cross, height: main };
 }
 
+/** The box a node lays its children in: its frame inside its uniform border. */
+function inside(box: Box, s: Record<string, unknown>): Box {
+  const b = num(s.borderWidth) ?? 0;
+  return { x: box.x + b, y: box.y + b, width: box.width - 2 * b, height: box.height - 2 * b };
+}
+
 /** Where a host node lands, in dp, the outermost host filling `stage`. */
 export function frameOf(node: Node, stage: Box, rules: Rules): Box {
   const chain = hostChain(node);
   let box = stage;
+  let content = stage;
   let dir = rules.rootDir;
   let parent: Node | null = null;
   for (const n of chain) {
-    box = place(n, parent, box, dir, rules);
-    dir = ownDir(checked(n), dir);
+    box = place(n, parent, content, dir, rules);
+    const s = checked(n);
+    dir = ownDir(s, dir);
+    content = inside(box, s);
     parent = n;
   }
   return box;

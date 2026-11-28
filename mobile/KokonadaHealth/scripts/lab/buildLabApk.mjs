@@ -11,11 +11,12 @@
 //      sessions use), because the native CMake build fails on the long worktree path ("build.ninja
 //      still dirty"), and points autolinking.json at that drive; otherwise the RN CLI would
 //      regenerate it under the drive and drop the local spotify-remote module;
-//   3. it runs :app:assembleLab for arm64-v8a through the drive;
+//   3. it runs :app:assembleLab for arm64-v8a (the phone) and x86_64 (the emulator) through the drive;
 //   4. ALWAYS, success or failure: it puts autolinking.json back byte for byte and removes the drive;
-//   5. it checks the APK carries the stamped bundle and stamp, and that it is signed with the one shared
-//      debug keystore (the main checkout's android/app/debug.keystore, read in place, never copied), so a
-//      lab APK from any worktree installs over another with adb install -r.
+//   5. it checks the APK carries the stamped bundle and stamp, native libraries for exactly those two ABIs
+//      (the same files under each), and that it is signed with the one shared debug keystore (the main
+//      checkout's android/app/debug.keystore, read in place, never copied), so a lab APK from any
+//      worktree installs over another with adb install -r.
 // It never installs anything: that is a separate, explicit `adb install -r`.
 //
 // Exit codes: 0 built · 1 the build or its check failed · 2 refused.
@@ -32,6 +33,28 @@ const LAB_ASSETS = 'android/app/src/lab/assets';
 const APK = 'android/app/build/outputs/apk/lab/app-lab.apk';
 const AUTOLINKING = 'android/build/generated/autolinking/autolinking.json';
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+
+// OPS-477: the lab carries arm64-v8a for the phone and x86_64 for the API 35 emulator. That emulator also runs arm64
+// code through its translator, but an arm64-only lab dies there at launch: the native libraries stay uncompressed in
+// the APK, and SoLoader looks for them only under base.apk!/lib/x86_64, the process's own ABI.
+const LAB_ABIS = ['arm64-v8a', 'x86_64'];
+
+/** Every problem with an APK's native libraries: it must carry exactly LAB_ABIS, each with the same .so files. */
+function abiProblems(entries) {
+  const byAbi = new Map();
+  for (const { name } of entries) {
+    const m = /^lib\/([^/]+)\/([^/]+\.so)$/.exec(name);
+    if (m) byAbi.set(m[1], (byAbi.get(m[1]) ?? new Set()).add(m[2]));
+  }
+  const problems = LAB_ABIS.filter((abi) => !byAbi.has(abi)).map((abi) => `it carries no lib/${abi}/ libraries`);
+  for (const abi of byAbi.keys()) if (!LAB_ABIS.includes(abi)) problems.push(`it carries lib/${abi}/, an ABI the lab is not built for`);
+  const built = LAB_ABIS.filter((abi) => byAbi.has(abi));
+  for (const lib of [...new Set(built.flatMap((abi) => [...byAbi.get(abi)]))].sort()) {
+    const lacking = built.filter((abi) => !byAbi.get(abi).has(lib));
+    if (lacking.length) problems.push(`${lib} is missing from ${lacking.map((abi) => `lib/${abi}/`).join(' and ')}`);
+  }
+  return problems;
+}
 
 /** Letters to try for the subst drive. W is left out on purpose: other sessions map it. */
 export const DEFAULT_DRIVES = ['L', 'K', 'J', 'M', 'N', 'P', 'Q', 'R', 'T', 'U', 'V', 'X', 'Y', 'Z'];
@@ -186,7 +209,7 @@ async function buildCapped({ repo, app, head, stamp, git, gradle, subst, exists,
     // The shared keystore reaches build.gradle as the project property kokonadaDebugKeystore.
     gradle({
       cwd,
-      args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain', ...capArgs],
+      args: [':app:assembleLab', `-PreactNativeArchitectures=${LAB_ABIS.join(',')}`, '--console=plain', ...capArgs],
       env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore },
     });
   } finally {
@@ -208,6 +231,8 @@ async function buildCapped({ repo, app, head, stamp, git, gradle, subst, exists,
     apk: { bundleSha256: bundle ? sha256(bundle.data) : null, stamp: stampEntry ? JSON.parse(stampEntry.data.toString('utf8')) : null },
   });
   if (apkProblems.length) throw new Error(`the built APK fails the stamp chain:\n  ${apkProblems.join('\n  ')}`);
+  const abiErrors = abiProblems(entries);
+  if (abiErrors.length) throw new Error(`the built APK does not carry the lab's ABIs (${LAB_ABIS.join(', ')}):\n  ${abiErrors.join('\n  ')}`);
   const cert = signer.apkCertificate(apkPath);
   if (!/CN=Android Debug\b/.test(cert.dn)) throw new Error(`the lab APK is signed by ${cert.dn}, not the debug key`);
   if (cert.sha256 !== signer.keystoreCertificate(keystore).sha256) throw new Error('the lab APK is not signed with the shared debug keystore');
@@ -233,17 +258,28 @@ export function gradleSpawn({ cwd, args, env = {} }, platform = process.platform
 }
 
 /**
- * The first signer's certificate (its DN and SHA-256 digest) in `apksigner verify --print-certs` output.
- * Build-tools 36 prints "Signer #1 certificate DN: …"; build-tools 37 (React Native 0.88 builds with it)
- * labels each line by the scheme it verified, "V2 Signer: certificate DN: …". The digest is read from
- * the same signer's lines as the DN.
+ * The one signer certificate (its DN and SHA-256 digest) in `apksigner verify --print-certs` output. Each version names
+ * its signers its own way: build-tools 36 prints "Signer #1 certificate DN: …"; build-tools 37 (React Native 0.88 builds
+ * with it) labels each line by the scheme it verified, "V2 Signer: certificate DN: …", "V3.0 Signer: certificate DN: …".
+ * So every "<signer> certificate DN" and "<signer> certificate SHA-256 digest" pair counts, whatever the signer is
+ * called, each digest read from the same signer's lines as its DN, and all of them must be one certificate: the lab is
+ * signed by one key alone (OPS-477).
+ * @param {string} out
+ * @returns {{ dn: string, sha256: string }}
  */
 export function apksignerCertificate(out) {
-  const dn = /^(Signer #1|V[\d.]+ Signer(?: #1)?:) certificate DN: (.+?)\s*$/m.exec(out);
-  const label = dn ? dn[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
-  const digest = label ? new RegExp(`^${label} certificate SHA-256 digest: ([0-9a-f]{64})\\s*$`, 'm').exec(out) : null;
-  if (!dn || !digest) throw new Error('apksigner printed no signer');
-  return { dn: dn[2], sha256: digest[1] };
+  const signers = new Map();
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^(.+?) certificate (DN|SHA-256 digest): (.+)$/.exec(line.trim());
+    if (m) signers.set(m[1], { ...signers.get(m[1]), [m[2] === 'DN' ? 'dn' : 'sha256']: m[3].trim() });
+  }
+  const certs = [...signers.values()];
+  if (certs.length === 0 || certs.some((c) => !c.dn || !/^[0-9a-f]{64}$/.test(c.sha256 ?? ''))) {
+    throw new Error('apksigner printed no signer certificate (a DN and its SHA-256 digest)');
+  }
+  const distinct = [...new Set(certs.map((c) => `${c.dn} (sha256 ${c.sha256})`))];
+  if (distinct.length > 1) throw new Error(`the APK is signed by more than one certificate: ${distinct.join('; ')}`);
+  return { dn: certs[0].dn, sha256: certs[0].sha256 };
 }
 
 // apksigner from the Android SDK that android/local.properties names (or ANDROID_HOME), newest build-tools.

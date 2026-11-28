@@ -12,10 +12,25 @@
 //     renderScale (default: the tier's). No Dimensions or PixelRatio reads, no hidden tier logic (fork 2);
 //   · the statics come as a prop, memoised by the root, once per direction (fork 1, 1C);
 //   · the builder runs exactly once per drawn frame, and the JS thread never reads the ledger per frame: JS hears
-//     only of a start (onStart, the CTA's admitted count), the still tier's stop, and a failure;
+//     only of a start (onStart), the still tier's stop, and a failure;
+//   · a start (DEC-174's CTA; the architect's F10 G8 rulings, Q1: option A, filtered by option 1b): the frame worklet
+//     reads the start's target from the ledger, the placements it shows that the store holds (admittedLive), and sends
+//     them with the admitted count in one hop. JS reads the listener through a ref, so a new onStart never re-makes the
+//     worklet (F7); drops a start that lands after the unmount; and hands on only what the taps it last wrote still hold
+//     (stillLive), since the store may move on while the hop is in flight. A switch of direction, face or scene is a
+//     remount: the fresh ledger numbers its placements as mountedLive does, and a start in flight from the old one is
+//     dropped;
 //   · a builder throw, or an effect that cannot draw, switches to FieldFallback for the mount's life. It draws from the
 //     props as given (T13, the designer's Q2 and Q5): the taps, the layout as measured (every quiet rect, no clamp),
-//     pxPerDp and each presence unsanitised;
+//     pxPerDp and each presence unsanitised. A throw ends the UI thread's work at once, and the start of the frame that
+//     threw is still heard;
+//   · fallback starts (F1): while the fallback draws, the frame worklet does not run, so the same ledger runs on JS (the
+//     mount's own, or the UI thread's, handed over once at a throw, its clock rebased): one reconcile at each change of
+//     the taps, the tier or `active`, then one per animation frame only while it needs frames (needsFrames), none at
+//     rest. Its starts reach onStart the same way, so the CTA shows in fallback too. It builds nothing;
+//   · `active` (F5, default true) gates every frame, the UI thread's and the fallback's: a page that is not in front (P10
+//     blurred) draws nothing. The ledger's clock stands still meanwhile (L19), so a crossfade carries on where it
+//     stopped, and the taps written meanwhile are read on the first frame once active again;
 //   · the still tier (reduced motion) draws the still, runs one fadeReduced ramp per change and its frames
 //     until the spacing since that start has passed (L19: the next change then starts on its first frame),
 //     then stops its frames until an input changes; the moving tiers run every frame. A stop is decided on the UI
@@ -40,7 +55,7 @@
 // The breath: the `breathPhase` SharedValue when the root runs the phaser, else the breath at the clock's
 // time (fixedFieldBreath), as the lab's fixed clocks draw it.
 
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { runOnJS, useFrameCallback, useSharedValue, type FrameInfo, type SharedValue } from 'react-native-reanimated';
 import type { FieldClock } from '../clock/fieldClock.ts';
 import type { MotionTier } from '../motion/useMotionPolicy.ts';
@@ -50,8 +65,8 @@ import { FieldFallback } from './FieldFallback.tsx';
 import { fixedFieldBreath, type FieldGeometry, type FieldStatics } from './fieldFrame.ts';
 import { FieldFirstFrameReport } from './firstFrameReport.ts';
 import { FieldSurface } from './FieldSurface.tsx';
-import { capFrame, fieldStep, frameCapStart, renderGeometry, renderScaleFor, renderSize, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams, type LayoutPass } from './fieldDriver.ts';
-import { emptyLedger, type Ledger, type LedgerInput, type Tap } from './placementLedger.ts';
+import { capFrame, fieldStep, frameCapStart, modeFor, renderGeometry, renderScaleFor, renderSize, sameLayoutPass, sameTapValues, type FieldLayout, type FrameCap, type FrameParams, type LayoutPass } from './fieldDriver.ts';
+import { admittedLive, emptyLedger, needsFrames, reconcile, stillLive, type Ledger, type LedgerInput, type LivePlacement, type Tap } from './placementLedger.ts';
 import { ledgerConfigFor } from './statics.ts';
 
 export interface FieldViewProps {
@@ -76,8 +91,19 @@ export interface FieldViewProps {
   readonly breathPhase?: SharedValue<number>;
   /** Each quiet zone's presence, by slot (QUIET_ZONE). */
   readonly quietPresence?: readonly number[];
-  /** A crossfade started: how many changes it admitted. Called on the JS thread, only at starts. */
-  readonly onStart?: (admitted: number) => void;
+  /**
+   * A crossfade started: how many changes it admitted, and its target's placements that the store holds (admittedLive,
+   * read on the UI thread at the start), less those the taps FieldView last wrote no longer hold when the hop to JS
+   * lands (stillLive). Called on the JS thread, only at starts, never after the unmount. A listener of the count alone
+   * still fits: the change is additive.
+   */
+  readonly onStart?: (admitted: number, live: readonly LivePlacement[]) => void;
+  /**
+   * May the field run frames (default true)? False stops every frame, the UI thread's and the fallback's on JS, so a
+   * page that is not in front (P10 blurred) draws nothing (F5); the taps written meanwhile are read on the first frame
+   * once it is active again.
+   */
+  readonly active?: boolean;
 }
 
 interface FrameInputs {
@@ -92,6 +118,7 @@ export function FieldView(props: FieldViewProps) {
 
 function FieldViewMount(props: FieldViewProps) {
   const { direction, face, statics, taps, layout, pxPerDp, tier, stress, confidence, genesis, clock, breathPhase, quietPresence, onStart } = props;
+  const active = props.active ?? true;
   const renderScale = props.renderScale ?? renderScaleFor(tier);
   const geometry = renderGeometry(layout, pxPerDp, renderScale);
   const size = renderSize(layout, pxPerDp, renderScale);
@@ -101,7 +128,8 @@ function FieldViewMount(props: FieldViewProps) {
   const [failure, setFailure] = useState<string | null>(effect.status === 'fallback' ? effect.reason : null);
   const [awake, setAwake] = useState(true);
 
-  // The ledger lives on the UI thread for the mount's life; JS makes it once and never reads it again.
+  // The ledger lives on the UI thread for the mount's life; JS makes it once and never reads it again. Only once the
+  // fallback draws, and the frame worklet is done, does JS run it (fallbackLedger, below).
   const [first] = useState<Ledger>(() => emptyLedger(ledgerConfigFor(direction, face, statics, geometry)));
   const ledger = useSharedValue<Ledger>(first);
   const input = useSharedValue<LedgerInput>({ seq: 0, taps });
@@ -116,6 +144,15 @@ function FieldViewMount(props: FieldViewProps) {
   // The first drawn frame, told once per mount to the lab's listener (UI-233); the app has none, so nothing is told.
   const firstFrame = useContext(FieldFirstFrameReport);
   const told = useSharedValue(false);
+  // A builder throw ends the UI thread's work for the mount's life, at once, before JS hears of it, and hands its ledger
+  // to JS once: the fallback runs that same ledger (F1), so its ids and its spacing carry on.
+  const broken = useSharedValue(false);
+  const fallbackLedger = useRef<Ledger>(first);
+  const fail = useCallback((reason: string, at: Ledger) => {
+    // The UI thread's frame times and JS's performance.now() share no origin: the first JS step moves the clock by nothing.
+    fallbackLedger.current = { ...at, lastNow: null };
+    setFailure(reason);
+  }, []);
 
   const wake = useCallback(() => {
     currentGeneration.current += 1;
@@ -153,6 +190,22 @@ function FieldViewMount(props: FieldViewProps) {
     wake();
   }, [taps, input, forceDraw, wake]);
 
+  // The start's listener (the architect's Q1): read through a ref, so a new onStart never re-makes the frame worklet
+  // (F7); set and cleared in a layout effect, so a start whose hop lands after the unmount reaches nobody (React's
+  // simulated remount sets it again); and handed only what the taps FieldView last wrote still hold (option 1b).
+  const listener = useRef(onStart);
+  useLayoutEffect(() => {
+    listener.current = onStart;
+    return () => {
+      listener.current = undefined;
+    };
+  }, [onStart]);
+  const listening = onStart !== undefined;
+  const deliverStart = useCallback((admitted: number, live: readonly LivePlacement[]) => {
+    const heard = listener.current;
+    if (heard !== undefined) heard(admitted, stillLive(live, shownTaps.current));
+  }, []);
+
   // Every other input, written when a prop changes (never per frame), and the still woken to redraw. Keyed
   // on the props themselves: FieldView's own re-renders (the still's stop) must not wake it again. A layout
   // pass that changed by value forces the next frame's draw; a root that rebuilds the same layout does not.
@@ -172,6 +225,7 @@ function FieldViewMount(props: FieldViewProps) {
 
   const onFrame = useCallback((info: FrameInfo) => {
     'worklet';
+    if (broken.value) return;
     const f = inputs.value;
     const gate = capFrame(cap.value, info.timestamp, f.params.tier, forced.value);
     cap.value = gate.cap;
@@ -180,9 +234,12 @@ function FieldViewMount(props: FieldViewProps) {
     const phase = breathPhase === undefined ? fixedFieldBreath(f.params.direction, f.params.stress, tMs).phase : breathPhase.value;
     const step = fieldStep(ledger.value, input.value, info.timestamp, f.params, f.geometry, f.statics, tMs, phase);
     ledger.value = step.ledger;
+    // A start is heard even on a frame that throws: the fallback draws its placements at once.
+    if (step.started && listening) runOnJS(deliverStart)(step.ledger.admitted, admittedLive(step.ledger));
     if (step.error !== null) {
+      broken.value = true;
       uniforms.value = null;
-      runOnJS(setFailure)(step.error);
+      runOnJS(fail)(step.error, step.ledger);
       return;
     }
     uniforms.value = step.uniforms;
@@ -190,20 +247,41 @@ function FieldViewMount(props: FieldViewProps) {
       told.value = true;
       runOnJS(firstFrame)();
     }
-    if (step.started && onStart !== undefined) runOnJS(onStart)(step.ledger.admitted);
     if (step.idle && !asleep.value) {
       asleep.value = true;
       runOnJS(sleep)(generation.value);
     }
-  }, [inputs, cap, forced, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, onStart, firstFrame, told]);
+  }, [broken, inputs, cap, forced, clock, breathPhase, ledger, input, uniforms, asleep, generation, sleep, deliverStart, listening, fail, firstFrame, told]);
 
   const frame = useFrameCallback(onFrame, false);
-  const running = failure === null && (tier !== 'still' || awake);
+  const drawing = failure === null && effect.status === 'ready';
+  const running = drawing && active && (tier !== 'still' || awake);
   useEffect(() => {
     frame.setActive(running);
   }, [frame, running]);
 
-  if (failure !== null || effect.status !== 'ready') {
+  // Fallback starts (F1): while the fallback draws, the frame worklet does not run, so the same ledger runs here on JS:
+  // one reconcile at each change of the taps, the tier or `active`, then one per animation frame only while the ledger
+  // needs frames (needsFrames), and none at rest. Its starts reach the listener the same way (deliverStart). It builds
+  // nothing: FieldFallback draws from the props.
+  useEffect(() => {
+    if (drawing || !active) return undefined;
+    let handle: ReturnType<typeof requestAnimationFrame> | null = null;
+    const step = () => {
+      handle = null;
+      const prev = fallbackLedger.current;
+      const next = reconcile(prev, { seq: seq.current, taps: shownTaps.current }, performance.now(), modeFor(tier));
+      fallbackLedger.current = next;
+      if (next.starts > prev.starts) deliverStart(next.admitted, admittedLive(next));
+      if (needsFrames(next)) handle = requestAnimationFrame(step);
+    };
+    step();
+    return () => {
+      if (handle !== null) cancelAnimationFrame(handle);
+    };
+  }, [drawing, active, tier, taps, deliverStart]);
+
+  if (!drawing) {
     return (
       <FieldFallback
         direction={direction}

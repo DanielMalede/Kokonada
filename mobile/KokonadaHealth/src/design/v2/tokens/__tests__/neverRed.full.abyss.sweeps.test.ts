@@ -1,5 +1,5 @@
 import { sweepNeverRed } from '../../color/blendSpace.ts';
-import { CHECK_BAND, DESIGN_BAND, fullEdgeReport, fullFieldReport, ringEdgeGrounds, ringEdgeSweepFor, ringOuterGrounds, ringOuterSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
+import { CHECK_BAND, DESIGN_BAND, beadTwinFamiliesFor, fullEdgeReport, fullFieldReport, ringEdgeGrounds, ringEdgeSweepFor, ringOuterGrounds, ringOuterSweepFor, type GraphEdges } from '../neverRedSweeps.ts';
 import { EXTENSIONS } from '../tokens.extensions.generated.ts';
 import { BASE, type DirectionId, type Face } from '../tokens.generated.ts';
 
@@ -62,6 +62,29 @@ describe.each(['dark', 'light'] as Face[])(`QA-065 at full resolution: ${ID}, %s
       expect(report.pixelSamples).toBeGreaterThan(0);
       expect(report.maxDesign.chroma).toBeLessThanOrEqual(DESIGN_LIMIT);
       expect(report.maxCheck.chroma).toBeLessThanOrEqual(CHECK_LIMIT);
+    },
+    LONG,
+  );
+
+  // F1 (the designer's rulings of 2026-11-25): a bead is never translucent in colour. Its grey disc at every α over every
+  // lit surface, and its colour disc at every fraction over its grey twin, on F1's full grid (neverRed.beadTwin.test.ts
+  // runs the coarse one by default); the planted pre-F1 bead must fail here too, and the plant only adds its family.
+  it(
+    'the bead’s grey twin (F1): the grey disc and the colour disc over its twin stay out of both bands; the plant fails; the full grid really ran',
+    () => {
+      const full = beadTwinFamiliesFor(ID, face, 'full', { plant: true });
+      const coarse = beadTwinFamiliesFor(ID, face, 'coarse', { plant: true });
+      expect(coarse.slice(0, 3)).toEqual(beadTwinFamiliesFor(ID, face, 'coarse'));
+      const planted = (f: { family: string }) => f.family.includes('(planted');
+      expect(full.map((f) => f.family)).toEqual(coarse.map((f) => f.family));
+      for (const [i, f] of full.entries()) expect([f.family, f.pixelBlends > coarse[i].pixelBlends]).toEqual([f.family, true]);
+      const over = full
+        .filter((f) => !planted(f) && (f.design.chroma > DESIGN_LIMIT || f.check.chroma > CHECK_LIMIT))
+        .map((f) => `${f.family}: design C ${f.design.chroma.toFixed(5)}, check C ${f.check.chroma.toFixed(5)}`);
+      expect(over).toEqual([]);
+      const plant = full.find(planted)!;
+      expect(plant.design.chroma).toBeGreaterThan(DESIGN_LIMIT);
+      expect(plant.check.chroma).toBeGreaterThan(CHECK_LIMIT);
     },
     LONG,
   );

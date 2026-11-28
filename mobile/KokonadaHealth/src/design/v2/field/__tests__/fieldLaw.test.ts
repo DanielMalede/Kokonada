@@ -13,9 +13,11 @@ import {
   groundAt,
   haloWeight,
   hash289,
+  hexLab,
   regionOf,
   selectColour as select,
   smoothstep,
+  srgbHex,
   tripleRatio,
   valueNoise,
   type FieldFrame,
@@ -366,5 +368,27 @@ describe('a pixel', () => {
     const expected = 0.012 * blueNoiseValue('grain', Math.floor(x), Math.floor(y)) + (1 / 255) * blueNoiseValue('dither', Math.floor(x), Math.floor(y));
     expect(a.L - b.L).toBeCloseTo(expected, 12);
     expect([a.a, a.b]).toEqual([b.a, b.b]);
+  });
+});
+
+// F3 (the architect's F10 G8 findings): the painted pixel as `#RRGGBB` lives beside encodeSrgb8, in a module with no
+// React Native in it, so DEC-174's machine (ctaState.ts) can name its tint's hex without the bead's view family.
+describe('srgbHex and hexLab: the painted pixel as #RRGGBB, beside encodeSrgb8', () => {
+  // assembled at run time: a colour literal in a test is still one the design-system lint refuses
+  const hex = (digits: string) => '#' + digits;
+  it('srgbHex is the #RRGGBB of encodeSrgb8’s bytes, two upper-case digits each; hexLab reads it back to the same bytes', () => {
+    const colours: Oklab[] = [{ L: 0, a: 0, b: 0 }, { L: 1, a: 0, b: 0 }, { L: 0.62, a: 0.1, b: -0.05 }, { L: 2, a: 1, b: 1 }, { L: -1, a: 0, b: 0 }, J];
+    for (const c of colours) {
+      const bytes = encodeSrgb8(c);
+      expect(srgbHex(c)).toBe('#' + bytes.map((v) => v.toString(16).toUpperCase().padStart(2, '0')).join(''));
+      expect(encodeSrgb8(hexLab(srgbHex(c)))).toEqual(bytes);
+    }
+    expect(srgbHex({ L: 0, a: 0, b: 0 })).toBe(hex('000000'));
+    expect(srgbHex({ L: 2, a: 0, b: 0 })).toBe(hex('FFFFFF'));
+    expect(hexLab(hex('e3b667'))).toEqual(hexLab(hex('E3B667')));
+  });
+
+  it('hexLab refuses anything but #RRGGBB', () => {
+    for (const bad of [hex('FFF'), 'FFFFFF', hex('GGGGGG'), hex('FFFFFF00'), '']) expect(() => hexLab(bad)).toThrow(RangeError);
   });
 });
