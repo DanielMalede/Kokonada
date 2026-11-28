@@ -139,22 +139,22 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-28
 
 ### M09
-- task: `own:l0-dec130-adr0017` (own)
-- title: docs: L0 records for design v2 batch mode: DEC-130 (the owner's V1 direction, Abyss) and ADR-0017 (design system v2, Proposed)
-- branch: `docs/l0-dec130-adr0017`
-- paths: `docs/design-v2/decisions/DEC-130.md`, `docs/design-v2/DECISIONS.md`, `docs/adr/0017-design-system-v2.md`, `docs/adr/README.md`, `TASKS.md`
-- resources: none
-- state: in-review · PR #312
-- started: 2026-11-25
-
-### M10
-- task: `own:cmp008-get-spotify-free` (own)
-- title: CMP-008 / CA307-15: GET SPOTIFY FREE opens Spotify's Play Store listing (market:// then the Play web page) instead of open.spotify.com
-- branch: `fix/cmp008-get-spotify-free`
-- paths: `mobile/KokonadaHealth/src/experience/player/spotifyLinkBack.ts`, `mobile/KokonadaHealth/src/experience/player/spotifyContentLink.ts`, `mobile/KokonadaHealth/src/experience/player/SpotifyAttribution.tsx`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyLinkBack.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/spotifyContentLink.test.ts`, `mobile/KokonadaHealth/src/experience/player/__tests__/SpotifyAttribution.test.tsx`, `mobile/KokonadaHealth/src/experience/playback/NowPlayingScreen.tsx`, `mobile/KokonadaHealth/src/experience/playback/__tests__/NowPlayingScreen.test.tsx`, `docs/design-v2/registry/CMP-008.md`, `docs/design-v2/registry/CMP-009.md`, `docs/design-v2/registry/INDEX.md`, `docs/design-v2/decisions/DEC-193.md`, `docs/design-v2/decisions/DEC-112.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
+- task: `OPS-506` (TASKS)
+- title: The src/pages boundary guard: the import graph from App.tsx reaches no batch page entry outside the Design Lab route, proven on a planted import, run in CI
+- branch: `chore/ops506-pages-boundary-guard`
+- paths: `mobile/KokonadaHealth/scripts/lab/assertPagesBoundary.mjs`, `mobile/KokonadaHealth/scripts/lab/__tests__/assertPagesBoundary.test.ts`, `mobile/KokonadaHealth/scripts/lab/__fixtures__/pagesBoundary/**`, `mobile/KokonadaHealth/scripts/lab/README.md`, `.github/workflows/ci.yml`, `mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-25
+- started: 2026-11-28
+
+### M10
+- task: `BE-121` (TASKS)
+- title: test: the compensating-line checks strip the user id before the fixture-value checks (BE-121)
+- branch: `test/be121-fixture-id-flake`
+- paths: `backend/tests/consentWithdrawalHeldWrite.integration.test.js`, `backend/tests/affectHmm.test.js`, `backend/tests/feedbackLoop.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/morningState.integration.test.js`, `backend/tests/consentWithdrawalSessionHealth.integration.test.js`, `backend/tests/sessionHealthRace.integration.test.js`, `TASKS.md`
+- resources: none
+- state: in-review · PR #318
+- started: 2026-11-28
 
 ### M11
 - task: `own:stop-google-picture` (own)
