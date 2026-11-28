@@ -157,13 +157,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-25
 
 ### M11
-- task: `own:stop-google-picture` (own)
-- title: The backend stops storing Google's profile picture URL (avatarUrl) at sign-in, per the owner's ruling of 2026-11-24 (B1 regulatory Q6)
-- branch: `fix/stop-google-picture`
-- paths: `backend/app/controllers/authController.js`, `backend/tests/auth.controller.test.js`, `backend/app/models/User.js`, `TASKS.md`
+- task: `own:v2-auth-contracts` (own)
+- title: Design v2 B1 G7 auth contracts: C1, C3, the age contract and C7 without terms.ts (PR-AUTH)
+- branch: `feat/v2-auth-contracts`
+- paths: `mobile/KokonadaHealth/src/auth/authSession.ts`, `mobile/KokonadaHealth/src/auth/session.ts`, `mobile/KokonadaHealth/src/auth/currentUser.ts`, `mobile/KokonadaHealth/src/auth/ageGate.ts`, `mobile/KokonadaHealth/src/auth/auth.ts`, `mobile/KokonadaHealth/src/auth/authErrors.ts`, `mobile/KokonadaHealth/src/net/apiClient.ts`, `mobile/KokonadaHealth/src/net/serverWait.ts`, `mobile/KokonadaHealth/src/auth/__tests__/**`, `mobile/KokonadaHealth/src/net/__tests__/apiClient.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.authRefusalCodes.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.authContracts.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.refreshCooldown.test.ts`, `TASKS.md`
 - resources: none
 - state: claimed
-- started: 2026-11-24
+- started: 2026-11-28
 
 ### M12
 _free_
