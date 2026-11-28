@@ -67,13 +67,18 @@ Every command below is a direct `node scripts/lab/<name>.mjs` call.
     an allowlist:
     - There is no `App.tsx`, or no readable `package.json`.
     - `metro.config.js` sets anything other than `resolver.blockList`, requires anything other than
-      `@react-native/metro-config`, or assigns to a member.
+      `@react-native/metro-config`, calls anything other than `getDefaultConfig` and `mergeConfig`,
+      names any other string, composes a string from a template, or assigns to a member.
     - `babel.config.js` sets anything other than `presets` and `plugins`, names anything other than
-      the preset and the plugin it names today, or requires a module.
+      the preset and the plugin it names today, requires a module, calls anything other than
+      `api.cache`, or composes a string from a template.
+    - `index.js` declares or sets its own `__DEV__`, so its `if (__DEV__)` branch is not the build flag.
+    - A directory between a walked file and the root holds a `.babelrc*`, or a `package.json` that is
+      not a local package's own manifest.
     - Any other babel or Metro config file exists (`.babelrc*`, `babel.config.json`,
       `metro.config.cjs`, …).
-    - `package.json` has a `babel` or `metro` key, `workspaces`, a `file:` or `link:` peer, or a
-      `workspace:` or `portal:` dependency.
+    - `package.json` has a `babel`, `metro`, `browser` or `react-native` key, `workspaces`, a `file:`
+      or `link:` peer, or a `workspace:` or `portal:` dependency.
     - A local package has an `exports` map (for a subpath import too), a main field that is not a
       string, or resolves to no file.
     - A file uses an absolute specifier.
