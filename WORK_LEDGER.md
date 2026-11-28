@@ -139,10 +139,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-28
 
 ### M09
-- task: `OPS-506` (TASKS)
-- title: The src/pages boundary guard: the import graph from App.tsx reaches no batch page entry outside the Design Lab route, proven on a planted import, run in CI
-- branch: `chore/ops506-pages-boundary-guard`
-- paths: `mobile/KokonadaHealth/scripts/lab/assertPagesBoundary.mjs`, `mobile/KokonadaHealth/scripts/lab/__tests__/assertPagesBoundary.test.ts`, `mobile/KokonadaHealth/scripts/lab/__fixtures__/pagesBoundary/**`, `mobile/KokonadaHealth/scripts/lab/README.md`, `.github/workflows/ci.yml`, `mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`, `TASKS.md`
+- task: `own:gen-targets-log-trim` (own)
+- title: The [gen.targets] log keeps only tempoBand and counts: no emotion tap, valence, energy, bpm or confidence in the server log (C-P4-0, RA-91 S0)
+- branch: `fix/gen-targets-log-trim`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/tests/genTargetsLog.test.js`, `backend/tests/wave4.liveLogZeroKnowledge.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-28

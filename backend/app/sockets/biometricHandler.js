@@ -840,6 +840,18 @@ function _releaseServeClaim(state, claim) {
 
 // `opts.serveClaim` (W4-D41) — set only when this generation is the cold-key fallback of a
 // recalibration, i.e. when it runs to discharge a claim someone else already made.
+// C-P4-0 (RA-91, B2 round 2, fork P4-F A): the `[gen.targets]` diagnostic keeps only the coarse
+// tempo band and counts. It used to print the last emotion tap, the mood key derived from the taps
+// (or the synthetic bio:<band>:<activity> key), the activity, and the derived target vector; on a
+// heart run bpmCenter tracks the heart rate, so those numbers are a vital by another name (§0.2.2,
+// CLAUDE.md T1). The band is echoed only from its closed vocabulary, so no free-form value can land.
+const GEN_TARGETS_BANDS = new Set(['resting', 'active', 'peak']);
+function formatGenTargetsLog({ reqId, taps, targets }) {
+  const tapCount  = Array.isArray(taps) ? taps.length : 0;
+  const tempoBand = GEN_TARGETS_BANDS.has(targets?.tempoBand) ? targets.tempoBand : null;
+  return `[gen.targets] reqId=${reqId} taps=${tapCount} tempoBand=${tempoBand}`;
+}
+
 async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
   const serveClaim = opts.serveClaim ?? null;
   // In-flight guard: collapse overlapping generations on one socket (rapid mode
@@ -1441,11 +1453,9 @@ async function generateAndEmitPlaylist(socket, trigger, state, opts = {}) {
       // library partition itself came back empty.
       console.warn(`[selection.v2] pool=${playlist.telemetry.poolSize} featured=${playlist.telemetry.featured} banded=${playlist.telemetry.banded} filtered=${playlist.telemetry.afterFilters} relax=${playlist.telemetry.relaxLevel} widened=${playlist.telemetry.bandWidened} ms=${playlist.telemetry.stageMs?.total} reqId=${reqId}`);
     }
-    // Diagnostic (always-on): the parsed biosonic target vector + the moodKey + the last tap
-    // it derived from. A CONSTANT band across different mood requests ⇒ a constant moodKey ⇒
-    // the tap intent isn't varying upstream — this line pinpoints exactly where mood is lost.
-    const _lastTap = state.lastEmotionTaps?.[state.lastEmotionTaps.length - 1] ?? null;
-    console.warn(`[gen.targets] reqId=${reqId} taps=${state.lastEmotionTaps?.length ?? 0} last=${JSON.stringify(_lastTap)} activity=${effectiveActivity} moodKey=${moodKey} bpmCenter=${playlist.targets?.bpmCenter} bpmWidth=${playlist.targets?.bpmWidth} energy=[${playlist.targets?.energyFloor}..${playlist.targets?.energyCeiling}] valence=${playlist.targets?.valenceTarget} conf=${playlist.targets?.confidence} tempoBand=${playlist.targets?.tempoBand}`);
+    // Diagnostic (always-on): which coarse tempo band this run built, and how many taps fed it.
+    // C-P4-0 (RA-91): nothing user-derived beyond those two (see formatGenTargetsLog).
+    console.warn(formatGenTargetsLog({ reqId, taps: state.lastEmotionTaps, targets: playlist.targets }));
 
     // Cross-platform translation: playback happens on Spotify's SDK, so every track must
     // carry a spotify: URI. This is a cheap O(n) passthrough for native Spotify tracks (no
@@ -2375,4 +2385,5 @@ module.exports = {
   toClientTrack,
   toClientTracks,
   resolveBiometricContext,
+  formatGenTargetsLog,
 };
