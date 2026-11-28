@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const REPO_ROOT = path.join(__dirname, '..', '..');
 // The owner's checkout as CLAUDE.md spells it, joined at run time so this file holds no user path (personalDataGuard.test.js).
 const CHECKOUT = ['', 'c', 'Users', 'danie', 'Videos', 'Kokonada'].join('/');
@@ -179,4 +180,186 @@ describe('RA-13 · the allow-list names the root CLAUDE.md and fences every fron
   });
   test("an agent file's whole front matter must be unchanged, not four named keys", () => { expect(agentItem).not.toMatch(/\(`name:`, `tools:`, `model:`, `effort:`\)/); });
   test('a command file is admitted only with its front matter unchanged', () => { expect(commandItem).toMatch(/front matter[^;]*unchanged/); });
+});
+// DEC-199 (own:agent-models-fable), the shadow of the agents' model and effort. One checker reads a map of the
+// layer's files; it runs on the real files, which must be clean, and on mutated copies of them, each of which it
+// must catch: M12 an agent file that names a model; M13 an effort other than medium; M14 a second `model:` line
+// (the last one wins in YAML); M15 a `model:` or `effort:` line dropped, which falls to a default; M16 the dispatch
+// keyword back in a command; M17 a model version number or a model id in the layer; M18 a new agent file that
+// carries neither line; M19 front matter that never closes. From the review of #313 at 6a9eecc: M20 a model and
+// M21 an effort in a command's front matter; M22 a second key the line readers miss (quoted, or a space before its
+// colon), a key no agent file carries, a repeated key; M23 a `model` key and M24 a model or effort variable in
+// `.claude/settings.json`, in `env` or inside an allowed command; M25 an agent file in a sub-directory, a copy of one
+// of the ten, an agents directory elsewhere in the tree, one of the ten gone; M26 maximum depth asked for in a
+// command; M27 a version in a spelling the first detector missed. From the owner's ruling 6 (2026-11-28): M28 a model
+// family named in CLAUDE.md § Models, which the owner picks with /model.
+describe('DEC-199 · the shadow: every agent file inherits the session\'s model at effort medium, and the layer names no version', () => {
+  const walk = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel), { withFileTypes: true }).flatMap((e) => {
+    const child = `${rel}/${e.name}`;
+    if (e.isDirectory()) return e.name === 'worktrees' ? [] : walk(child);
+    return /\.(md|json|js|sh|toml|ya?ml)$/.test(e.name) && !/^settings\.local\./.test(e.name) ? [child] : [];
+  });
+  const FILES = ['CLAUDE.md', 'AGENTS.md', 'docs/ORCHESTRATOR_FABLE.md', ...walk('.claude'), ...walk('.agents')];
+  const layer = () => Object.fromEntries(FILES.map((f) => [f, read(f)]));
+  // An agent file is every `.md` under a `.claude/agents` directory, at any depth and wherever that directory sits.
+  const isAgent = (f) => /(^|\/)\.claude\/agents\/.+\.md$/.test(f);
+  const isCommand = (f) => /(^|\/)\.claude\/commands\/.+\.md$/.test(f);
+  const isSettings = (f) => /(^|\/)\.claude\/settings[^/]*\.json$/.test(f);
+  const TEN = ['architect', 'compliance-auditor', 'coordinator', 'custodian', 'designer', 'developer', 'regulatory-researcher',
+    'resilience-auditor', 'security-auditor', 'sentinel'];
+  // The files git tracks, and the untracked ones it does not ignore, under a `.claude/agents` outside the root's:
+  // `walk` reads the root's `.claude` only, so a second agents directory elsewhere in the tree is found here.
+  const STRAY_AGENTS = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\0')
+    .filter((f) => isAgent(f) && !f.startsWith('.claude/'));
+  const KEYWORD = ['ultra', 'think'].join('');
+  const BAN = `No dispatch prompt carries \`${KEYWORD}\`.`;
+  // A model family, then up to three of whitespace (a no-break space too), a hyphen or dash of any kind, `_`, `.`
+  // or `(`, then optionally `v` or `version` with the same run after it, then a digit.
+  const GAP = '[\\s\\u00a0\\u00ad\\u2010-\\u2015\\u2212\\ufe58\\ufe63\\uff0d_.(-]{0,3}';
+  const VERSION = new RegExp(`(opus|fable|sonnet|haiku)${GAP}(?:v(?:ersion)?${GAP})?\\d`, 'i');
+  const MODEL_ID = /claude-[a-z]+-\d/i;
+  const MODEL_VARS = ['ANTHROPIC_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE'];
+  const EFFORT_VARS = ['CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_SUBAGENT_EFFORT'];
+  // The front matter: its lines, between the file's first line `---` and the next `---` line, and the body after it.
+  const frontOf = (text) => {
+    const parts = text.split(/^---$/m);
+    if (parts.length < 3 || parts[0] !== '') return null;
+    return { lines: parts[1].replace(/^\n/, '').replace(/\n$/, '').split('\n'), body: parts.slice(2).join('---') };
+  };
+  function faults(files) {
+    const out = [];
+    const names = new Set();
+    for (const [file, text] of Object.entries(files)) {
+      // The one sentence of CLAUDE.md § Models that bans the keyword names it; nothing else may.
+      const scanned = file === 'CLAUDE.md' ? text.replace(BAN, '') : text;
+      if (new RegExp(KEYWORD, 'i').test(scanned)) out.push(`${file}: the dispatch keyword`);
+      if (VERSION.test(text) || MODEL_ID.test(text)) out.push(`${file}: a model version`);
+      if (file === 'CLAUDE.md') {
+        // § Models: from its heading to the next `## ` heading; it names no family, since the owner picks it.
+        const at = text.indexOf('\n## Models\n');
+        const end = at < 0 ? -1 : text.indexOf('\n## ', at + 1);
+        const models = at < 0 ? '' : text.slice(at, end < 0 ? text.length : end);
+        if (models === '' || /\b(opus|fable|sonnet|haiku)\b/i.test(models)) out.push(`${file}: a model family in § Models`);
+      }
+      if (isSettings(file)) {
+        // Parsed, and read as text too: a variable set inside an allowed command sits in no `env` object.
+        let parsed = {};
+        try { parsed = JSON.parse(text); } catch (e) { out.push(`${file}: not JSON`); }
+        const env = Object.keys((parsed && parsed.env) || {});
+        const set = (vars) => vars.some((v) => env.includes(v) || text.includes(v));
+        if ((parsed && Object.keys(parsed).includes('model')) || /"model"\s*:/.test(text) || set(MODEL_VARS)) out.push(`${file}: model`);
+        if (set(EFFORT_VARS)) out.push(`${file}: effort`);
+      }
+      if (isCommand(file)) {
+        // A command's front matter sets no model and no effort, under any quoting; unclosed, every line is read.
+        const front = frontOf(text);
+        const lines = front ? front.lines : text.split('\n');
+        ['model', 'effort'].forEach((key) => {
+          if (lines.some((l) => new RegExp(`^\\s*["']?${key}["']?\\s*:`, 'i').test(l))) out.push(`${file}: ${key}`);
+        });
+        if (/maximum reasoning depth/i.test(text)) out.push(`${file}: maximum depth`);
+      }
+      if (!isAgent(file)) continue;
+      const front = frontOf(text);
+      if (!front) { out.push(`${file}: no front matter`); continue; }
+      const values = (key) => front.lines.filter((l) => l.trimStart().startsWith(`${key}:`)).map((l) => l.slice(l.indexOf(':') + 1).trim());
+      // Every line is one of the five keys, bare, its colon against it; `name`, `description` and `tools` once each
+      // (`model` and `effort` are counted below). A quoted key or `model : x` is a second key the two readers miss.
+      if (!front.lines.every((l) => /^(name|description|tools|model|effort): \S/.test(l))
+        || ['name', 'description', 'tools'].some((key) => values(key).length !== 1)) out.push(`${file}: front matter keys`);
+      if (values('model').join('|') !== 'inherit') out.push(`${file}: model`);
+      if (values('effort').join('|') !== 'medium') out.push(`${file}: effort`);
+      if (/maximum reasoning depth/i.test(front.body)) out.push(`${file}: maximum depth`);
+      const name = values('name').join('|');
+      if (!TEN.includes(name) || file !== `.claude/agents/${name}.md`) out.push(`${file}: not one of the ten agents`);
+      if (names.has(name)) out.push(`${file}: a duplicate name`);
+      names.add(name);
+    }
+    TEN.filter((name) => !Object.keys(files).includes(`.claude/agents/${name}.md`)).forEach((name) => out.push(`.claude/agents/${name}.md: missing`));
+    return out;
+  }
+  const AGENT = '.claude/agents/security-auditor.md';
+  const COMMAND = '.claude/commands/plan.md';
+  const SETTINGS = '.claude/settings.json';
+  // A family with its number, in the spellings the first detector missed: `v`, `version`, a bracket, an underscore,
+  // two spaces, a no-break space, a non-breaking hyphen, an en dash, a dot.
+  const VERSIONED = ['Fable v5', 'Fable version 5', 'Fable (5.1)', 'fable_5', 'Opus  5', 'Fable\u00a05', 'Fable\u20115', 'Opus\u20135', 'sonnet.4', 'Fable - v5', 'Haiku V4'];
+  const mutated = (file, change) => { const files = layer(); const before = files[file]; files[file] = change(before); expect(files[file]).not.toBe(before); return files; };
+
+  test('the real layer is clean, over ten agent files and every other file of the layer', () => {
+    expect(FILES.filter(isAgent)).toHaveLength(10);
+    expect(FILES.filter((f) => f.startsWith('.claude/commands/')).length).toBeGreaterThanOrEqual(17);
+    expect(FILES).toEqual(expect.arrayContaining(['.claude/settings.json', '.agents/skills/coordinate/SKILL.md']));
+    expect(faults(layer())).toEqual([]);
+  });
+  test.each([
+    ['M12 an agent file that names a model', AGENT, (t) => t.replace('model: inherit', 'model: opus'), `${AGENT}: model`],
+    ['M13 an effort other than medium', AGENT, (t) => t.replace('effort: medium', 'effort: max'), `${AGENT}: effort`],
+    ['M14 a second model line', AGENT, (t) => t.replace('model: inherit', 'model: inherit\nmodel: opus'), `${AGENT}: model`],
+    ['M15 the model line dropped', AGENT, (t) => t.replace('model: inherit\n', ''), `${AGENT}: model`],
+    ['M15 the effort line dropped', AGENT, (t) => t.replace('effort: medium\n', ''), `${AGENT}: effort`],
+    ['M16 the dispatch keyword back in a command', COMMAND, (t) => `${t}\n${KEYWORD}.\n`, `${COMMAND}: the dispatch keyword`],
+    ['M16 the dispatch keyword asked for in CLAUDE.md', 'CLAUDE.md', (t) => t.replace(BAN, `Every dispatch prompt carries \`${KEYWORD}\`.`), 'CLAUDE.md: the dispatch keyword'],
+    ['M16 the keyword a second time in CLAUDE.md', 'CLAUDE.md', (t) => `${t}\n${BAN}\n`, 'CLAUDE.md: the dispatch keyword'],
+    ['M17 a version number in CLAUDE.md', 'CLAUDE.md', (t) => `${t}\nEvery agent runs on Fable 5.\n`, 'CLAUDE.md: a model version'],
+    ['M17 a model id in an agent body', AGENT, (t) => `${t}\nRun as ${['claude', 'fable', '5'].join('-')}.\n`, `${AGENT}: a model version`],
+    ['M19 front matter that never closes', AGENT, (t) => t.replace(/\n---\n/, '\n'), `${AGENT}: no front matter`],
+    ['M20 a command whose front matter names a model', COMMAND, (t) => t.replace('---\n', '---\nmodel: opus\n'), `${COMMAND}: model`],
+    ['M20 a command whose front matter names a model under a quoted key', COMMAND, (t) => t.replace('---\n', '---\n"model": opus\n'), `${COMMAND}: model`],
+    ['M21 a command whose front matter sets an effort', COMMAND, (t) => t.replace('---\n', '---\neffort: max\n'), `${COMMAND}: effort`],
+    ['M22 a quoted second model key in an agent file', AGENT, (t) => t.replace('model: inherit', 'model: inherit\n"model": opus'), `${AGENT}: front matter keys`],
+    ['M22 a single-quoted second effort key in an agent file', AGENT, (t) => t.replace('effort: medium', 'effort: medium\n\'effort\': max'), `${AGENT}: front matter keys`],
+    ['M22 a second model key with a space before its colon', AGENT, (t) => t.replace('model: inherit', 'model: inherit\nmodel : opus'), `${AGENT}: front matter keys`],
+    ['M22 a key no agent file carries', AGENT, (t) => t.replace('effort: medium', 'effort: medium\nthinking: max'), `${AGENT}: front matter keys`],
+    ['M22 a second tools line', AGENT, (t) => t.replace('model: inherit', 'tools: Bash\nmodel: inherit'), `${AGENT}: front matter keys`],
+    ['M23 settings.json naming a model', SETTINGS, (t) => t.replace(/^\{/, '{"model":"opus",'), `${SETTINGS}: model`],
+    ['M24 settings.json setting the sub-agent model variable', SETTINGS, (t) => t.replace(/^\{/, '{"env":{"CLAUDE_CODE_SUBAGENT_MODEL":"opus"},'), `${SETTINGS}: model`],
+    ['M24 settings.json setting the sub-agent effort variable', SETTINGS, (t) => t.replace(/^\{/, '{"env":{"CLAUDE_CODE_SUBAGENT_EFFORT":"max"},'), `${SETTINGS}: effort`],
+    ['M24 settings.json allowing a command that sets the session model variable', SETTINGS, (t) => t.replace('"allow": [', '"allow": ["Bash(ANTHROPIC_MODEL=opus claude *)",'), `${SETTINGS}: model`],
+    ['M26 maximum depth asked for in a command', COMMAND, (t) => `${t}\nOperate at maximum reasoning depth.\n`, `${COMMAND}: maximum depth`],
+    ['M28 a model family named in § Models', 'CLAUDE.md', (t) => t.replace('runs on the session\'s model', 'runs on Opus'), 'CLAUDE.md: a model family in § Models'],
+    ['M28 a family named beside the session\'s model', 'CLAUDE.md', (t) => t.replace('switches it himself', 'switches it himself, to fable'), 'CLAUDE.md: a model family in § Models'],
+    ['M28 § Models gone', 'CLAUDE.md', (t) => t.replace('\n## Models\n', '\n## Model choice\n'), 'CLAUDE.md: a model family in § Models'],
+    ...VERSIONED.map((s) => [`M27 the version written as "${s}" in CLAUDE.md`, 'CLAUDE.md', (t) => `${t}\nEvery agent runs on ${s}.\n`, 'CLAUDE.md: a model version']),
+  ])('%s is caught', (_name, file, change, fault) => {
+    expect(faults(mutated(file, change))).toEqual([fault]);
+  });
+  test('the version detector catches every spelling of a family with a number, and leaves the three plain texts alone (RA313-2, SA313-5)', () => {
+    [...VERSIONED, 'opus 5', 'Fable-5', 'sonnet4', 'HAIKU 4.5'].forEach((s) => expect([s, VERSION.test(s)]).toEqual([s, true]));
+    ['docs/ORCHESTRATOR_FABLE.md', 'every sub-agent runs on Fable.', 'DEC-155 ruling 6'].forEach((s) => expect([s, VERSION.test(s) || MODEL_ID.test(s)]).toEqual([s, false]));
+  });
+  test('M18 a new agent file with neither line is caught', () => {
+    const files = layer();
+    files['.claude/agents/newcomer.md'] = '---\nname: newcomer\ndescription: x\ntools: Read\n---\nYou are new.\n';
+    expect(faults(files)).toEqual(['.claude/agents/newcomer.md: model', '.claude/agents/newcomer.md: effort', '.claude/agents/newcomer.md: not one of the ten agents']);
+  });
+  test.each([
+    ['M25 a nested agent file that names a model at the maximum effort', '.claude/agents/extra/newcomer.md', 'newcomer', 'opus', 'max', ['model', 'effort', 'not one of the ten agents']],
+    ['M25 a nested agent file that holds the two ruled lines', '.claude/agents/extra/newcomer.md', 'newcomer', 'inherit', 'medium', ['not one of the ten agents']],
+    ['M25 a nested copy of one of the ten', '.claude/agents/extra/architect.md', 'architect', 'inherit', 'medium', ['not one of the ten agents', 'a duplicate name']],
+    ['M25 an agent directory elsewhere in the tree', 'mobile/KokonadaHealth/.claude/agents/newcomer.md', 'newcomer', 'opus', 'medium', ['model', 'not one of the ten agents']],
+  ])('%s is caught', (_name, file, name, model, effort, expected) => {
+    const files = layer();
+    files[file] = `---\nname: ${name}\ndescription: x\ntools: Read\nmodel: ${model}\neffort: ${effort}\n---\nYou are new.\n`;
+    expect(faults(files)).toEqual(expected.map((fault) => `${file}: ${fault}`));
+  });
+  test('M25 one of the ten deleted, and one of the ten renamed inside its file, are caught', () => {
+    const gone = layer();
+    delete gone['.claude/agents/sentinel.md'];
+    expect(faults(gone)).toEqual(['.claude/agents/sentinel.md: missing']);
+    expect(faults(mutated('.claude/agents/designer.md', (t) => t.replace('name: designer', 'name: architect'))))
+      .toEqual(['.claude/agents/designer.md: not one of the ten agents', '.claude/agents/designer.md: a duplicate name']);
+  });
+  test('the real tree holds no agent file outside the ten, at any depth or under another `.claude/agents` (RA313-1c, SA313-3)', () => {
+    expect(FILES.filter(isAgent)).toEqual(TEN.map((name) => `.claude/agents/${name}.md`));
+    expect(STRAY_AGENTS).toEqual([]);
+  });
+  test('§ Models says what the files hold, and names the ruling', () => {
+    const models = sectionText(ROOT_MD, 'Models');
+    ['Every sub-agent runs on the session\'s model at effort medium.', 'The owner chooses the session\'s model and switches it himself',
+      'every agent file says `model: inherit` and `effort: medium`', 'no dispatch names a model',
+      BAN, 'No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).'].forEach((s) => expect(models).toContain(s));
+    expect(models).not.toMatch(/Opus|Fable|`effort: max`/i);
+  });
 });
