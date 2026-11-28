@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 // The owner's checkout as CLAUDE.md spells it, joined at run time so this file holds no user path (personalDataGuard.test.js).
@@ -1749,9 +1750,18 @@ describe('#307 round 5 · every finding of the review at c10abaa that #307 does 
 // every agent file says `model: inherit` and a sub-agent runs on the model the owner set for the session. DEC-155
 // ruling 6's second sentence stands: no model version number anywhere in the layer.
 describe('DEC-199 · every session and sub-agent on Fable at effort medium: the agent files inherit the session\'s model', () => {
-  const mdIn = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel)).filter((f) => f.endsWith('.md')).sort().map((f) => `${rel}/${f}`);
-  const AGENT_FILES = mdIn('.claude/agents');
-  const COMMAND_FILES = mdIn('.claude/commands');
+  // Every `.md` under a directory, at any depth: a file in a sub-directory of `.claude/agents` is an agent file too.
+  const mdUnder = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel), { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? mdUnder(`${rel}/${e.name}`) : (e.name.endsWith('.md') ? [`${rel}/${e.name}`] : []))).sort();
+  const AGENT_FILES = mdUnder('.claude/agents');
+  const COMMAND_FILES = mdUnder('.claude/commands');
+  const TEN = ['architect', 'compliance-auditor', 'coordinator', 'custodian', 'designer', 'developer', 'regulatory-researcher',
+    'resilience-auditor', 'security-auditor', 'sentinel'];
+  // A `.claude/agents` directory anywhere else in the tree, among the files git tracks and the untracked ones it
+  // does not ignore: the runtime of a session started in a sub-directory would read it.
+  const AGENTS_ELSEWHERE = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\0')
+    .filter((f) => /\/\.claude\/agents\/.+\.md$/.test(f));
   const LAYER = ['CLAUDE.md', ...AGENT_FILES, ...COMMAND_FILES];
   // The front matter's lines: what stands between the file's first line, `---`, and the next `---` line.
   const frontLines = (file) => {
@@ -1761,16 +1771,38 @@ describe('DEC-199 · every session and sub-agent on Fable at effort medium: the 
   };
   const linesMatching = (files, re) => files.flatMap((file) => read(file).split('\n')
     .map((l, i) => (re.test(l) ? `${file}:${i + 1}` : null)).filter(Boolean));
-  // A model family followed by a number ("<family> 5", "<family>-5", "<family>5"), or a model id.
-  const VERSION = /(opus|fable|sonnet|haiku)[ -]?\d/i;
+  // A model family followed by a number, or a model id. Between the family and the digit: up to three of whitespace
+  // (a no-break space too), a hyphen or dash of any kind, `_`, `.` or `(`, then optionally `v` or `version` with the
+  // same run after it ("<family> 5", "<family>-5", "<family>5", "<family> v5", "<family> version 5", "<family> (5").
+  const GAP = '[\\s\\u00a0\\u00ad\\u2010-\\u2015\\u2212\\ufe58\\ufe63\\uff0d_.(-]{0,3}';
+  const VERSION = new RegExp(`(opus|fable|sonnet|haiku)${GAP}(?:v(?:ersion)?${GAP})?\\d`, 'i');
   const MODEL_ID = /claude-[a-z]+-\d/i;
 
   test('the corpus is the ten agent files and the seventeen command files, so an empty read cannot pass', () => {
-    expect(AGENT_FILES.map((f) => path.basename(f, '.md'))).toEqual(['architect', 'compliance-auditor', 'coordinator', 'custodian',
-      'designer', 'developer', 'regulatory-researcher', 'resilience-auditor', 'security-auditor', 'sentinel']);
+    // RA313-1c, SA313-3: found at any depth, so a file in a sub-directory is one more than the ten; each of the ten
+    // is named as its file is, so no two share a `name:`; and no other `.claude/agents` directory holds one.
+    expect(AGENT_FILES).toEqual(TEN.map((name) => `.claude/agents/${name}.md`));
+    expect(AGENT_FILES.map((file) => frontLines(file).filter((l) => /^name\s*:/.test(l)))).toEqual(TEN.map((name) => [`name: ${name}`]));
+    expect(AGENTS_ELSEWHERE).toEqual([]);
     expect(COMMAND_FILES).toHaveLength(17);
     AGENT_FILES.forEach((file) => expect([file, frontLines(file).length > 3]).toEqual([file, true]));
+    COMMAND_FILES.forEach((file) => expect([file, frontLines(file).length > 0]).toEqual([file, true]));
   });
+
+  test('an agent file\'s front matter is its five keys, each once, bare, with its colon against it, and no other line (RA313-1d, SA313-4)', () => {
+    // A quoted key (`"model": x`) or a spaced colon (`model : x`) is a second key the line pins below do not read,
+    // and the last one wins; so every line of the front matter is one of the five, and anything else is a fault.
+    const key = (l) => (/^(name|description|tools|model|effort): \S/.exec(l) || [null, `not a key line: ${l}`])[1];
+    expect(AGENT_FILES.map((file) => [file, frontLines(file).map(key).sort()]))
+      .toEqual(AGENT_FILES.map((file) => [file, ['description', 'effort', 'model', 'name', 'tools']]));
+  });
+
+  test('no command file\'s front matter names a model or sets an effort, under any quoting (RA313-1a, CU313-5)', () => {
+    expect(COMMAND_FILES.flatMap((file) => frontLines(file).filter((l) => /^\s*["']?(model|effort)["']?\s*:/i.test(l))
+      .map((l) => `${file}: ${l}`))).toEqual([]);
+  });
+
+  // .claude/settings.json names no model and no effort (RA313-1b, SA313-2): pinned in claudeSettings.policy.test.js.
 
   test('every agent file has exactly one `model:` line, `inherit`, and exactly one `effort:` line, `medium`', () => {
     const seen = AGENT_FILES.map((file) => [file,
@@ -1778,18 +1810,21 @@ describe('DEC-199 · every session and sub-agent on Fable at effort medium: the 
     expect(seen).toEqual(AGENT_FILES.map((file) => [file, ['model: inherit'], ['effort: medium']]));
   });
 
-  test('no agent file, command file or CLAUDE.md carries the dispatch keyword, and no agent body asks for maximum depth', () => {
+  test('no agent file, command file or CLAUDE.md carries the dispatch keyword, and no agent or command asks for maximum depth', () => {
     expect(linesMatching([...AGENT_FILES, ...COMMAND_FILES], /ultrathink/i)).toEqual([]);
     // CLAUDE.md names the keyword once, in the sentence of § Models that bans it, and nowhere else.
     expect(ROOT_MD.match(/ultrathink/gi)).toEqual(['ultrathink']);
     has(section(ROOT_MD, 'Models').join(' '), 'No dispatch prompt carries `ultrathink`.');
     expect(linesMatching(AGENT_FILES, /maximum reasoning|max(imum)? effort|effort:? max\b/i)).toEqual([]);
+    expect(linesMatching(COMMAND_FILES, /maximum reasoning depth/i)).toEqual([]);
     AGENT_FILES.forEach((file) => has(read(file), 'Operate at the effort your front matter sets, on the session\'s model'));
   });
 
   test('no model version number and no model id anywhere in the layer (DEC-155 ruling 6)', () => {
-    // The detector itself, on text built here so that this file holds none: each must be caught.
-    ['opus 5', 'Fable-5', 'sonnet4', 'HAIKU 4.5'].forEach((s) => expect([s, VERSION.test(s)]).toEqual([s, true]));
+    // The detector itself, on samples: each must be caught. The scan below reads `CLAUDE.md`, the agent files and
+    // the command files; this test file is outside that corpus, so the samples it spells cannot trip it.
+    ['opus 5', 'Fable-5', 'sonnet4', 'HAIKU 4.5', 'Fable v5', 'Fable version 5', 'Fable (5.1)', 'fable_5', 'Opus  5',
+      'Fable\u00a05', 'Fable\u20115', 'Opus\u20135', 'sonnet.4'].forEach((s) => expect([s, VERSION.test(s)]).toEqual([s, true]));
     expect(MODEL_ID.test(['claude', 'fable', '5', '2'].join('-'))).toBe(true);
     ['docs/ORCHESTRATOR_FABLE.md', 'every sub-agent runs on Fable.', 'DEC-155 ruling 6'].forEach((s) => expect([s, VERSION.test(s) || MODEL_ID.test(s)]).toEqual([s, false]));
     expect(linesMatching(LAYER, VERSION)).toEqual([]);
@@ -1824,9 +1859,15 @@ describe('DEC-199 · every session and sub-agent on Fable at effort medium: the 
     has(read('docs/design-v2/decisions/DEC-155.md'), '- refined by: DEC-199 (2026-11-27):');
     has(decRow('DEC-199'), 'DECIDED (ruled 2026-11-27)');
     has(decRow('DEC-155'), 'DEC-199');
-    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-199**')) || '', '"inherit (מומלץ)"');
-    has(DECISIONS.split('\n').find((l) => l.startsWith('- **Reserved, not yet written:**')) || '',
-      'DEC-194 to DEC-198 are held by the B1 records branch (`own:b1-dec-records`)');
+    // RA313-5: the index's verbatim line carries all five of his quotes, not the last one alone; and DEC-199 has its
+    // index row, its source row and that line. Which other numbers are reserved is not this ruling's to pin.
+    has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-199**')) || '',
+      '"אני רוצה שהסוכנים יפסיקו לרות על מצב uktra ויעברו למצב medium ועדיין ישארו על opus 5.5"',
+      '"תעביר את כל הסוכנים שיעבדו על fable ולא על opus וגם אתה תעבור לfable ממש עכשיו"',
+      '"תפעיל את כל הסוכנים על fable 5.1 במצב medium ואני אעביר אותך גם למצב הזה"',
+      '"תכין את ה־PR לתיקון מודל הסוכנים"', '"inherit (מומלץ)"');
+    expect(DECISIONS.split('\n').filter((l) => l.startsWith('| the owner\'s messages of 2026-10-27, 2026-11-26 and 2026-11-27 |')
+      && l.endsWith('| DEC-199 |'))).toHaveLength(1);
   });
 });
 
