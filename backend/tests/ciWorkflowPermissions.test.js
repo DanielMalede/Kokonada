@@ -944,7 +944,11 @@ describe('coordination.yml with the real engine, on a checkout shaped like the r
     box.git(seed, ['commit', '--quiet', '-m', 'main: the engine and the ledger'], AUTHORS.malede);
     box.git(seed, ['push', '--quiet', 'origin', 'HEAD:refs/heads/main']);
 
-    const free = LEDGER_LIB.parseLedger(ledger).slots.find((s) => s.section === 'M' && !s.claim);
+    // The fixture claims one Malede slot. It takes a free one, or, when the repository's own
+    // ledger has none free (every slot live, as when the last free slot was just claimed), it
+    // reuses the last one: the probe needs a claimed slot, not a particular free one.
+    const mSlots = LEDGER_LIB.parseLedger(ledger).slots.filter((s) => s.section === 'M');
+    const free = mSlots.find((s) => !s.claim) || mSlots[mSlots.length - 1];
     const claim = {
       task: 'own:recency-probe',
       taskKind: 'own',
