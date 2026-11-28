@@ -17,7 +17,7 @@ Sub-agents and the sentinel routine skip this section.
 
 ## Models
 
-Fable plans: the session start, plans, conflicts between documents or agents. Opus executes: building, testing, reviewing, merging. The owner switches the session's model. Every sub-agent runs `model: opus`, `effort: max`, and every dispatch prompt carries `ultrathink`.
+Every sub-agent runs on the session's model at effort medium. The owner chooses the session's model and switches it himself; every agent file says `model: inherit` and `effort: medium`, so no dispatch names a model. No dispatch prompt carries `ultrathink`. No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).
 
 ## Every task
 
