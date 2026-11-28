@@ -12,7 +12,8 @@
 // request goes out until the server's wait (a 429's Retry-After or RateLimit-Reset) has passed, or else
 // an exponential backoff with jitter, capped at 60 s.
 
-import { AuthSession } from '../auth/authSession';
+import { AuthSession, type RefreshOutcome } from '../auth/authSession';
+import { WaitHold, monotonicNow } from '../net/serverWait';
 import { keychainSession } from '../auth/session';
 
 const realFetch = (globalThis as any).fetch;
@@ -178,5 +179,126 @@ describe('an unavailable refresh is not retried by every next trigger (RA-2)', (
     fetch.mockImplementation(async () => rotated());
     expect(await session.refresh()).toBe('acc-2');
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+// shadow.refreshHoldClock (B1 P1 charter §2 C1, RA-119; P11 charter §2 C7, RA-170). The hold after an
+// unavailable refresh, and the sign-in wait after a 429, run on a monotonic source: a wall clock that
+// moves (the person changes the time, a network time sync) never shortens or stretches them, and a hold
+// whose remaining time exceeds its own length is over.
+
+function session(refreshEndpoint: jest.Mock, now?: () => number) {
+  const deps = {
+    loadTokens: jest.fn(async () => ({ access: 'a', refresh: 'r' })),
+    saveTokens: jest.fn(async () => undefined),
+    clearTokens: jest.fn(async () => undefined),
+    refreshEndpoint,
+    ...(now ? { now } : {}),
+  };
+  return new AuthSession(deps);
+}
+
+const unavailable = (retryAfterMs: number) => jest.fn(async (): Promise<RefreshOutcome> => ({ kind: 'unavailable', retryAfterMs }));
+
+afterEach(() => { jest.restoreAllMocks(); });
+
+describe('shadow.refreshHoldClock — the refresh hold', () => {
+  it('by default the hold runs on the monotonic clock: the wall clock moving 2 h ends nothing', async () => {
+    const endpoint = unavailable(30_000);
+    const s = session(endpoint);
+    await s.bootstrap();
+    await s.refresh();
+    const wall = Date.now();
+    jest.spyOn(Date, 'now').mockReturnValue(wall + 2 * 60 * 60_000);
+    expect(await s.refresh()).toBeNull();
+    expect(endpoint).toHaveBeenCalledTimes(1);
+    expect(s.refreshHold()).toBeGreaterThan(29_000);
+  });
+
+  it('the monotonic clock passing the hold ends it', async () => {
+    let mono = 5_000;
+    jest.spyOn(globalThis.performance, 'now').mockImplementation(() => mono);
+    const endpoint = unavailable(30_000);
+    const s = session(endpoint);
+    await s.bootstrap();
+    await s.refresh();
+    mono += 29_999;
+    expect(await s.refresh()).toBeNull();
+    mono += 1;
+    expect(s.refreshHold()).toBeNull();
+    await s.refresh();
+    expect(endpoint).toHaveBeenCalledTimes(2);
+  });
+
+  it('a hold whose remaining time exceeds its own length is over (a clock that stepped back)', async () => {
+    const clock = { t: 1_000_000 };
+    const endpoint = unavailable(30_000);
+    const s = session(endpoint, () => clock.t);
+    await s.bootstrap();
+    await s.refresh();
+    clock.t = 0; // stepped back: 1 030 000 ms would remain of a 30 000 ms hold
+    expect(s.refreshHold()).toBeNull();
+    await s.refresh();
+    expect(endpoint).toHaveBeenCalledTimes(2);
+  });
+
+  it('monotonicNow reads performance.now', () => {
+    jest.spyOn(globalThis.performance, 'now').mockReturnValue(123.5);
+    expect(monotonicNow()).toBe(123.5);
+  });
+});
+
+describe('shadow.refreshHoldClock — the sign-in wait hold (C7, RA-170)', () => {
+  it('holds for the wait, exposes a read-only waitUntil(), and ends on the monotonic clock', () => {
+    const clock = { t: 10_000 };
+    const hold = new WaitHold(() => clock.t);
+    expect(hold.waitUntil()).toBeNull();
+    expect(hold.isHeld()).toBe(false);
+    hold.start({ retryAfterSec: 30, holdSec: 30 });
+    expect(hold.waitUntil()).toBe(40_000);
+    expect(hold.isHeld()).toBe(true);
+    clock.t += 29_999;
+    expect(hold.isHeld()).toBe(true);
+    clock.t += 1;
+    expect(hold.isHeld()).toBe(false);
+    expect(hold.waitUntil()).toBeNull();
+  });
+
+  it('the wall clock moved 2 h during the hold: the hold is unchanged', () => {
+    let mono = 0;
+    jest.spyOn(globalThis.performance, 'now').mockImplementation(() => mono);
+    const hold = new WaitHold();
+    hold.start({ holdSec: 60 });
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 60 * 60_000);
+    mono += 1_000;
+    expect(hold.isHeld()).toBe(true);
+    expect(hold.waitUntil()).toBe(60_000);
+  });
+
+  it('a 900 s hold with no number still holds 900 s', () => {
+    const clock = { t: 0 };
+    const hold = new WaitHold(() => clock.t);
+    hold.start({ holdSec: 900 });
+    clock.t = 899_999;
+    expect(hold.isHeld()).toBe(true);
+    clock.t = 900_000;
+    expect(hold.isHeld()).toBe(false);
+  });
+
+  it('a hold whose remaining time exceeds its own length is over', () => {
+    const clock = { t: 1_000_000 };
+    const hold = new WaitHold(() => clock.t);
+    hold.start({ holdSec: 30 });
+    clock.t = 0;
+    expect(hold.isHeld()).toBe(false);
+    expect(hold.waitUntil()).toBeNull();
+  });
+
+  it('a later wait replaces the earlier one', () => {
+    const clock = { t: 0 };
+    const hold = new WaitHold(() => clock.t);
+    hold.start({ holdSec: 900 });
+    hold.start({ retryAfterSec: 5, holdSec: 5 });
+    expect(hold.waitUntil()).toBe(5_000);
   });
 });

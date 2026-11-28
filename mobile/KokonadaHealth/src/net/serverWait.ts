@@ -23,3 +23,36 @@ export function parseRetryAfter(value: unknown): ServerWait {
   if (seconds > SERVER_WAIT_MAX_SEC) return { holdSec: SERVER_WAIT_MAX_SEC };
   return { retryAfterSec: seconds, holdSec: seconds };
 }
+
+// C1 (RA-119) and C7 (RA-170): holds run on a monotonic source, never the wall clock, which the person
+// or a network time sync can move. React Native's Hermes and jest both provide performance.now().
+export function monotonicNow(): number {
+  return globalThis.performance.now();
+}
+
+// C7 (RA-170): the sign-in wait after a 429, one monotonic deadline in memory. It holds no personal data
+// and is not age state; a new process starts without it. Its owner (the v2 sign-in adapter) keeps one at
+// module level and exposes waitUntil() read-only. A hold whose remaining time exceeds its own length is
+// over, so a clock that stepped back can never stretch it.
+export class WaitHold {
+  private until = 0;
+  private length = 0;
+
+  constructor(private readonly now: () => number = monotonicNow) {}
+
+  start(wait: ServerWait): void {
+    this.length = wait.holdSec * 1000;
+    this.until = this.now() + this.length;
+  }
+
+  isHeld(): boolean {
+    if (this.length === 0) return false;
+    const remaining = this.until - this.now();
+    return remaining > 0 && remaining <= this.length;
+  }
+
+  /** The monotonic time the wait ends, or null when none holds. */
+  waitUntil(): number | null {
+    return this.isHeld() ? this.until : null;
+  }
+}
