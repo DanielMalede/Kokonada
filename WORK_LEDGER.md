@@ -79,7 +79,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - task: `own:b2b3-dec-records` (own)
 - title: Design v2 B2/B3 decision records: DEC-194 appended with owner items 108-131, DEC-201 and DEC-203 (forks ruled under DEC-142)
 - branch: `docs/b2b3-dec-records`
-- paths: `docs/design-v2/decisions/DEC-194.md`, `docs/design-v2/decisions/DEC-201.md`, `docs/design-v2/decisions/DEC-203.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
+- paths: `docs/design-v2/decisions/DEC-194.md`, `docs/design-v2/decisions/DEC-201.md`, `docs/design-v2/decisions/DEC-203.md`, `docs/design-v2/decisions/DEC-039.md`, `docs/design-v2/registry/CMP-018.md`, `docs/design-v2/DECISIONS.md`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-28
