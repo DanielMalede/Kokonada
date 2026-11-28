@@ -1,12 +1,12 @@
 import React from 'react';
 import { EventEmitter } from 'events';
-import { I18nManager, PixelRatio, Text, View } from 'react-native';
+import { I18nManager, PixelRatio, StatusBar, Text, View } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { CostReportContext, type CostReport } from '../cost/costResult';
 import { LabRoot, LAB_EVENTS } from '../LabRoot';
 import { Probe } from '../probe/Probe';
 import { LAB_SENTINEL } from '../sentinel';
-import type { Scene } from '../scenes';
+import { SCENES, sceneFace, type Scene } from '../scenes';
 import { ShaderReportContext } from '../shaderReport';
 import { fakeSkia } from './__fixtures__/fakeSkiaBackend';
 import { labMounts } from './__fixtures__/labMounts';
@@ -169,8 +169,11 @@ describe('READY', () => {
     expect(h.lines.join('\n')).toContain(LAB_SENTINEL);
   });
 
-  it('waits for the fonts, however many frames go by', () => {
-    const h = setup(FIXED, { fontsReady: false });
+  // UI-072: the fonts are the scene's own, judged from what React Native drew (labFontGate.test.tsx has the whole gate).
+  it('waits for the fonts a scene declares, however many frames go by', () => {
+    const Page = () => <Probe id="stage"><Text style={{ fontFamily: 'Heebo-Regular' }}>שלום</Text></Probe>;
+    const scenes: Record<string, Scene> = { smoke: { periodMs: 6000, probes: ['stage'], fonts: ['Heebo-Regular'], Component: Page } };
+    const h = setup(FIXED, { scenes });
     h.layout();
     h.tick(50);
     expect(h.of('READY')).toEqual([]);
@@ -483,5 +486,42 @@ describe('teardown', () => {
     expect(h.emitter.listenerCount(LAB_EVENTS.command)).toBe(0);
     expect(h.emitter.listenerCount(LAB_EVENTS.powerSave)).toBe(0);
     expect(h.frames.queue.length).toBe(0);
+  });
+});
+
+// LEDGER §6, CMP-110: on the light face the status bar's icons were white on light. LabRoot sets the bar's appearance from
+// the face the scene id names (`<group>.abyss.<face>[.…]`, composeScenes): dark icons on light, light icons on dark; a
+// scene with no face (smoke) leaves the activity's own.
+describe('the status bar', () => {
+  const still: Scene = { periodMs: 1000, probes: ['stage'], Component: () => <Probe id="stage"><View /></Probe> };
+  const scenes = { smoke: still, 'grain.abyss.light': still, 'hero.abyss.dark.three.latin': still, 'fallback.abyss.light.one.C.right': still };
+  const launch = (scene: string) => ({ labArgs: { run: 'sb', scene, clock: 'fixed', t: '0', frames: '1' }, nonStringKeys: [], powerSave: false });
+  // Set once, on the native module directly (StatusBar.setBarStyle): a <StatusBar> element batches through a setImmediate
+  // that outlives the scene's unmount (UI-261, stormScene.test.tsx counts the timers left).
+  const bars = (h: ReturnType<typeof setup>) => {
+    expect(h.tree.root.findAllByType(StatusBar).length).toBe(0);
+    return setBarStyle.mock.calls.map((c) => c[0]);
+  };
+  let setBarStyle: jest.SpyInstance;
+  beforeEach(() => { setBarStyle = jest.spyOn(StatusBar, 'setBarStyle').mockImplementation(() => {}); });
+
+  it.each([
+    ['grain.abyss.light', 'dark-content'],
+    ['fallback.abyss.light.one.C.right', 'dark-content'],
+    ['hero.abyss.dark.three.latin', 'light-content'],
+  ])('%s sets its icons to %s', (scene, barStyle) => {
+    expect(bars(setup(launch(scene), { scenes }))).toEqual([barStyle]);
+  });
+
+  it('a scene with no face sets none', () => {
+    expect(bars(setup(launch('smoke'), { scenes }))).toEqual([]);
+  });
+
+  it('reads the face of every scene in the catalogue from its id, and only smoke has none', () => {
+    const faces = Object.keys(SCENES).map((id) => [id, sceneFace(id)] as const);
+    expect(faces.filter(([, f]) => f === null)).toEqual([['smoke', null]]);
+    for (const [id, f] of faces) if (f !== null) expect([id, f]).toEqual([id, id.split('.')[2]]);
+    expect(sceneFace('grain.abyss.dusk')).toBeNull();
+    expect(sceneFace('grain.other.dark')).toBeNull();
   });
 });

@@ -1,14 +1,17 @@
 // The Design Lab's scenes (MB-085), by id. A launch names one (`--es scene <id>`); the parser
-// refuses any other id. Each scene declares the probes READY waits for, and its period T: the
-// fixed and stepped clocks run within [0, T).
+// refuses any other id. Each scene declares the probes READY waits for, the faces it draws text in
+// (UI-072), and its period T: the fixed and stepped clocks run within [0, T).
 
 import type { ComponentType } from 'react';
 import type { FieldClock } from '../v2/clock/fieldClock';
 import type { Face } from '../v2/tokens/tokens.generated';
-import { FIELD_SCENES } from './fieldScenes';
+import { FIELD_DIRECTION, FIELD_FACES, FIELD_SCENES } from './fieldScenes';
+import type { LabFaceId } from './fonts';
 import type { LabParams } from './params';
 import { COST_SCENES } from './sceneGroups/cost';
+import { FONTS_SCENES } from './sceneGroups/fonts';
 import { GRAIN_SCENES } from './sceneGroups/grain';
+import { HERO_LAB_SCENES } from './sceneGroups/hero';
 import { STORM_SCENES } from './sceneGroups/storm';
 import { WITNESS_SCENES } from './sceneGroups/witness';
 import { FALLBACK_SCENE_PROBES, FallbackScene } from './scenes/FallbackScene';
@@ -26,6 +29,17 @@ export type SceneProps = {
 export type Scene = {
   periodMs: number;
   probes: readonly string[];
+  /**
+   * The faces the scene draws text in (UI-072, fonts.ts), each cut by its file, as v2's fontFace names it on Android.
+   * READY waits until React Native drew each one, measured against its fallback face; a scene that names none waits for no
+   * font. Every face the scene draws must be named here (scenes.test.tsx renders each scene and checks).
+   */
+  fonts?: readonly LabFaceId[];
+  /**
+   * The scene draws Skia text in the bundled faces (F6: the hero's rim words): LabRoot mounts v2's typeface provider above
+   * it, and READY waits until its font manager is in (labTypefaceGate.test.tsx).
+   */
+  typefaces?: true;
   Component: ComponentType<SceneProps>;
 };
 
@@ -35,13 +49,16 @@ const fieldScenes: Record<string, Scene> = Object.fromEntries(Object.values(FIEL
   ? { periodMs: s.periodMs, probes: FIELD_SCENE_PROBES, Component: FieldScene }
   : { periodMs: s.periodMs, probes: FALLBACK_SCENE_PROBES, Component: FallbackScene }]));
 
-// The B8 scene groups (B8-0), each in its own file under sceneGroups/, by group: the faces its ids may name. A group's id
-// is `<group>.abyss.<face>`, alone or followed by `.<more>` (the B8 plan's "Contracts fixed now").
+// The scene groups, each in its own file under sceneGroups/, by group: the faces its ids may name. A group's id is
+// `<group>.abyss.<face>`, alone or followed by `.<more>` (the B8 plan's "Contracts fixed now"). The B8 benches (B8-0),
+// then F10's fonts and hero scenes (G8).
 export const SCENE_GROUP_FACES = {
   witness: ['dark', 'light'],
   grain: ['dark', 'light'],
   cost: ['dark', 'light'],
   storm: ['dark'],
+  fonts: ['dark', 'light'],
+  hero: ['dark', 'light'],
 } as const satisfies Readonly<Record<string, readonly Face[]>>;
 export type SceneGroupName = keyof typeof SCENE_GROUP_FACES;
 
@@ -50,6 +67,8 @@ export const SCENE_GROUPS: Readonly<Record<SceneGroupName, Readonly<Record<strin
   grain: GRAIN_SCENES,
   cost: COST_SCENES,
   storm: STORM_SCENES,
+  fonts: FONTS_SCENES,
+  hero: HERO_LAB_SCENES,
 };
 
 const hasPrefix = (group: SceneGroupName, id: string): boolean => (SCENE_GROUP_FACES[group] as readonly string[])
@@ -78,3 +97,12 @@ export const SCENES: Readonly<Record<string, Scene>> = composeScenes({
   smoke: { periodMs: SMOKE_PERIOD_MS, probes: SMOKE_PROBES, Component: SmokeScene },
   ...fieldScenes,
 }, SCENE_GROUPS);
+
+/**
+ * The face a scene draws on, from its id: every scene but smoke is `<group>.<direction>.<face>[.…]` (composeScenes holds
+ * a group's ids to it; the field and fallback catalogue names its own the same way). Null for an id that names none.
+ */
+export function sceneFace(id: string): Face | null {
+  const [, direction, face] = id.split('.');
+  return direction === FIELD_DIRECTION && (FIELD_FACES as readonly string[]).includes(face) ? (face as Face) : null;
+}

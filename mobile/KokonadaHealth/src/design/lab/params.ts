@@ -19,6 +19,10 @@ export type LabParams = {
   stepMs: number;
   /** Frames drawn on a settled layout before READY. */
   frames: number;
+  /** A hero dial (lab only): ms the JS thread is held at each change of the taps. Absent unless the launch gives it. */
+  stall?: number;
+  /** A hero dial (lab only): how many times longer the beads' motion, and a timed scene's schedule, run. Absent unless given. */
+  beadTimeScale?: number;
 };
 
 /** What the parser needs to know of each scene. */
@@ -28,7 +32,10 @@ export type ParseResult =
   | { ok: true; params: LabParams }
   | { ok: false; run: string | null; errors: string[] };
 
-const KEYS: readonly string[] = ['run', 'scene', 'clock', 't', 'stepMs', 'frames'];
+const KEYS: readonly string[] = ['run', 'scene', 'clock', 't', 'stepMs', 'frames', 'stall', 'beadTimeScale'];
+/** The hero dials' ranges: a stall of at most two seconds; a time scale that only stretches (under 1 it would hide a frame of skew). */
+const STALL_MAX = 2000;
+const TIME_SCALE_MAX = 16;
 const RUN = /^[A-Za-z0-9._-]{1,64}$/;
 // Plain decimal only: no exponent, no hex, no Infinity, no empty string.
 const DECIMAL = /^-?\d+(\.\d+)?$/;
@@ -157,11 +164,20 @@ export function parseLabArgs(
     else frames = n;
   }
 
+  const stall = decimal('stall');
+  if (typeof stall === 'number' && !(stall >= 0 && stall <= STALL_MAX)) errors.push(`stall must be in [0, ${STALL_MAX}]`);
+  const beadTimeScale = decimal('beadTimeScale');
+  if (typeof beadTimeScale === 'number' && !(beadTimeScale >= 1 && beadTimeScale <= TIME_SCALE_MAX)) errors.push(`beadTimeScale must be in [1, ${TIME_SCALE_MAX}]`);
+
   if (errors.length > 0 || run === undefined || scene === undefined || clock === undefined) {
     return { ok: false, run: run !== undefined && RUN.test(run) ? run : null, errors };
   }
   return {
     ok: true,
-    params: { run, scene, clock, t: typeof t === 'number' ? t : 0, stepMs: typeof stepMs === 'number' ? stepMs : 0, frames },
+    params: {
+      run, scene, clock, t: typeof t === 'number' ? t : 0, stepMs: typeof stepMs === 'number' ? stepMs : 0, frames,
+      ...(typeof stall === 'number' ? { stall } : {}),
+      ...(typeof beadTimeScale === 'number' ? { beadTimeScale } : {}),
+    },
   };
 }

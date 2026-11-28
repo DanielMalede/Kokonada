@@ -3,10 +3,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildTokenModel, generateExtensionsModule, generateTokensModule } from '../lib/emit.mjs';
+import { buildTokenModel, generateExtensionsModule, generateStaticsModule, generateTokensModule } from '../lib/emit.mjs';
 import { readTokenSources } from '../lib/sources.mjs';
 import * as committed from '../../../src/design/v2/tokens/tokens.generated.ts';
 import * as committedExtensions from '../../../src/design/v2/tokens/tokens.extensions.generated.ts';
+import * as committedStatics from '../../../src/design/v2/tokens/tokens.statics.generated.ts';
 
 // tokens.generated.ts is committed, so a token edit that skips the generator would ship stale
 // values while every other test still read the stale file. This test is the gate against that,
@@ -16,6 +17,7 @@ const APP_ROOT = path.resolve(__dirname, '../../..');
 const DESIGN_TOKENS = path.resolve(APP_ROOT, '../../design-tokens');
 const GENERATED = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.generated.ts');
 const GENERATED_EXTENSIONS = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.extensions.generated.ts');
+const GENERATED_STATICS = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.statics.generated.ts');
 const CLI = path.join(APP_ROOT, 'scripts/tokens/generate.mjs');
 
 describe('tokens.generated.ts is fresh', () => {
@@ -25,6 +27,11 @@ describe('tokens.generated.ts is fresh', () => {
 
   it('tokens.extensions.generated.ts is byte for byte what the generator makes, too', () => {
     expect(fs.readFileSync(GENERATED_EXTENSIONS, 'utf8')).toBe(generateExtensionsModule(readTokenSources(DESIGN_TOKENS)));
+  });
+
+  // DEC-172, G3.
+  it('tokens.statics.generated.ts is byte for byte what the generator makes, too', () => {
+    expect(fs.readFileSync(GENERATED_STATICS, 'utf8')).toBe(generateStaticsModule(readTokenSources(DESIGN_TOKENS)));
   });
 
   // Keyed by the file's stem, `base` for base.tokens.json: a key holding "token" made every hash
@@ -46,6 +53,8 @@ describe('tokens.generated.ts is fresh', () => {
     expect(committed.DIRECTIONS).toEqual(model.directions);
     expect(committedExtensions.EXTENSIONS).toEqual(model.extensions);
     expect(committedExtensions.EXTENSIONS_SOURCE).toEqual(committed.TOKENS_SOURCE);
+    expect(committedStatics.STATICS).toEqual(model.statics);
+    expect(committedStatics.STATICS_SOURCE).toEqual(committed.TOKENS_SOURCE);
   });
 
   // The close-out: Abyss is the only shipped direction (the owner's Round 5 choice). Test-only fixture
@@ -53,6 +62,24 @@ describe('tokens.generated.ts is fresh', () => {
   it('ships exactly one direction, Abyss', () => {
     expect(Object.keys(committed.DIRECTIONS)).toEqual(['abyss']);
     expect(Object.keys(committedExtensions.EXTENSIONS).sort()).toEqual(['abyss', 'base']);
+    expect(Object.keys(committedStatics.STATICS)).toEqual(['base', 'abyss']);
+  });
+
+  // DEC-172, G6: worklets may capture the statics, so the module is plain data at every depth.
+  it('the committed statics module exports only plain data: no function, undefined or class instance at any depth', () => {
+    const exported = Object.keys(committedStatics).filter((name) => name !== '__esModule').sort();
+    expect(exported).toEqual(['STATICS', 'STATICS_SOURCE']);
+    const impure = (value: unknown, at: string): string[] => {
+      if (typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) || typeof value === 'boolean') return [];
+      if (Array.isArray(value)) return value.flatMap((v, i) => impure(v, `${at}[${i}]`));
+      if (value !== null && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+        return Object.entries(value).flatMap(([k, v]) => impure(v, `${at}.${k}`));
+      }
+      return [`${at}: ${typeof value}`];
+    };
+    expect(impure(committedStatics.STATICS, 'STATICS')).toEqual([]);
+    expect(impure(committedStatics.STATICS_SOURCE, 'STATICS_SOURCE')).toEqual([]);
+    expect(impure({ f: () => 0, n: NaN, u: undefined }, 'planted')).toEqual(['planted.f: function', 'planted.n: number', 'planted.u: undefined']);
   });
 
   it('a planted edit to one token makes it stale', () => {
@@ -98,10 +125,29 @@ describe('node scripts/tokens/generate.mjs', () => {
     try {
       const out = path.join(dir, 'tokens.generated.ts');
       fs.copyFileSync(GENERATED, out);
+      fs.copyFileSync(GENERATED_STATICS, path.join(dir, 'tokens.statics.generated.ts'));
       fs.writeFileSync(path.join(dir, 'tokens.extensions.generated.ts'), '// stale\n');
       const result = run('--check', '--out', out);
       expect(result.status).toBe(1);
       expect(result.stderr).toMatch(/tokens\.extensions\.generated\.ts is stale/);
+      expect(result.stderr).not.toMatch(/tokens\.(?:statics\.)?generated\.ts is stale/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // DEC-172, G3.
+  it('--check fails, and names the file, when only the statics module is stale', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokens-'));
+    try {
+      const out = path.join(dir, 'tokens.generated.ts');
+      fs.copyFileSync(GENERATED, out);
+      fs.copyFileSync(GENERATED_EXTENSIONS, path.join(dir, 'tokens.extensions.generated.ts'));
+      fs.writeFileSync(path.join(dir, 'tokens.statics.generated.ts'), '// stale\n');
+      const result = run('--check', '--out', out);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toMatch(/tokens\.statics\.generated\.ts is stale/);
+      expect(result.stderr).not.toMatch(/tokens\.(?:extensions\.)?generated\.ts is stale/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
