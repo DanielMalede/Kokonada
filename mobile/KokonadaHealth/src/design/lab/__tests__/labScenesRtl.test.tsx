@@ -11,7 +11,7 @@ import ReactTestRenderer, { act } from 'react-test-renderer';
 // (__fixtures__/yogaRtl.ts) under RTL and under LTR, and every probe and every View placed by its sides or its row order
 // must have the same frame in both. The scenes that place Views that way are listed, and each has its own RTL test on the
 // shared model. FieldView, FieldFallback and FieldSurface are the app's, not the lab's layout: they are stubbed here (they
-// draw through Skia, which does not mirror), so only the lab's own Views are laid out.
+// draw through Skia, which does not mirror), so only the lab's own Views are laid out; so is the hero's Well (below).
 jest.mock('react-native-reanimated', () => {
   const { useRef } = require('react');
   const RNView = require('react-native').View;
@@ -39,10 +39,27 @@ jest.mock('../../v2/field/effect.ts', () => ({ fieldEffect: () => ({ status: 're
 jest.mock('../../v2/field/FieldView', () => ({ FieldView: () => null }));
 jest.mock('../../v2/field/FieldFallback', () => ({ FieldFallback: () => null }));
 jest.mock('../../v2/field/FieldSurface', () => ({ FieldSurface: () => null }));
+// The hero's Well (F10 G8) is the app's layout too, and mirrors with the page by design: its hint and its action share
+// one row of full-width cells sized by their text, which this model cannot measure. It is stubbed to its children (the
+// CTA); HeroSceneRtl.test.tsx pins its column to the same inset on both sides, so the swap cannot move it.
+jest.mock('../../v2/components/Well/Well', () => ({ Well: ({ children }: { children?: unknown }) => children ?? null }));
+// So are the F10 InlineNotice and LegalReader (LF3): rows that mirror with the page by design (the glyph, the actions, the
+// TopBar's Close, a list's markers). They are stubbed to nothing; the parts scenes place them in one column with the same
+// inset on both sides, and their own suites pin that they name no side and set no direction.
+jest.mock('../../v2/components/InlineNotice/InlineNotice', () => ({ InlineNotice: () => null }));
+jest.mock('../../v2/components/LegalReader/LegalReader', () => ({ LegalReader: () => null }));
 
+import { FONT_PROBES_TEST_ID } from '../FontProbes';
 import { LabRoot } from '../LabRoot';
 import { SCENES } from '../scenes';
 import { flat, frameOf, hostChildren, layoutRules, type Box, type Node } from './__fixtures__/yogaRtl';
+
+// A scene that draws Skia text gets the typeface provider (LabRoot): here its faces are read by a reader that never
+// answers, since this test lays Views out and never waits for READY (labTypefaceGate.test.tsx tests the gate).
+const TYPEFACES = {
+  sources: { 'Heebo-Light': 'l', 'Heebo-Regular': 'r', 'Heebo-Medium': 'm', 'Heebo-SemiBold': 's', 'Bellefair-Regular': 'b' },
+  read: () => new Promise<never>(() => {}),
+};
 
 const K = 2.625;
 const W = 1080 / K;
@@ -62,6 +79,15 @@ const parentHost = (n: Node): Node | null => {
   return null;
 };
 const inFlow = (n: Node) => flat(n.props.style).position !== 'absolute';
+/**
+ * LabRoot's own font probes (FontProbes.tsx, UI-072): hidden calibration lines beside a scene that declares fonts, never
+ * drawn (opacity 0), never a lab probe, and read for their width alone. They are not the scene's layout, so they are left
+ * out here; a scene's own Views and probes are all held to the rule.
+ */
+const inFontProbes = (n: Node): boolean => {
+  for (let p: Node | null = n; p !== null; p = p.parent) if (p.props.testID === FONT_PROBES_TEST_ID) return true;
+  return false;
+};
 
 /** Placed by its sides: absolute, and not the same inset on both sides (absolute fill is symmetric). */
 function placedBySide(n: Node): boolean {
@@ -93,7 +119,7 @@ function mountScene(scene: string, rtl: boolean) {
       <LabRoot
         labArgs={{ run: 'r', scene, clock: 'fixed', t: '0', frames: '3' }}
         nonStringKeys={[]}
-        deps={{ emit: (l) => lines.push(l), frames: { next: () => () => {} }, events, reduceMotion: { current: () => new Promise(() => {}), subscribe: () => () => {} } }}
+        deps={{ emit: (l) => lines.push(l), frames: { next: () => () => {} }, events, reduceMotion: { current: () => new Promise(() => {}), subscribe: () => () => {} }, typefaces: TYPEFACES }}
       />,
     );
   });
@@ -102,7 +128,7 @@ function mountScene(scene: string, rtl: boolean) {
     act(() => v.props.onLayout({ nativeEvent: { layout: { x: 0, y: 0, width: W, height: H } } }));
   }
   act(() => { for (const p of r.root.findAll((n) => isHost(n) && String(n.props.nativeID ?? '').startsWith('probe-'))) p.props.onLayout({ nativeEvent: { layout: {} } }); });
-  const hosts = r.root.findAll(isHost);
+  const hosts = r.root.findAll((n) => isHost(n) && !inFontProbes(n));
   const key = (n: Node) => String(n.props.nativeID ?? n.props.testID ?? `host-${hosts.indexOf(n)}`);
   const placed = hosts.filter((n) => String(n.props.nativeID ?? '').startsWith('probe-') || placedBySide(n) || placedByRow(n));
   const frames = Object.fromEntries(placed.map((n) => [key(n), frameOf(n, STAGE, rules)]));
@@ -123,7 +149,7 @@ afterEach(() => {
 });
 
 it('has cases: every scene component of the catalogue', () => {
-  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'GrainScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
+  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'HeroScene', 'NoticeScene', 'ReaderScene', 'SmokeScene', 'StormScene', 'WellHintScene', 'WitnessScene']);
 });
 
 describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {
@@ -140,11 +166,12 @@ describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {
 // pinned by its own RTL test on the shared model (what lands where, and why the pin is the scene's own).
 const RTL_TESTS: Readonly<Record<string, string>> = {
   GrainScene: 'GrainSceneRtl.test.tsx',
+  HeroScene: 'HeroSceneRtl.test.tsx',
   StormScene: 'stormSceneRtl.test.tsx',
   WitnessScene: 'WitnessSceneRtl.test.tsx',
 };
 
-it('the scenes that place a View by its sides or its row order are exactly the grain, storm and witness scenes', () => {
+it('the scenes that place a View by its sides or its row order are exactly the grain, hero, storm and witness scenes', () => {
   const placing = [...BY_COMPONENT.entries()].filter(([, id]) => mountScene(id, true).bySideOrRow).map(([name]) => name).sort();
   expect(placing).toEqual(Object.keys(RTL_TESTS).sort());
 });

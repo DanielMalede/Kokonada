@@ -258,8 +258,9 @@ export function checkBuild({ appRoot, apkPath, git }) {
 // drew the scene (src/design/lab/shaderReport.ts): a field.* shot drawn by anything but the field shader (an effect that
 // did not compile, a builder throw, or a READY that names no surface) is a picture of the fallback, never evidence of the
 // field; a fallback.* shot is FieldFallback mounted by design. B8: the bench scenes (witness, grain, cost, storm) and
-// the policy-tier field scenes draw the field through its surface, so each must say ready. The smoke scene draws no
-// field and is held to nothing. A scene that matches no rule is refused: nothing says what must have drawn it.
+// the policy-tier field scenes draw the field through its surface, so each must say ready. F10 G8: a hero scene draws
+// the field under the plate (FieldView), so it must say ready too. The smoke scene and the fonts scenes draw no field and
+// are held to nothing. A scene that matches no rule is refused: nothing says what must have drawn it.
 const SURFACES = [
   { prefix: 'field.', suffix: '.policy', status: 'ready', drawn: 'by the field shader, at the tier the motion policy chose' },
   { prefix: 'field.', status: 'ready', drawn: 'by the field shader, never its fallback' },
@@ -268,6 +269,9 @@ const SURFACES = [
   { prefix: 'grain.', status: 'ready', drawn: 'by the field shader through its surface, never its fallback' },
   { prefix: 'cost.', status: 'ready', drawn: 'by the field shader, never its fallback' },
   { prefix: 'storm.', status: 'ready', drawn: 'by the field shader, never its fallback' },
+  { prefix: 'hero.', status: 'ready', drawn: 'by the field shader under the plate, never its fallback' },
+  { prefix: 'fonts.', status: undefined, drawn: 'without the field' },
+  { prefix: 'parts.', status: undefined, drawn: 'without the field' },
   { prefix: 'smoke', whole: true, status: undefined, drawn: 'without the field' },
 ];
 

@@ -111,8 +111,13 @@ describe('the lab reaches only what F-4 allows (deny by default)', () => {
     expect(packageViolationsInSource(source, 'planted.ts')).toEqual(['@kokonada/spotify-remote', 'react-native-health-connect']);
   });
 
-  it('the shared allow-list is exactly wheelGeometry and its own closure, so its growth fails visibly', () => {
-    expect(importClosure(path.join(APP, 'src/experience/wheel/wheelGeometry.ts')).map(rel).sort()).toEqual([...LAB_SHARED_MODULES].sort());
+  // F10 G8 (F6): the lab mounts v2's typeface provider for a scene that draws Skia text, with the app's own face sources
+  // (src/design/v2FaceSources.ts), whose closure is the five bundled font files; v2 itself is allowed by the v2 rule.
+  it('the shared allow-list is exactly the closures of wheelGeometry and of the v2 face sources, outside v2, so its growth fails visibly', () => {
+    const outsideV2 = (f: string) => !f.startsWith('src/design/v2/');
+    const closures = ['src/experience/wheel/wheelGeometry.ts', 'src/design/v2FaceSources.ts'].flatMap((f) => importClosure(path.join(APP, f)).map(rel));
+    expect([...new Set(closures)].filter(outsideV2).sort()).toEqual([...LAB_SHARED_MODULES].sort());
+    expect(LAB_SHARED_MODULES).toEqual(expect.arrayContaining(['src/design/v2FaceSources.ts', 'assets/fonts/Heebo-Regular.ttf', 'assets/fonts/Bellefair-Regular.ttf']));
   });
 });
 

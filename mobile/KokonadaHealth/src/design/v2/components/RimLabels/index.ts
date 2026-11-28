@@ -1,0 +1,21 @@
+export { RimLabels, type RimLabelsProps, type RimScript, type RimWords } from './RimLabels.tsx';
+export {
+  RIM_POSITIONS,
+  RIM_READING_ORDER,
+  layRimWord,
+  lettersOpacity,
+  returningGroups,
+  visualOrder,
+  type GlyphState,
+  type PlacedGlyph,
+  type ReturningGroup,
+  type RimBead,
+  type RimBox,
+  type RimFontMetrics,
+  type RimLook,
+  type RimLooks,
+  type RimLooksValue,
+  type RimPosition,
+  type RimWordInput,
+  type RimWordLayout,
+} from './arc.ts';
