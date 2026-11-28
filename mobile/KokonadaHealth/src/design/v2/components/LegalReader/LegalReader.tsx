@@ -88,7 +88,7 @@ export function LegalReader({ document, script, address, lines, closeLabel, onCl
   const selection = c.focus.hex;
 
   // TalkBack focus on the title when the reader opens, once.
-  const title = useRef<Text>(null);
+  const title = useRef<React.ComponentRef<typeof Text>>(null);
   useEffect(() => {
     if (title.current) AccessibilityInfo.sendAccessibilityEvent(title.current as never, 'focus');
   }, []);
