@@ -19,7 +19,7 @@ export interface AgePass { over16: true; on: string }
 export interface SessionRecord extends TokenPair { v: 2; uid: string; age?: AgePass }
 export type StoredSession = TokenPair | SessionRecord;
 
-const UID_PATTERN = /^[a-f0-9]{24}$/;
+export const SESSION_UID_PATTERN = /^[a-f0-9]{24}$/;
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 // The refresh endpoint's answer (C1). Only the server's dead-family answer is `dead`; anything
@@ -51,7 +51,7 @@ function readAge(age: unknown): AgePass | undefined {
 function readStored(stored: StoredSession | null): { tokens: TokenPair; uid: string | null; age: AgePass | null } | null {
   if (!stored) return null;
   const r = stored as Partial<SessionRecord> & { v?: unknown };
-  if (r.v === 2 && typeof r.uid === 'string' && UID_PATTERN.test(r.uid)) {
+  if (r.v === 2 && typeof r.uid === 'string' && SESSION_UID_PATTERN.test(r.uid)) {
     return { tokens: { access: r.access as string, refresh: r.refresh as string }, uid: r.uid, age: readAge(r.age) ?? null };
   }
   if (r.v === 2) return { tokens: { access: r.access as string, refresh: r.refresh as string }, uid: null, age: null };
@@ -202,7 +202,7 @@ export class AuthSession {
     if ((input as { v?: unknown }).v === 2) {
       const r = input as SessionRecord;
       if (!isToken(r.access) || !isToken(r.refresh)) throw new Error('session record: tokens required');
-      if (typeof r.uid !== 'string' || !UID_PATTERN.test(r.uid)) throw new Error('session record: malformed uid');
+      if (typeof r.uid !== 'string' || !SESSION_UID_PATTERN.test(r.uid)) throw new Error('session record: malformed uid');
       const age = r.age === undefined ? undefined : readAge(r.age);
       if (r.age !== undefined && !age) throw new Error('session record: malformed age');
       record = { v: 2, access: r.access, refresh: r.refresh, uid: r.uid, ...(age ? { age } : {}) };
