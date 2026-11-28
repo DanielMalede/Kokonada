@@ -25,9 +25,12 @@
 // — "which band did this run on?" — which is the question the band-keyed buffer, the trigger and
 // the targets all actually turn on. The number was never the load-bearing part.
 //
-// Deliberately NOT changed: `[gen.targets]` (:1144) keeps its numbers. bpmCenter/energy/valence are
-// DERIVED TARGETS, which §0.2.2 explicitly admits ("coarse bands/derived targets only"), and §0.2.5
-// pins that line as a consumer of the frozen targets shape.
+// Superseded by C-P4-0 (RA-91, B2 round 2, fork P4-F A): `[gen.targets]` no longer keeps its numbers.
+// On a heart run bpmCenter tracks the heart rate, so the "derived targets" it printed (bpmCenter,
+// bpmWidth, the energy window, valence, confidence), and the last tap beside them, were a vital and an
+// emotion input by another name. The line now carries only tempoBand and counts; the behaviour is
+// pinned on the real generation path in `genTargetsLog.test.js`, and the tripwire below forbids a
+// target scalar or a tap in any call site of this file.
 //
 // The tripwire below is the part that generalises: a helper only helps the caller who chooses to
 // use it, so the enforcement is a scan of EVERY log call site in the file for a vital-valued
@@ -180,9 +183,9 @@ describe('TRIPWIRE: no log call site in biometricHandler.js names a vital', () =
     .map((text, i) => ({ line: i + 1, text }))
     .filter(({ text }) => /(^|[^.\w])(log|console\.(log|warn|error|info))\s*\(/.test(text));
 
-  // Identifiers that HOLD a heart rate or another Art.9 scalar in this file. Deliberately does NOT
-  // include `targets.bpmCenter`/`energy*`/`valence*`: those are derived targets, which §0.2.2
-  // admits and §0.2.5 pins on the `[gen.targets]` line.
+  // Identifiers that HOLD a heart rate or another Art.9 scalar in this file. The derived target
+  // scalars and the held taps are a separate set (TARGET_OR_TAP_IDENT below, C-P4-0): a vital may
+  // reach a log through `_hrBand()`, a target scalar or a tap never does.
   const VITAL_IDENT = /\b(stableHR|effectiveHR|pendingHR|servedHR|latchHR|heartRate|hrv|spO2|respirationRate)\b/;
 
   // The rule is not "a vital identifier never appears in a log line" — the band IS computed from
@@ -211,9 +214,32 @@ describe('TRIPWIRE: no log call site in biometricHandler.js names a vital', () =
     // The exact regression it exists to stop, checked against the rule rather than the file.
     const regressed = 'log(`[handleBiometric] immediate band=${_hrBand(effectiveHR)} raw=${effectiveHR}`);';
     expect(leaks(regressed)).toEqual(['effectiveHR']);
-    // ...while the shipped form is clean, and a derived target stays allowed.
+    // ...while the shipped form is clean. (A derived target is out of THIS guard's vocabulary; the
+    // target guard below is the one that refuses it.)
     expect(leaks('log(`band=${_hrBand(effectiveHR)}`);')).toEqual([]);
     expect(leaks('log(`bpmCenter=${playlist.targets?.bpmCenter}`);')).toEqual([]);
+  });
+
+  // C-P4-0: the derived target scalars and the user's taps. `taps.length` (a count) and
+  // `targets.tempoBand` (the coarse class) stay allowed; everything else on these objects does not.
+  const TARGET_OR_TAP_IDENT = /\b(bpmCenter|bpmWidth|energyFloor|energyCeiling|valenceTarget|confidence|_lastTap|lastEmotionTaps|emotionTaps)\b/;
+  const targetLeaks = (text) => interpolations(text)
+    .filter((expr) => TARGET_OR_TAP_IDENT.test(expr) && !/\.length(\s*\?\?\s*0)?$/.test(expr));
+
+  it('no call site interpolates a derived target scalar or a tap (C-P4-0)', () => {
+    const offenders = CALL_SITES
+      .flatMap(({ line, text }) => targetLeaks(text).map((expr) => `${line}: \${${expr}}`));
+    expect(offenders).toEqual([]);
+  });
+
+  it('the target guard would CATCH the pre-C-P4-0 [gen.targets] line (not vacuous)', () => {
+    const regressed = 'console.warn(`[gen.targets] reqId=${reqId} taps=${state.lastEmotionTaps?.length ?? 0} '
+      + 'last=${JSON.stringify(_lastTap)} bpmCenter=${playlist.targets?.bpmCenter} '
+      + 'valence=${playlist.targets?.valenceTarget} conf=${playlist.targets?.confidence} tempoBand=${playlist.targets?.tempoBand}`);';
+    expect(targetLeaks(regressed)).toEqual([
+      'JSON.stringify(_lastTap)', 'playlist.targets?.bpmCenter', 'playlist.targets?.valenceTarget', 'playlist.targets?.confidence',
+    ]);
+    expect(targetLeaks('log(`[emotion_update] taps=${taps.length}`);')).toEqual([]);
   });
 
   it('no call site prints an `hr=` field at all', () => {
