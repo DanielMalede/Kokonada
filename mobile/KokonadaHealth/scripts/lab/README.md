@@ -41,6 +41,29 @@ Every command below is a direct `node scripts/lab/<name>.mjs` call.
     no location for API 23 and up, no COARSE or BACKGROUND location, FINE and the legacy Bluetooth
     permissions only up to API 30, a `neverForLocation` scan, and no permission off the allow-list.
   - The lab declares none of the real app.
+- **`node scripts/lab/assertPagesBoundary.mjs`** (OPS-506; CI runs it through
+  `scripts/lab/__tests__/assertPagesBoundary.test.ts` in the jest shards of the check "Mobile — jest"):
+  - Batch pages (DEC-192, `/page` BATCH MODE) are built under `src/pages/` and stay lab-only until
+    their cutover. The guard walks the import graph from `App.tsx` and fails (exit 1) when that
+    graph reaches any file under `src/pages/`. It prints the import chain to each such file.
+  - The walk follows relative imports on every platform, through `importGraph.mjs`. It also follows
+    the names of local packages: every `file:` or `link:` dependency in `package.json` (today
+    `@kokonada/spotify-remote` and `eslint-plugin-kokonada`). A local package resolves through its
+    `react-native`, then its `browser`, then its `main` field, as Metro resolves it. Its source is app
+    code, so a walk that stopped at package names would miss the edges it adds.
+  - "Outside the Design Lab route" is defined as `assertLabExcluded.mjs` and `labExclusion.test.ts`
+    define the lab: the lab's own entry `index.lab.js` and the modules under `src/design/lab/`
+    (`isLabPath`). The release graph never enters the lab; `assertLabExcluded.mjs` fails if it does.
+    So the walk does not stop at a lab module. A page that `App.tsx` reaches by any path is outside
+    the lab route, and a page reached only from `index.lab.js` is inside it.
+  - Exit 2 means the check could not run, and it is never a pass. That happens when there is no
+    `App.tsx`, no readable `package.json`, a local package that resolves to no file, or a resolver
+    the walk does not model: babel's `module-resolver`, Metro's `extraNodeModules` or
+    `resolveRequest`, or a local package with an `exports` map.
+  - When there is no `src/pages/` folder yet, the guard passes and says that no batch page entry
+    exists.
+  - The cutover PR that first puts a page into navigation has to change this guard, so that it
+    names the pages that are in navigation.
 - **Gradle refuses:**
   - to configure while `ENTRY_FILE` is set. The React Native plugin applies that variable to every
     variant, release included. Never use it.
