@@ -153,7 +153,7 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - branch: `test/be121-fixture-id-flake`
 - paths: `backend/tests/consentWithdrawalHeldWrite.integration.test.js`, `backend/tests/affectHmm.test.js`, `backend/tests/feedbackLoop.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/morningState.integration.test.js`, `backend/tests/consentWithdrawalSessionHealth.integration.test.js`, `backend/tests/sessionHealthRace.integration.test.js`, `TASKS.md`
 - resources: none
-- state: claimed
+- state: in-review · PR #318
 - started: 2026-11-28
 
 ### M11
