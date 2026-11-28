@@ -5,8 +5,8 @@
 // that carries no account installs nothing.
 
 import { AuthSession, type AuthSessionDeps, type RefreshOutcome } from '../auth/authSession';
-import { signInWithGoogle } from '../auth/auth';
-import { AuthError } from '../auth/authErrors';
+import { signInWithGoogle, googleStep } from '../auth/auth';
+import { AuthError, GOOGLE_STATUS } from '../auth/authErrors';
 import { authSession } from '../auth/session';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 
@@ -120,5 +120,53 @@ describe('a sign-out revokes the refresh family on the server (security L2)', ()
     const { logout } = await signOutThroughProfile({ access: 'acc-only', refresh: '' });
     expect(logout).toBeDefined();
     expect(logout?.body).toBeUndefined();
+  });
+});
+
+// C7 (B1 P11 charter §2): the native codes are literals owned by authErrors.ts, and the guard runs on
+// jest.setup.js's global mock of google-signin, which exports neither statusCodes nor isErrorWithCode.
+// Before C7, v1's googleFailure called both, so under that mock a native failure threw a TypeError in
+// place of a typed AuthError. The literals are pinned against the library's Android source.
+describe('C7 — Google codes as literals, on the global mock', () => {
+  const nativeError = (code: string) => Object.assign(new Error(`native ${code}`), { code });
+
+  it('the global mock has no statusCodes and no isErrorWithCode (the premise of this guard)', () => {
+    const lib = require('@react-native-google-signin/google-signin');
+    expect(lib.statusCodes).toBeUndefined();
+    expect(lib.isErrorWithCode).toBeUndefined();
+  });
+
+  it.each([
+    ['PLAY_SERVICES_NOT_AVAILABLE', 'hasPlayServices', 'playServices'],
+    ['7', 'signIn', 'network'],
+    ['10', 'signIn', 'unknown'],
+  ] as const)('v1: a native %s is a typed AuthError, never a TypeError', async (code, step, kind) => {
+    (GoogleSignin[step] as jest.Mock).mockRejectedValueOnce(nativeError(code));
+    const err = await signInWithGoogle().catch((e) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect(err.kind).toBe(kind);
+  });
+
+  it('v2: IN_PROGRESS is silent and DEVELOPER_ERROR is a google-stage failure', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (GoogleSignin.signIn as jest.Mock).mockRejectedValueOnce(nativeError('ASYNC_OP_IN_PROGRESS'));
+    await expect(googleStep()).resolves.toEqual({ type: 'inProgress' });
+    (GoogleSignin.signIn as jest.Mock).mockRejectedValueOnce(nativeError('10'));
+    await expect(googleStep()).resolves.toEqual({ type: 'failed', stage: 'google', kind: 'unknown' });
+    warn.mockRestore();
+  });
+
+  it('the literals match the Android module of the installed google-signin', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.dirname(require.resolve('@react-native-google-signin/google-signin/package.json'));
+    const dir = path.join(root, 'android', 'src', 'main', 'java', 'com', 'reactnativegooglesignin');
+    const mod = fs.readFileSync(path.join(dir, 'RNGoogleSigninModule.java'), 'utf8');
+    const wrapper = fs.readFileSync(path.join(dir, 'PromiseWrapper.java'), 'utf8');
+    expect(wrapper).toContain(`ASYNC_OP_IN_PROGRESS = "${GOOGLE_STATUS.IN_PROGRESS}"`);
+    expect(mod).toContain('constants.put("IN_PROGRESS", ASYNC_OP_IN_PROGRESS)');
+    expect(mod).toContain(`PLAY_SERVICES_NOT_AVAILABLE = "${GOOGLE_STATUS.PLAY_SERVICES_NOT_AVAILABLE}"`);
+    expect(mod).toContain('constants.put("SIGN_IN_CANCELLED", String.valueOf(GoogleSignInStatusCodes.SIGN_IN_CANCELLED))');
+    expect(mod).toContain('String.valueOf(CommonStatusCodes.DEVELOPER_ERROR)');
   });
 });
