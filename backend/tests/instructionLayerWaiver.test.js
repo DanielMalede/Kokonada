@@ -1745,11 +1745,12 @@ describe('#307 round 5 · every finding of the review at c10abaa that #307 does 
   });
 });
 
-// DEC-199 (own:agent-models-fable): every session and every sub-agent runs on Fable at effort medium. A dispatch can
+// DEC-199 (own:agent-models-fable): every sub-agent runs on the session's model at effort medium; the owner picks the
+// family with /model, so the layer names none (ruling 6, 2026-11-28, moved it with no file naming it). A dispatch can
 // name a model family only, never a version, and a dispatch without one falls to the agent file's `model:` line; so
 // every agent file says `model: inherit` and a sub-agent runs on the model the owner set for the session. DEC-155
 // ruling 6's second sentence stands: no model version number anywhere in the layer.
-describe('DEC-199 · every session and sub-agent on Fable at effort medium: the agent files inherit the session\'s model', () => {
+describe('DEC-199 · every sub-agent on the session\'s model at effort medium: the agent files inherit it', () => {
   // Every `.md` under a directory, at any depth: a file in a sub-directory of `.claude/agents` is an agent file too.
   const mdUnder = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel), { withFileTypes: true })
     .flatMap((e) => (e.isDirectory() ? mdUnder(`${rel}/${e.name}`) : (e.name.endsWith('.md') ? [`${rel}/${e.name}`] : []))).sort();
@@ -1831,42 +1832,56 @@ describe('DEC-199 · every session and sub-agent on Fable at effort medium: the 
     expect(linesMatching(LAYER, MODEL_ID)).toEqual([]);
   });
 
-  test('CLAUDE.md § Models is the one paragraph: Fable, `model: inherit`, `effort: medium`, no dispatch keyword, no version, DEC-199', () => {
+  test('CLAUDE.md § Models is the one paragraph: the session\'s model, `model: inherit`, `effort: medium`, no dispatch keyword, no version, DEC-199', () => {
     const models = section(ROOT_MD, 'Models').filter((l) => l.trim() !== '');
-    expect(models).toEqual(['Every session and every sub-agent runs on Fable. The owner switches the session\'s model; every agent file says `model: inherit` and `effort: medium`, so a sub-agent runs on the session\'s model at effort medium, and no dispatch names a model. No dispatch prompt carries `ultrathink`. No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).']);
+    expect(models).toEqual(['Every sub-agent runs on the session\'s model at effort medium. The owner chooses the session\'s model and switches it himself; every agent file says `model: inherit` and `effort: medium`, so no dispatch names a model. No dispatch prompt carries `ultrathink`. No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).']);
     has(models.join('\n'), '`model: inherit`', '`effort: medium`', 'DEC-199');
     expect(ROOT_MD).not.toMatch(/Opus executes|`model: opus`|`effort: max`/);
   });
 
-  test('ORCHESTRATOR_FABLE.md `<model_economy>` points at § Models and no longer splits the work between two models', () => {
-    const doc = read('docs/ORCHESTRATOR_FABLE.md');
-    const economy = doc.slice(doc.indexOf('<model_economy>'), doc.indexOf('</model_economy>'));
-    has(economy, '`CLAUDE.md` § Models', '- Persist every plan and every ground-truth brief under `docs/`',
-      '- Batch the owner\'s decisions into one question round', '- Do not re-read large documents every turn');
-    expect(economy).not.toMatch(/\bOpus\b|scarce|ultrathink/i);
+  test('CLAUDE.md § Models names no model family: the owner picks it with /model, and the files follow (DEC-199 ruling 6)', () => {
+    const models = section(ROOT_MD, 'Models').join('\n');
+    expect(models.trim()).not.toBe('');
+    expect(models.match(/\b(opus|fable|sonnet|haiku)\b/gi)).toBeNull();
   });
 
-  test('DEC-199 records the owner\'s five rulings verbatim, refines DEC-155, and the index carries it', () => {
+  test('ORCHESTRATOR_FABLE.md `<model_economy>` points at § Models, names no model family and splits no work between models', () => {
+    const doc = read('docs/ORCHESTRATOR_FABLE.md');
+    const economy = doc.slice(doc.indexOf('<model_economy>'), doc.indexOf('</model_economy>'));
+    has(economy, '`CLAUDE.md` § Models says what model and effort every sub-agent runs on',
+      '- Persist every plan and every ground-truth brief under `docs/`',
+      '- Batch the owner\'s decisions into one question round', '- Do not re-read large documents every turn');
+    expect(economy).not.toMatch(/\b(opus|fable|sonnet|haiku)\b|scarce|ultrathink/i);
+  });
+
+  test('DEC-199 records the owner\'s six rulings verbatim, refines DEC-155, and the index carries it', () => {
     const dec = read('docs/design-v2/decisions/DEC-199.md');
-    has(dec, 'status: DECIDED', 'ruled: 2026-11-27',
+    has(dec, 'status: DECIDED', 'ruled: 2026-11-28',
       '"אני רוצה שהסוכנים יפסיקו לרות על מצב uktra ויעברו למצב medium ועדיין ישארו על opus 5.5"',
       '"תעביר את כל הסוכנים שיעבדו על fable ולא על opus וגם אתה תעבור לfable ממש עכשיו"',
       '"תפעיל את כל הסוכנים על fable 5.1 במצב medium ואני אעביר אותך גם למצב הזה"',
       '"תכין את ה־PR לתיקון מודל הסוכנים"', '"inherit (מומלץ)"',
+      '"תפעיל את כל הסוכנים על Opus במצב medium ואני אעביר אותך גם למצב הזה"',
       '"Fable plans, Opus executes. No model version numbers anywhere in the layer."',
       '## The owner\'s rulings, verbatim', '## The scribe\'s notes', '**What it does not settle.**');
     has(dec.split('\n').find((l) => l.startsWith('- refines:')) || '', 'DEC-155 (ruling 6)');
     has(read('docs/design-v2/decisions/DEC-155.md'), '- refined by: DEC-199 (2026-11-27):');
-    has(decRow('DEC-199'), 'DECIDED (ruled 2026-11-27)');
+    has(decRow('DEC-199'), 'DECIDED (ruled 2026-11-28)');
+    // Ruling 6: the family is the owner's /model, so the entry's title and its index row's title name none, and the
+    // entry states the rule without one; Fable and Opus stand only inside his quotes.
+    const FAMILY = /\b(opus|fable|sonnet|haiku)\b/i;
+    const title = dec.split('\n').find((l) => l.startsWith('# DEC-199 ·')) || '';
+    expect([title !== '', FAMILY.test(title), FAMILY.test(decRow('DEC-199').split('|')[2] || 'opus')]).toEqual([true, false, false]);
+    has(dec, 'every sub-agent runs on the session\'s model at effort medium; the owner picks the family with /model; no version number in the layer');
     has(decRow('DEC-155'), 'DEC-199');
-    // RA313-5: the index's verbatim line carries all five of his quotes, not the last one alone; and DEC-199 has its
+    // RA313-5: the index's verbatim line carries all six of his quotes, not the last one alone; and DEC-199 has its
     // index row, its source row and that line. Which other numbers are reserved is not this ruling's to pin.
     has(DECISIONS.split('\n').find((l) => l.startsWith('- **DEC-199**')) || '',
       '"אני רוצה שהסוכנים יפסיקו לרות על מצב uktra ויעברו למצב medium ועדיין ישארו על opus 5.5"',
       '"תעביר את כל הסוכנים שיעבדו על fable ולא על opus וגם אתה תעבור לfable ממש עכשיו"',
       '"תפעיל את כל הסוכנים על fable 5.1 במצב medium ואני אעביר אותך גם למצב הזה"',
-      '"תכין את ה־PR לתיקון מודל הסוכנים"', '"inherit (מומלץ)"');
-    expect(DECISIONS.split('\n').filter((l) => l.startsWith('| the owner\'s messages of 2026-10-27, 2026-11-26 and 2026-11-27 |')
+      '"תכין את ה־PR לתיקון מודל הסוכנים"', '"inherit (מומלץ)"', '"תפעיל את כל הסוכנים על Opus במצב medium ואני אעביר אותך גם למצב הזה"');
+    expect(DECISIONS.split('\n').filter((l) => l.startsWith('| the owner\'s messages of 2026-10-27, 2026-11-26, 2026-11-27 and 2026-11-28 |')
       && l.endsWith('| DEC-199 |'))).toHaveLength(1);
   });
 });

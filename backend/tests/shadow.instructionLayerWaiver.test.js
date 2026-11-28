@@ -191,7 +191,8 @@ describe('RA-13 · the allow-list names the root CLAUDE.md and fences every fron
 // colon), a key no agent file carries, a repeated key; M23 a `model` key and M24 a model or effort variable in
 // `.claude/settings.json`, in `env` or inside an allowed command; M25 an agent file in a sub-directory, a copy of one
 // of the ten, an agents directory elsewhere in the tree, one of the ten gone; M26 maximum depth asked for in a
-// command; M27 a version in a spelling the first detector missed.
+// command; M27 a version in a spelling the first detector missed. From the owner's ruling 6 (2026-11-28): M28 a model
+// family named in CLAUDE.md § Models, which the owner picks with /model.
 describe('DEC-199 · the shadow: every agent file inherits the session\'s model at effort medium, and the layer names no version', () => {
   const walk = (rel) => fs.readdirSync(path.join(REPO_ROOT, rel), { withFileTypes: true }).flatMap((e) => {
     const child = `${rel}/${e.name}`;
@@ -234,6 +235,13 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
       const scanned = file === 'CLAUDE.md' ? text.replace(BAN, '') : text;
       if (new RegExp(KEYWORD, 'i').test(scanned)) out.push(`${file}: the dispatch keyword`);
       if (VERSION.test(text) || MODEL_ID.test(text)) out.push(`${file}: a model version`);
+      if (file === 'CLAUDE.md') {
+        // § Models: from its heading to the next `## ` heading; it names no family, since the owner picks it.
+        const at = text.indexOf('\n## Models\n');
+        const end = at < 0 ? -1 : text.indexOf('\n## ', at + 1);
+        const models = at < 0 ? '' : text.slice(at, end < 0 ? text.length : end);
+        if (models === '' || /\b(opus|fable|sonnet|haiku)\b/i.test(models)) out.push(`${file}: a model family in § Models`);
+      }
       if (isSettings(file)) {
         // Parsed, and read as text too: a variable set inside an allowed command sits in no `env` object.
         let parsed = {};
@@ -294,7 +302,7 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
     ['M16 the dispatch keyword back in a command', COMMAND, (t) => `${t}\n${KEYWORD}.\n`, `${COMMAND}: the dispatch keyword`],
     ['M16 the dispatch keyword asked for in CLAUDE.md', 'CLAUDE.md', (t) => t.replace(BAN, `Every dispatch prompt carries \`${KEYWORD}\`.`), 'CLAUDE.md: the dispatch keyword'],
     ['M16 the keyword a second time in CLAUDE.md', 'CLAUDE.md', (t) => `${t}\n${BAN}\n`, 'CLAUDE.md: the dispatch keyword'],
-    ['M17 a version number in CLAUDE.md', 'CLAUDE.md', (t) => t.replace('runs on Fable.', 'runs on Fable 5.'), 'CLAUDE.md: a model version'],
+    ['M17 a version number in CLAUDE.md', 'CLAUDE.md', (t) => `${t}\nEvery agent runs on Fable 5.\n`, 'CLAUDE.md: a model version'],
     ['M17 a model id in an agent body', AGENT, (t) => `${t}\nRun as ${['claude', 'fable', '5'].join('-')}.\n`, `${AGENT}: a model version`],
     ['M19 front matter that never closes', AGENT, (t) => t.replace(/\n---\n/, '\n'), `${AGENT}: no front matter`],
     ['M20 a command whose front matter names a model', COMMAND, (t) => t.replace('---\n', '---\nmodel: opus\n'), `${COMMAND}: model`],
@@ -310,7 +318,10 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
     ['M24 settings.json setting the sub-agent effort variable', SETTINGS, (t) => t.replace(/^\{/, '{"env":{"CLAUDE_CODE_SUBAGENT_EFFORT":"max"},'), `${SETTINGS}: effort`],
     ['M24 settings.json allowing a command that sets the session model variable', SETTINGS, (t) => t.replace('"allow": [', '"allow": ["Bash(ANTHROPIC_MODEL=opus claude *)",'), `${SETTINGS}: model`],
     ['M26 maximum depth asked for in a command', COMMAND, (t) => `${t}\nOperate at maximum reasoning depth.\n`, `${COMMAND}: maximum depth`],
-    ...VERSIONED.map((s) => [`M27 the version written as "${s}" in CLAUDE.md`, 'CLAUDE.md', (t) => t.replace('runs on Fable.', `runs on ${s}.`), 'CLAUDE.md: a model version']),
+    ['M28 a model family named in § Models', 'CLAUDE.md', (t) => t.replace('runs on the session\'s model', 'runs on Opus'), 'CLAUDE.md: a model family in § Models'],
+    ['M28 a family named beside the session\'s model', 'CLAUDE.md', (t) => t.replace('switches it himself', 'switches it himself, to fable'), 'CLAUDE.md: a model family in § Models'],
+    ['M28 § Models gone', 'CLAUDE.md', (t) => t.replace('\n## Models\n', '\n## Model choice\n'), 'CLAUDE.md: a model family in § Models'],
+    ...VERSIONED.map((s) => [`M27 the version written as "${s}" in CLAUDE.md`, 'CLAUDE.md', (t) => `${t}\nEvery agent runs on ${s}.\n`, 'CLAUDE.md: a model version']),
   ])('%s is caught', (_name, file, change, fault) => {
     expect(faults(mutated(file, change))).toEqual([fault]);
   });
@@ -346,8 +357,9 @@ describe('DEC-199 · the shadow: every agent file inherits the session\'s model 
   });
   test('§ Models says what the files hold, and names the ruling', () => {
     const models = sectionText(ROOT_MD, 'Models');
-    ['Every session and every sub-agent runs on Fable.', 'every agent file says `model: inherit` and `effort: medium`', 'no dispatch names a model',
+    ['Every sub-agent runs on the session\'s model at effort medium.', 'The owner chooses the session\'s model and switches it himself',
+      'every agent file says `model: inherit` and `effort: medium`', 'no dispatch names a model',
       BAN, 'No model version number appears anywhere in the layer (DEC-155 ruling 6, DEC-199).'].forEach((s) => expect(models).toContain(s));
-    expect(models).not.toMatch(/Opus|`effort: max`/);
+    expect(models).not.toMatch(/Opus|Fable|`effort: max`/i);
   });
 });
