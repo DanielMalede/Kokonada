@@ -212,7 +212,8 @@
   "well": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
-    "consentSlotHeight": {"$type":"dimension","$value":{"value":108,"unit":"px"}}
+    "consentSlotHeight": {"$type":"dimension","$value":{"value":108,"unit":"px"}},
+    "hold": {"$type":"duration","$value":{"value":400,"unit":"ms"},"$extensions":{"com.kokonada":{"rule":"a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets"}}}
   },
   "topBar": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -228,6 +229,62 @@
     "height": {"$type":"dimension","$value":{"value":64,"unit":"px"}},
     "iconSize": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
     "iconStroke": {"$type":"dimension","$value":{"value":1.5,"unit":"px"}}
+  },
+  "target": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "min": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+  },
+  "row": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "min": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
+    "twoLine": {"$type":"dimension","$value":{"value":72,"unit":"px"}}
+  },
+  "icon": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "xs": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
+    "s": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
+    "m": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "stroke": {"$type":"dimension","$value":{"value":1.5,"unit":"px"}}
+  },
+  "focus": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "width": {"$type":"dimension","$value":{"value":2,"unit":"px"}},
+    "offset": {"$type":"dimension","$value":{"value":2,"unit":"px"}}
+  },
+  "content": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "maxWidth": {"$type":"dimension","$value":{"value":560,"unit":"px"}}
+  },
+  "pager": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "row": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+  },
+  "brand": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "mark": {
+      "splash": {"$type":"dimension","$value":{"value":128,"unit":"px"}},
+      "page": {"$type":"dimension","$value":{"value":80,"unit":"px"}}
+    }
+  },
+  "input": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "field": {"minHeight":{"$type":"dimension","$value":{"value":56,"unit":"px"}}}
+  },
+  "toggle": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "width": {"$type":"dimension","$value":{"value":52,"unit":"px"}},
+    "height": {"$type":"dimension","$value":{"value":32,"unit":"px"}},
+    "thumb": {"$type":"dimension","$value":{"value":24,"unit":"px"}}
+  },
+  "slider": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "track": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
+    "thumb": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
+    "hit": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+  },
+  "skeleton": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "motion": {"$type":"string","$value":"static"}
   },
   "type": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -387,6 +444,11 @@
       "duration": {"$type":"duration","$value":{"value":350,"unit":"ms"}},
       "easing": {"$type":"cubicBezier","$value":[0.22,1,0.36,1]}
     },
+    "press": {
+      "duration": {"$type":"duration","$value":{"value":100,"unit":"ms"}},
+      "easing": {"$type":"cubicBezier","$value":"{motion.respond.easing}"},
+      "reducedMotion": {"$type":"string","$value":"none"}
+    },
     "settle": {
       "duration": {"$type":"duration","$value":{"value":600,"unit":"ms"}},
       "easing": {"$type":"cubicBezier","$value":[0.25,1,0.5,1]}
@@ -409,13 +471,18 @@
     },
     "dtClamp": {"$type":"duration","$value":{"value":50,"unit":"ms"}}
   },
+  "feedback": {
+    "$extensions": {"com.kokonada":{"lock":"designer"}},
+    "progressDelay": {"$type":"duration","$value":{"value":400,"unit":"ms"}}
+  },
   "radius": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "art": {
       "phone": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
       "large": {"$type":"dimension","$value":{"value":8,"unit":"px"}},
       "largeMinWidth": {"$type":"dimension","$value":{"value":600,"unit":"px"}}
-    }
+    },
+    "pill": {"$type":"dimension","$value":{"value":9999,"unit":"px"},"$extensions":{"com.kokonada":{"rule":"the renderer clamps it to half the shorter side"}}}
   },
   "haptics": {
     "$extensions": {
@@ -503,7 +570,9 @@
           "hero.plate.bead.2",
           "hero.plate.bead.2.setting",
           "hero.plate.bead.2.halo",
+          "hero.plate.bead.leaving",
           "hero.plate.touch",
+          "hero.plate.bead.latest.a11y",
           "hero.listEntry",
           "hero.well",
           "hero.cta",

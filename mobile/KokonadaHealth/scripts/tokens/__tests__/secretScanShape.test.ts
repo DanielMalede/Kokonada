@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { generateExtensionsModule, generateTokensModule } from '../lib/emit.mjs';
+import { generateExtensionsModule, generateStaticsModule, generateTokensModule } from '../lib/emit.mjs';
 import { readTokenSources } from '../lib/sources.mjs';
 
 // UI-104. CI's secret scan (gitleaks 8.24.3, .github/workflows/ci.yml) read every source-hash line
@@ -54,6 +54,7 @@ const APP_ROOT = path.resolve(__dirname, '../../..');
 const DESIGN_TOKENS = path.resolve(APP_ROOT, '../../design-tokens');
 const GENERATED = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.generated.ts');
 const GENERATED_EXTENSIONS = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.extensions.generated.ts');
+const GENERATED_STATICS = path.join(APP_ROOT, 'src/design/v2/tokens/tokens.statics.generated.ts');
 type Source = { name: string; bytes: Buffer; json: unknown };
 const real = (): Source[] => readTokenSources(DESIGN_TOKENS);
 const sha256 = (bytes: Buffer) => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -85,9 +86,15 @@ describe('no line of the generated token modules reads as a generic-api-key leak
     expect(scan(fs.readFileSync(GENERATED_EXTENSIONS, 'utf8'))).toEqual([]);
   });
 
+  // DEC-172: the third module records the same source hashes.
+  it('tokens.statics.generated.ts, as committed', () => {
+    expect(scan(fs.readFileSync(GENERATED_STATICS, 'utf8'))).toEqual([]);
+  });
+
   it("the generator's output for the real sources", () => {
     expect(scan(generateTokensModule(real()))).toEqual([]);
     expect(scan(generateExtensionsModule(real()))).toEqual([]);
+    expect(scan(generateStaticsModule(real()))).toEqual([]);
   });
 });
 

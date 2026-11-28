@@ -12,26 +12,42 @@
 // named in an ERROR too, never a READY held until the harness times out.
 // READY also says which Skia backend draws the lab (UI-276, skiaBackend.ts): read once from react-native-skia when the
 // session mounts, the same on every READY of the run; one that cannot be read is null with the reason, never an ERROR.
+// READY waits for the scene's fonts (UI-072, fonts.ts): the faces the scene declares, each judged from the width React
+// Native drew a hidden calibration line at, against its fallback face. React Native has no font-loading event on
+// Android and draws a family it cannot find in its default face, so a face that drew at the fallback's width, a face the
+// lab does not have, or a probe that never lays out by the deadline is an ERROR naming it. A scene that declares no face
+// waits for none.
+//
+// READY waits for the bundled faces in Skia too (F10 G8, F6), for a scene that draws Skia text (`typefaces`, the hero's
+// rim words): LabRoot mounts v2's typeface provider above the scene, with the app's face sources, and READY waits until
+// its font manager is in. Skia on Android has no Heebo and would draw those words with no glyph. A face that cannot load,
+// or a manager not in by the font deadline, is an ERROR naming it, never a READY over missing text.
 //
 // Never part of the app: only index.lab.js reaches this file, and only the `lab` build type bundles
 // index.lab.js (MB-084; scripts/lab/assertLabExcluded.mjs checks every release bundle for it).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio } from 'react-native';
+import { AccessibilityInfo, DeviceEventEmitter, I18nManager, PixelRatio, StatusBar } from 'react-native';
 import { useSharedValue } from 'react-native-reanimated';
 import { Skia } from '@shopify/react-native-skia';
 import { useRealtimeFieldClock, type FieldClock } from '../v2/clock/fieldClock';
 import type { MotionPorts } from '../v2/motion/ports';
 import type { MotionTier } from '../v2/motion/useMotionPolicy';
+import { TypefaceProvider, useTypefaceFontMgr } from '../v2/typeface/TypefaceProvider';
+import type { FaceSources, ReadFace } from '../v2/typeface/typefaces';
 import { useLabPowerSaveSource } from './adapters/labPowerSaveSource';
 import { fixedClockTime } from './clock/fixedClock';
 import { CostReportContext, formatCostResult, type CostReport } from './cost/costResult';
 import { createSteppedClock, type SteppedClock } from './clock/steppedClock';
+import { FontProbes } from './FontProbes';
+import {
+  createFontCheck, FONT_CHECK_DEADLINE_MS, probeName, unknownFaces, type FontProbeId, type FontVerdict, type LabFaceId,
+} from './fonts';
 import { parseLabArgs, type LabParams, type SceneTiming } from './params';
 import { ProbeRegistry } from './probe/Probe';
 import type { ProbeRect } from './probe/geometry';
 import { createCommandGate, createReadyGate, formatLine, parseCommand, type LineKind } from './protocol';
-import { SCENES, type Scene } from './scenes';
+import { SCENES, sceneFace, type Scene } from './scenes';
 import { createSettingReads } from './settingRead';
 import { LabMotionPortsContext, SceneFactsContext, type SceneFacts } from './scenes/FieldScene';
 import { LAB_SENTINEL } from './sentinel';
@@ -52,13 +68,45 @@ export type LabDeps = {
   emit(line: string): void;
   frames: FrameSource;
   events: LabEventSource;
-  /** The scene's fonts are loaded (there are none yet; UI-069 adds them). */
-  fontsReady: boolean;
   reduceMotion: ReduceMotionSource;
   scenes: Readonly<Record<string, Scene>>;
   /** The Skia whose backend READY names (UI-276): react-native-skia's own, or a test's. */
   skia: BackendSkia;
+  /**
+   * The faces the typeface provider loads for a scene that draws Skia text (F6): the app's own (V2_FACE_SOURCES, each a
+   * Metro asset) when omitted, or a test's sources and their reader.
+   */
+  typefaces?: { readonly sources: FaceSources<unknown>; readonly read: ReadFace<unknown> };
 };
+
+/**
+ * The app's face sources, required on first use, only by a scene that draws Skia text: each is a font file, a Metro asset
+ * Jest cannot load, so a lab test that mounts such a scene gives its own (LabDeps.typefaces) or mocks the module.
+ */
+const appFaceSources = (): FaceSources<number> => require('../v2FaceSources').V2_FACE_SOURCES;
+
+/** Holds a typeface provider's throw (a face that cannot load) and tells LabRoot, which sends it as the run's ERROR. */
+class TypefaceBoundary extends React.Component<{ onError: (message: string) => void; children?: React.ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: Error) {
+    this.props.onError(error.message);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/** Tells LabRoot once the provider's font manager is in. */
+function TypefacesIn({ onIn }: { onIn: () => void }) {
+  const mgr = useTypefaceFontMgr();
+  useEffect(() => {
+    if (mgr !== undefined) onIn();
+  }, [mgr, onIn]);
+  return null;
+}
 
 const animationFrames: FrameSource = {
   next(callback) {
@@ -79,7 +127,6 @@ const DEFAULT_DEPS: LabDeps = {
   emit: (line) => console.log(line),
   frames: animationFrames,
   events: DeviceEventEmitter as unknown as LabEventSource,
-  fontsReady: true,
   reduceMotion: accessibilityReduceMotion,
   scenes: SCENES,
   skia: Skia,
@@ -91,6 +138,8 @@ type LabRootProps = {
   powerSave?: boolean;
   deps?: Partial<LabDeps>;
 };
+
+const NO_FACES: readonly LabFaceId[] = [];
 
 /** A reason short enough that READY stays one logcat line (a shader compile error can be long). */
 const MAX_REASON = 300;
@@ -184,6 +233,10 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
 
   // The Skia backend that draws this run (UI-276), read once as the session mounts: a build fact, never one that changes.
   const [skiaBackend] = useState(() => readSkiaBackend(deps.skia));
+
+  // The faces the scene draws text in (UI-072), and their judgement, made once for the session.
+  const faces = scene.fonts ?? NO_FACES;
+  const [fontCheck] = useState(() => createFontCheck(faces));
 
   // What READY reports is what was committed last.
   const latest = useRef({ seq: step.seq, t: step.t, powerSave });
@@ -369,11 +422,76 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     pump();
   }, [gate, fail, pump]);
 
-  useEffect(() => {
-    if (!deps.fontsReady) return;
+  // The fonts READY waits for (UI-072): the scene's own faces, judged from the widths React Native drew the probes at
+  // (fonts.ts, FontProbes.tsx). A scene that declares none is judged at once. A face that fell back, a face the lab does
+  // not have, or a probe that never lays out by the deadline is one ERROR, naming it; never a READY over the fallback face.
+  const judged = useRef(false);
+  const fontDeadline = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The bundled faces in Skia (F6), for a scene that draws Skia text: READY's fonts are ready once both the faces React
+  // Native drew are judged and the typeface provider's font manager is in.
+  const needsTypefaces = scene.typefaces === true;
+  const fontsJudged = useRef(false);
+  const typefacesIn = useRef(!needsTypefaces);
+  const openFonts = useCallback(() => {
+    if (!fontsJudged.current || !typefacesIn.current || failed.current) return;
     gate.fontsReady();
     pump();
-  }, [deps, gate, pump]);
+  }, [gate, pump]);
+  const onTypefacesIn = useCallback(() => {
+    if (typefacesIn.current) return;
+    typefacesIn.current = true;
+    openFonts();
+  }, [openFonts]);
+  const onTypefaceError = useCallback((message: string) => {
+    fail(`the typeface provider could not load the bundled faces: ${clip(message)}`);
+  }, [fail]);
+  useEffect(() => {
+    if (!needsTypefaces) return undefined;
+    const timer = setTimeout(() => {
+      if (!typefacesIn.current) fail(`the typeface provider's font manager was not in within ${FONT_CHECK_DEADLINE_MS} ms`);
+    }, FONT_CHECK_DEADLINE_MS);
+    return () => clearTimeout(timer);
+  }, [needsTypefaces, fail]);
+  const [typefaces] = useState(() => (needsTypefaces ? deps.typefaces ?? { sources: appFaceSources() } : null));
+  const judgeFonts = useCallback((verdict: FontVerdict) => {
+    if (!verdict.settled || judged.current) return;
+    judged.current = true;
+    if (fontDeadline.current !== null) {
+      clearTimeout(fontDeadline.current);
+      fontDeadline.current = null;
+    }
+    if (verdict.error !== null) {
+      fail(verdict.error);
+      return;
+    }
+    fontsJudged.current = true;
+    openFonts();
+  }, [fail, openFonts]);
+  const onFontWidth = useCallback((probe: FontProbeId, width: number) => {
+    judgeFonts(fontCheck.measure(probe, width));
+  }, [fontCheck, judgeFonts]);
+  useEffect(() => {
+    const unknown = unknownFaces(faces);
+    if (unknown.length > 0) {
+      judged.current = true;
+      fail(`the scene declares a font that is not a lab face (fonts.ts LAB_FACES): ${unknown.map((f) => `"${f}"`).join(', ')}`);
+      return undefined;
+    }
+    judgeFonts(fontCheck.verdict());
+    if (judged.current) return undefined;
+    const timer = setTimeout(() => {
+      fontDeadline.current = null;
+      if (judged.current) return;
+      judged.current = true;
+      const missing = fontCheck.unmeasured().map(probeName);
+      fail(`the font probes did not lay out within ${FONT_CHECK_DEADLINE_MS} ms: ${missing.join(', ')}`);
+    }, FONT_CHECK_DEADLINE_MS);
+    fontDeadline.current = timer;
+    return () => {
+      clearTimeout(timer);
+      fontDeadline.current = null;
+    };
+  }, [faces, fontCheck, fail, judgeFonts]);
 
   // A command's READY counts only frames drawn after the new time was committed.
   useEffect(() => {
@@ -427,6 +545,14 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
     };
   }, []);
 
+  // The status bar's icons on the scene's face (LEDGER §6, CMP-110): dark on light, light on dark; none named, the
+  // activity's own. Set once on the native module: a <StatusBar> element batches through a setImmediate that outlives the
+  // scene's unmount (UI-261), and a launch's face never changes.
+  const face = sceneFace(params.scene);
+  useEffect(() => {
+    if (face !== null) StatusBar.setBarStyle(face === 'light' ? 'dark-content' : 'light-content');
+  }, [face]);
+
   const SceneComponent = scene.Component;
   return (
     <ProbeRegistry onMeasure={onMeasure}>
@@ -434,7 +560,15 @@ function LabSession({ params, scene, initialPowerSave, deps }: {
         <SceneFactsContext.Provider value={reportFacts}>
           <LabMotionPortsContext.Provider value={motionPorts}>
             <CostReportContext.Provider value={costReport}>
-              <SceneComponent clock={clock} t={step.t} params={params} />
+              {typefaces === null ? <SceneComponent clock={clock} t={step.t} params={params} /> : (
+                <TypefaceBoundary onError={onTypefaceError}>
+                  <TypefaceProvider {...(typefaces as { sources: FaceSources<number> })}>
+                    <TypefacesIn onIn={onTypefacesIn} />
+                    <SceneComponent clock={clock} t={step.t} params={params} />
+                  </TypefaceProvider>
+                </TypefaceBoundary>
+              )}
+              {faces.length > 0 ? <FontProbes faces={faces} onWidth={onFontWidth} /> : null}
             </CostReportContext.Provider>
           </LabMotionPortsContext.Provider>
         </SceneFactsContext.Provider>

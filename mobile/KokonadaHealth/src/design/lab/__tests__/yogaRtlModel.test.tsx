@@ -1,6 +1,7 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, type ViewStyle } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
+import { DIRECTIONS } from '../../v2/tokens/tokens.generated';
 import { frameOf, layoutRules, type Box, type Rules } from './__fixtures__/yogaRtl';
 
 // UI-242: the lab's RTL tests share one layout model (__fixtures__/yogaRtl.ts), so it is pinned here on small trees whose
@@ -75,6 +76,53 @@ describe('the shared Yoga RTL model', () => {
     const centred = <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><View testID="c" style={{ width: 100, height: 60 }} /></View>;
     expect(frames(centred, RTL).c).toEqual({ x: 150, y: 370, width: 100, height: 60 });
     expect(frames(centred, LTR).c).toEqual({ x: 150, y: 370, width: 100, height: 60 });
+  });
+
+  // F10 G8: the hero's bead draws its disc and its setting ring as Views placed by their sides, with a corner radius, a
+  // border, a shadow and a background image (the bead's own tokens here); none of those may stop the model, and none may
+  // move what they paint.
+  const bead = DIRECTIONS.abyss.bead;
+  const ink = DIRECTIONS.abyss.color.dark.text.primary.hex;
+  const B = bead.setting.width;
+
+  it('a paint-only style moves nothing: a corner radius, a border colour, a shadow and a background image', () => {
+    // Typed as React Native's own ViewStyle, so the gradient is a whole radial-gradient value, as Bead.tsx's is.
+    const paint: ViewStyle = {
+      borderRadius: bead.diameter / 2, borderColor: ink, boxShadow: [{ offsetX: 0, offsetY: bead.shadow.offsetY, blurRadius: bead.shadow.blur, color: ink }],
+      experimental_backgroundImage: [{ type: 'radial-gradient', shape: 'circle', size: 'closest-side', position: { top: '50%', left: '50%' }, colorStops: [{ color: ink }] }],
+    };
+    const tree = <View style={{ flex: 1 }}><View testID="p" style={{ position: 'absolute', left: 10, top: 20, width: 30, height: 40, ...paint }} /></View>;
+    expect(frames(tree, LTR).p).toEqual({ x: 10, y: 20, width: 30, height: 40 });
+    expect(frames(tree, RTL).p).toEqual({ x: 400 - 10 - 30, y: 20, width: 30, height: 40 });
+  });
+
+  it('a uniform border leaves its node where it is and lays its children inside it, absolute and in flow alike', () => {
+    const tree = (
+      <View style={{ flex: 1 }}>
+        <View testID="b" style={{ position: 'absolute', left: 10, top: 20, width: 100, height: 100, borderWidth: B }}>
+          <View testID="abs" style={{ position: 'absolute', left: 5, top: 6, width: 10, height: 10 }} />
+          <View testID="flow" style={{ width: 20, height: 30 }} />
+        </View>
+      </View>
+    );
+    expect(frames(tree, LTR)).toEqual({
+      b: { x: 10, y: 20, width: 100, height: 100 },
+      abs: { x: 10 + B + 5, y: 20 + B + 6, width: 10, height: 10 },
+      flow: { x: 10 + B, y: 20 + B, width: 20, height: 30 },
+    });
+    // Under RTL the bordered box mirrors, and its children resolve start and end inside the border, from its right edge.
+    expect(frames(tree, RTL)).toEqual({
+      b: { x: 290, y: 20, width: 100, height: 100 },
+      abs: { x: 290 + 100 - B - 5 - 10, y: 20 + B + 6, width: 10, height: 10 },
+      flow: { x: 290 + 100 - B - 20, y: 20 + B, width: 20, height: 30 },
+    });
+  });
+
+  it('fails closed on a border it does not model: one side\'s width, or a width that is not a number', () => {
+    const side = <View style={{ flex: 1 }}><View testID="s" style={{ position: 'absolute', left: 0, top: 0, width: 10, height: 10, borderLeftWidth: B }} /></View>;
+    expect(() => frames(side, LTR)).toThrow(/unmodelled style.*borderLeftWidth/);
+    const text = <View style={{ flex: 1 }}><View testID="t" style={{ position: 'absolute', left: 0, top: 0, width: 10, height: 10, borderWidth: String(B) as never }} /></View>;
+    expect(() => frames(text, LTR)).toThrow(/unmodelled style.*borderWidth/);
   });
 
   it('fails closed: a style it does not model is an error, never a guess', () => {

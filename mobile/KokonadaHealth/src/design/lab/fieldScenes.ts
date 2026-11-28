@@ -75,6 +75,12 @@ export const FIELD_STATICS: FieldStatics = staticsFor(FIELD_DIRECTION, EXTENSION
 const hero = (width: number, height: number, fontScale: number) => heroLayout(FIELD_DIRECTION, width, height, fontScale);
 const tapsOf = (placements: Placements | undefined): Tap[] => (placements ?? []).map((p) => ({ x: p.x, y: p.y }));
 
+/** A hero scene's placements (the token extensions) as taps on the unit disc, oldest first; none for a scene they do not name. */
+export function heroTaps(scene: string): Tap[] {
+  const scenes = EXT.base.$root.hero.scenes;
+  return tapsOf(Object.prototype.hasOwnProperty.call(scenes, scene) ? scenes[scene].placements : undefined);
+}
+
 /** A scene's layout at a measured size: a RangeError naming the scene when it has more than QUIET_SLOTS quiet rects. */
 export function fieldSceneLayout(spec: FieldSceneSpec, width: number, height: number, fontScale: number): FieldLayout {
   const layout = spec.layout(width, height, fontScale);
@@ -108,19 +114,19 @@ function abyssSpecs(): FieldSceneSpec[] {
   const field = FIELD_FACES.flatMap((face) => HERO_SCENES.flatMap((scene) => FIELD_TIERS.map((tier): FieldSceneSpec => ({
     id: `field.${FIELD_DIRECTION}.${face}.${scene}.${tier}`,
     kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier, policy: false,
-    taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
+    taps: heroTaps(scene),
     periodMs, layout: hero,
   }))));
   const near = FIELD_FACES.flatMap((face) => NEAR_SCENES.map((scene): FieldSceneSpec => ({
     id: `field.${FIELD_DIRECTION}.${face}.${scene}.${NEAR_TIER}`,
     kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: NEAR_TIER, policy: false,
-    taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
+    taps: heroTaps(scene),
     periodMs, layout: hero,
   })));
   const policy = FIELD_FACES.flatMap((face) => HERO_SCENES.map((scene): FieldSceneSpec => ({
     id: `field.${FIELD_DIRECTION}.${face}.${scene}.${POLICY_SUFFIX}`,
     kind: 'field', direction: FIELD_DIRECTION, face, hero: scene, tier: null, policy: true,
-    taps: tapsOf(EXT.base.$root.hero.scenes[scene]?.placements),
+    taps: heroTaps(scene),
     periodMs, layout: hero,
   })));
   const fallback = fallbackScenes(EXT.base.$root.hero.scenes, EXT.abyss.$root.hardest);

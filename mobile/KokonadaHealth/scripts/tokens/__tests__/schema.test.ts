@@ -330,6 +330,97 @@ describe('field.rest’s lobes: one table, or one per face', () => {
   });
 });
 
+// DEC-172, G4 (the architect's Fork 1, with the designer's corrected lobe bound and the architect's re-rule of at
+// most two rest lobes): the field's runtime statics are checked at generation, and each planted break is refused
+// with an error naming its file and the group that holds it.
+describe('G4: the field’s runtime statics are checked at generation (DEC-172)', () => {
+  const extensionAt = (j: any, groupPath: string) => groupPath.split('.').reduce((node, k) => node[k], j).$extensions['com.kokonada'];
+  /** The planted source draws an error that names the file and the group and says what is wrong (`complaint`). */
+  const refused = (file: string, group: string, edit: (j: any) => void, complaint: RegExp) => {
+    const at = `${file}: ${group}: `;
+    const errors = errorsOf(planted(file, edit));
+    expect(errors.filter((e) => e.startsWith(at) && complaint.test(e.slice(at.length)))).not.toEqual([]);
+  };
+
+  describe('the rest lobes: one or two per table, each within centreAlpha + centreBeta of the centre', () => {
+    const lobes = (j: any) => extensionAt(j, 'field.rest');
+
+    it.each([
+      ['three lobes on one face', (j: any) => (lobes(j).lobes.light = [[0, 0], [0.1, 0], [0.2, 0]]), /^lobes\.light: at most 2 rest lobes/],
+      ['three lobes in a table for both faces', (j: any) => (lobes(j).lobes = [[0, 0], [0.1, 0], [0.2, 0]]), /^lobes: at most 2 rest lobes/],
+      ['a lobe beyond the bound (|c| = 1.006, the bound 1)', (j: any) => (lobes(j).lobes.dark = [[0.8, 0.61]]), /^lobes\.dark\[0\]: .*centreAlpha \+ centreBeta = 1 /],
+      ['a lobe beyond a lowered bound (centreAlpha 0.4, a light lobe at 0.53)', (j: any) => (j.field.lobe.centreAlpha.$value = 0.4), /^lobes\.light\[1\]: .*= 0\.4 /],
+      ['a bound the file does not hold', (j: any) => delete j.field.lobe.centreBeta, /bounded by field\.lobe\.centreAlpha \+ field\.lobe\.centreBeta/],
+    ])('%s is refused, naming field.rest', (_what, edit, complaint) => {
+      refused(ABYSS, 'field.rest', edit, complaint);
+    });
+
+    it('a lobe exactly on the bound passes, and the bound is the direction’s own sum (centreBeta widens it)', () => {
+      expect(errorsOf(planted(ABYSS, (j) => (lobes(j).lobes.dark = [[0.6, 0.8]])))).toEqual([]);
+      refused(ABYSS, 'field.rest', (j) => (lobes(j).lobes.dark = [[0, 1.1]]), /centreAlpha \+ centreBeta = 1 /);
+      expect(
+        errorsOf(
+          planted(ABYSS, (j) => {
+            j.field.lobe.centreBeta.$value = 0.12;
+            lobes(j).lobes.dark = [[0, 1.1]];
+          }),
+        ),
+      ).toEqual([]);
+    });
+  });
+
+  describe('the drift tables: slots lobe0, lobe1 … in both, harmonics whole and positive, phases finite', () => {
+    const drift = (j: any) => extensionAt(j, 'field.clock').drift;
+
+    it.each([
+      ['a harmonic that is not a whole number', (j: any) => (drift(j).harmonics.lobe1 = [3, 2.5]), /^drift\.harmonics\.lobe1: .*whole harmonics/],
+      ['a harmonic of 0', (j: any) => (drift(j).harmonics.lobe0 = [0, 3]), /^drift\.harmonics\.lobe0: .*at least 1/],
+      ['a negative harmonic', (j: any) => (drift(j).harmonics.lobe2 = [-1, 2]), /^drift\.harmonics\.lobe2: .*at least 1/],
+      ['a harmonic of three numbers', (j: any) => (drift(j).harmonics.lobe2 = [1, 2, 3]), /^drift\.harmonics\.lobe2: \[kx, ky\]/],
+      ['a phase that is not finite', (j: any) => (drift(j).phases.lobe2 = [2.1, null]), /^drift\.phases\.lobe2: .*finite phases/],
+      ['a phase slot the harmonics lack', (j: any) => (drift(j).phases.lobe3 = [0, 0]), /^drift\.phases: the same slots as drift\.harmonics/],
+      ['slots not named lobe0, lobe1 …', (j: any) => Object.assign(drift(j), { harmonics: { a: [1, 1] }, phases: { a: [0, 0] } }), /^drift\.harmonics: the slots are lobe0, lobe1/],
+      ['no drift table', (j: any) => delete extensionAt(j, 'field.clock').drift, /^drift: the drift tables/],
+    ])('%s is refused, naming field.clock', (_what, edit, complaint) => {
+      refused(BASE, 'field.clock', edit, complaint);
+    });
+  });
+
+  describe('the fallback stops: positions rise strictly from 0 to 1, weights in [0, 1] never rise, the lists as long', () => {
+    const stops = (j: any) => extensionAt(j, 'field.fallback').stops;
+
+    it.each([
+      ['positions that do not start at 0', (j: any) => (stops(j).position[0] = 0.1), /^stops\.position: runs from 0 to 1/],
+      ['positions that do not end at 1', (j: any) => (stops(j).position[6] = 0.99), /^stops\.position: runs from 0 to 1/],
+      ['positions that do not rise strictly', (j: any) => (stops(j).position[2] = stops(j).position[1]), /^stops\.position\[2\]: rises strictly/],
+      ['a weight above 1', (j: any) => (stops(j).weight[0] = 1.2), /^stops\.weight\[0\]: lies in \[0, 1\]/],
+      ['a negative weight', (j: any) => (stops(j).weight[6] = -0.1), /^stops\.weight\[6\]: lies in \[0, 1\]/],
+      ['weights that rise', (j: any) => (stops(j).weight[3] = 0.95), /^stops\.weight\[3\]: never rises/],
+      ['lists of unequal length', (j: any) => stops(j).weight.pop(), /^stops: position and weight are as long as each other/],
+      ['no stops', (j: any) => delete extensionAt(j, 'field.fallback').stops, /^stops: \{ position, weight \}/],
+    ])('%s is refused, naming field.fallback', (_what, edit, complaint) => {
+      refused(BASE, 'field.fallback', edit, complaint);
+    });
+  });
+
+  describe('the blend graph: every pair of its nodes joined exactly once, the node tier core or deep per face', () => {
+    const graph = (j: any) => extensionAt(j, 'field.graph');
+
+    it.each([
+      ['a pair joined twice', (j: any) => graph(j).edges.straight.push(['C', 'J']), /^edges\.straight\[8\]: joins C–J again/],
+      ['a pair never joined', (j: any) => (graph(j).edges.straight = graph(j).edges.straight.filter(([a, b]: string[]) => !(a === 'J' && b === 'C'))), /^edges: C–J is never joined/],
+      ['an edge to a node the graph does not name', (j: any) => graph(j).edges.straight.push(['J', 'X']), /^edges\.straight\[8\]: X is not a node of the graph/],
+      ['an edge from a node to itself', (j: any) => graph(j).edges.waypoint.push(['R', 'R']), /^edges\.waypoint\[1\]: joins R to itself/],
+      ['an edge that is not a pair', (j: any) => (graph(j).edges.restIntense = ['R0']), /^edges\.restIntense: an edge is a pair of node names/],
+      ['a node tier other than core or deep', (j: any) => (graph(j).nodeTier.light = 'mid'), /^nodeTier\.light: core or deep/],
+      ['a node tier for one face only', (j: any) => delete graph(j).nodeTier.dark, /^nodeTier: one tier per face/],
+      ['no edges', (j: any) => delete graph(j).edges, /^edges: \{ straight, waypoint, restIntense \}/],
+    ])('%s is refused, naming field.graph', (_what, edit, complaint) => {
+      refused(BASE, 'field.graph', edit, complaint);
+    });
+  });
+});
+
 describe('the set of files', () => {
   it('needs a base file', () => {
     const errors = errorsOf(real().filter((s) => s.name !== BASE));
