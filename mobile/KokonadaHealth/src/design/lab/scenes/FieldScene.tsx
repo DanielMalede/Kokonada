@@ -109,15 +109,59 @@ export function FieldScene(props: SceneProps) {
   return spec.policy ? <PolicyFieldScene {...props} spec={spec} /> : <FieldStage {...props} spec={spec} tier={spec.tier} observed={spec.tier} />;
 }
 
-/** A policy scene: the tier is the motion policy's, on the device's settings, as the app's root would take it. */
-function PolicyFieldScene({ spec, ...props }: SceneProps & { spec: FieldSceneSpec }) {
+/**
+ * A scene's tier from the app's motion policy on the device's settings (B8-6), as the app's root would take it: the tier
+ * to draw at, the tier READY may say (null until the policy has answered), and a setting that could not be read (UI-241).
+ * The policy scenes and the hero scene (F10 G8) take their tier this way.
+ */
+export function usePolicyTier(sceneId: string): { tier: MotionTier; observed: MotionTier | null; unreadable: string | null } {
   const ports = useContext(LabMotionPortsContext);
-  if (ports === null) throw new Error(`lab scene "${spec.id}" takes its tier from the motion policy, but no LabRoot gave it the device's settings`);
+  if (ports === null) throw new Error(`lab scene "${sceneId}" takes its tier from the motion policy, but no LabRoot gave it the device's settings`);
   // The first setting that could not be read, kept: the tier stays unknown for the mount's life.
   const [unreadable, setUnreadable] = useState<string | null>(null);
   const [observed] = useState(() => observedPorts(ports, (why) => setUnreadable((first) => first ?? why)));
   const tier = useMotionPolicy(observed.ports);
-  return <FieldStage {...props} spec={spec} tier={tier} observed={observed.known(tier)} unreadable={unreadable} />;
+  return { tier, observed: observed.known(tier), unreadable };
+}
+
+/** A policy scene: the tier is the motion policy's, on the device's settings, as the app's root would take it. */
+function PolicyFieldScene({ spec, ...props }: SceneProps & { spec: FieldSceneSpec }) {
+  const { tier, observed, unreadable } = usePolicyTier(spec.id);
+  return <FieldStage {...props} spec={spec} tier={tier} observed={observed} unreadable={unreadable} />;
+}
+
+/**
+ * What a scene that draws FieldView tells LabRoot: the tier it observed, or the setting it cannot read (SceneFacts, B8-6
+ * and UI-241), and which surface drew it (UI-223): pending until FieldView's first drawn frame of this scene (UI-233,
+ * RA-44), then ready, or fallback with the effect's or FieldFallback's reason. Returns the listeners the scene provides:
+ * FieldFirstFrameReport's and FieldFallbackReport's. The field scenes and the hero scene (F10 G8) report this way.
+ */
+export function useFieldSceneReport(sceneId: string, observed: MotionTier | null, unreadable: string | null) {
+  const report = useContext(ShaderReportContext);
+  const facts = useContext(SceneFactsContext);
+  useLayoutEffect(() => {
+    facts?.(unreadable === null ? { tier: observed } : { tier: null, unreadable });
+  }, [facts, observed, unreadable]);
+  const [effect] = useState(fieldEffect);
+  // FieldFallback's reason, bound to the scene it fell back in, as the drawn frame is: a scene change mounts a fresh
+  // FieldView, and an earlier scene's fallback says nothing about it.
+  const [fallen, setFallen] = useState<{ readonly scene: string; readonly reason: string } | null>(null);
+  const setFellBack = useCallback((r: string) => setFallen({ scene: sceneId, reason: r }), [sceneId]);
+  const fellBack = fallen !== null && fallen.scene === sceneId ? fallen.reason : null;
+  const status = fellBack !== null ? 'fallback' : effect.status;
+  const reason = fellBack ?? (effect.status === 'fallback' ? effect.reason : null);
+  // The scene whose FieldView has drawn its first frame: re-armed by every scene, since the signal is bound to its own.
+  const [drawnScene, setDrawnScene] = useState<string | null>(null);
+  const onFirstFrame = useCallback(() => setDrawnScene(sceneId), [sceneId]);
+  const drawn = drawnScene === sceneId;
+  useLayoutEffect(() => {
+    if (status === 'ready' && !drawn) {
+      report?.({ status: 'pending', reason: null });
+      return;
+    }
+    report?.({ status, reason });
+  }, [report, status, reason, drawn]);
+  return { onFirstFrame, setFellBack };
 }
 
 function FieldStage({ clock, spec, tier, observed, unreadable = null }: SceneProps & {
@@ -134,30 +178,7 @@ function FieldStage({ clock, spec, tier, observed, unreadable = null }: ScenePro
     () => (size === null ? null : fieldSceneLayout(spec, size.width, size.height, PixelRatio.getFontScale())),
     [spec, size],
   );
-  const report = useContext(ShaderReportContext);
-  const facts = useContext(SceneFactsContext);
-  useLayoutEffect(() => {
-    facts?.(unreadable === null ? { tier: observed } : { tier: null, unreadable });
-  }, [facts, observed, unreadable]);
-  const [effect] = useState(fieldEffect);
-  // FieldFallback's reason, bound to the scene it fell back in, as the drawn frame is: a scene change mounts a fresh
-  // FieldView, and an earlier scene's fallback says nothing about it.
-  const [fallen, setFallen] = useState<{ readonly scene: string; readonly reason: string } | null>(null);
-  const setFellBack = useCallback((r: string) => setFallen({ scene: spec.id, reason: r }), [spec.id]);
-  const fellBack = fallen !== null && fallen.scene === spec.id ? fallen.reason : null;
-  const status = fellBack !== null ? 'fallback' : effect.status;
-  const reason = fellBack ?? (effect.status === 'fallback' ? effect.reason : null);
-  // The scene whose FieldView has drawn its first frame: re-armed by every scene, since the signal is bound to its own.
-  const [drawnScene, setDrawnScene] = useState<string | null>(null);
-  const onFirstFrame = useCallback(() => setDrawnScene(spec.id), [spec.id]);
-  const drawn = drawnScene === spec.id;
-  useLayoutEffect(() => {
-    if (status === 'ready' && !drawn) {
-      report?.({ status: 'pending', reason: null });
-      return;
-    }
-    report?.({ status, reason });
-  }, [report, status, reason, drawn]);
+  const { onFirstFrame, setFellBack } = useFieldSceneReport(spec.id, observed, unreadable);
   const stage = (
     <Probe id="stage" style={styles.stage}>
       <View testID="field-scene.view" style={styles.stage} onLayout={onLayout}>

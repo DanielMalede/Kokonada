@@ -1,0 +1,48 @@
+// The beads for the page's presence (F10 group A): one Bead per entry, on the plate's LTR root (R7, QA-088), entering
+// when placed and leaving when a fourth tap, an undo or a clear takes them. Leaving beads draw under the live ones (the
+// designer's board, d3). The layer is inert: no touch and no accessibility node; PlateTouch owns both.
+//
+// Ruling 2 (2026-11-25): the page owns the presence (useBeadPresence: the store's taps and the motion tier) and shares
+// it with hero A's rim words, and the looks its driver writes on the UI thread (useBeadPresence's `looks`); the layer
+// only draws its beads, each reading its own look by its id. Mount it as a child of the plate's D×D box. The taps are the page's own
+// (P10: page state, never the cold lane, RA-39; P2: the cold lane through its port).
+
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import type { SharedValue } from 'react-native-reanimated';
+import type { PlateGeometry } from '../Plate/geometry.ts';
+import { Bead } from './Bead.tsx';
+import type { BeadLooks } from './beadDriver.ts';
+import type { PresentBead } from './beadPresence.ts';
+
+export interface BeadLayerProps {
+  /** The presence's beads (useBeadPresence), oldest first, the leaving ones included. */
+  readonly beads: readonly PresentBead[];
+  /** The plate's shared geometry (Plate/geometry.ts plateGeometry). */
+  readonly plate: PlateGeometry;
+  /** The looks the presence's driver writes, by bead id (useBeadPresence). */
+  readonly looks: SharedValue<BeadLooks>;
+}
+
+export function BeadLayer({ beads, plate, looks }: BeadLayerProps) {
+  const live = beads.filter((b) => !b.leaving);
+  const order = [...beads.filter((b) => b.leaving), ...live];
+  return (
+    <View
+      testID="bead.layer"
+      pointerEvents="none"
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      accessibilityElementsHidden
+      style={[styles.layer, { width: plate.diameter, height: plate.diameter }]}
+    >
+      {order.map((bead) => (
+        <Bead key={bead.id} id={bead.id} point={bead.point} plate={plate} entered={bead.placedAt !== null} looks={looks} slot={bead.leaving ? 'leaving' : live.indexOf(bead)} />
+      ))}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  layer: { position: 'absolute', left: 0, top: 0, direction: 'ltr' },
+});

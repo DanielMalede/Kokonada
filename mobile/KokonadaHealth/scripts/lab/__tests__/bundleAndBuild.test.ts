@@ -111,6 +111,60 @@ describe('bundleLab', () => {
     const git = { head: () => SHA, porcelain: () => (calls++ === 0 ? '' : '?? android/app/src/lab/assets/lab-stamp.json') };
     await expect(bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git, bundle: bundler(), now: NOW, realpath: (p: string) => p })).rejects.toThrow(/dirty/);
   });
+
+  // UI-072: React Native on Android loads a family from fonts/<family>.ttf in the APK's assets, so the lab's faces ride in
+  // the lab source set's assets (android/app/src/lab/assets, merged into the lab build type alone), copied from
+  // assets/fonts by every run after the wipe of what the previous run left.
+  describe('the fonts', () => {
+    // Every fixture's file name is built from its face id: fontLicence.test.ts (HX-8) reads each literal font file name
+    // in tracked code as a font the app loads, and these are temporary files, never fonts the repository holds.
+    const file = (id: string, ext = 'ttf') => `${id}.${ext}`;
+    const TTF = (id: string) => Buffer.concat([Buffer.from([0x00, 0x01, 0x00, 0x00]), Buffer.from(`${id} fixture`)]);
+    const LAB_FONTS = 'android/app/src/lab/assets/fonts';
+    const run = (a: ReturnType<typeof app>, hbc: Buffer = HBC) => bundleLab({ repoRoot: a.repoRoot, appRoot: a.appRoot, git: cleanGit, bundle: bundler(hbc), now: NOW, realpath: (p: string) => p });
+
+    it('copies each .ttf of assets/fonts byte for byte into the lab assets, where the lab APK carries fonts/<family>.ttf, and nothing else', async () => {
+      const a = app();
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
+      a.write(`assets/fonts/${file('Bellefair-Regular')}`, TTF('Bellefair-Regular'));
+      a.write('assets/fonts/OFL-Heebo.txt', 'the licence');
+      a.write('assets/fonts/README.md', '# fonts');
+      a.write(`assets/fonts/${file('Heebo-Bold', 'otf')}`, 'not a .ttf');
+      a.write(`assets/fonts/${file('notes')}/inside.txt`, 'a folder, not a font');
+      const result = await run(a);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS)).sort()).toEqual([file('Bellefair-Regular'), file('Heebo-Regular')]);
+      expect(a.read(`${LAB_FONTS}/${file('Heebo-Regular')}`).equals(TTF('Heebo-Regular'))).toBe(true);
+      expect(a.read(`${LAB_FONTS}/${file('Bellefair-Regular')}`).equals(TTF('Bellefair-Regular'))).toBe(true);
+      expect(result.fonts).toEqual([file('Bellefair-Regular'), file('Heebo-Regular')]);
+      expect(a.exists('android/app/src/lab/assets/index.android.bundle')).toBe(true); // the wipe did not take the bundle with it
+    });
+
+    it('copies after the wipe: a face a previous run copied, since removed from assets/fonts, does not ride along', async () => {
+      const a = app();
+      a.write(`${LAB_FONTS}/${file('Removed-Face')}`, TTF('Removed-Face'));
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
+      await run(a);
+      expect(fs.readdirSync(path.join(a.appRoot, LAB_FONTS))).toEqual([file('Heebo-Regular')]);
+    });
+
+    it.each([
+      ['assets/fonts holds no .ttf', (a: ReturnType<typeof app>) => a.write('assets/fonts/README.md', '# fonts')],
+      ['there is no assets/fonts', () => undefined],
+    ])('copies nothing and makes no fonts folder when %s', async (_label, setup) => {
+      const a = app();
+      setup(a);
+      const result = await run(a);
+      expect(result.fonts).toEqual([]);
+      expect(a.exists(LAB_FONTS)).toBe(false);
+    });
+
+    it('leaves no font behind when the bundle is refused, as it leaves no bundle', async () => {
+      const a = app();
+      a.write(`assets/fonts/${file('Heebo-Regular')}`, TTF('Heebo-Regular'));
+      await expect(run(a, Buffer.from(`var x = "${SENTINEL}"`))).rejects.toThrow(/Hermes/);
+      expect(a.exists(LAB_FONTS)).toBe(false);
+    });
+  });
 });
 
 describe('the drive letter and the autolinking paths', () => {
@@ -133,7 +187,9 @@ describe('the drive letter and the autolinking paths', () => {
 
 describe('buildLabApk', () => {
   const DEBUG_CERT = { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'a'.repeat(64) };
-  function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT } = {}) {
+  // The native libraries a two-ABI lab APK carries: the same files under each ABI (OPS-477).
+  const NATIVE_LIBS = ['lib/arm64-v8a/libreactnative.so', 'lib/arm64-v8a/libappmodules.so', 'lib/x86_64/libreactnative.so', 'lib/x86_64/libappmodules.so'];
+  function rig({ gradleFails = false, apkBundle = HBC, keystorePresent = true, apkCert = DEBUG_CERT, apkLibs = NATIVE_LIBS } = {}) {
     const a = app();
     const stamp = makeStamp({ commit: SHA, porcelain: '', bundleSha256: sha(HBC), tokens: STAMPED_TOKENS, entry: 'index.lab.js', createdAt: NOW().toISOString() });
     a.write('android/app/src/lab/assets/index.android.bundle', HBC);
@@ -165,6 +221,7 @@ describe('buildLabApk', () => {
       fs.writeFileSync(apk, zip([
         { name: 'assets/index.android.bundle', data: apkBundle, deflate: true },
         { name: 'assets/lab-stamp.json', data: Buffer.from(JSON.stringify(stamp, null, 2)) },
+        ...apkLibs.map((name) => ({ name, data: Buffer.from(`\x7fELF ${name}`) })), // stored, as the real APK keeps them
       ]));
     };
     const run = (git = cleanGit, extra: Record<string, unknown> = {}) => buildLabApk({
@@ -179,7 +236,8 @@ describe('buildLabApk', () => {
     const [regen, assemble] = r.calls;
     expect(regen.args[0]).toBe('help');
     expect(regen.cwd).toBe(path.join(r.appRoot, 'android')); // regenerated from the real path
-    expect(assemble.args).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+    // OPS-477: arm64-v8a for the phone and x86_64 for the API 35 emulator, whose SoLoader looks only under lib/x86_64.
+    expect(assemble.args).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64', '--console=plain']);
     expect(assemble.cwd).toBe(`L:\\${path.join('mobile', 'App', 'android')}`);
     // relinkAutolinking swaps the repository root for the drive and keeps the rest of each path in this
     // platform's separators (L:\mobile\App on Windows, L:/mobile/App on Linux), JSON-escaped in the file.
@@ -229,6 +287,21 @@ describe('buildLabApk', () => {
     await expect(rig({ apkCert: { dn: 'CN=Android Debug, O=Android, C=US', sha256: 'c'.repeat(64) } }).run()).rejects.toThrow(/not signed with the shared debug keystore/);
   });
 
+  // OPS-477 (RA-5, 2026-11-24): an arm64-only lab died at launch on the x86_64 emulator, so the APK is checked to carry
+  // exactly the ABIs it was built for, each with the same libraries: a library one ABI lacks is a crash on that device.
+  it.each([
+    ['no x86_64 libraries (the emulator cannot start it)', ['lib/arm64-v8a/libreactnative.so', 'lib/arm64-v8a/libappmodules.so'], /no lib\/x86_64\//],
+    ['no arm64-v8a libraries (the phone cannot start it)', ['lib/x86_64/libreactnative.so', 'lib/x86_64/libappmodules.so'], /no lib\/arm64-v8a\//],
+    ['no native libraries at all', [], /no lib\/arm64-v8a\/[\s\S]*no lib\/x86_64\//],
+    ['an ABI it was not built for', [...NATIVE_LIBS, 'lib/armeabi-v7a/libreactnative.so'], /lib\/armeabi-v7a\/, an ABI the lab is not built for/],
+    ['a library under one ABI only', [...NATIVE_LIBS, 'lib/arm64-v8a/libworklets.so'], /libworklets\.so is missing from lib\/x86_64\//],
+  ])('refuses an APK with %s, and still restores autolinking.json and removes the drive', async (_label, apkLibs, why) => {
+    const r = rig({ apkLibs });
+    await expect(r.run()).rejects.toThrow(why);
+    expect(fs.readFileSync(r.autolinking, 'utf8')).toBe(r.real);
+    expect(r.drives.size).toBe(0);
+  });
+
   // The dry run on a 14 GB machine needed Gradle's workers and the native build's ninja jobs capped (28m51s through an
   // outside driver). The route now takes both caps itself; without them every call is exactly as before.
   describe('the caps on Gradle workers and native build jobs', () => {
@@ -236,7 +309,7 @@ describe('buildLabApk', () => {
       const r = rig();
       await r.run(cleanGit, { limits: { maxWorkers: 2 } });
       expect(r.calls.map((c) => c.args.slice(-1))).toEqual([['--max-workers=2'], ['--max-workers=2']]);
-      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a', '--console=plain']);
+      expect(r.calls[1].args.slice(0, 3)).toEqual([':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64', '--console=plain']);
     });
 
     it('caps the ninja job pools of every CMake module through an init script, which it removes after the build', async () => {
@@ -306,6 +379,45 @@ describe('the command line of buildLabApk', () => {
   });
 });
 
+// OPS-477's first real build: apksigner from build-tools 37.0.0 (installed 2026-11-23, and the newest, so the one the
+// route runs) names each signer by its scheme, where 35.0.0 and 36.0.0 number it, and the parser that knew only
+// "Signer #1" reported no signer for a correctly signed APK. The lines below are what each printed for that lab APK,
+// with the digests replaced.
+describe('the signer certificate apksigner prints', () => {
+  const DN = 'CN=Android Debug, O=Android, C=US';
+  const KEY = 'a'.repeat(64);
+  const OTHER = 'b'.repeat(64);
+  const lines = (prefix: string, sha256: string, dn = DN) => [
+    `${prefix} certificate DN: ${dn}`,
+    `${prefix} certificate SHA-256 digest: ${sha256}`,
+    `${prefix} certificate SHA-1 digest: ${'c'.repeat(40)}`,
+    `${prefix} certificate MD5 digest: ${'d'.repeat(32)}`,
+  ];
+  const out = (...blocks: string[][]) => `${blocks.flat().join('\r\n')}\r\n`;
+
+  it.each([
+    ['build-tools 36.0.0 (a numbered signer)', out(lines('Signer #1', KEY))],
+    ['build-tools 37.0.0 (a signer named by its scheme)', out(lines('V2 Signer:', KEY))],
+    ['one certificate under two schemes', out(lines('V2 Signer:', KEY), lines('V3.0 Signer:', KEY))],
+  ])('reads the one certificate from %s', (_label, text) => {
+    expect(apksignerCertificate(text)).toEqual({ dn: DN, sha256: KEY });
+  });
+
+  it.each([
+    ['no output', ''],
+    ['no certificate line', 'WARNING: META-INF/x.txt not protected by signature.\r\n'],
+    ['a DN without its SHA-256 digest', `V2 Signer: certificate DN: ${DN}\r\n`],
+  ])('refuses %s', (_label, text) => {
+    expect(() => apksignerCertificate(text)).toThrow(/apksigner printed no signer certificate/);
+  });
+
+  it('refuses an APK signed by more than one certificate, whatever the signers are called', () => {
+    expect(() => apksignerCertificate(out(lines('Signer #1', KEY), lines('Signer #2', OTHER)))).toThrow(/more than one certificate/);
+    expect(() => apksignerCertificate(out(lines('V2 Signer:', KEY), lines('V3.0 Signer:', OTHER)))).toThrow(/more than one certificate/);
+    expect(() => apksignerCertificate(out(lines('V2 Signer:', KEY), lines('Source Stamp Signer:', OTHER, 'CN=Stamp')))).toThrow(/more than one certificate/);
+  });
+});
+
 describe('the signer apksigner prints (the lab APK must carry the shared debug certificate)', () => {
   // Build-tools 36 prints "Signer #1 certificate …". Build-tools 37, which React Native 0.88 builds with
   // (buildToolsVersion 37.0.0, so the newest installed), labels each line by the scheme it verified:
@@ -357,15 +469,16 @@ describe('the real Gradle wrapper call', () => {
   // Found on the first real run: with NoDefaultCurrentDirectoryInExePath set (it is in some shells),
   // cmd.exe does not look in the current directory, so a bare `gradlew.bat` "is not recognized". The
   // wrapper is named by its absolute path, quoted, and the call runs through the real cmd.exe here.
+  // The ABI list keeps its comma: cmd.exe splits a batch file's %1..%9 on commas, but the real gradlew.bat passes %*.
   const onWindows = process.platform === 'win32' ? it : it.skip;
   onWindows('runs the wrapper in cwd by its absolute path, even where cmd.exe does not search the current directory', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab gradle '));
     fs.writeFileSync(path.join(dir, 'gradlew.bat'), '@echo off\r\necho WRAPPER %* KEY=%ORG_GRADLE_PROJECT_kokonadaDebugKeystore%\r\n');
     const keystore = String.raw`C:\k\debug.keystore`;
-    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore } });
+    const [command, args, options] = gradleSpawn({ cwd: dir, args: [':app:assembleLab', '-PreactNativeArchitectures=arm64-v8a,x86_64'], env: { ORG_GRADLE_PROJECT_kokonadaDebugKeystore: keystore } });
     const r = spawnSync(command, args, { ...options, env: { ...options.env, NoDefaultCurrentDirectoryInExePath: '1' }, encoding: 'utf8' });
     expect(r.stderr).toBe('');
-    expect(r.stdout.trim()).toBe(`WRAPPER :app:assembleLab -PreactNativeArchitectures=arm64-v8a KEY=${keystore}`);
+    expect(r.stdout.trim()).toBe(`WRAPPER :app:assembleLab -PreactNativeArchitectures=arm64-v8a,x86_64 KEY=${keystore}`);
     expect(r.status).toBe(0);
   });
 

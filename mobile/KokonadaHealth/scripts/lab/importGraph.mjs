@@ -103,10 +103,16 @@ export function labModules(appRoot, files) {
 
 /**
  * The only app modules outside the lab and v2 that the lab may reach: the circumplex geometry and
- * its own closure (wheelGeometry imports laneCommit, which imports nothing). labExclusion.test.ts
- * pins this list to that closure, so it cannot grow quietly.
+ * its own closure (wheelGeometry imports laneCommit, which imports nothing), and the v2 face sources
+ * the typeface provider is mounted with (F6), whose closure outside v2 is the five bundled font
+ * files. labExclusion.test.ts pins this list to those closures, so it cannot grow quietly.
  */
-export const LAB_SHARED_MODULES = ['src/experience/wheel/wheelGeometry.ts', 'src/state/hot/laneCommit.ts'];
+export const LAB_SHARED_MODULES = [
+  'src/experience/wheel/wheelGeometry.ts', 'src/state/hot/laneCommit.ts',
+  'src/design/v2FaceSources.ts',
+  'assets/fonts/Heebo-Light.ttf', 'assets/fonts/Heebo-Regular.ttf', 'assets/fonts/Heebo-Medium.ttf',
+  'assets/fonts/Heebo-SemiBold.ttf', 'assets/fonts/Bellefair-Regular.ttf',
+];
 
 /** The only packages the lab may import. Health, Bluetooth, auth and Spotify are not among them. */
 export const LAB_PACKAGES = ['react', 'react-native', 'react-native-reanimated', '@shopify/react-native-skia'];

@@ -9,6 +9,8 @@
 //   android/app/src/lab/assets/lab-stamp.json         the head of the stamp chain: commit, empty
 //                                                     porcelain, the bundle's sha256, the token hashes
 //   android/app/src/lab/res/drawable-*, raw/          the JS assets (--assets-dest)
+//   android/app/src/lab/assets/fonts/*.ttf            the faces (UI-072): each .ttf of assets/fonts, copied after the
+//                                                     bundle passed its checks; React Native loads fonts/<family>.ttf
 // All of these are gitignored, and it refuses if bundling left the tree dirty. The token hashes
 // (UI-278) are the sha256 of every design-tokens/*.tokens.json and src/design/v2/tokens/*.generated.ts,
 // keyed by the path from the repository root (lib/tokenHashes.mjs); it refuses without them. Never
@@ -28,8 +30,25 @@ import { tokenHashes } from './lib/tokenHashes.mjs';
 const LAB_ASSETS = 'android/app/src/lab/assets';
 const LAB_RES = 'android/app/src/lab/res';
 const GENERATED_RES = /^(drawable|raw)(-|$)/; // what --assets-dest writes; res/values is source
+const FONTS = 'assets/fonts';
 const HERMES_MAGIC = Buffer.from([0xc6, 0x1f, 0xbc, 0x03, 0xc1, 0x03, 0x19, 0x1f]);
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
+
+/**
+ * UI-072: React Native on Android loads a family from fonts/<family>.ttf in the APK's assets, so the lab's faces go into
+ * the lab source set's assets, which Gradle merges into the lab build type alone. Copies every .ttf file of assets/fonts
+ * there, byte for byte, and nothing else from that folder; returns their names.
+ */
+function copyFonts(root) {
+  const from = path.join(root, FONTS);
+  const names = fs.existsSync(from)
+    ? fs.readdirSync(from).filter((name) => name.endsWith('.ttf') && fs.statSync(path.join(from, name)).isFile()).sort()
+    : [];
+  const to = path.join(root, LAB_ASSETS, 'fonts');
+  if (names.length) fs.mkdirSync(to, { recursive: true });
+  for (const name of names) fs.copyFileSync(path.join(from, name), path.join(to, name));
+  return names;
+}
 
 /**
  * @param {{ repoRoot: string, appRoot: string, git: { head(): string, porcelain(): string },
@@ -74,9 +93,11 @@ export async function bundleLab({
     const stampPath = path.join(assets, 'lab-stamp.json');
     fs.writeFileSync(bundlePath, hbc);
     fs.writeFileSync(stampPath, `${JSON.stringify(stamp, null, 2)}\n`);
+    // After the wipe above, so a face removed from assets/fonts never rides along from a previous run.
+    const fonts = copyFonts(root);
     const after = git.porcelain();
     if (after.trim() !== '') throw new Error(`bundling left the tree dirty; the lab outputs must all be gitignored:\n${after}`);
-    return { stamp, bundlePath, stampPath };
+    return { stamp, bundlePath, stampPath, fonts };
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -100,8 +121,9 @@ if (process.argv[1] && /bundleLab\.mjs$/.test(process.argv[1])) {
   const git = gitIn(appRoot);
   // async, so a git failure reading the root is a refusal like any other (exit 2), never an uncaught throw.
   (async () => bundleLab({ repoRoot: git.root(), appRoot, git, log: (m) => console.log(m) }))()
-    .then(({ stamp, bundlePath }) => {
+    .then(({ stamp, bundlePath, fonts }) => {
       console.log(`bundled ${path.relative(appRoot, bundlePath)}: sha256 ${stamp.bundleSha256}, commit ${stamp.commit}`);
+      console.log(`copied ${fonts.length} font(s) from ${FONTS} into ${LAB_ASSETS}/fonts${fonts.length ? `: ${fonts.join(', ')}` : ''}`);
     })
     .catch((e) => {
       console.error(e.message);

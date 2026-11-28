@@ -725,8 +725,10 @@ describe('UI-225: an ERROR the lab sends after READY refuses the shot', () => {
 });
 
 describe('the surface rules of the B8 scene prefixes (UI-223)', () => {
+  // F10 G8: a hero scene draws the field under the plate (FieldView), so it is held to the field shader as the others are.
   it.each([
     'witness.abyss.dark', 'grain.abyss.light.low', 'cost.abyss.dark.three.full.storm', 'storm.abyss.dark.burst', 'field.abyss.dark.three.policy',
+    'hero.abyss.dark.three.latin',
   ])('%s must be drawn by the field shader: ready passes, a fallback is refused', async (scene) => {
     const ok = world();
     readyAs(ok, { shaderStatus: 'ready', shaderReason: null });
@@ -750,6 +752,14 @@ describe('the surface rules of the B8 scene prefixes (UI-223)', () => {
     expect(surfaceRule('smokey')).toBeNull();
     expect(surfaceRule('witnessx.abyss.dark')).toBeNull();
     expect(surfaceRule('field.abyss.dark.three.policy')).toMatchObject({ status: 'ready' });
+  });
+
+  it('F10 G8: a fonts scene draws no field and is held to nothing, as smoke is; a hero scene is held to the field shader', () => {
+    expect(surfaceRule('fonts.abyss.dark')).toMatchObject({ prefix: 'fonts.', status: undefined });
+    expect(surfaceProblem('fonts.abyss.light', { shaderStatus: null })).toBeNull();
+    expect(surfaceRule('fontsx.abyss.dark')).toBeNull();
+    expect(surfaceRule('hero.abyss.light.empty.hebrew')).toMatchObject({ prefix: 'hero.', status: 'ready' });
+    expect(surfaceRule('heroes.abyss.dark')).toBeNull();
   });
 });
 

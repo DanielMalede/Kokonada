@@ -1,0 +1,211 @@
+// The bead's pure model (F10 group A, DSN-017, DSN-029; LEDGER §5.5, §7): a placed point's colours, and how
+// it enters and leaves. The views (Bead.tsx) draw exactly this. Where it sits is the plate's shared geometry
+// (Plate/geometry.ts pointToLocal, held to the field builder there), so the bead sits where the field lights its tap.
+//
+// Colour (DSN-017): the face's neutral bead inside placement.neutralRadius; otherwise the lightness runs
+// from the neutral bead's to the quadrant anchor's (the face's tier: core on dark, deep on light) with the
+// placement ramp p, and the chroma is p·bead.chromaScale·anchor.ab. The node and p are the field's own
+// (nodeAt, placementRamp), so the bead and the field's light for its tap always agree.
+//
+// F1 (the designer's rulings of 2026-11-25): a bead is never translucent in colour over the field. Below opacity 1
+// it shows only its grey disc, its achromatic twin (beadTwinPaint: the fill at its own OKLab L with chroma 0, and the
+// highlight drawn from it); the colour disc over it fades only while the bead is opaque (beadTimeline.ts).
+//
+// Motion: the opacity and the colour follow the timeline (beadTimeline.ts); the scale follows motion.placement
+// (scaleFrom, the easing token, the overshoot scaled to the token's peak and × (1 − s), LEDGER §2). Under reduced
+// motion (the still tier) the bead is whole in one frame and gone in one. Battery saver does not change UI motion
+// (LEDGER §7). The exit runs from where the bead is, its scale held (the designer's board, d3; ruling 12).
+//
+// The looks are worklets (entranceLook, exitLook): the beads' driver computes them on the UI thread, every channel from
+// one clock (beadDriver.ts). The scale's curve is the field's own worklet bezier (field/crossfade.ts cubicBezier).
+
+import { mixOklab, type Oklab } from '../../color/oklab.ts';
+import { cubicBezier } from '../../field/crossfade.ts';
+import { NODE_TIER, QUADRANT, nodeAt, placementRamp } from '../../field/fieldFrame.ts';
+import { srgbHex } from '../../field/fieldLaw.ts';
+import type { MotionTier } from '../../motion/useMotionPolicy.ts';
+import { entranceColour, entranceOpacity, exitColour, exitOpacity } from './beadTimeline.ts';
+import { BASE, DIRECTIONS, type DirectionId, type Face } from '../../tokens/tokens.generated.ts';
+import type { PlatePoint } from '../Plate/geometry.ts';
+
+const WHITE: Oklab = { L: 1, a: 0, b: 0 };
+const labOf = (c: { readonly oklab: readonly number[] }): Oklab => ({ L: c.oklab[0], a: c.oklab[1], b: c.oklab[2] });
+
+/**
+ * A tap as the field builder reads it for its node and ramp: each non-finite coordinate is 0, and a point outside the
+ * unit disc moves onto its rim (fieldFrame.ts; pointToLocal reads a point for its place the same way).
+ */
+export function readPoint(p: PlatePoint): PlatePoint {
+  let x = Number.isFinite(p.x) ? p.x : 0;
+  let y = Number.isFinite(p.y) ? p.y : 0;
+  const r = Math.hypot(x, y);
+  if (r > 1) {
+    x /= r;
+    y /= r;
+  }
+  return { x, y };
+}
+
+/** DSN-017: the bead's fill for a point, in OKLab. */
+export function beadFill(id: DirectionId, face: Face, point: PlatePoint): Oklab {
+  const d = DIRECTIONS[id];
+  const neutral = labOf(d.color[face].bead.neutral);
+  const p = readPoint(point);
+  const node = nodeAt(p.x, p.y);
+  if (node === 'neutral') return neutral;
+  const ramp = placementRamp(p.x, p.y);
+  const anchor = labOf(BASE.emotion[QUADRANT[node]][NODE_TIER[face]]);
+  const chroma = ramp * d.bead.chromaScale;
+  return { L: neutral.L + (anchor.L - neutral.L) * ramp, a: anchor.a * chroma, b: anchor.b * chroma };
+}
+
+/** The highlight's centre colour: the fill mixed toward white by bead.highlight.mix. */
+export function beadHighlight(id: DirectionId, fill: Oklab): Oklab {
+  return mixOklab(fill, WHITE, DIRECTIONS[id].bead.highlight.mix);
+}
+
+const byte = (v: number) => {
+  const s = Math.round(v).toString(16).toUpperCase();
+  return s.length < 2 ? '0' + s : s;
+};
+
+/** `#RRGGBB` of a painted pixel, and its OKLab read back: the field law's own (fieldLaw.ts, beside encodeSrgb8). */
+export { hexLab, srgbHex } from '../../field/fieldLaw.ts';
+
+/** `#RRGGBBAA`: a token's `#RRGGBB` with its alpha as a byte. Anything else is a RangeError. */
+export function alphaHex(hex: string, alpha: number): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new RangeError(`"${hex}" is not #RRGGBB`);
+  if (!(alpha >= 0 && alpha <= 1)) throw new RangeError(`alpha must be in [0, 1], got ${alpha}`);
+  return hex.toUpperCase() + byte(alpha * 255);
+}
+
+/** What the bead's views paint, as colour strings. */
+export interface BeadPaint {
+  readonly fill: string;
+  readonly highlight: string;
+  /** The setting ring (bead.setting). */
+  readonly setting: string;
+  /** The shadow, the token at its own alpha (bead.shadow). */
+  readonly shadow: string;
+}
+
+export function beadPaint(id: DirectionId, face: Face, point: PlatePoint): BeadPaint {
+  const c = DIRECTIONS[id].color[face].bead;
+  const fill = beadFill(id, face, point);
+  return { fill: srgbHex(fill), highlight: srgbHex(beadHighlight(id, fill)), setting: c.setting.hex, shadow: alphaHex(c.shadow.hex, c.shadow.alpha) };
+}
+
+/** F1: a colour's achromatic twin, at its own OKLab L with chroma 0. */
+export function beadTwin(colour: Oklab): Oklab {
+  return { L: colour.L, a: 0, b: 0 };
+}
+
+/** `#VVVVVV`: the 8-bit grey of an achromatic L, one byte on every channel, so the pixel has no hue to lose. */
+export function greyHex(L: number): string {
+  const v = srgbHex({ L, a: 0, b: 0 }).slice(3, 5);
+  return '#' + v + v + v;
+}
+
+/** What the grey disc paints (F1): the fill's twin, and the highlight drawn from it (bead.highlight.mix toward white). */
+export function beadTwinPaint(id: DirectionId, face: Face, point: PlatePoint): { readonly fill: string; readonly highlight: string } {
+  const twin = beadTwin(beadFill(id, face, point));
+  return { fill: greyHex(twin.L), highlight: greyHex(beadHighlight(id, twin).L) };
+}
+
+/** A direction's motion.placement: where the scale starts, how far it may overshoot, and the easing token it names. */
+export interface PlacementMotion {
+  readonly scaleFrom: number;
+  readonly overshoot: number;
+  readonly easing: string;
+}
+
+/** The scale's entrance as the views play it. */
+export interface BeadMotion {
+  /** 0 for the still tier: whole in one frame. */
+  readonly duration: number;
+  /** The cubic-bezier, or null (the still tier). */
+  readonly easing: readonly number[] | null;
+  readonly scaleFrom: number;
+  /** The easing curve's highest value (1 for a curve that does not overshoot). */
+  readonly peak: number;
+  /** The scale at the curve's peak, before × (1 − s): motion.placement.overshoot where the curve overshoots, else 1. */
+  readonly overshootScale: number;
+  readonly linear: boolean;
+}
+
+/** The highest value a cubic-bezier easing reaches over [0, 1], sampled at 1/1000. */
+function peakOf(easing: readonly number[]): number {
+  let peak = 1;
+  for (let i = 1; i < 1000; i++) peak = Math.max(peak, cubicBezier(easing, i / 1000));
+  return peak;
+}
+
+function easingToken(name: string): { readonly duration: number; readonly easing: readonly number[] } {
+  const key = name.startsWith('motion.') ? name.slice('motion.'.length) : name;
+  const token = (BASE.motion as Record<string, unknown>)[key] as { duration?: number; easing?: readonly number[] } | undefined;
+  if (token === undefined || typeof token.duration !== 'number' || !Array.isArray(token.easing)) {
+    throw new RangeError(`motion.placement.easing names no easing token: ${name}`);
+  }
+  return { duration: token.duration, easing: token.easing };
+}
+
+export function beadMotion(id: DirectionId, tier: MotionTier, placement: PlacementMotion = DIRECTIONS[id].motion.placement): BeadMotion {
+  if (tier === 'still') {
+    return { duration: 0, easing: null, scaleFrom: 1, peak: 1, overshootScale: 1, linear: true };
+  }
+  const token = easingToken(placement.easing);
+  const peak = peakOf(token.easing);
+  return { duration: token.duration, easing: token.easing, scaleFrom: placement.scaleFrom, peak, overshootScale: peak > 1 ? placement.overshoot : 1, linear: false };
+}
+
+/** What the bead looks like at a moment (F1): its opacity, its colour disc's opacity over the grey disc, its scale. */
+export interface BeadLook {
+  readonly opacity: number;
+  readonly colour: number;
+  readonly scale: number;
+}
+
+/** A bead with no entrance to play: opaque, in full colour, at its size. */
+export const BEAD_WHOLE: BeadLook = { opacity: 1, colour: 1, scale: 1 };
+
+/**
+ * The scale for an eased value e of motion.placement's curve: scaleFrom + (1 − scaleFrom)·min(1, e), plus, past e = 1,
+ * the overshoot scaled to the curve's peak and × (1 − s).
+ */
+function scaleAt(m: BeadMotion, e: number, stress: number): number {
+  'worklet';
+  const s = Number.isFinite(stress) ? Math.min(1, Math.max(0, stress)) : 0;
+  const over = m.peak > 1 ? (Math.max(0, e - 1) / (m.peak - 1)) * (m.overshootScale - 1) * (1 - s) : 0;
+  return m.scaleFrom + (1 - m.scaleFrom) * Math.min(1, Math.max(0, e)) + over;
+}
+
+/**
+ * The entrance's look at `elapsedMs` of its clock, for a motion that plays (beadMotion at a tier that is not still): the
+ * timeline's opacity and colour, the scale per motion.placement, all three from the one clock. A worklet.
+ */
+export function entranceLook(m: BeadMotion, elapsedMs: number, stress = 0): BeadLook {
+  'worklet';
+  if (m.duration === 0) return { opacity: 1, colour: 1, scale: 1 };
+  const x = elapsedMs > 0 ? elapsedMs / m.duration : 0;
+  const e = x >= 1 ? 1 : m.easing === null || x === 0 ? x : cubicBezier(m.easing, x);
+  return { opacity: entranceOpacity(elapsedMs), colour: entranceColour(elapsedMs), scale: scaleAt(m, e, stress) };
+}
+
+/** The exit's look at `elapsedMs` of its clock, from the look the bead had: the colour, then the opacity, the scale held. A worklet. */
+export function exitLook(from: BeadLook, elapsedMs: number): BeadLook {
+  'worklet';
+  return { opacity: exitOpacity(from.opacity, elapsedMs), colour: exitColour(from.opacity, from.colour, elapsedMs), scale: from.scale };
+}
+
+/** The entrance `elapsedMs` after the bead was placed: the timeline's opacity and colour, the scale per motion.placement. */
+export function beadEntrance(id: DirectionId, tier: MotionTier, elapsedMs: number, stress = 0, placement?: PlacementMotion): BeadLook {
+  const m = beadMotion(id, tier, placement);
+  if (m.duration === 0) return BEAD_WHOLE;
+  return entranceLook(m, elapsedMs, stress);
+}
+
+/** The exit `elapsedMs` after it began from `from`: the colour, then the opacity (beadTimeline.ts), the scale held. */
+export function beadExit(id: DirectionId, tier: MotionTier, from: BeadLook, elapsedMs: number): BeadLook {
+  if (beadMotion(id, tier).duration === 0) return { opacity: 0, colour: 0, scale: from.scale };
+  return exitLook(from, elapsedMs);
+}

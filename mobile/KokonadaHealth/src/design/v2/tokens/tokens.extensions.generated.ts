@@ -4,8 +4,8 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: '813849069223af4f231d5715a469fb3a7f6e41c42d5b6c5f4f9278cbdf84692c',
-  'direction.abyss': '14432f83134da3b181abf7b43ef35b70a7adfbc67f52294e2ff4857c07fecae5',
+  base: '5dbd8468a61f43a745653881cfd72cae55c7cb8a9f7ee2138ae05b0c9f6e9324',
+  'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
 };
 
 export const EXTENSIONS = {
@@ -86,7 +86,9 @@ export const EXTENSIONS = {
           'hero.plate.bead.2',
           'hero.plate.bead.2.setting',
           'hero.plate.bead.2.halo',
+          'hero.plate.bead.leaving',
           'hero.plate.touch',
+          'hero.plate.bead.latest.a11y',
           'hero.listEntry',
           'hero.well',
           'hero.cta',
@@ -224,6 +226,10 @@ export const EXTENSIONS = {
         weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0],
       },
     },
+    'well.hold': {
+      rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
+    },
+    'radius.pill': { rule: 'the renderer clamps it to half the shorter side' },
     haptics: {
       delay: 'In PRIMITIVE@delayMs:scale, the delay is Android\'s VibrationEffect.Composition.addPrimitive delay: the gap after the previous primitive ends, not time from the start of the event.',
     },
