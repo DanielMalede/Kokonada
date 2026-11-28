@@ -233,6 +233,18 @@ describe('OPS-171 settings policy — structure (a wrong value silently drops th
     expect(settings.includeCoAuthoredBy).toBe(false);
   });
 
+  // DEC-199 (RA313-1b, SA313-2): every agent file says `model: inherit`, so a model or an effort set here would
+  // decide what every sub-agent runs on, over the owner's own switch of the session.
+  it('names no model and no effort: no `model` key, and no variable that sets the session\'s or a sub-agent\'s model or effort', () => {
+    const vars = ['ANTHROPIC_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE',
+      'CLAUDE_CODE_EFFORT_LEVEL', 'CLAUDE_CODE_SUBAGENT_EFFORT'];
+    expect(Object.keys(settings)).not.toContain('model');
+    expect(Object.keys(settings.env || {}).filter((k) => vars.includes(k))).toEqual([]);
+    // The text too: a variable set inside an allowed command sits in no `env` object.
+    expect(vars.filter((v) => raw.includes(v))).toEqual([]);
+    expect(raw).not.toMatch(/"model"\s*:/);
+  });
+
   it('the deny list is non-empty and carries every DEC-145 deny (DEC-145.md:63) for Bash and PowerShell', () => {
     expect(deny.length).toBeGreaterThan(0);
     const dec145 = [
