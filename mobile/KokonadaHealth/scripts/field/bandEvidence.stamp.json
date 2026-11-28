@@ -1,8 +1,8 @@
 {
   "ruling": "UI-160",
   "inputs": {
-    "sha256": "20217d8833cf4e4e99a698257ae19dc0524bc04c740542f7f41f1aaa21a2e868",
-    "valuesSha256": "434c0aaf742bb8ca9bc4681fcf1bcd2ff55a37befb8707424a25b2bb572f6c7a",
+    "sha256": "c147c6f9c7f75231817889ed3b40589ee73ca5a349b4468d473a1be722d03373",
+    "valuesSha256": "94bd9892ce0684c60d727319d32355c1966ed3bb4f4b95ad0c24d69e0a214a1f",
     "files": {
       "scripts/field/bandEvidence.mts": "3bf614b696f2b12c9cbbc51d06c15a109d93bb32a2c920e25adc9e7a24ea6f42",
       "src/design/v2/color/blendSpace.ts": "176eaa8fdae0bb884b5301e52cdc9645bedbf81bb4f024d0d0f0a9d682ae849c",
@@ -17,10 +17,10 @@
       "src/design/v2/tokens/neverRedSweeps.ts": "cb4975d270ded6a04e91266719142fc6ce163e4c11921dfd1094974030ff4e6a"
     }
   },
-  "commit": "0d867cba22b739a495a989fbaadd679ab52bd997",
-  "pass": "PASS: 0 failures; 1626.9 s in all",
+  "commit": "7a677adb1b524cd4a307c7ff6396db6e7150ba7b",
+  "pass": "PASS: 0 failures; 1027.6 s in all",
   "runFile": {
-    "name": "v2found-evidence-band-0d867cb.txt",
-    "sha256": "ec2dafda54835b0993228bc8ee413b59406a1edb484224b752c2924612ed63f5"
+    "name": "v2tokfix-evidence-band-7a677ad-r2.txt",
+    "sha256": "b5f009f5952223d7568ec84c112241269ed1b28e77a3e44579c2d1d536943b86"
   }
 }
