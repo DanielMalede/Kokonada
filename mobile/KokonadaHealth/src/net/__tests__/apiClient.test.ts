@@ -4,7 +4,7 @@
 // never throws — a network failure or a bad body becomes a typed {ok:false} result.
 
 import { ApiClient } from '../apiClient';
-import { AuthSession } from '../../auth/authSession';
+import { AuthSession, type RefreshOutcome, type SessionEvent } from '../../auth/authSession';
 
 function jsonRes(body: any, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
@@ -138,5 +138,158 @@ describe('ApiClient — a 401 over a real AuthSession: unavailable keeps the ses
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(auth.hasSession()).toBe(kept);
     expect(stored.value !== null).toBe(kept);
+  });
+});
+
+// ── C1 delta (B1 P1 charter §2, apiClient) ──────────────────────────────────────────────────────────
+// Over a real AuthSession: only fetch (the network) is faked.
+function realSession(answer: RefreshOutcome) {
+  const stored: { value: { access: string; refresh: string } | null } = { value: { access: 'acc-1', refresh: 'krt-1' } };
+  const auth = new AuthSession({
+    loadTokens: async () => stored.value,
+    saveTokens: async (t) => { stored.value = t; },
+    clearTokens: async () => { stored.value = null; },
+    refreshEndpoint: async () => answer,
+  });
+  return { auth, stored };
+}
+
+const clientOver = (auth: AuthSession, fetchImpl: jest.Mock, extra: Record<string, unknown> = {}) => new ApiClient({
+  baseUrl: 'https://api.test',
+  getAccessToken: () => auth.getAccessToken(),
+  refresh: () => auth.refresh(),
+  session: auth,
+  fetchImpl: fetchImpl as any,
+  ...extra,
+});
+
+describe('ApiClient C1 — a 401 whose refresh returned null while the session is held', () => {
+  it('returns {ok:false, status:401, sessionKept:true} and keeps the session', async () => {
+    const { auth } = realSession({ kind: 'unavailable' });
+    await auth.bootstrap();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({ error: 'expired' }, 401));
+    const res = await clientOver(auth, fetchImpl).get('/api/auth/me');
+    expect(res).toEqual({ ok: false, status: 401, sessionKept: true, error: 'unauthorized' });
+    expect(auth.hasSession()).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('a dead refresh is a bare 401: the session is gone, so nothing says it was kept', async () => {
+    const { auth } = realSession({ kind: 'dead' });
+    await auth.bootstrap();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({ error: 'expired' }, 401));
+    const res = await clientOver(auth, fetchImpl).get('/api/auth/me');
+    expect(res).toEqual({ ok: false, status: 401, error: 'unauthorized' });
+    expect(auth.hasSession()).toBe(false);
+  });
+});
+
+describe('ApiClient C1 — a 401 on a request retried with a just-rotated token', () => {
+  it('ends the session as dead', async () => {
+    const { auth, stored } = realSession({ kind: 'ok', tokens: { access: 'acc-2', refresh: 'krt-2' } });
+    await auth.bootstrap();
+    const ended: SessionEvent[] = [];
+    auth.subscribe((e) => ended.push(e));
+    const epoch = auth.sessionEpoch();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({ error: 'Token revoked' }, 401));
+    const res = await clientOver(auth, fetchImpl).get('/api/pulse/state');
+    expect(res).toEqual({ ok: false, status: 401, error: 'unauthorized' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect((fetchImpl.mock.calls[1][1] as any).headers.Authorization).toBe('Bearer acc-2');
+    expect(ended).toEqual([{ type: 'ended', reason: 'dead', epoch }]);
+    expect(auth.hasSession()).toBe(false);
+    expect(stored.value).toBeNull();
+  });
+
+  it('never ends a newer session that was installed while the retry was in flight', async () => {
+    const { auth } = realSession({ kind: 'ok', tokens: { access: 'acc-2', refresh: 'krt-2' } });
+    await auth.bootstrap();
+    let calls = 0;
+    const fetchImpl = jest.fn().mockImplementation(async () => {
+      calls += 1;
+      if (calls === 2) await auth.setSession({ access: 'other', refresh: 'other-r' }); // a sign-in landed meanwhile
+      return jsonRes({ error: 'Token revoked' }, 401);
+    });
+    await clientOver(auth, fetchImpl).get('/api/pulse/state');
+    expect(auth.getAccessToken()).toBe('other');
+  });
+
+  // The real constraint: a route may answer 401 for its own reason while the session is good, e.g. GET
+  // /api/integrations/spotify/token's `code:'reconnect_required'` (backend integrationsController.js).
+  // The auth middleware's 401s carry no `code` (backend/app/middleware/auth.js), so a 401 that carries
+  // one is the route's answer, never a verdict on the session.
+  it('a retried 401 that carries a route code is returned, and the session stands', async () => {
+    const { auth } = realSession({ kind: 'ok', tokens: { access: 'acc-2', refresh: 'krt-2' } });
+    await auth.bootstrap();
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({ error: 'reconnect', code: 'reconnect_required' }, 401));
+    const res = await clientOver(auth, fetchImpl).get('/api/integrations/spotify/token');
+    expect(res).toEqual({ ok: false, status: 401, error: 'request failed (401)' });
+    expect(auth.hasSession()).toBe(true);
+  });
+
+  it('without a session binding the retried 401 stays the bare v1 answer', async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonRes({}, 401));
+    const client = new ApiClient({ baseUrl: 'https://api.test', getAccessToken: () => 'a', refresh: async () => 'b', fetchImpl: fetchImpl as any });
+    await expect(client.get('/x')).resolves.toEqual({ ok: false, status: 401, error: 'request failed (401)' });
+  });
+});
+
+describe('ApiClient C1 — a per-request deadline of 15 s', () => {
+  afterEach(() => { jest.useRealTimers(); });
+
+  // A request the network never answers: it settles only if its signal aborts it, as RN's fetch does.
+  const hanging = (aborted: AbortSignal[], ignoreAbort = false) => jest.fn().mockImplementation((_url: string, init: any) => {
+    aborted.push(init.signal);
+    return new Promise((_resolve, reject) => {
+      if (!ignoreAbort) init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  });
+
+  it.each([false, true])('a request that never answers settles as a network error at 15 s (fetch ignores the abort: %p)', async (ignoreAbort) => {
+    jest.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    const client = new ApiClient({ baseUrl: 'https://api.test', getAccessToken: () => 'a', refresh: async () => null, fetchImpl: hanging(signals, ignoreAbort) as any });
+    let settled: unknown;
+    void client.get('/api/sessions').then((r) => { settled = r; });
+    await jest.advanceTimersByTimeAsync(14_999);
+    expect(settled).toBeUndefined();
+    await jest.advanceTimersByTimeAsync(1);
+    expect(settled).toEqual({ ok: false, error: 'network error' });
+    expect(signals[0].aborted).toBe(true);
+  });
+
+  it('the retry after a refresh has its own deadline', async () => {
+    jest.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    let calls = 0;
+    const fetchImpl = jest.fn().mockImplementation((url: string, init: any) => {
+      calls += 1;
+      return calls === 1 ? Promise.resolve(jsonRes({}, 401)) : hanging(signals)(url, init);
+    });
+    const client = new ApiClient({ baseUrl: 'https://api.test', getAccessToken: () => 'a', refresh: async () => 'b', fetchImpl: fetchImpl as any });
+    let settled: unknown;
+    void client.get('/x').then((r) => { settled = r; });
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(settled).toEqual({ ok: false, error: 'network error' });
+  });
+
+  it('a timeout keeps the session', async () => {
+    jest.useFakeTimers();
+    const { auth } = realSession({ kind: 'unavailable' });
+    await auth.bootstrap();
+    const signals: AbortSignal[] = [];
+    void clientOver(auth, hanging(signals)).get('/api/auth/me');
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(auth.hasSession()).toBe(true);
+  });
+
+  it('a body that never finishes is bounded by the same deadline', async () => {
+    jest.useFakeTimers();
+    const fetchImpl = jest.fn().mockResolvedValue({ ok: true, status: 200, json: () => new Promise(() => undefined) });
+    const client = new ApiClient({ baseUrl: 'https://api.test', getAccessToken: () => 'a', refresh: async () => null, fetchImpl: fetchImpl as any });
+    let settled: unknown;
+    void client.get('/x').then((r) => { settled = r; });
+    await jest.advanceTimersByTimeAsync(15_000);
+    expect(settled).toEqual({ ok: false, error: 'network error' });
   });
 });
