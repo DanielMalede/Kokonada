@@ -73,7 +73,7 @@ The DEC- entries of design v2. One file per entry: `docs/design-v2/decisions/DEC
 | [DEC-036](decisions/DEC-036.md) | The rim words: the axis ends | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:207` (the owner's session answer is quoted in the entry) | — |
 | [DEC-037](decisions/DEC-037.md) | Pebble: kept for the warm look as a whole | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:208` (the owner's session answer is quoted in the entry) | — |
 | [DEC-038](decisions/DEC-038.md) | Hue set B is out; set A is used everywhere | DECIDED | 2026-09-29 | `Kokonada-private/design-v2/v0/synthesis-2026-09-29.md:209` (the owner's session answer is quoted in the entry) | — |
-| [DEC-039](decisions/DEC-039.md) | Is the Spotify-derived taste model "building profiles of users"? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 1 | CMP-018 |
+| [DEC-039](decisions/DEC-039.md) | Is the Spotify-derived taste model "building profiles of users"? | OPEN (interim: DEC-194 item 125, owner only; a provider risk under §III.13, `OPS-587`) | 2026-09-29 | cmp-compliance.md §4 item 1 | CMP-018 |
 | [DEC-040](decisions/DEC-040.md) | Drop the YouTube → Spotify translation path, or ask Spotify | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 2 | CMP-021 |
 | [DEC-041](decisions/DEC-041.md) | The retention window for provider track data | DECIDED (ruled 2026-09-30) | 2026-09-30 | cmp-compliance.md §4 item 3 | CMP-024 |
 | [DEC-042](decisions/DEC-042.md) | Is App Remote playback a Spotify "Streaming SDA"? | OPEN | 2026-09-29 | cmp-compliance.md §4 item 4 | CMP-033 |
