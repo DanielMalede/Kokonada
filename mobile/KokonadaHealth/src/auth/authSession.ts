@@ -259,11 +259,10 @@ export class AuthSession {
   }
 
   // C1: `onlyIfEpoch` scopes the clear to one session: for any other epoch it is a no-op that leaves
-  // the newer session, its Keychain item and its listeners untouched. True when it ran.
-  async clear(opts: { onlyIfEpoch?: number } = {}): Promise<boolean> {
-    if (opts.onlyIfEpoch !== undefined && opts.onlyIfEpoch !== this.epoch) return false;
+  // the newer session, its Keychain item and its listeners untouched. Still Promise<void>, as v1 types it.
+  async clear(opts: { onlyIfEpoch?: number } = {}): Promise<void> {
+    if (opts.onlyIfEpoch !== undefined && opts.onlyIfEpoch !== this.epoch) return;
     await this.end('cleared');
-    return true;
   }
 
   // C1: the REST client's answer to a 401 on a request retried with a just-rotated token: the server

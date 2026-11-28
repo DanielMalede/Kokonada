@@ -593,7 +593,7 @@ describe('AuthSession C1 — clear({onlyIfEpoch})', () => {
     const { session, deps } = build();
     await session.bootstrap();
     const epoch = session.sessionEpoch();
-    expect(await session.clear({ onlyIfEpoch: epoch })).toBe(true);
+    await session.clear({ onlyIfEpoch: epoch });
     expect(session.hasSession()).toBe(false);
     expect(deps.clearTokens).toHaveBeenCalledTimes(1);
   });
@@ -605,7 +605,7 @@ describe('AuthSession C1 — clear({onlyIfEpoch})', () => {
     await session.setSession(v2());
     const events: SessionEvent[] = [];
     session.subscribe((e) => events.push(e));
-    expect(await session.clear({ onlyIfEpoch: old })).toBe(false);
+    await session.clear({ onlyIfEpoch: old });
     expect(session.getAccessToken()).toBe('acc-v2');
     expect(stored.value).toEqual(v2());
     expect(deps.clearTokens).not.toHaveBeenCalled();
