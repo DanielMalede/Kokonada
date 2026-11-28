@@ -57,7 +57,7 @@ describe('isolateAddresses: an address inside the text is LTR-isolated, and noth
   const iso = (s: string) => `${LRI}${s}${PDI}`;
 
   it('uses the left-to-right isolate and the pop (U+2066, U+2069)', () => {
-    expect([LRI, PDI]).toEqual(['⁦', '⁩']);
+    expect([LRI, PDI]).toEqual(['\u2066', '\u2069']);
   });
 
   it('isolates a URL and leaves the sentence’s full stop outside it', () => {

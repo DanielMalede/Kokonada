@@ -16,7 +16,7 @@ const flat = (n: Node) => StyleSheet.flatten(n.props.style) ?? {};
 const isHost = (n: Node) => typeof n.type === 'string';
 const T = DIRECTIONS.abyss;
 
-const BODY = 'Our privacy policy changed. The current text is at ⁨https://example.org/privacy⁩.';
+const BODY = 'Our privacy policy changed. The current text is at \u2068https://example.org/privacy\u2069.';
 const link = (onPress = jest.fn()): NoticeLinkAction => ({ kind: 'link', label: 'Privacy policy', onPress, accessibilityHint: 'Opens in your browser' });
 const dismiss = (onPress = jest.fn()): NoticeButtonAction => ({ kind: 'button', label: 'Dismiss', onPress });
 

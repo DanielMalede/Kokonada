@@ -34,14 +34,14 @@ export function listMarker(ordered: boolean, index: number): string {
 }
 
 /** LEFT-TO-RIGHT ISOLATE and POP DIRECTIONAL ISOLATE: an address reads left to right inside right-to-left text. */
-export const LRI = '⁦';
-export const PDI = '⁩';
+export const LRI = '\u2066';
+export const PDI = '\u2069';
 
 // A URL (a scheme, or www.), or an email address. Its last character is never a sentence's punctuation or a closing
 // bracket, which stay outside the isolate. A match never starts after an LRI or after a character an address can hold,
 // so an address already isolated is left as it is, and none is matched again from inside itself (\b alone would start a
 // second match at the dot of data.protection@…).
-const ADDRESS = /(?<![⁦\w.%+\-@/:])(?:(?:https?:\/\/|www\.)[^\s⁩]*[^\s⁩.,;:!?)\]}'"]|[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b)/gu;
+const ADDRESS = /(?<![\u2066\w.%+\-@/:])(?:(?:https?:\/\/|www\.)[^\s\u2069]*[^\s\u2069.,;:!?)\]}'"]|[\w.%+-]+@[\w-]+(?:\.[\w-]+)+\b)/gu;
 
 /** The text with each address LTR-isolated. Nothing else changes: no address is made a link, coloured or underlined. */
 export function isolateAddresses(text: string): string {
