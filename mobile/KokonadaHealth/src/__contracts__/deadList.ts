@@ -6,8 +6,12 @@
 // declared name.
 
 export const DEAD_LIST: readonly { readonly file: string; readonly name: string; readonly row: string }[] = [
+  { file: 'src/auth/ageGate.ts', name: 'createAgeGate', row: 'MB-227' },
+  { file: 'src/auth/auth.ts', name: 'exchangeGoogle', row: 'MB-227' },
+  { file: 'src/auth/auth.ts', name: 'googleStep', row: 'MB-227' },
   { file: 'src/auth/auth.ts', name: 'isLoggedIn', row: 'OPS-429' },
   { file: 'src/auth/auth.ts', name: 'signOut', row: 'MB-018' },
+  { file: 'src/auth/currentUser.ts', name: 'getSessionUid', row: 'MB-227' },
   { file: 'src/design/accentInk.ts', name: 'accentInkFor', row: 'OPS-430' },
   { file: 'src/design/contrast.ts', name: 'flatten', row: 'OPS-431' },
   { file: 'src/design/contrast.ts', name: 'passesAA', row: 'OPS-431' },
@@ -142,5 +146,6 @@ export const DEAD_LIST: readonly { readonly file: string; readonly name: string;
   { file: 'src/health/blePermissions.ts', name: 'requestBlePermissions', row: 'MB-053' },
   { file: 'src/health/healthConnect.ts', name: 'hasHistoryAccess', row: 'OPS-433' },
   { file: 'src/health/mapToBackend.ts', name: 'summarizeSleep', row: 'OPS-434' },
+  { file: 'src/net/serverWait.ts', name: 'WaitHold', row: 'MB-227' },
   { file: 'src/state/hot/laneCommit.ts', name: 'smoothTowards', row: 'OPS-435' },
 ];
