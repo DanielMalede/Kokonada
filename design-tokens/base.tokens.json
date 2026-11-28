@@ -198,7 +198,7 @@
   },
   "bead": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
-    "hitTarget": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+    "hitTarget": {"$type":"dimension","$value":"{target.min}"}
   },
   "quiet": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -207,7 +207,7 @@
   "cta": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
-    "radius": {"$type":"dimension","$value":{"value":28,"unit":"px"}}
+    "radius": {"$type":"dimension","$value":"{radius.pill}","$extensions":{"com.kokonada":{"rule":"the CTA is a pill at every font scale: radius.pill, which the renderer clamps to half the shorter side (UI-337)"}}}
   },
   "well": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -217,12 +217,13 @@
   },
   "topBar": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
-    "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}}
+    "height": {"$type":"dimension","$value":{"value":56,"unit":"px"}},
+    "hairline": {"$type":"dimension","$value":{"value":1,"unit":"px"}}
   },
   "avatar": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "size": {"$type":"dimension","$value":{"value":36,"unit":"px"}},
-    "target": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+    "target": {"$type":"dimension","$value":"{target.min}"}
   },
   "nav": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -243,8 +244,14 @@
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "xs": {"$type":"dimension","$value":{"value":16,"unit":"px"}},
     "s": {"$type":"dimension","$value":{"value":20,"unit":"px"}},
-    "m": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
-    "stroke": {"$type":"dimension","$value":{"value":1.5,"unit":"px"}}
+    "m": {"$type":"dimension","$value":"{nav.iconSize}"},
+    "stroke": {"$type":"dimension","$value":"{nav.iconStroke}"}
+  },
+  "glyph": {
+    "$extensions": {"com.kokonada":{"lock":"designer","rule":"interim: the proportions of the marks InlineNotice and LegalReader draw until the DT-10 Icon set replaces them, and this group with them. infoDot is the info mark's dot side as a multiple of icon.stroke; infoBar its bar's height and closeBar each bar of Close's cross, as fractions of the icon's size (UI-340)"}},
+    "infoDot": {"$type":"number","$value":1.5},
+    "infoBar": {"$type":"number","$value":0.35},
+    "closeBar": {"$type":"number","$value":0.75}
   },
   "focus": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -257,7 +264,7 @@
   },
   "pager": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
-    "row": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+    "row": {"$type":"dimension","$value":"{target.min}"}
   },
   "brand": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},
@@ -280,7 +287,7 @@
     "$extensions": {"com.kokonada":{"lock":"designer"}},
     "track": {"$type":"dimension","$value":{"value":4,"unit":"px"}},
     "thumb": {"$type":"dimension","$value":{"value":24,"unit":"px"}},
-    "hit": {"$type":"dimension","$value":{"value":48,"unit":"px"}}
+    "hit": {"$type":"dimension","$value":"{target.min}"}
   },
   "skeleton": {
     "$extensions": {"com.kokonada":{"lock":"designer"}},

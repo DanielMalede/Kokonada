@@ -17,6 +17,7 @@
         "control": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.55,0.025,230],"alpha":1,"hex":"#63757E"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
       },
       "focus": {"$type":"color","$value":"{color.dark.text.primary}"},
+      "selection": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.33,0.05,235],"alpha":1,"hex":"#18394B"},"$extensions":{"com.kokonada":{"hex":"generated","rule":"the highlight behind selected text, opaque: text.primary and text.secondary over it keep 4.5:1 (UI-336)"}}},
       "plate": {
         "rim": {
           "base": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.56,0.03,230],"alpha":1,"hex":"#637883"},"$extensions":{"com.kokonada":{"hex":"generated"}}},
@@ -69,6 +70,7 @@
         "control": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.6,0.025,230],"alpha":1,"hex":"#72838C"},"$extensions":{"com.kokonada":{"hex":"generated"}}}
       },
       "focus": {"$type":"color","$value":"{color.light.text.primary}"},
+      "selection": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.85,0.035,225],"alpha":1,"hex":"#B6D3DF"},"$extensions":{"com.kokonada":{"hex":"generated","rule":"the highlight behind selected text, opaque: text.primary and text.secondary over it keep 4.5:1 (UI-336)"}}},
       "plate": {
         "rim": {
           "base": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.5,0.035,240],"alpha":1,"hex":"#516676"},"$extensions":{"com.kokonada":{"hex":"generated"}}},

@@ -4,8 +4,8 @@
 // EXTENSIONS_SOURCE holds the sha256 of each source file it was built from.
 
 export const EXTENSIONS_SOURCE = {
-  base: '5dbd8468a61f43a745653881cfd72cae55c7cb8a9f7ee2138ae05b0c9f6e9324',
-  'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
+  base: 'db566233a1a1945d994176202b76ee12c4c45d6ad0798d99aa59e4a131130a46',
+  'direction.abyss': '5506e40ccec8a1c13e751975f2dccc98d823e1572dcd2be815792cad3da94071',
 };
 
 export const EXTENSIONS = {
@@ -226,8 +226,14 @@ export const EXTENSIONS = {
         weight: [1, 1, 0.89, 0.565, 0.171, 0.021, 0],
       },
     },
+    'cta.radius': {
+      rule: 'the CTA is a pill at every font scale: radius.pill, which the renderer clamps to half the shorter side (UI-337)',
+    },
     'well.hold': {
       rule: 'a non-commit Well (one that hosts a Button) changes state at most once per well.hold; a Well that hosts CommitCTA keeps the limits DEC-174 sets',
+    },
+    glyph: {
+      rule: 'interim: the proportions of the marks InlineNotice and LegalReader draw until the DT-10 Icon set replaces them, and this group with them. infoDot is the info mark\'s dot side as a multiple of icon.stroke; infoBar its bar\'s height and closeBar each bar of Close\'s cross, as fractions of the icon\'s size (UI-340)',
     },
     'radius.pill': { rule: 'the renderer clamps it to half the shorter side' },
     haptics: {
@@ -501,6 +507,12 @@ export const EXTENSIONS = {
         { id: 'ringHalo', faces: ['dark', 'light'], beads: [{ node: 'I', x: -0.02, y: 0.948 }] },
         { id: 'restToIntense', faces: ['dark', 'light'], steppedThroughMs: 600 },
       ],
+    },
+    'color.dark.selection': {
+      rule: 'the highlight behind selected text, opaque: text.primary and text.secondary over it keep 4.5:1 (UI-336)',
+    },
+    'color.light.selection': {
+      rule: 'the highlight behind selected text, opaque: text.primary and text.secondary over it keep 4.5:1 (UI-336)',
     },
     'field.rest': { lobes: { dark: [[-0.3, 0.35]], light: [[-0.35, -0.3], [0.4, 0.35]] } },
     'haptics.place': { fallback: 'EFFECT_TICK', trigger: 'plate.tap' },

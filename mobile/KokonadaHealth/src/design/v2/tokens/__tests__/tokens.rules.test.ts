@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as nodePath from 'path';
 import { contrastRatio } from '../../color/contrast.ts';
 import { hueSeparationViolations } from '../../color/deltaE.ts';
 import { srgbToOklab, type Oklab, type Srgb } from '../../color/oklab.ts';
@@ -295,5 +297,105 @@ describe('contrast bites', () => {
   it('the ring on itself is 1:1 and fails 3:1', () => {
     const ring = DIRECTIONS[IDS[0]].color.dark.plate.ring;
     expect(contrastRatio(rgb(ring), rgb(ring))).toBeLessThan(3);
+  });
+});
+
+// UI-336 (D316-1): the selection highlight. Android paints selectionColor behind the selected glyphs, which keep their own
+// ink, so what the reader sees is the text over the highlight composited over the surface the text sits on. Every
+// selectable text (InlineNotice's body, LegalReader's meta, headings, paragraphs and list items) is text.primary or
+// text.secondary on ground, surface1, surface2 or the notice surface; each pair keeps 4.5:1 (WCAG 1.4.3). The components
+// paint the token's hex, so its alpha must be 1, and a highlight that matches its surface shows nothing, so it keeps a
+// visible step from each (1.3:1).
+const SELECTION_TEXT = 4.5;
+const SELECTION_VISIBLE = 1.3;
+/** `top` over `under` at top's alpha, per sRGB channel, as the compositor blends a translucent fill. */
+const composite = (top: ColorValue, under: ColorValue): Srgb =>
+  rgb(top).map((channel, i) => channel * top.alpha + rgb(under)[i] * (1 - top.alpha)) as unknown as Srgb;
+function selectionPairs(id: DirectionId, face: Face): Array<[string, ColorValue, ColorValue]> {
+  const c = DIRECTIONS[id].color[face];
+  const surfaces: Array<[string, ColorValue]> = [
+    ['ground', c.ground],
+    ['surface1', c.surface1],
+    ['surface2', c.surface2],
+    ['notice.surface', c.notice.surface],
+  ];
+  const texts: Array<[string, ColorValue]> = [
+    ['text.primary', c.text.primary],
+    ['text.secondary', c.text.secondary],
+  ];
+  return surfaces.flatMap(([s, surface]) => texts.map(([t, text]) => [`${t} selected on ${s}`, text, surface] as [string, ColorValue, ColorValue]));
+}
+
+describe.each(CASES)('the selection highlight: %s, %s face', (id, face) => {
+  const selection = (DIRECTIONS[id].color[face] as { selection?: ColorValue }).selection;
+
+  it('is its own opaque token, not the focus ring', () => {
+    expect(selection).toBeDefined();
+    expect(selection!.alpha).toBe(1);
+    expect(selection!.hex).not.toBe(DIRECTIONS[id].color[face].focus.hex);
+  });
+
+  it.each(selectionPairs(id, face))('%s keeps 4.5:1 composited', (_what, text, surface) => {
+    expect(contrastRatio(rgb(text), composite(selection!, surface))).toBeGreaterThanOrEqual(SELECTION_TEXT);
+  });
+
+  it.each(selectionPairs(id, face).filter(([, text]) => text === DIRECTIONS[id].color[face].text.primary))(
+    'the highlight under %s shows against its surface',
+    (_what, _text, surface) => {
+      expect(contrastRatio(composite(selection!, surface), rgb(surface))).toBeGreaterThanOrEqual(SELECTION_VISIBLE);
+    },
+  );
+});
+
+describe('the selection rule bites', () => {
+  it('the focus token as the highlight leaves text.primary about 1:1 in every face (the D316-1 defect)', () => {
+    for (const [id, face] of CASES) {
+      const c = DIRECTIONS[id].color[face];
+      expect(contrastRatio(rgb(c.text.primary), composite(c.focus, c.ground))).toBeLessThan(1.1);
+    }
+  });
+
+  it('a half-transparent text.primary over the ground fails 4.5:1 against text.primary', () => {
+    const c = DIRECTIONS[IDS[0]].color.dark;
+    expect(contrastRatio(rgb(c.text.primary), composite({ ...c.text.primary, alpha: 0.5 }, c.ground))).toBeLessThan(SELECTION_TEXT);
+  });
+
+  it('a highlight equal to its surface fails the visible step', () => {
+    const c = DIRECTIONS[IDS[0]].color.dark;
+    expect(contrastRatio(composite(c.ground, c.ground), rgb(c.ground))).toBeLessThan(SELECTION_VISIBLE);
+  });
+});
+
+// UI-337, UI-338 and UI-340 (D316-2, D316-3, D316-5), read from the source the designer edits, since the generated module
+// resolves every alias to its value: one value has one source, and a component's drawn proportion is a token.
+describe('one source per value (base.tokens.json)', () => {
+  const source = JSON.parse(fs.readFileSync(nodePath.resolve(__dirname, '../../../../../../../design-tokens/base.tokens.json'), 'utf8'));
+  const at = (dotted: string) => dotted.split('.').reduce<any>((node, key) => node?.[key], source)?.$value;
+
+  it.each([
+    ['bead.hitTarget', '{target.min}'],
+    ['avatar.target', '{target.min}'],
+    ['slider.hit', '{target.min}'],
+    ['pager.row', '{target.min}'],
+    ['icon.m', '{nav.iconSize}'],
+    ['icon.stroke', '{nav.iconStroke}'],
+    ['cta.radius', '{radius.pill}'],
+  ])('%s is the alias %s', (token, alias) => {
+    expect(at(token)).toBe(alias);
+  });
+
+  it('target.min is the one 48 the aliases resolve to', () => {
+    expect(BASE.target.min).toBe(48);
+    for (const v of [BASE.bead.hitTarget, BASE.avatar.target, BASE.slider.hit, BASE.pager.row]) expect(v).toBe(BASE.target.min);
+  });
+
+  it('the CTA is a pill at every font scale: cta.radius is radius.pill, which the renderer clamps to half the shorter side', () => {
+    expect(BASE.cta.radius).toBe(BASE.radius.pill);
+    expect(BASE.cta.radius).toBeGreaterThanOrEqual(BASE.cta.height * 2);
+  });
+
+  it('the drawn marks until the DT-10 Icon set, and the TopBar hairline, are tokens', () => {
+    expect(BASE.glyph).toEqual({ infoDot: 1.5, infoBar: 0.35, closeBar: 0.75 });
+    expect(BASE.topBar.hairline).toBe(1);
   });
 });
