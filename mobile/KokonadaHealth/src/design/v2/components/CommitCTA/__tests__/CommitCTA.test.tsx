@@ -8,7 +8,7 @@ import { EXTENSIONS } from '../../../tokens/tokens.extensions.generated.ts';
 import { BASE, DIRECTIONS, type Face } from '../../../tokens/tokens.generated.ts';
 import { hexLab } from '../../../field/fieldLaw.ts';
 import { fontFace } from '../../../typeface/faces.ts';
-import { CommitCTA, useCtaMachine } from '../CommitCTA.tsx';
+import { CommitCTA, useCtaMachine, type CtaScript } from '../CommitCTA.tsx';
 import { ctaColours, ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaPaint } from '../ctaState.ts';
 
 // The commit CTA (Button variant "commit", F10 group A; DEC-174, DSN-018, R3–R9): the only tinted control. It draws
@@ -33,11 +33,12 @@ interface Options {
   readonly tier?: MotionTier;
   readonly busy?: boolean;
   readonly label?: string;
+  readonly script?: CtaScript;
   readonly onCommit?: () => void;
 }
 const element = (o: Options) => (
   <DirectionProvider direction="abyss" face={o.face ?? 'dark'}>
-    <CommitCTA machine={o.machine} label={o.label ?? LABEL} onCommit={o.onCommit ?? jest.fn()} tier={o.tier ?? 'full'} busy={o.busy} />
+    <CommitCTA machine={o.machine} label={o.label ?? LABEL} script={o.script ?? 'latin'} onCommit={o.onCommit ?? jest.fn()} tier={o.tier ?? 'full'} busy={o.busy} />
   </DirectionProvider>
 );
 function mount(o: Options) {
@@ -72,11 +73,12 @@ describe('CommitCTA: its element IDs (F2)', () => {
 });
 
 describe('CommitCTA: shown', () => {
-  it('a pill of at least cta.height, radius radius.pill (the renderer clamps it to half the shorter side, F4), filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
+  it('a pill of at least cta.height, radius cta.radius, the one CTA radius, which is radius.pill (the renderer clamps it to half the shorter side, F4; UI-337), filled with the tint’s token, the label in its ink: no fixed height, no elevation', () => {
     for (const face of ['dark', 'light'] as const) {
       const tree = mount({ machine: shown(face), face });
       const pill = flat(host(tree, 'hero.cta').props.style);
-      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.radius.pill, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
+      expect(BASE.cta.radius).toBe(BASE.radius.pill);
+      expect(pill).toMatchObject({ minHeight: BASE.cta.height, borderRadius: BASE.cta.radius, backgroundColor: ctaColours(paintOf(face), 'J').fillHex });
       expect(pill.height).toBeUndefined();
       expect(pill.elevation).toBeUndefined();
       expect(pill.borderWidth).toBeUndefined();
@@ -117,8 +119,19 @@ describe('CommitCTA: shown', () => {
   it('sets the label in ui.cta, Latin or Hebrew metrics by its script (Hebrew line height is the Latin + 2)', () => {
     const latin = flat(host(mount({ machine: shown() }), 'hero.cta.label').props.style);
     expect(latin).toMatchObject({ fontFamily: BASE.type.face.ui, fontSize: BASE.type.ui.cta.latin.size, lineHeight: BASE.type.ui.cta.latin.lineHeight, fontWeight: String(BASE.type.ui.cta.latin.weight) });
-    const hebrew = flat(host(mount({ machine: shown(), label: 'המשך' }), 'hero.cta.label').props.style);
+    const hebrew = flat(host(mount({ machine: shown(), label: 'המשך', script: 'hebrew' }), 'hero.cta.label').props.style);
     expect(hebrew).toMatchObject({ fontSize: BASE.type.ui.cta.hebrew.size, lineHeight: BASE.type.ui.cta.hebrew.lineHeight });
+  });
+
+  // UI-341 (D316-6): the caller names the script, as it does for the Well, the InlineNotice and the LegalReader; the label's
+  // letters never decide it. A keyed label (the lab's copy keys) in a Hebrew scene takes Hebrew metrics, and a Hebrew word
+  // in a Latin scene does not flip it.
+  it.each([
+    ['onboarding.continue', 'hebrew'],
+    ['המשך', 'latin'],
+  ] as const)('"%s" with script %s takes that script’s metrics, whatever its letters', (label, script) => {
+    const style = flat(host(mount({ machine: shown(), label, script }), 'hero.cta.label').props.style);
+    expect(style).toMatchObject({ fontSize: BASE.type.ui.cta[script].size, lineHeight: BASE.type.ui.cta[script].lineHeight });
   });
 
   // Jest runs as iOS (the preset's Platform.OS), where a face is the family at the weight, as above. React Native on
@@ -128,7 +141,7 @@ describe('CommitCTA: shown', () => {
   it.each([['Continue', 'latin'], ['המשך', 'hebrew']] as const)('on Android, "%s": the label is set in ui.cta’s own file, Heebo-SemiBold, with no fontWeight', (label, script) => {
     const os = jest.replaceProperty(Platform, 'OS', 'android');
     try {
-      const style = flat(host(mount({ machine: shown(), label }), 'hero.cta.label').props.style);
+      const style = flat(host(mount({ machine: shown(), label, script }), 'hero.cta.label').props.style);
       expect(BASE.type.ui.cta[script].weight).toBe(600);
       expect(style.fontFamily).toBe('Heebo-SemiBold');
       expect(style.fontFamily).toBe(fontFace(BASE.type.face.ui, BASE.type.ui.cta[script].weight, 'android').fontFamily);

@@ -132,6 +132,10 @@ describe('LegalReader: the TopBar', () => {
     expect(close.props.accessibilityLabel).toBe('Close');
     expect(flat(close)).toMatchObject({ width: BASE.target.min, height: BASE.target.min });
     expect(flat(view.byId('legalReader.close.glyph'))).toMatchObject({ width: BASE.icon.m, height: BASE.icon.m });
+    // The interim cross, in the glyph group's proportion until the DT-10 Icon set (UI-340).
+    const bars = view.all((n) => isHost(n) && n.props.testID === 'legalReader.close.bar');
+    expect(bars).toHaveLength(2);
+    for (const bar of bars) expect(flat(bar)).toMatchObject({ width: BASE.icon.m * BASE.glyph.closeBar, height: BASE.icon.stroke, backgroundColor: T.color.dark.text.primary.hex });
     view.close();
     expect(onClose).toHaveBeenCalledTimes(1);
     view.unmount();
@@ -148,10 +152,10 @@ describe('LegalReader: the TopBar', () => {
 });
 
 describe('LegalReader: the hairline under the TopBar', () => {
-  it.each(['dark', 'light'] as const)('%s: 1 dp of line.control, in the flow from the start (no jump), shown only once the content scrolled', (face) => {
+  it.each(['dark', 'light'] as const)('%s: topBar.hairline (1 dp) of line.control, in the flow from the start (no jump), shown only once the content scrolled', (face) => {
     const view = mount({ face });
     const line = () => view.byId('legalReader.hairline');
-    expect(flat(line())).toMatchObject({ height: 1, backgroundColor: T.color[face].line.control.hex, opacity: 0 });
+    expect(flat(line())).toMatchObject({ height: BASE.topBar.hairline, backgroundColor: T.color[face].line.control.hex, opacity: 0 });
     view.scroll(40);
     expect(flat(line()).opacity).toBe(1);
     view.scroll(0);
@@ -242,12 +246,24 @@ describe('LegalReader: the document body', () => {
     view.unmount();
   });
 
-  it('paragraphs in ui.body, text.primary, selectable, the focus token as the highlight, their addresses LTR-isolated and plain', () => {
+  it.each(['dark', 'light'] as const)('%s: every selectable text takes the selection token as its highlight, never the focus token (UI-336)', (face) => {
+    const view = mount({ face });
+    const selectable = view.all((n) => isHost(n) && n.props.selectable === true);
+    const ids = selectable.map((n) => n.props.testID);
+    for (const id of ['legalReader.current', 'legalReader.version', 'legalReader.block.heading', 'legalReader.block.paragraph', 'legalReader.list.text']) expect(ids).toContain(id);
+    for (const n of selectable) {
+      expect([n.props.testID, n.props.selectionColor]).toEqual([n.props.testID, T.color[face].selection.hex]);
+      expect(n.props.selectionColor).not.toBe(T.color[face].focus.hex);
+    }
+    view.unmount();
+  });
+
+  it('paragraphs in ui.body, text.primary, selectable, the selection token as the highlight, their addresses LTR-isolated and plain', () => {
     const view = mount();
     const [first] = view.all((n) => n.props.testID === 'legalReader.block.paragraph');
     expect(first.props.children).toBe(`Write to ${LRI}privacy@example.org${PDI} or read ${LRI}https://example.org/privacy${PDI}.`);
     expect(first.props.selectable).toBe(true);
-    expect(first.props.selectionColor).toBe(T.color.dark.focus.hex);
+    expect(first.props.selectionColor).toBe(T.color.dark.selection.hex);
     expect(flat(first)).toMatchObject({ ...fontFace(BASE.type.face.ui, BASE.type.ui.body.latin.weight), fontSize: BASE.type.ui.body.latin.size, color: T.color.dark.text.primary.hex });
     view.unmount();
   });

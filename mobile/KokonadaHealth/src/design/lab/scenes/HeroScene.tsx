@@ -427,7 +427,7 @@ function HeroStage({ scene, face, taps, script, outline, width, height, clock, t
       </View>
       <View testID="hero-scene.well-column" style={[styles.wellColumn, { left: inset, right: inset, top: wellTop }]} pointerEvents="box-none">
         <Well actionShown={actionShown} hint={keyed('onboarding.plate.hint')} script={script} tier={tier}>
-          <CommitCTA machine={machine} label={keyed('onboarding.continue')} onCommit={onCommit} tier={tier} />
+          <CommitCTA machine={machine} label={keyed('onboarding.continue')} script={script} onCommit={onCommit} tier={tier} />
         </Well>
       </View>
     </>

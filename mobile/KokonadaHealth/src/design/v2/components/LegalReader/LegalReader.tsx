@@ -13,7 +13,7 @@
 //     (the lab's SAMPLE tag), then 16; the meta block, whose top line is the current-text line with the hosted address
 //     (item 97), then 4, the version line; 32; the body; and 24 plus the bottom inset.
 //   · The body (§B.1 item 4): section headings in ui.title at its weight, each a header; paragraphs in ui.body; lists as
-//     rows, a marker in a hanging column, the text at flex 1. All of it selectable, its highlight the focus token, and
+//     rows, a marker in a hanging column, the text at flex 1. All of it selectable, its highlight the selection token, and
 //     nothing in it pressable, a link or underlined: an address in the text is plain, LTR-isolated text.
 //   · Heebo only (CMP-122): every word is ui.title, ui.body or ui.legal in its face's own file. It reads no voice token.
 //   · Never capped, scaled down or ellipsised; at font 2.0 everything reflows, the TopBar grows, and the column scrolls.
@@ -85,7 +85,9 @@ export function LegalReader({ document, script, address, lines, closeLabel, onCl
   };
   const primary = c.text.primary.hex;
   const secondary = c.text.secondary.hex;
-  const selection = c.focus.hex;
+  // The highlight behind selected text: its own token, which keeps text.primary and text.secondary at 4.5:1 over it
+  // (UI-336; the focus token is text.primary in Abyss and hid the selection).
+  const selection = c.selection.hex;
 
   // TalkBack focus on the title when the reader opens, once.
   const title = useRef<React.ComponentRef<typeof Text>>(null);
@@ -108,6 +110,8 @@ export function LegalReader({ document, script, address, lines, closeLabel, onCl
   const hairline = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
   const icon = tokens.base.icon.m;
+  const stroke = tokens.base.icon.stroke;
+  const crossBar = icon * tokens.base.glyph.closeBar;
   const target = tokens.base.target.min;
   const gutter = tokens.direction.layout.gutter;
   const gaps = blockGaps(document.blocks, space);
@@ -138,18 +142,20 @@ export function LegalReader({ document, script, address, lines, closeLabel, onCl
           accessibilityLabel={closeLabel}
           style={[styles.close, { width: target, height: target }]}
         >
+          {/* Close's cross, two bars in the glyph group's proportion. Interim only: the DT-10 Icon set replaces the drawn
+              cross, and the glyph group with it, when it lands (UI-340). */}
           <View testID="legalReader.close.glyph" style={[styles.glyph, { width: icon, height: icon }]}>
-            <View style={[styles.bar, { width: icon * 0.75, height: tokens.base.icon.stroke, backgroundColor: primary, transform: [{ rotate: '45deg' }] }]} />
+            <View testID="legalReader.close.bar" style={[styles.bar, { width: crossBar, height: stroke, backgroundColor: primary, transform: [{ rotate: '45deg' }] }]} />
             <View
-              style={[
-                styles.bar,
-                { width: icon * 0.75, height: tokens.base.icon.stroke, marginTop: -tokens.base.icon.stroke, backgroundColor: primary, transform: [{ rotate: '-45deg' }] },
-              ]}
+              testID="legalReader.close.bar"
+              style={[styles.bar, { width: crossBar, height: stroke, marginTop: -stroke, backgroundColor: primary, transform: [{ rotate: '-45deg' }] }]}
             />
           </View>
         </Pressable>
       </View>
-      <Animated.View testID="legalReader.hairline" style={[styles.hairline, { backgroundColor: c.line.control.hex }, hairline]} />
+      {/* The hairline under the TopBar: topBar.hairline, 1 dp (P1 spec §B.1 item 1), in the flow from the start so it never
+          moves the content. */}
+      <Animated.View testID="legalReader.hairline" style={[{ height: tokens.base.topBar.hairline, backgroundColor: c.line.control.hex }, hairline]} />
       <ScrollView testID="legalReader.scroll" onScroll={onScroll} scrollEventThrottle={16}>
         <View
           testID="legalReader.column"
@@ -260,8 +266,6 @@ const styles = StyleSheet.create({
   close: { alignItems: 'center', justifyContent: 'center' },
   glyph: { alignItems: 'center', justifyContent: 'center' },
   bar: {},
-  // The hairline under the TopBar: 1 dp (P1 spec §B.1 item 1), in the flow from the start so it never moves the content.
-  hairline: { height: 1 },
   column: { width: '100%', alignSelf: 'center' },
   item: { flexDirection: 'row', alignItems: 'flex-start' },
   itemText: { flex: 1 },
