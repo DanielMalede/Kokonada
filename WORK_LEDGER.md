@@ -139,10 +139,10 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-28
 
 ### M09
-- task: `OPS-506` (TASKS)
-- title: The src/pages boundary guard: the import graph from App.tsx reaches no batch page entry outside the Design Lab route, proven on a planted import, run in CI
-- branch: `chore/ops506-pages-boundary-guard`
-- paths: `mobile/KokonadaHealth/scripts/lab/assertPagesBoundary.mjs`, `mobile/KokonadaHealth/scripts/lab/__tests__/assertPagesBoundary.test.ts`, `mobile/KokonadaHealth/scripts/lab/__fixtures__/pagesBoundary/**`, `mobile/KokonadaHealth/scripts/lab/README.md`, `.github/workflows/ci.yml`, `mobile/KokonadaHealth/scripts/jest/__tests__/ciShards.test.ts`, `TASKS.md`
+- task: `own:gen-targets-log-trim` (own)
+- title: The [gen.targets] log keeps only tempoBand and counts: no emotion tap, valence, energy, bpm or confidence in the server log (C-P4-0, RA-91 S0)
+- branch: `fix/gen-targets-log-trim`
+- paths: `backend/app/sockets/biometricHandler.js`, `backend/tests/genTargetsLog.test.js`, `backend/tests/wave4.liveLogZeroKnowledge.test.js`, `TASKS.md`
 - resources: none
 - state: claimed
 - started: 2026-11-28
@@ -166,7 +166,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-24
 
 ### M12
-_free_
+- task: `own:v2-teardown-contract` (own)
+- title: Design v2 B1 G7 teardown contract C9 (PR-TD; C-B2-T and C-P9-4 follow on the same files)
+- branch: `feat/v2-teardown-contract`
+- paths: `mobile/KokonadaHealth/src/experience/profile/sessionTeardown.ts`, `mobile/KokonadaHealth/src/experience/profile/profileServices.ts`, `mobile/KokonadaHealth/src/experience/profile/__tests__/sessionTeardown.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.authMigration.test.ts`, `mobile/KokonadaHealth/src/experience/profile/__tests__/profileController.test.ts`, `backend/tests/ciWorkflowPermissions.test.js`, `mobile/KokonadaHealth/src/health/liveHrSwitch.ts`, `mobile/KokonadaHealth/src/prodBootstrap.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.c9Composition.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.c9Teardown.test.ts`, `mobile/KokonadaHealth/src/experience/connect/connectStore.ts`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-28
 
 ## Bedrack
 
