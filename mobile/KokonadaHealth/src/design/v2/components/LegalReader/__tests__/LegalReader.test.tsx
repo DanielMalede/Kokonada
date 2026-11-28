@@ -49,6 +49,9 @@ const flat = (n: Node) => StyleSheet.flatten(n.props.style) ?? {};
 const isHost = (n: Node) => typeof n.type === 'string';
 const T = DIRECTIONS.abyss;
 const SPACE = readerSpace({ base: BASE, direction: T });
+/** Safe-area insets a route might pass: a status bar and a gesture bar, as numbers on the spacing scale. */
+const TOP_INSET = BASE.spacing['7'];
+const BOTTOM_INSET = BASE.spacing['8'];
 
 const DOC: LegalDocument = {
   title: 'Privacy policy (sample)',
@@ -101,8 +104,8 @@ afterEach(() => jest.restoreAllMocks());
 
 describe('LegalReader: the TopBar', () => {
   it.each(['dark', 'light'] as const)('%s: an opaque ground fill, at least topBar.height plus the top inset, never a fixed height', (face) => {
-    const view = mount({ face, insets: { top: 24, bottom: 16 } });
-    expect(flat(view.byId('legalReader.topBar'))).toMatchObject({ backgroundColor: T.color[face].ground.hex, minHeight: BASE.topBar.height + 24, paddingTop: 24, flexDirection: 'row' });
+    const view = mount({ face, insets: { top: TOP_INSET, bottom: BOTTOM_INSET } });
+    expect(flat(view.byId('legalReader.topBar'))).toMatchObject({ backgroundColor: T.color[face].ground.hex, minHeight: BASE.topBar.height + TOP_INSET, paddingTop: TOP_INSET, flexDirection: 'row' });
     expect(flat(view.byId('legalReader.topBar'))).not.toHaveProperty('height');
     expect(flat(view.byId('legalReader'))).toMatchObject({ flex: 1, backgroundColor: T.color[face].ground.hex });
     view.unmount();
@@ -198,14 +201,14 @@ describe('LegalReader: the meta block (item 97: the current-text line first)', (
   });
 
   it('the column: 24 below the TopBar, the meta, 32, the body; content.maxWidth, centred, within the gutter; 24 plus the bottom inset at the end', () => {
-    const view = mount({ insets: { top: 0, bottom: 30 } });
+    const view = mount({ insets: { top: BASE.spacing['0'], bottom: BOTTOM_INSET } });
     expect(flat(view.byId('legalReader.column'))).toMatchObject({
       width: '100%',
       maxWidth: SPACE.measure,
       alignSelf: 'center',
       paddingHorizontal: T.layout.gutter,
       paddingTop: BASE.spacing['7'],
-      paddingBottom: BASE.spacing['7'] + 30,
+      paddingBottom: BASE.spacing['7'] + BOTTOM_INSET,
     });
     expect(flat(view.body()).marginTop).toBe(BASE.spacing['8']);
     view.unmount();
@@ -255,7 +258,7 @@ describe('LegalReader: the document body', () => {
     expect(lists.map((l) => l.props.role)).toEqual(['list', 'list']);
     const items = (l: Node) => l.children as Node[];
     expect(items(lists[0]).map((i) => i.props.role)).toEqual(['listitem', 'listitem']);
-    expect(items(lists[0]).map((i) => flat(i).marginTop)).toEqual([0, SPACE.listItemGap]);
+    expect(items(lists[0]).map((i) => flat(i).marginTop)).toEqual([undefined, SPACE.listItemGap]);
     for (const item of items(lists[1])) expect(flat(item)).toMatchObject({ flexDirection: 'row', alignItems: 'flex-start' });
     const markers = view.all((n) => n.props.testID === 'legalReader.list.marker');
     expect(markers.map((m) => (m.children[0] as Node).props.children)).toEqual(['•', '•', '1.', '2.', '3.']);
@@ -274,7 +277,7 @@ describe('LegalReader: the document body', () => {
 
   it('nothing inside the document is pressable or a link: the one pressable in the reader is Close', () => {
     const view = mount();
-    const inBody = view.body().findAll((n) => true);
+    const inBody = view.body().findAll(() => true);
     for (const n of inBody) {
       for (const prop of ['onPress', 'onLongPress', 'onPressIn', 'onClick']) expect([n.props.testID, prop, n.props[prop]]).toEqual([n.props.testID, prop, undefined]);
       expect([n.props.testID, n.props.accessibilityRole]).not.toEqual([n.props.testID, 'link']);

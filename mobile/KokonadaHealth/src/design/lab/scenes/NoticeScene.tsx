@@ -72,14 +72,13 @@ export function NoticeScene({ params }: { readonly params: LabParams }) {
           />
           <Text
             testID="notice.presses"
-            style={{
+            style={[styles.start, {
               ...fontFace(BASE.type.face.ui, caption.weight),
               fontSize: caption.size,
               lineHeight: caption.lineHeight,
               color: colour.text.secondary.hex,
               marginTop: BASE.spacing['5'],
-              textAlign: 'left',
-            }}
+            }]}
           >
             {String(presses)}
           </Text>
@@ -92,4 +91,6 @@ export function NoticeScene({ params }: { readonly params: LabParams }) {
 const styles = StyleSheet.create({
   stage: { flex: 1 },
   gap: { height: BASE.spacing['5'] },
+  // React Native lays 'left' at the paragraph's start, the right under RTL.
+  start: { textAlign: 'left' },
 });

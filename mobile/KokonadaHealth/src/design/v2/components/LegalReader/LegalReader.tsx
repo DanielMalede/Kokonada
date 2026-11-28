@@ -149,7 +149,7 @@ export function LegalReader({ document, script, address, lines, closeLabel, onCl
           </View>
         </Pressable>
       </View>
-      <Animated.View testID="legalReader.hairline" style={[{ height: 1, backgroundColor: c.line.control.hex }, hairline]} />
+      <Animated.View testID="legalReader.hairline" style={[styles.hairline, { backgroundColor: c.line.control.hex }, hairline]} />
       <ScrollView testID="legalReader.scroll" onScroll={onScroll} scrollEventThrottle={16}>
         <View
           testID="legalReader.column"
@@ -234,7 +234,7 @@ function Block({ block, gapAbove, listIndent, listItemGap, heading, body, marker
   return (
     <View testID="legalReader.block.list" role="list" style={{ marginTop: gapAbove }}>
       {block.items.map((item, i) => (
-        <View key={i} role="listitem" style={[styles.item, { marginTop: i === 0 ? 0 : listItemGap }]}>
+        <View key={i} role="listitem" style={[styles.item, i > 0 && { marginTop: listItemGap }]}>
           <View
             testID="legalReader.list.marker"
             style={{ width: listIndent }}
@@ -260,6 +260,8 @@ const styles = StyleSheet.create({
   close: { alignItems: 'center', justifyContent: 'center' },
   glyph: { alignItems: 'center', justifyContent: 'center' },
   bar: {},
+  // The hairline under the TopBar: 1 dp (P1 spec §B.1 item 1), in the flow from the start so it never moves the content.
+  hairline: { height: 1 },
   column: { width: '100%', alignSelf: 'center' },
   item: { flexDirection: 'row', alignItems: 'flex-start' },
   itemText: { flex: 1 },
