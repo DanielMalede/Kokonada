@@ -8,7 +8,7 @@ import { authSession } from '../../auth/session';
 import { currentUserStore, getCurrentUserId } from '../../auth/currentUser';
 import { GOOGLE_WEB_CLIENT_ID } from '../../health/config';
 import { CONNECT_KEY_PREFIX } from '../connect/connectStore';
-import { createSecureStore } from '../../storage/secureStoreFactory';
+import { bootSecureStore } from '../../prodBootstrap';
 import { clearWatchToken } from '../../health/liveHrClient';
 import { healthLane, stopLaneThenClearToken } from '../../health/healthLaneServices';
 import { warmStore } from '../../state/store';
@@ -28,9 +28,16 @@ import { wipeColdPersistence } from '../../state/cold/coldPersistenceHolder';
 const LEGACY_JWT_SERVICE = 'com.kokonadahealth.jwt';
 
 // C9: the account's own keys on this phone, removed by prefix when the account is deleted (a logout
-// and an involuntary end keep them). Each family ends with the uid and a dot, so no other account's
-// keys share a prefix.
-const accountKeyPrefixes = (uid: string): string[] => [`${CONNECT_KEY_PREFIX}.${uid}.`];
+// and an involuntary end keep them): the Connect flags and the live-HR link (RA-1). Each family ends
+// with the uid and a dot, so no other account's keys share a prefix. shadow.c9Composition checks that
+// every exported per-account key builder in src (liveHrLinkKey included) falls under one of these.
+// The live-HR prefix is spelled here, not imported: shadow.healthLane pins that only the lane services
+// and the boot import liveHrSwitch, the module that writes the link.
+const LIVE_HR_LINK_PREFIX = 'koko.liveHr';
+export const accountKeyPrefixes = (uid: string): string[] => [
+  `${CONNECT_KEY_PREFIX}.${uid}.`,
+  `${LIVE_HR_LINK_PREFIX}.${uid}.`,
+];
 
 // C9: the Google SDK refuses signOut and revokeAccess until configure() ran in this process
 // (RNGoogleSigninModule: "apiClient is null - call configure() first"), and a session restored from
@@ -56,8 +63,9 @@ const teardown = createSessionTeardown({
   resetNowPlaying: () => nowPlayingStore.getState().set({ track: null, isPlaying: false }),
   resetPlaybackError: () => playbackErrorStore.getState().clear(),
   resetLiveMode: () => liveModeStore.getState().setLiveMode(false), // persists '0' → next login is Manual
-  removeAccountKeys: async (uid) => {
-    const store = await createSecureStore(); // the same encrypted instance the app opened at launch
+  removeAccountKeys: (uid) => {
+    const store = bootSecureStore(); // the instance the boot opened (RA-5); none opened, nothing stored
+    if (!store) return;
     for (const prefix of accountKeyPrefixes(uid)) store.removeByPrefix(prefix);
   },
   clearCurrentUser: () => currentUserStore.getState().clear(),
@@ -66,24 +74,58 @@ const teardown = createSessionTeardown({
 });
 
 // C9: an account deletion the server confirmed (a 2xx), with the session and account it ended; the
-// next clearLocal tears that epoch down as accountDeleted.
+// next clearLocal tears that epoch down as accountDeleted. While the DELETE is in flight, a clearLocal
+// (a logout tapped meanwhile) waits for its answer, so the epoch's first teardown already carries
+// accountDeleted and the revoke runs before the sign-out (RA-2).
 const ACCOUNT_PATH = '/api/auth/account';
 let confirmedDeletion: { epoch: number; uid: string | null } | null = null;
+let deletionInFlight: Promise<unknown> | null = null;
 
 async function deleteThenNote<T>(path: string): Promise<ApiResult<T>> {
   const epoch = authSession.sessionEpoch();
   const uid = getCurrentUserId();
-  const res = await apiDelete<T>(path);
-  if (path === ACCOUNT_PATH && res.ok) confirmedDeletion = { epoch, uid };
-  return res;
+  const run = (async () => {
+    const res = await apiDelete<T>(path);
+    if (path === ACCOUNT_PATH && res.ok) confirmedDeletion = { epoch, uid };
+    return res;
+  })();
+  if (path !== ACCOUNT_PATH) return run;
+  deletionInFlight = run;
+  try {
+    return await run;
+  } finally {
+    if (deletionInFlight === run) deletionInFlight = null;
+  }
+}
+
+// C9 (RA-7): the session and account that asked to log out, read before the logout POST, during which
+// the server revokes the family and a newer session may land.
+let loggingOut: { epoch: number; uid: string | null } | null = null;
+
+function serverLogout(): Promise<ApiResult<unknown>> {
+  loggingOut = { epoch: authSession.sessionEpoch(), uid: getCurrentUserId() };
+  // Security L2: the held refresh token rides along, read here, before clearLocal wipes it, so the server
+  // revokes its whole family (authController.js `logout`); a copied refresh token dies with the sign-out.
+  const refreshToken = authSession.getRefreshToken();
+  return apiPost('/api/auth/logout', refreshToken ? { refreshToken } : undefined);
 }
 
 async function clearLocal(): Promise<void> {
+  const logout = loggingOut;
+  loggingOut = null;
+  const inFlight = deletionInFlight;
+  if (inFlight) await inFlight.catch(() => undefined);
+  // A confirmed deletion names its epoch. A logout of that same epoch tears it down as accountDeleted
+  // and leaves the note for the deletion's own clearLocal (which follows its 2xx at once, and consumes
+  // it); both then share the epoch's one teardown. A logout of another epoch is a plain logout.
   const deletion = confirmedDeletion;
-  confirmedDeletion = null;
-  const ctx: TeardownContext = deletion
-    ? { reason: 'accountDeleted', ...deletion }
-    : { reason: 'loggedOut', epoch: authSession.sessionEpoch(), uid: getCurrentUserId() };
+  let ctx: TeardownContext;
+  if (deletion && (!logout || logout.epoch === deletion.epoch)) {
+    ctx = { reason: 'accountDeleted', ...deletion };
+    if (!logout) confirmedDeletion = null;
+  } else {
+    ctx = { reason: 'loggedOut', ...(logout ?? { epoch: authSession.sessionEpoch(), uid: getCurrentUserId() }) };
+  }
   await teardown(ctx);
   playerStatusStore.getState().set('disconnected');
 }
@@ -103,12 +145,7 @@ async function clearSpotifyPlayback(): Promise<void> {
 
 export const profileController = new ProfileController({
   apiGet, apiPost, apiDelete: deleteThenNote,
-  // Security L2: the held refresh token rides along, read here, before clearLocal wipes it, so the server
-  // revokes its whole family (authController.js `logout`); a copied refresh token dies with the sign-out.
-  serverLogout: () => {
-    const refreshToken = authSession.getRefreshToken();
-    return apiPost('/api/auth/logout', refreshToken ? { refreshToken } : undefined);
-  },
+  serverLogout,
   clearLocal,
   clearSpotifyPlayback,
   onSpotifyLinked: () => orchestrator.resume(),

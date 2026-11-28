@@ -5,9 +5,12 @@
 //
 // C9 (design v2 B1, P1 charter §2) adds, without changing v1's steps or their order:
 //   - a provider sign-out before the credential clear (revoke first on accountDeleted);
-//   - a context naming the ended epoch: once a newer session is held, no step (the credential clear
-//     included) touches what that session owns;
-//   - a bound of TEARDOWN_STEP_MS on every step;
+//   - a context naming the ended epoch: once a newer session is held, no session-owned step (the
+//     credential clear included) touches what that session owns; the resets of the ended account's
+//     in-memory data (warm, now playing, playback error) always run (RA-4);
+//   - a bound of TEARDOWN_STEP_MS on every step, and of TEARDOWN_DEADLINE_MS on the whole teardown:
+//     past it the credential clear, the resets, the key removal and the identity drop run at once,
+//     and the steps still pending finish in the background (RA-3);
 //   - one teardown per epoch (createSessionTeardown);
 //   - on accountDeleted, the account's per-account device keys removed by prefix.
 
@@ -30,6 +33,7 @@ export interface SessionTeardownDeps {
   sessionEpoch?: () => number;        // AuthSession.sessionEpoch
   hasSession?: () => boolean;         // AuthSession.hasSession
   stepTimeoutMs?: number;             // TEARDOWN_STEP_MS unless a test says otherwise
+  deadlineMs?: number;                // TEARDOWN_DEADLINE_MS unless a test says otherwise
 }
 
 // Precedence (P1 charter: accountDeleted over loggedOut over sessionEnded).
@@ -45,8 +49,9 @@ export interface TeardownContext {
   uid: string | null;
 }
 
-// P1 charter §16 (DEC-087): 1500 ms per step.
+// P1 charter §16 (DEC-087): teardown 3000 ms, 1500 ms per step.
 export const TEARDOWN_STEP_MS = 1500;
+export const TEARDOWN_DEADLINE_MS = 3000;
 
 async function safe(fn: () => Promise<void> | void): Promise<void> {
   try { await fn(); } catch { /* best-effort: one failed step must not block the rest */ }
@@ -75,33 +80,64 @@ function superseded(deps: SessionTeardownDeps, ctx: TeardownContext | undefined)
 
 export async function wipeLocalSession(deps: SessionTeardownDeps, ctx?: TeardownContext): Promise<void> {
   const ms = deps.stepTimeoutMs ?? TEARDOWN_STEP_MS;
-  const step = (fn?: () => Promise<void> | void) => bounded(fn, ms);
   const reason = ctx?.reason ?? 'loggedOut';
-  const scoped = (fn?: () => Promise<void> | void) => (superseded(deps, ctx) ? Promise.resolve() : step(fn));
+  // Session-owned: skipped once a newer session is held. The check and the step's synchronous start
+  // share one turn, so the credential clear can never end a session installed after the check.
+  const scoped = (fn?: () => Promise<void> | void) => (superseded(deps, ctx) ? Promise.resolve() : bounded(fn, ms));
+  // The ended account's own data: always reset, so a newer session never shows it (RA-4).
+  const always = (fn?: () => Promise<void> | void) => bounded(fn, ms);
+  // Each critical step runs once, from the sequence or from the deadline, whichever reaches it first.
+  const once = (run: () => Promise<void>): (() => Promise<void>) => {
+    let started: Promise<void> | null = null;
+    return () => (started ??= run());
+  };
+  const clearAuth = once(() => scoped(deps.clearAuthSession));
+  const resetData = once(async () => {
+    await always(deps.resetWarm);
+    await always(deps.resetNowPlaying);
+    await always(deps.resetPlaybackError);
+  });
+  const dropKeys = once(() => (reason === 'accountDeleted' ? removeKeys(deps, ctx, ms) : Promise.resolve()));
+  const dropUser = once(() => scoped(deps.clearCurrentUser));
 
-  // 1. Sever the socket BEFORE anything else so no late buffered event lands mid-wipe.
-  await scoped(deps.disconnectSocket);
-  await scoped(deps.disposePlayer);
-  // 2. Sign out of the provider while its account is still the ended one (a revoke needs it signed in).
-  if (reason === 'accountDeleted') await scoped(deps.revokeProvider);
-  await scoped(deps.signOutProvider);
-  // 3. Destroy every credential plane. The session clear is scoped to the ended epoch: it runs while
-  //    that epoch is current or no session is held (AuthSession ended it already; clearing again
-  //    re-wipes a record its own clear may have failed to remove), never once a newer one is held.
-  //    The check and the clear's synchronous start (AuthSession.end moves the epoch) share one turn.
-  await scoped(deps.clearAuthSession);
-  await scoped(deps.clearWatchToken);
-  await scoped(deps.clearLegacyToken);
-  // 4. Wipe persisted + in-memory state (cold persistence detaches its writer first).
-  await scoped(deps.wipeColdPersistence);
-  await scoped(deps.resetWarm);
-  await scoped(deps.resetNowPlaying);
-  await scoped(deps.resetPlaybackError);
-  await scoped(deps.resetLiveMode);
-  // 5. The deleted account's device keys are its own, whoever is signed in now.
-  if (reason === 'accountDeleted') await removeKeys(deps, ctx, ms);
-  // 6. Drop the identity LAST — this is what flips the UI to the SignIn gate.
-  await scoped(deps.clearCurrentUser);
+  const sequence = (async () => {
+    // 1. Sever the socket BEFORE anything else so no late buffered event lands mid-wipe.
+    await scoped(deps.disconnectSocket);
+    await scoped(deps.disposePlayer);
+    // 2. Sign out of the provider while its account is still the ended one (a revoke needs it signed in).
+    if (reason === 'accountDeleted') await scoped(deps.revokeProvider);
+    await scoped(deps.signOutProvider);
+    // 3. Destroy every credential plane. The session clear runs while the ended epoch is current or no
+    //    session is held (AuthSession ended it already; clearing again re-wipes a record its own clear
+    //    may have failed to remove), never once a newer one is held.
+    await clearAuth();
+    await scoped(deps.clearWatchToken);
+    await scoped(deps.clearLegacyToken);
+    // 4. Wipe persisted + in-memory state (cold persistence detaches its writer first).
+    await scoped(deps.wipeColdPersistence);
+    await resetData();
+    await scoped(deps.resetLiveMode);
+    // 5. The deleted account's device keys are its own, whoever is signed in now.
+    await dropKeys();
+    // 6. Drop the identity LAST — this is what flips the UI to the SignIn gate.
+    await dropUser();
+  })();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<'late'>((resolve) => { timer = setTimeout(() => resolve('late'), deps.deadlineMs ?? TEARDOWN_DEADLINE_MS); });
+  try {
+    const first = await Promise.race([sequence.then(() => 'done' as const), deadline]);
+    if (first === 'late') {
+      // Past the deadline: the steps that end the session run now, in the same order; whatever the
+      // sequence still has pending finishes in the background, under the same scope.
+      await clearAuth();
+      await resetData();
+      await dropKeys();
+      await dropUser();
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function removeKeys(deps: SessionTeardownDeps, ctx: TeardownContext | undefined, ms: number): Promise<void> {

@@ -153,8 +153,9 @@ describe('C9 · the clear is scoped to the ended epoch (RA-3)', () => {
     expect(w.session.getAccessToken()).toBe('access-b');
     expect(w.disk.record).toEqual({ access: 'access-b', refresh: 'refresh-b' });
     expect(w.users.getState().user?.id).toBe(UID_B);
-    // Nothing after the window touches what the new session owns, its Google account included.
-    expect(w.log).toEqual(['socket', 'player']);
+    // Nothing after the window touches what the new session owns, its Google account included; the
+    // ended account's in-memory data is still reset, so the new session never shows it (RA-4).
+    expect(w.log).toEqual(['socket', 'player', 'warm', 'now', 'err']);
   });
 
   it('an account deleted with a sign-in inside the window still loses its own device keys, and only those', async () => {
@@ -169,7 +170,7 @@ describe('C9 · the clear is scoped to the ended epoch (RA-3)', () => {
     hold.release();
     await running;
 
-    expect(w.log).toEqual(['socket', 'player', `keys-removed ${UID_A}`]);
+    expect(w.log).toEqual(['socket', 'player', 'warm', 'now', 'err', `keys-removed ${UID_A}`]);
     expect(w.session.getAccessToken()).toBe('access-b');
   });
 
@@ -400,6 +401,7 @@ describe('C9 · the prod composition (profileServices)', () => {
       return {
         player,
         kokoSocket: { disconnect: () => { events.push('socket-severed'); } },
+        playbackSocket: { ensureConnected: () => {} },
         orchestrator: { clear: () => {}, resume: () => {} },
       };
     });
@@ -430,15 +432,17 @@ describe('C9 · the prod composition (profileServices)', () => {
       return json(404, {});
     });
 
+    const { startApp } = require('../../../prodBootstrap');
     const { profileController } = require('../profileServices');
     const { authSession } = require('../../../auth/session');
     const { currentUserStore } = require('../../../auth/currentUser');
     const { player } = require('../../playback/playbackServices');
     const { connectStore, resolvedKey, moodOnlyKey } = require('../../connect/connectStore');
-    return { profileController, authSession, currentUserStore, player, connectStore, resolvedKey, moodOnlyKey, events, slots, keys };
+    return { startApp, profileController, authSession, currentUserStore, player, connectStore, resolvedKey, moodOnlyKey, events, slots, keys };
   }
 
   async function signedIn(w: ReturnType<typeof load>) {
+    await w.startApp(); // RA-5: the teardown removes keys through the store the boot opened
     await w.authSession.setSession({ access: 'access-a', refresh: 'refresh-a' });
     w.currentUserStore.getState().setUser({ id: UID_A, displayName: 'A', email: 'a@x.io' });
     await w.player.connect();
