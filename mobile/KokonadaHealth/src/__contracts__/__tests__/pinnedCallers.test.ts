@@ -18,8 +18,9 @@ const TASKS = path.resolve(APP_ROOT, '../../TASKS.md');
 // The dead list's ceiling: it may shrink freely, and grows only by editing this number on purpose, in
 // the PR that adds the entry and its row (13: RA-1 of #292's audit added useRealtimeFieldClock and advanceFieldTime;
 // 137: #234 listed design v2's 126 uncalled pins under UI-294 and UI-295 and removed OPS-437's two, which the dev
-// preview now calls).
-const DEAD_LIST_CEILING = 137;
+// preview now calls; 212: own:v2-foundations listed the hero components', copy port's and typeface's 76 uncalled
+// pins under UI-329 and UI-330 and removed srgbToOklab, which fieldLaw.ts now calls).
+const DEAD_LIST_CEILING = 212;
 // A floor under the pin count, near the 212 measured on 2026-11-18 (after the class and require() pins
 // were counted): a scan that silently loses most of its pins fails here, not just a scan over nothing.
 const PINNED_FLOOR = 200;
