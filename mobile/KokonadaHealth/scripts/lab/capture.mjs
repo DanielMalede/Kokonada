@@ -271,6 +271,7 @@ const SURFACES = [
   { prefix: 'storm.', status: 'ready', drawn: 'by the field shader, never its fallback' },
   { prefix: 'hero.', status: 'ready', drawn: 'by the field shader under the plate, never its fallback' },
   { prefix: 'fonts.', status: undefined, drawn: 'without the field' },
+  { prefix: 'parts.', status: undefined, drawn: 'without the field' },
   { prefix: 'smoke', whole: true, status: undefined, drawn: 'without the field' },
 ];
 
