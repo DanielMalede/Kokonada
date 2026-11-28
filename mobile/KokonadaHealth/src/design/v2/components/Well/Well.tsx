@@ -57,6 +57,11 @@ export interface WellProps {
   readonly host?: WellHost;
   /** Where the hint sits across: centred (P10), by default, or at the start of the page's direction (P1·AGE). */
   readonly hintAlign?: 'center' | 'start';
+  /**
+   * What TalkBack reads for the hint in place of its words (DEC-195 FY-4), resolved by the page through the copy port.
+   * Optional and additive: without one the hint is read as it is drawn.
+   */
+  readonly hintAccessibilityLabel?: string;
   /** The action: CommitCTA (P2, P10), a Button (P1·AGE), or the reserved consent slot. */
   readonly children?: ReactNode;
 }
@@ -100,7 +105,7 @@ function useHeldTurns(asked: boolean, held: boolean, holdMs: number): boolean {
   return held ? shown : asked;
 }
 
-export function Well({ actionShown, hint, script, tier, consentSlot = false, host = 'commit', hintAlign = 'center', children }: WellProps) {
+export function Well({ actionShown, hint, script, tier, consentSlot = false, host = 'commit', hintAlign = 'center', hintAccessibilityLabel, children }: WellProps) {
   const tokens = useTokens();
   const shown = useHeldTurns(actionShown, host === 'button', tokens.base.well.hold);
   const hasHint = hint !== undefined && !consentSlot;
@@ -153,7 +158,9 @@ export function Well({ actionShown, hint, script, tier, consentSlot = false, hos
           accessibilityElementsHidden={!hintShown}
           importantForAccessibility={hintShown ? 'auto' : 'no-hide-descendants'}
         >
-          <Text style={[hintAlign === 'start' ? styles.hintStart : styles.hintCentred, hintType]}>{hint}</Text>
+          <Text style={[hintAlign === 'start' ? styles.hintStart : styles.hintCentred, hintType]} accessibilityLabel={hintAccessibilityLabel}>
+            {hint}
+          </Text>
         </Animated.View>
       )}
       <Animated.View

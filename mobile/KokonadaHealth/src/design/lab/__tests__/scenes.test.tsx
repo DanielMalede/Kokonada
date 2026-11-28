@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import ReactTestRenderer, { act } from 'react-test-renderer';
 import { unknownFaces, type LabFaceId } from '../fonts';
 import { Probe, ProbeRegistry } from '../probe/Probe';
@@ -67,7 +67,11 @@ describe('the lab scenes', () => {
   // must agree, scene by scene; a face no scene may use (one the lab does not have) is caught the same way. Text styled as
   // a family at a weight is that token face (F10 G8, __fixtures__/drawnFaces.ts). A scene that draws its text only once
   // its view has a size (the hero) draws none here: its own test lays it out and holds it to the same check.
+  // The lab declares its faces by the file Android loads (LAB_FACES; iOS is frozen), and v2's fontFace names a face that way
+  // only on Android: jest runs as iOS (the preset's Platform.OS), where a face is the family at a weight, so a scene's text
+  // is drawn here as on the device it is captured on.
   const drawnFamilies = (Scene: Scene['Component'], id: string) => {
+    jest.replaceProperty(Platform, 'OS', 'android');
     let tree!: ReactTestRenderer.ReactTestRenderer;
     act(() => {
       tree = ReactTestRenderer.create(
@@ -80,6 +84,7 @@ describe('the lab scenes', () => {
     });
     const faces = drawnFaces(tree.root);
     act(() => tree.unmount());
+    jest.restoreAllMocks();
     return faces;
   };
 

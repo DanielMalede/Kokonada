@@ -43,6 +43,11 @@ jest.mock('../../v2/field/FieldSurface', () => ({ FieldSurface: () => null }));
 // one row of full-width cells sized by their text, which this model cannot measure. It is stubbed to its children (the
 // CTA); HeroSceneRtl.test.tsx pins its column to the same inset on both sides, so the swap cannot move it.
 jest.mock('../../v2/components/Well/Well', () => ({ Well: ({ children }: { children?: unknown }) => children ?? null }));
+// So are the F10 InlineNotice and LegalReader (LF3): rows that mirror with the page by design (the glyph, the actions, the
+// TopBar's Close, a list's markers). They are stubbed to nothing; the parts scenes place them in one column with the same
+// inset on both sides, and their own suites pin that they name no side and set no direction.
+jest.mock('../../v2/components/InlineNotice/InlineNotice', () => ({ InlineNotice: () => null }));
+jest.mock('../../v2/components/LegalReader/LegalReader', () => ({ LegalReader: () => null }));
 
 import { FONT_PROBES_TEST_ID } from '../FontProbes';
 import { LabRoot } from '../LabRoot';
@@ -144,7 +149,7 @@ afterEach(() => {
 });
 
 it('has cases: every scene component of the catalogue', () => {
-  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'HeroScene', 'SmokeScene', 'StormScene', 'WitnessScene']);
+  expect([...BY_COMPONENT.keys()].sort()).toEqual(['CostScene', 'FallbackScene', 'FieldScene', 'FontsScene', 'GrainScene', 'HeroScene', 'NoticeScene', 'ReaderScene', 'SmokeScene', 'StormScene', 'WellHintScene', 'WitnessScene']);
 });
 
 describe.each([...BY_COMPONENT.entries()])('%s (%s)', (_name, scene) => {

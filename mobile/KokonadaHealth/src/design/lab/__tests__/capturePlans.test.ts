@@ -200,10 +200,10 @@ describe('the plans and the harness, against the lab', () => {
     expect(PLAN_FILES).toEqual(expect.arrayContaining(['smoke.json', 'v1-field.json']));
   });
 
-  // F10 G8: the fonts scenes draw no field, as smoke does.
-  const FIELDLESS = (id: string) => id === 'smoke' || id.startsWith('fonts.');
+  // F10 G8: the fonts scenes draw no field, as smoke does; nor do the F10 parts scenes (LF3).
+  const FIELDLESS = (id: string) => id === 'smoke' || id.startsWith('fonts.') || id.startsWith('parts.');
 
-  it('every lab scene has a surface rule: a field scene is the field shader\'s, a fallback scene the fallback\'s, smoke and the fonts scenes nobody\'s', () => {
+  it('every lab scene has a surface rule: a field scene is the field shader\'s, a fallback scene the fallback\'s, smoke, the fonts and the parts scenes nobody\'s', () => {
     for (const id of Object.keys(SCENES)) {
       const rule = surfaceRule(id);
       expect([id, rule !== null]).toEqual([id, true]);

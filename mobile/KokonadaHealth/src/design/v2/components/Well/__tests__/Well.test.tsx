@@ -98,6 +98,7 @@ function mount(props: Mounted, actionHeight = 40) {
           consentSlot={p.consentSlot}
           host={p.host}
           hintAlign={p.hintAlign}
+          hintAccessibilityLabel={p.hintAccessibilityLabel}
         >
           <View testID="action" style={{ height: actionHeight }} />
         </Well>
@@ -503,5 +504,39 @@ describe('Well: the hint’s ink is never red and reads at 4.5:1 on the ground i
     expect(maxInBandOnPixelBlend(ground, ink, CHECK_BAND, 254).chroma).toBeLessThan(CHECK_BAND.chromaFloor - BASE.neverRed.margin);
     // An arithmetic prediction, never evidence: the device capture measures it.
     expect(contrastRatio(unit(ink), unit(ground))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe('Well: the hint’s accessibility label (DEC-195 FY-4, additive)', () => {
+  const LABEL = 'Enter your birth month and year, and tick the box, to continue.';
+
+  it('gives the hint the label the page passes, so TalkBack reads it in place of the hint’s words', () => {
+    const view = mount({ ...base, host: 'button', hintAlign: 'start', hintAccessibilityLabel: LABEL });
+    const hint = view.text()[0];
+    expect(hint.props.children).toBe(HINT);
+    expect(hint.props.accessibilityLabel).toBe(LABEL);
+    view.unmount();
+  });
+
+  it('without one, the hint carries no label of its own: an existing caller is unchanged', () => {
+    const view = mount(base);
+    expect(view.text()[0].props).not.toHaveProperty('accessibilityLabel', expect.anything());
+    expect(view.text()[0].props.accessibilityLabel).toBeUndefined();
+    view.unmount();
+  });
+
+  it('the label is on the hint alone: never on the action’s cell, and gone with the hint when the action shows', () => {
+    const view = mount({ ...base, hintAccessibilityLabel: LABEL });
+    expect(view.actionCell().props.accessibilityLabel).toBeUndefined();
+    view.update({ ...base, hintAccessibilityLabel: LABEL, actionShown: true });
+    expect(view.hintLayer().props.accessibilityElementsHidden).toBe(true);
+    expect(view.hintLayer().props.importantForAccessibility).toBe('no-hide-descendants');
+    view.unmount();
+  });
+
+  it('with the reserved consent slot there is no hint, so no label is drawn anywhere', () => {
+    const view = mount({ ...base, consentSlot: true, hintAccessibilityLabel: LABEL });
+    expect(view.r.root.findAll((n) => isHost(n) && n.props.accessibilityLabel === LABEL)).toEqual([]);
+    view.unmount();
   });
 });
