@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "dependencies": {
+    "@pages-boundary-fixture/shared": "file:./modules/shared"
+  }
+}
