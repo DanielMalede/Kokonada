@@ -44,22 +44,42 @@ Every command below is a direct `node scripts/lab/<name>.mjs` call.
 - **`node scripts/lab/assertPagesBoundary.mjs`** (OPS-506; CI runs it through
   `scripts/lab/__tests__/assertPagesBoundary.test.ts` in the jest shards of the check "Mobile — jest"):
   - Batch pages (DEC-192, `/page` BATCH MODE) are built under `src/pages/` and stay lab-only until
-    their cutover. The guard walks the import graph from `App.tsx` and fails (exit 1) when that
-    graph reaches any file under `src/pages/`. It prints the import chain to each such file.
+    their cutover. The guard walks the import graph from `App.tsx`, and from the release entry
+    `index.js` when it exists. It fails (exit 1) when that graph reaches any file under `src/pages/`,
+    matched without regard to case, and prints the import chain to each such file.
+  - In `index.js`, the walk skips one edge, `./src/design/v2/preview/devRoot.tsx`, and only when every
+    occurrence of it is inside `if (__DEV__) { ... }`. Metro folds that branch away with
+    `--dev false`. Every other edge out of `index.js` is walked.
   - The walk follows relative imports on every platform, through `importGraph.mjs`. It also follows
     the names of local packages: every `file:` or `link:` dependency in `package.json` (today
     `@kokonada/spotify-remote` and `eslint-plugin-kokonada`). A local package resolves through its
     `react-native`, then its `browser`, then its `main` field, as Metro resolves it. Its source is app
     code, so a walk that stopped at package names would miss the edges it adds.
+  - Every resolved file is reduced to its real path, so a symlink or junction into `src/pages/` is
+    seen as the page it is. Metro follows symlinks.
   - "Outside the Design Lab route" is defined as `assertLabExcluded.mjs` and `labExclusion.test.ts`
     define the lab: the lab's own entry `index.lab.js` and the modules under `src/design/lab/`
     (`isLabPath`). The release graph never enters the lab; `assertLabExcluded.mjs` fails if it does.
     So the walk does not stop at a lab module. A page that `App.tsx` reaches by any path is outside
     the lab route, and a page reached only from `index.lab.js` is inside it.
-  - Exit 2 means the check could not run, and it is never a pass. That happens when there is no
-    `App.tsx`, no readable `package.json`, a local package that resolves to no file, or a resolver
-    the walk does not model: babel's `module-resolver`, Metro's `extraNodeModules` or
-    `resolveRequest`, or a local package with an `exports` map.
+  - Exit 2 means the check could not run, and it is never a pass. The walk does not model these, so
+    each one exits 2 rather than hide the edges it adds. The resolver configuration is read against
+    an allowlist:
+    - There is no `App.tsx`, or no readable `package.json`.
+    - `metro.config.js` sets anything other than `resolver.blockList`, requires anything other than
+      `@react-native/metro-config`, or assigns to a member.
+    - `babel.config.js` sets anything other than `presets` and `plugins`, names anything other than
+      the preset and the plugin it names today, or requires a module.
+    - Any other babel or Metro config file exists (`.babelrc*`, `babel.config.json`,
+      `metro.config.cjs`, …).
+    - `package.json` has a `babel` or `metro` key, `workspaces`, a `file:` or `link:` peer, or a
+      `workspace:` or `portal:` dependency.
+    - A local package has an `exports` map (for a subpath import too), a main field that is not a
+      string, or resolves to no file.
+    - A file uses an absolute specifier.
+    - A relative import names a directory that has its own `package.json`.
+  - When run without `--root`, the walk must also reach `src/navigation/AppFlow.tsx`. If it does not,
+    the guard exits 2, because a walk that misses it is not seeing the app.
   - When there is no `src/pages/` folder yet, the guard passes and says that no batch page entry
     exists.
   - The cutover PR that first puts a page into navigation has to change this guard, so that it
