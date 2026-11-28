@@ -328,6 +328,84 @@ describe('RA-7: mutation pins', () => {
   });
 });
 
+// The delta re-audit of #315 at ef466e5 (RA-8 to RA-10).
+const DEV_ROOT_PAGE = { 'src/design/v2/preview/devRoot.tsx': "export * from '../../../pages/alpha';\n" };
+const SHARED = { 'App.tsx': "export * from './src/shared/theme';\n", 'src/shared/theme.ts': "export const tint = 'abyss';\n" };
+const METRO_PUSH = "const { getDefaultConfig } = require('@react-native/metro-config');\nconst c = getDefaultConfig(__dirname);\n"
+  + "c.resolver.nodeModulesPaths.push(__dirname + '/src');\nmodule.exports = c;\n";
+
+describe('RA-9: the __DEV__ rule', () => {
+  it('a devRoot edge that appears both outside and inside if (__DEV__) is walked', () => {
+    const r = checkPagesBoundary(tree({ ...BASE, ...DEV_ROOT_PAGE, 'index.js': `import '${DEV_ROOT}';\nif (__DEV__) { require('${DEV_ROOT}'); }\n` }));
+    expect(r.code).toBe(1);
+  });
+
+  it.each([
+    ['const', 'const __DEV__ = true;\n'],
+    ['let', 'let __DEV__ = true;\n'],
+    ['a function', 'function __DEV__() {}\n'],
+    ['an import', "import { __DEV__ } from './src/flags';\n"],
+    ['an assignment', 'global.__DEV__ = true;\n'],
+  ])('index.js that declares or sets its own __DEV__ (%s) exits 2', (_what, decl) => {
+    const r = checkPagesBoundary(tree({ ...BASE, ...DEV_ROOT_PAGE, 'src/flags.ts': 'export const __DEV__ = true;\n',
+      'index.js': `${decl}if (__DEV__) { require('${DEV_ROOT}'); }\n` }));
+    expect(r.code).toBe(2);
+    expect(r.lines.join('\n')).toContain('__DEV__');
+  });
+});
+
+describe('RA-8: the metro and babel allowlists cover calls and strings', () => {
+  it.each([
+    ['metro: a push onto a resolver list', 'metro.config.js', METRO_PUSH],
+    ['metro: Object.assign with JSON.parse', 'metro.config.js', "const { getDefaultConfig } = require('@react-native/metro-config');\n"
+      + "const c = getDefaultConfig(__dirname);\nObject.assign(c.resolver, JSON.parse('{\"nodeModulesPaths\":[\"src\"]}'));\nmodule.exports = c;\n"],
+    ['metro: a string other than the config package', 'metro.config.js', "module.exports = { resolver: { blockList: ['src'] } };\n"],
+    ['metro: a constructed RegExp', 'metro.config.js', "module.exports = { resolver: { blockList: [new RegExp(x)] } };\n"],
+    ['babel: a String.fromCharCode name', 'babel.config.js', 'module.exports = { plugins: [String.fromCharCode(109, 114)] };\n'],
+    ['babel: a template with a substitution', 'babel.config.js', 'const x = 1;\nmodule.exports = { plugins: [`module-${x}`] };\n'],
+    ['babel: a call other than api.cache', 'babel.config.js', "module.exports = (api) => { api.env('production'); return { plugins: [] }; };\n"],
+  ])('%s exits 2', (_what, file, body) => {
+    const r = checkPagesBoundary(tree({ ...BASE, [file]: body }));
+    expect(r.code).toBe(2);
+  });
+
+  it('a babel config function that only calls api.cache passes', () => {
+    const r = checkPagesBoundary(tree({ ...BASE,
+      'babel.config.js': "module.exports = (api) => { api.cache(true); return { presets: ['module:@react-native/babel-preset'] }; };\n" }));
+    expect(r.code).toBe(0);
+  });
+
+  it('the real metro.config.js and babel.config.js still pass', () => {
+    expect(unmodelledResolvers({
+      babel: fs.readFileSync(path.join(APP, 'babel.config.js'), 'utf8'),
+      metro: fs.readFileSync(path.join(APP, 'metro.config.js'), 'utf8'),
+    })).toEqual([]);
+  });
+});
+
+describe('RA-10: config below or beside the root', () => {
+  it.each([
+    ['a react-native key in the root package.json', { 'package.json': MANIFEST({ 'react-native': { './App.tsx': './src/pages/alpha/index.tsx' } }) }],
+    ['a browser key in the root package.json', { 'package.json': MANIFEST({ browser: { './App.tsx': './src/pages/alpha/index.tsx' } }) }],
+    ['a .babelrc between a walked file and the root', { ...SHARED, 'src/shared/.babelrc': '{}' }],
+    ['a .babelrc.js between a walked file and the root', { ...SHARED, 'src/.babelrc.js': 'module.exports = {};\n' }],
+    ['a package.json between a walked file and the root', { ...SHARED, 'src/shared/package.json': JSON.stringify({ browser: { './theme.ts': '../pages/alpha/index.tsx' } }) }],
+  ])('%s exits 2', (_what, files) => {
+    const r = checkPagesBoundary(tree({ ...BASE, ...files }));
+    expect(r.code).toBe(2);
+  });
+
+  it("a local package's own manifest is exempt (its main fields are checked), so the planted alias stays red", () => {
+    expect(checkPagesBoundary(fixture('plantedAlias')).code).toBe(1);
+  });
+
+  it('the real tree still exits 0', () => {
+    const r = checkPagesBoundary(APP, { mustReach: 'src/navigation/AppFlow.tsx' });
+    expect(r.lines).toEqual([expect.stringContaining('no batch page entry exists under src/pages/ yet')]);
+    expect(r.code).toBe(0);
+  });
+});
+
 describe('every hardened boundary kills its mutant', () => {
   // Each mutant plants one weakening of the guard in memory (src/testing/mutant.ts). The tree it names must
   // then get the weaker verdict, which proves that tree's case is what pins the boundary.
@@ -353,6 +431,25 @@ describe('every hardened boundary kills its mutant', () => {
     ['RA-7 main fields reordered', { find: "const MAIN_FIELDS = ['react-native', 'browser', 'main'];", replace: "const MAIN_FIELDS = ['main', 'browser', 'react-native'];" },
       () => tree(withLocal({ 'react-native': 'rn.ts', main: 'main.ts' }, { ...PAGE, 'App.tsx': "import '@fx/shared';\n",
         'modules/shared/rn.ts': "export * from '../../src/pages/alpha';\n", 'modules/shared/main.ts': 'export {};\n' })), 1, 0],
+    ['RA-9a any occurrence inside __DEV__ counts as debug-only', { find: 'return new Set(inDev.filter((s) => count(inDev, s) === count(all, s)));', replace: 'return new Set(inDev);' },
+      () => tree({ ...BASE, ...DEV_ROOT_PAGE, 'index.js': `import '${DEV_ROOT}';\nif (__DEV__) { require('${DEV_ROOT}'); }\n` }), 1, 0],
+    ['RA-9b a declared __DEV__ is not refused', { find: 'if (declaresDev) throw', replace: 'if (false) throw' },
+      () => tree({ ...BASE, ...DEV_ROOT_PAGE, 'index.js': `const __DEV__ = true;\nif (__DEV__) { require('${DEV_ROOT}'); }\n` }), 2, 0],
+    ['RA-8 metro calls not refused', { find: 'if (calls && !calls.includes(callee)) found.push', replace: 'if (false) found.push' },
+      // No string literal in this config, so only the call rule can refuse it.
+      () => tree({ ...BASE, 'metro.config.js': METRO_PUSH.replace("__dirname + '/src'", '__dirname') }), 2, 0],
+    ['RA-8 metro strings not refused', { find: "const METRO_NAMES = ['@react-native/metro-config'];", replace: 'const METRO_NAMES = null;' },
+      () => tree({ ...BASE, 'metro.config.js': "module.exports = { resolver: { blockList: ['src'] } };\n" }), 2, 0],
+    ['RA-8 template expressions not refused', { find: 'if (ts.isTemplateExpression(node)) found.push', replace: 'if (false) found.push' },
+      () => tree({ ...BASE, 'babel.config.js': 'const x = 1;\nmodule.exports = { plugins: [`module-${x}`] };\n' }), 2, 0],
+    ['RA-10 root browser key not refused', { find: "'workspaces', 'babel', 'metro', 'browser', 'react-native'", replace: "'workspaces', 'babel', 'metro'" },
+      () => tree({ ...BASE, 'package.json': MANIFEST({ 'react-native': { './App.tsx': './src/pages/alpha/index.tsx' } }) }), 2, 0],
+    ['RA-10 a nested .babelrc not refused', { find: 'if (BABELRC.some((f) => fs.existsSync(path.join(dir, f)))) throw', replace: 'if (false) throw' },
+      () => tree({ ...BASE, ...SHARED, 'src/shared/.babelrc': '{}' }), 2, 0],
+    ['RA-10 a nested package.json not refused', { find: "if (!localDirs.has(dir) && fs.existsSync(path.join(dir, 'package.json'))) throw", replace: 'if (false) throw' },
+      () => tree({ ...BASE, ...SHARED, 'src/shared/package.json': JSON.stringify({ browser: { './theme.ts': '../pages/alpha/index.tsx' } }) }), 2, 0],
+    ['RA-10 a local package manifest not exempt', { find: 'if (!localDirs.has(dir) && ', replace: 'if (' },
+      () => fixture('plantedAlias'), 1, 2],
   ];
 
   // A rest parameter: jest-each hands `done` to a test function with more parameters than a row has values.

@@ -57,6 +57,10 @@ const BABEL_KEYS = ['presets', 'plugins'];
 const BABEL_NAMES = ['module:@react-native/babel-preset', 'react-native-reanimated/plugin'];
 const METRO_KEYS = ['resolver', 'blockList'];
 const METRO_REQUIRES = ['@react-native/metro-config'];
+const METRO_NAMES = ['@react-native/metro-config'];
+const METRO_CALLS = ['getDefaultConfig', 'mergeConfig'];
+const BABEL_CALLS = ['api.cache'];
+const BABELRC = ['.babelrc', '.babelrc.js', '.babelrc.cjs', '.babelrc.mjs', '.babelrc.json', '.babelrc.cts'];
 
 const real = (p) => fs.realpathSync.native(p);
 const toPosix = (appRoot, file) => path.relative(appRoot, file).split(path.sep).join('/');
@@ -89,7 +93,7 @@ export function localPackages(appRoot) {
 /** What package.json sets that the walk does not model. */
 function manifestRefusals(manifest) {
   const found = [];
-  for (const key of ['workspaces', 'babel', 'metro']) if (manifest[key] !== undefined) found.push(`package.json sets ${key}`);
+  for (const key of ['workspaces', 'babel', 'metro', 'browser', 'react-native']) if (manifest[key] !== undefined) found.push(`package.json sets ${key}`);
   for (const [name, value] of Object.entries(manifest.peerDependencies ?? {})) {
     if (typeof value === 'string' && LOCAL_PROTOCOLS.some((p) => value.startsWith(p))) found.push(`package.json names the local peer ${name}`);
   }
@@ -112,7 +116,7 @@ const requireSpec = (node) => {
 };
 
 /** What a config source does beyond its allowlist: object keys, required modules, member writes, names. */
-function configRefusals(file, source, { keys, requires, names }) {
+function configRefusals(file, source, { keys, requires, names, calls }) {
   if (!source.trim()) return [];
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const found = [];
@@ -137,6 +141,11 @@ function configRefusals(file, source, { keys, requires, names }) {
       else if (!ts.isShorthandPropertyAssignment(node)) ts.forEachChild(node, visit);
       return;
     }
+    if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+      const callee = node.expression.getText(sf);
+      if (calls && !calls.includes(callee)) found.push(`${file} ${ts.isNewExpression(node) ? 'constructs' : 'calls'} ${callee}`);
+    }
+    if (ts.isTemplateExpression(node)) found.push(`${file} composes a string from a template`);
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
       && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
       && node.left.getText(sf) !== 'module.exports') {
@@ -152,8 +161,8 @@ function configRefusals(file, source, { keys, requires, names }) {
 /** The resolver configuration babel.config.js and metro.config.js set beyond what the walk models. */
 export function unmodelledResolvers({ babel, metro }) {
   return [
-    ...configRefusals('babel.config.js', babel, { keys: BABEL_KEYS, requires: [], names: BABEL_NAMES }),
-    ...configRefusals('metro.config.js', metro, { keys: METRO_KEYS, requires: METRO_REQUIRES, names: null }),
+    ...configRefusals('babel.config.js', babel, { keys: BABEL_KEYS, requires: [], names: BABEL_NAMES, calls: BABEL_CALLS }),
+    ...configRefusals('metro.config.js', metro, { keys: METRO_KEYS, requires: METRO_REQUIRES, names: METRO_NAMES, calls: METRO_CALLS }),
   ];
 }
 
@@ -175,6 +184,27 @@ function devOnlySpecifiers(source, fileName) {
   const all = moduleSpecifiers(source, fileName);
   const count = (list, s) => list.filter((x) => x === s).length;
   return new Set(inDev.filter((s) => count(inDev, s) === count(all, s)));
+}
+
+const DEV_DECLARATIONS = [
+  ts.SyntaxKind.VariableDeclaration, ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.ClassDeclaration, ts.SyntaxKind.Parameter,
+  ts.SyntaxKind.ImportSpecifier, ts.SyntaxKind.ImportClause, ts.SyntaxKind.NamespaceImport, ts.SyntaxKind.BindingElement,
+  ts.SyntaxKind.ImportEqualsDeclaration,
+];
+
+/** Whether `source` declares a binding named __DEV__ or writes to one, so `if (__DEV__)` is not Metro's flag. */
+function declaresOwnDev(source, fileName) {
+  const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  let found = false;
+  const isDev = (n) => (ts.isIdentifier(n) && n.text === '__DEV__') || (ts.isPropertyAccessExpression(n) && n.name.text === '__DEV__');
+  const visit = (node) => {
+    if (ts.isIdentifier(node) && node.text === '__DEV__' && DEV_DECLARATIONS.includes(node.parent.kind) && node.parent.name === node) found = true;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+      && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment && isDev(node.left)) found = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return found;
 }
 
 /** The files a local package specifier resolves to; throws on what the walk does not model or cannot resolve. */
@@ -229,12 +259,28 @@ export function checkPagesBoundary(appRoot, { mustReach } = {}) {
 
     const entries = ENTRIES.map((e) => path.join(root, e)).filter((f) => fs.existsSync(f)).map(real);
     const releaseEntry = path.join(root, 'index.js');
+    // A .babelrc or a package.json in a directory between a walked file and the root changes how Metro
+    // transforms or resolves that file. A local package's own manifest is exempt: resolveAlias checks it.
+    const localDirs = new Set(packages.map((p) => (fs.existsSync(p.abs) ? real(p.abs) : p.abs)));
+    const checked = new Set();
+    const checkDirectories = (file) => {
+      for (let dir = path.dirname(file); dir !== root; dir = path.dirname(dir)) {
+        const rel = path.relative(root, dir);
+        if (rel.startsWith('..') || path.isAbsolute(rel) || checked.has(dir)) break;
+        checked.add(dir);
+        if (BABELRC.some((f) => fs.existsSync(path.join(dir, f)))) throw new Error(`${toPosix(root, dir)}/ holds a .babelrc, which this walk does not model`);
+        if (!localDirs.has(dir) && fs.existsSync(path.join(dir, 'package.json'))) throw new Error(`${toPosix(root, dir)}/package.json is not a local package's manifest, and this walk does not model it`);
+      }
+    };
     const parent = new Map(entries.map((e) => [e, null]));
     const queue = [...entries];
     while (queue.length) {
       const file = queue.shift();
+      checkDirectories(file);
       if (!PARSED.test(file)) continue;
       const source = fs.readFileSync(file, 'utf8');
+      const declaresDev = file === releaseEntry && declaresOwnDev(source, file);
+      if (declaresDev) throw new Error('index.js declares or sets its own __DEV__, so its if (__DEV__) branch is not the build flag');
       const devOnly = file === releaseEntry ? devOnlySpecifiers(source, file) : new Set();
       for (const spec of moduleSpecifiers(source, file)) {
         if (DEV_ONLY_EDGES.includes(spec) && devOnly.has(spec)) continue;
