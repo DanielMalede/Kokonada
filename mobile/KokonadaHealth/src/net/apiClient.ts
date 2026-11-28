@@ -38,6 +38,12 @@ export interface ApiClientDeps {
 // network error even if the fetch ignores the abort. A timeout is no verdict on the session.
 const REQUEST_TIMEOUT_MS = 15_000;
 
+// RA-4 (#320): the two synchronous erasures run a queue purge and many deletes on the server, which can
+// outlast 15 s; a deadline that fires first reports a deletion the server finished as a failure. They get
+// ERASURE_TIMEOUT_MS. Matched by method and exact path.
+const ERASURE_TIMEOUT_MS = 60_000;
+const ERASURE_CALLS = new Set(['DELETE /api/auth/account', 'POST /api/consent/withdraw']);
+
 class Timeout extends Error {}
 
 async function withDeadline<R>(ms: number, run: (signal: AbortSignal) => Promise<R>): Promise<R> {
@@ -68,7 +74,7 @@ export class ApiClient {
   private async request<T>(method: Method, path: string, body?: unknown): Promise<ApiResult<T>> {
     const fetchImpl = this.deps.fetchImpl ?? fetch;
     const url = `${this.deps.baseUrl}${path}`;
-    const timeoutMs = this.deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    const timeoutMs = this.deps.timeoutMs ?? (ERASURE_CALLS.has(`${method} ${path}`) ? ERASURE_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     const session = this.deps.session;
     type Attempt = { status: number; ok: boolean; read: () => Promise<{ parsed: boolean; data: unknown }> };
 
@@ -86,11 +92,16 @@ export class ApiClient {
       return { status: res.status, ok: res.ok, read: readOnce };
     }).catch(() => 'network' as const);
 
+    // RA-2 (#320): the epoch of the session this request is sent under, read before it is sent.
+    const sentEpoch = session?.sessionEpoch();
     let res = await attempt(this.deps.getAccessToken());
     if (res === 'network') return { ok: false, error: 'network error' };
 
     if (res.status === 401) {
-      const epoch = session?.sessionEpoch();
+      // RA-2: a sign-out or another account's sign-in landed while it was in flight. Its 401 is about the
+      // session it was sent under, so it is never refreshed or re-sent on the new one.
+      if (session && sentEpoch !== session.sessionEpoch()) return { ok: false, status: 401, error: 'unauthorized' };
+      const epoch = sentEpoch;
       const fresh = await this.deps.refresh();
       if (!fresh) {
         return session?.hasSession()
