@@ -3,8 +3,8 @@
 // sources disagree; TOKENS_SOURCE holds the sha256 of each source file it was built from.
 
 export const TOKENS_SOURCE = {
-  base: '5dbd8468a61f43a745653881cfd72cae55c7cb8a9f7ee2138ae05b0c9f6e9324',
-  'direction.abyss': '175beb1124b95685cc34f072196ee947de2c6f220d7ad99062aee5192ff77c17',
+  base: 'db566233a1a1945d994176202b76ee12c4c45d6ad0798d99aa59e4a131130a46',
+  'direction.abyss': '5506e40ccec8a1c13e751975f2dccc98d823e1572dcd2be815792cad3da94071',
 };
 
 export type DirectionId = 'abyss';
@@ -134,14 +134,15 @@ export const BASE = {
   },
   bead: { hitTarget: 48 },
   quiet: { grow: 8 },
-  cta: { height: 56, radius: 28 },
+  cta: { height: 56, radius: 9999 },
   well: { height: 56, consentSlotHeight: 108, hold: 400 },
-  topBar: { height: 56 },
+  topBar: { height: 56, hairline: 1 },
   avatar: { size: 36, target: 48 },
   nav: { height: 64, iconSize: 24, iconStroke: 1.5 },
   target: { min: 48 },
   row: { min: 56, twoLine: 72 },
   icon: { xs: 16, s: 20, m: 24, stroke: 1.5 },
+  glyph: { infoDot: 1.5, infoBar: 0.35, closeBar: 0.75 },
   focus: { width: 2, offset: 2 },
   content: { maxWidth: 560 },
   pager: { row: 48 },
@@ -281,6 +282,12 @@ const abyss = {
         alpha: 1,
         oklch: [0.94, 0.015, 220],
         oklab: [0.94, -0.0114906666, -0.0096418141],
+      },
+      selection: {
+        hex: '#18394B',
+        alpha: 1,
+        oklch: [0.33, 0.05, 235],
+        oklab: [0.33, -0.0286788218, -0.0409576022],
       },
       plate: {
         rim: {
@@ -455,6 +462,12 @@ const abyss = {
         },
       },
       focus: { hex: '#0C1F2C', alpha: 1, oklch: [0.23, 0.035, 240], oklab: [0.23, -0.0175, -0.0303108891] },
+      selection: {
+        hex: '#B6D3DF',
+        alpha: 1,
+        oklch: [0.85, 0.035, 225],
+        oklab: [0.85, -0.0247487373, -0.0247487373],
+      },
       plate: {
         rim: {
           base: {

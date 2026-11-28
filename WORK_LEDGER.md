@@ -148,12 +148,12 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-28
 
 ### M10
-- task: `BE-121` (TASKS)
-- title: test: the compensating-line checks strip the user id before the fixture-value checks (BE-121)
-- branch: `test/be121-fixture-id-flake`
-- paths: `backend/tests/consentWithdrawalHeldWrite.integration.test.js`, `backend/tests/affectHmm.test.js`, `backend/tests/feedbackLoop.test.js`, `backend/tests/geminiEngine.egress.test.js`, `backend/tests/morningState.integration.test.js`, `backend/tests/consentWithdrawalSessionHealth.integration.test.js`, `backend/tests/sessionHealthRace.integration.test.js`, `TASKS.md`
+- task: `own:v2-tokens-fix` (own)
+- title: Design v2 tokens fix (PR-TOK): a color.<face>.selection token for InlineNotice and LegalReader (UI-336, D316-1), one CTA radius (UI-337), aliased 48 dp repeats (UI-338), token-sourced proportions (UI-340), CommitCTA takes a script prop (UI-341)
+- branch: `feat/v2-tokens-fix`
+- paths: `design-tokens/base.tokens.json`, `design-tokens/direction.abyss.tokens.json`, `mobile/KokonadaHealth/src/design/v2/components/InlineNotice/**`, `mobile/KokonadaHealth/src/design/v2/components/LegalReader/**`, `mobile/KokonadaHealth/src/design/v2/components/CommitCTA/**`, `mobile/KokonadaHealth/src/design/lab/scenes/WellHintScene.tsx`, `mobile/KokonadaHealth/src/design/v2/tokens/tokens.generated.ts`, `mobile/KokonadaHealth/src/design/v2/tokens/tokens.extensions.generated.ts`, `mobile/KokonadaHealth/src/design/v2/tokens/tokens.statics.generated.ts`, `mobile/KokonadaHealth/src/design/v2/tokens/__tests__/tokens.rules.test.ts`, `mobile/KokonadaHealth/src/design/lab/scenes/HeroScene.tsx`, `mobile/KokonadaHealth/src/design/lab/__tests__/HeroScene.test.tsx`, `mobile/KokonadaHealth/src/design/v2/__tests__/__fixtures__/fixtureTokens.ts`, `TASKS.md`, `mobile/KokonadaHealth/scripts/tokens/__tests__/__fixtures__/direction.fixture-outer.tokens.json`, `mobile/KokonadaHealth/scripts/tokens/__tests__/__fixtures__/direction.fixture-inner.tokens.json`, `mobile/KokonadaHealth/scripts/field/bandEvidence.stamp.json`
 - resources: none
-- state: in-review · PR #318
+- state: claimed
 - started: 2026-11-28
 
 ### M11

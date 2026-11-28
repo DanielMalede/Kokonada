@@ -14,7 +14,8 @@
 //     reports are the label's and never the layout's.
 //   · Presentational only: every word, hint and handler is the caller's. Nothing it reaches opens a URL, reads a copy
 //     catalog or a legal module (inlineNoticeClosure.test.ts).
-//   · `selectable` makes the body selectable (the policy notice's address), its highlight the focus token.
+//   · `selectable` makes the body selectable (the policy notice's address), its highlight the selection token, which keeps
+//     the selected text at 4.5:1 (UI-336; the focus token is text.primary in Abyss and hid it).
 //   · It mirrors with the page: no side is named and no direction set.
 
 import React, { useCallback, useState } from 'react';
@@ -89,6 +90,9 @@ export function InlineNotice({ body, script, selectable = false, actions = [], t
   );
 
   const icon = tokens.base.icon.s;
+  const stroke = tokens.base.icon.stroke;
+  const mark = tokens.base.glyph;
+  const dot = stroke * mark.infoDot;
   const glyphStyle = { width: icon, height: icon, marginTop: glyphOffset(type.lineHeight, fontScale, icon) };
   const glyphInk = tokens.color.text.secondary.hex;
 
@@ -110,11 +114,12 @@ export function InlineNotice({ body, script, selectable = false, actions = [], t
       <View testID={`${testID}.glyph`} style={glyphStyle} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
         <View
           testID={`${testID}.glyph.ring`}
-          style={[styles.ring, { borderWidth: tokens.base.icon.stroke, borderColor: glyphInk, borderRadius: icon / 2 }]}
+          style={[styles.ring, { borderWidth: stroke, borderColor: glyphInk, borderRadius: icon / 2 }]}
         >
-          {/* The info mark: a dot over a bar, drawn in the ring's ink. The Icon set (DT-10) replaces it when it lands. */}
-          <View style={{ width: tokens.base.icon.stroke * 1.5, height: tokens.base.icon.stroke * 1.5, borderRadius: tokens.base.icon.stroke, backgroundColor: glyphInk }} />
-          <View style={{ width: tokens.base.icon.stroke, height: icon * 0.35, marginTop: tokens.base.spacing['1'], backgroundColor: glyphInk }} />
+          {/* The info mark: a dot over a bar, drawn in the ring's ink, in the glyph group's proportions. Interim only: the DT-10
+              Icon set replaces the drawn mark, and the glyph group with it, when it lands (UI-340). */}
+          <View testID={`${testID}.glyph.dot`} style={{ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: glyphInk }} />
+          <View testID={`${testID}.glyph.bar`} style={{ width: stroke, height: icon * mark.infoBar, marginTop: tokens.base.spacing['1'], backgroundColor: glyphInk }} />
         </View>
       </View>
       <View testID={`${testID}.column`} style={[styles.column, { marginStart: tokens.direction.notice.iconGap }]}>
@@ -122,7 +127,7 @@ export function InlineNotice({ body, script, selectable = false, actions = [], t
           testID={`${testID}.body`}
           style={[styles.start, ink]}
           selectable={selectable}
-          selectionColor={selectable ? tokens.color.focus.hex : undefined}
+          selectionColor={selectable ? tokens.color.selection.hex : undefined}
         >
           {body}
         </Text>

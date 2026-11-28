@@ -4,8 +4,9 @@
 //
 // No disabled state (R9, L9): while the machine says it may not be pressed (hidden, or hiding) it is out of touch
 // and out of TalkBack, and the Well says why. A press commits only when the machine allows it at that moment, and
-// P2's busy latch (after a commit) ignores presses and reports busy, with no visual change. The pill is ui.cta on a
-// minimum of cta.height, as wide as its column, the label centred and never capped (R6, QA-013). A press scales it
+// P2's busy latch (after a commit) ignores presses and reports busy, with no visual change. The pill is ui.cta in the
+// script the caller names (UI-341), on a minimum of cta.height at cta.radius (radius.pill, so it stays a pill at every
+// font scale, UI-337), as wide as its column, the label centred and never capped (R6, QA-013). A press scales it
 // to cta.pressScale over motion.press with no colour change, and not at all under reduced motion. No elevation, no
 // keyline in Abyss (cta.keyline 0), no spinner (R5, R9). Haptics are the page's (P2's commit only, L12).
 
@@ -13,15 +14,20 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from 'rea
 import { Animated, Easing, Pressable, StyleSheet, Text } from 'react-native';
 import { mountedLive, type Tap } from '../../field/placementLedger.ts';
 import type { MotionTier } from '../../motion/useMotionPolicy.ts';
-import { useTokens } from '../../tokens/useTokens.ts';
+import { useTokens, type Tokens } from '../../tokens/useTokens.ts';
 import { fontFace } from '../../typeface/faces.ts';
 import { ctaInitial, ctaReduce, ctaState, type CtaMachine, type CtaMode, type CtaPaint, type CtaPlacement } from './ctaState.ts';
+
+/** The scripts the label is set for: the keys of ui.cta (LEDGER §5.4). */
+export type CtaScript = keyof Tokens['base']['type']['ui']['cta'];
 
 export interface CommitCTAProps {
   /** DEC-174's machine, owned by the page (useCtaMachine). */
   readonly machine: CtaMachine;
   /** The label, resolved (onboarding.continue, onboarding.begin, session.commit). */
   readonly label: string;
+  /** The script the label is set in, for its metrics (UI-341): the caller's, as for the Well, never read from the letters. */
+  readonly script: CtaScript;
   readonly onCommit: () => void;
   readonly tier: MotionTier;
   /** P2's latch after a commit: presses ignored, TalkBack hears busy, nothing looks different. */
@@ -29,9 +35,8 @@ export interface CommitCTAProps {
 }
 
 const now = () => performance.now();
-const HEBREW = /[֐-׿]/;
 
-export function CommitCTA({ machine, label, onCommit, tier, busy = false }: CommitCTAProps) {
+export function CommitCTA({ machine, label, script, onCommit, tier, busy = false }: CommitCTAProps) {
   const { id, face, base, direction } = useTokens();
   const paint: CtaPaint = { id, face };
   const view = ctaState(machine, now(), paint);
@@ -54,7 +59,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
     if (!busy && ctaState(machine, now(), paint).pressable) onCommit();
   };
 
-  const type = base.type.ui.cta[HEBREW.test(label) ? 'hebrew' : 'latin'];
+  const type = base.type.ui.cta[script];
   return (
     <Animated.View
       testID="cta.root"
@@ -74,7 +79,7 @@ export function CommitCTA({ machine, label, onCommit, tier, busy = false }: Comm
         onPressOut={() => press(1)}
         style={[
           styles.pill,
-          { minHeight: base.cta.height, borderRadius: base.radius.pill, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
+          { minHeight: base.cta.height, borderRadius: base.cta.radius, paddingHorizontal: base.spacing['7'], paddingVertical: base.spacing['5'], backgroundColor: view.tint?.fill },
         ]}
       >
         <Text

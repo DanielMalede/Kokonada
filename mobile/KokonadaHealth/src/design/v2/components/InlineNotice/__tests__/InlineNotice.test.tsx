@@ -88,6 +88,10 @@ describe('InlineNotice: the glyph', () => {
     const glyph = view.byId('inlineNotice.glyph');
     expect(flat(glyph)).toMatchObject({ width: BASE.icon.s, height: BASE.icon.s });
     expect(flat(view.byId('inlineNotice.glyph.ring'))).toMatchObject({ borderWidth: BASE.icon.stroke, borderColor: T.color[face].text.secondary.hex, borderRadius: BASE.icon.s / 2 });
+    // The interim info mark, in the glyph group's proportions until the DT-10 Icon set (UI-340).
+    const dot = BASE.icon.stroke * BASE.glyph.infoDot;
+    expect(flat(view.byId('inlineNotice.glyph.dot'))).toMatchObject({ width: dot, height: dot, borderRadius: dot / 2, backgroundColor: T.color[face].text.secondary.hex });
+    expect(flat(view.byId('inlineNotice.glyph.bar'))).toMatchObject({ width: BASE.icon.stroke, height: BASE.icon.s * BASE.glyph.infoBar });
     expect(glyph.props.accessibilityElementsHidden).toBe(true);
     expect(glyph.props.importantForAccessibility).toBe('no-hide-descendants');
     view.unmount();
@@ -116,13 +120,16 @@ describe('InlineNotice: the body', () => {
     view.unmount();
   });
 
-  it('is selectable only when the caller asks (the policy notice’s address), with the focus token as its highlight', () => {
-    const plain = mount({ body: BODY, script: 'latin' });
+  it.each(['dark', 'light'] as const)('%s: is selectable only when the caller asks (the policy notice’s address), with the selection token as its highlight (UI-336)', (face) => {
+    const plain = mount({ body: BODY, script: 'latin' }, face);
     expect(plain.byId('inlineNotice.body').props.selectable).toBeFalsy();
+    expect(plain.byId('inlineNotice.body').props.selectionColor).toBeUndefined();
     plain.unmount();
-    const sel = mount({ body: BODY, script: 'latin', selectable: true });
+    const sel = mount({ body: BODY, script: 'latin', selectable: true }, face);
     expect(sel.byId('inlineNotice.body').props.selectable).toBe(true);
-    expect(sel.byId('inlineNotice.body').props.selectionColor).toBe(T.color.dark.focus.hex);
+    expect(sel.byId('inlineNotice.body').props.selectionColor).toBe(T.color[face].selection.hex);
+    // The focus token aliases text.primary in Abyss, so as the highlight it hid the selected text (D316-1).
+    expect(sel.byId('inlineNotice.body').props.selectionColor).not.toBe(T.color[face].focus.hex);
     sel.unmount();
   });
 

@@ -235,6 +235,8 @@ describe('a hero scene before and after its view has a size', () => {
     h.layout();
     expect(h.props(Well)).toMatchObject({ hint, script });
     expect(h.props(CommitCTA).label).toBe(label);
+    // UI-341: the scene names the CTA's script, as it does the Well's; the label's letters never decide it.
+    expect(h.props(CommitCTA).script).toBe(script);
   });
 
   it('holds its keyed copy as the port checks it: two N keys, en text for each, and he text for exactly the same keys', () => {
