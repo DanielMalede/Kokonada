@@ -25,6 +25,12 @@ import type { SecureStore } from './storage/secureStore';
 // into React's render.
 
 let secureStore: SecureStore | null = null;
+
+// C9 (RA-5): the encrypted store this boot opened, or null when it could not be opened. The account
+// deletion's teardown removes the account's keys through it rather than opening a second instance.
+export function bootSecureStore(): SecureStore | null {
+  return secureStore;
+}
 let coldPersistence: ColdPersistence | null = null;
 
 function makeColdPersistence(): ColdPersistenceLike {

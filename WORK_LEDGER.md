@@ -166,7 +166,13 @@ Hold `res:prod-deploy` while production must not change (a recount, a migration,
 - started: 2026-11-24
 
 ### M12
-_free_
+- task: `own:v2-teardown-contract` (own)
+- title: Design v2 B1 G7 teardown contract C9 (PR-TD; C-B2-T and C-P9-4 follow on the same files)
+- branch: `feat/v2-teardown-contract`
+- paths: `mobile/KokonadaHealth/src/experience/profile/sessionTeardown.ts`, `mobile/KokonadaHealth/src/experience/profile/profileServices.ts`, `mobile/KokonadaHealth/src/experience/profile/__tests__/sessionTeardown.test.ts`, `mobile/KokonadaHealth/src/__contracts__/deadList.ts`, `mobile/KokonadaHealth/src/__contracts__/__tests__/pinnedCallers.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.authMigration.test.ts`, `mobile/KokonadaHealth/src/experience/profile/__tests__/profileController.test.ts`, `backend/tests/ciWorkflowPermissions.test.js`, `mobile/KokonadaHealth/src/health/liveHrSwitch.ts`, `mobile/KokonadaHealth/src/prodBootstrap.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.c9Composition.test.ts`, `mobile/KokonadaHealth/src/__tests__/shadow.c9Teardown.test.ts`, `mobile/KokonadaHealth/src/experience/connect/connectStore.ts`, `TASKS.md`
+- resources: none
+- state: claimed
+- started: 2026-11-28
 
 ## Bedrack
 
