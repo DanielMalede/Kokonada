@@ -150,6 +150,13 @@ app.use('/api/integrations', integrationsRouter);
 // reference (consent.js `user=${userId}`), an error TYPE only on a failure. No value, no time.
 const CLOSED_LINE = /^\[biometricHandler\] compensating-delete user=[0-9a-f]{24} lane=(?:socket|watch) reason=(?:consent_not_current|consent_read_error) outcome=(?:deleted0|deleted1|failed error=[A-Za-z][A-Za-z0-9]*)$/;
 
+// A6 — the fixture values a compensating line leaks, if any. The line's user reference is a
+// 24-hex ObjectId (timestamp, random and counter bytes), so it can spell "173" or "330" by chance.
+function leakedFixtureValues(line, values) {
+  const withoutId = line.replace(/user=[0-9a-f]{24}/, 'user=');
+  return values.filter((value) => withoutId.includes(value));
+}
+
 let mem;
 beforeAll(async () => {
   mem = await MongoMemoryServer.create();
@@ -507,6 +514,15 @@ describe('HX-1 A5 — a failed compensating delete is its own outcome', () => {
 });
 
 describe('HX-1 A6 — the compensating line carries closed tokens only', () => {
+  it('a user id that spells a fixture value is not a leak; the same value outside the id is', () => {
+    const idWithValues = '6ac4f1735f6b0330a0431370';
+    const clean = `[biometricHandler] compensating-delete user=${idWithValues} lane=socket reason=consent_not_current outcome=deleted1`;
+    expect(clean).toMatch(CLOSED_LINE);
+    expect(leakedFixtureValues(clean, ['173', '330'])).toEqual([]);
+    const leaky = `[biometricHandler] compensating-delete user=${idWithValues} lane=socket reason=consent_not_current outcome=deleted1 bpm=173`;
+    expect(leakedFixtureValues(leaky, ['173', '330'])).toEqual(['173']);
+  });
+
   it('matches the closed pattern and carries no bpm, time, activity, offset, source or error text', async () => {
     const user = await consentingListener('a6');
     const socket = appSocket(user);
@@ -520,9 +536,7 @@ describe('HX-1 A6 — the compensating line carries closed tokens only', () => {
     await releaseHeldWrite();
     const [line] = await eventually(compensatingLines, (l) => l.length > 0);
     expect(line).toMatch(CLOSED_LINE);
-    for (const value of [String(n.heartRate), n.recordedAt.toISOString(), String(n.recordedAt.getTime()), n.activity, n.source, String(n.tzOffsetMinutes)]) {
-      expect(line).not.toContain(value);
-    }
+    expect(leakedFixtureValues(line, [String(n.heartRate), n.recordedAt.toISOString(), String(n.recordedAt.getTime()), n.activity, n.source, String(n.tzOffsetMinutes)])).toEqual([]);
     // No number anywhere but the user reference and the outcome's own 0/1.
     expect(line.replace(/user=[0-9a-f]{24}/, '').replace(/outcome=deleted[01]/, '')).not.toMatch(/\d/);
   });
