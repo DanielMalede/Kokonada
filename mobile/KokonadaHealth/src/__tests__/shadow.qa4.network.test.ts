@@ -277,8 +277,12 @@ describe('Q4 — the playback socket over the real session: an offline refresh i
     expect(() => server.assertNoLiveListeners()).not.toThrow();
 
     // The network is back a minute later: past the backoff an unavailable refresh holds (RA-2, at most 60 s).
+    // The hold runs on the monotonic clock (B1 C1, RA-119; MB-228), so the minute passes there; the wall
+    // clock moves with it, as it does on a phone.
     const later = Date.now() + 60_000;
     jest.spyOn(Date, 'now').mockReturnValue(later);
+    const monoLater = performance.now() + 60_000;
+    jest.spyOn(performance, 'now').mockReturnValue(monoLater);
     (globalThis as any).fetch = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({ token: 'acc-b', refreshToken: 'krt-b' }) }));
     server.accept('acc-b');
     await svc.kokoSocket.reconnect();

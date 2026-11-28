@@ -26,3 +26,49 @@ export function authErrorKindForStatus(status: number): AuthErrorKind {
   if (status >= 500) return 'server';
   return 'unknown';
 }
+
+// C7 (B1 P11 charter §2): the v2 sign-in port's failure kinds. v1's AuthErrorKind is unchanged (its
+// screen words are keyed by it); the two refusal kinds exist only on the v2 port's outcome.
+export type SignInFailureKind = AuthErrorKind | 'termsOutdated' | 'attestationRequired';
+
+// C7: Google Sign-In's native codes, as literals owned here. They are never read from the library at
+// run time: `statusCodes` comes from the native module's constants (jest.setup.js's global mock has
+// none), and NETWORK_ERROR and DEVELOPER_ERROR are not exported at all. Android values, from
+// @react-native-google-signin/google-signin 16.1.2: RNGoogleSigninModule.java's constants,
+// PromiseWrapper.ASYNC_OP_IN_PROGRESS, Play services' CommonStatusCodes (NETWORK_ERROR 7,
+// DEVELOPER_ERROR 10) and GoogleSignInStatusCodes.SIGN_IN_CANCELLED (12501), each as its string.
+export const GOOGLE_STATUS = Object.freeze({
+  SIGN_IN_CANCELLED: '12501',
+  IN_PROGRESS: 'ASYNC_OP_IN_PROGRESS',
+  PLAY_SERVICES_NOT_AVAILABLE: 'PLAY_SERVICES_NOT_AVAILABLE',
+  DEVELOPER_ERROR: '10',
+  NETWORK_ERROR: '7',
+});
+
+/** The native code a Google Sign-In rejection carries, or null. */
+export function googleErrorCode(e: unknown): string | null {
+  const code = (e !== null && typeof e === 'object') ? (e as { code?: unknown }).code : undefined;
+  return typeof code === 'string' ? code : null;
+}
+
+/** A native Google failure's kind. DEVELOPER_ERROR is `unknown` (the `generic` key, P11-7). */
+export function googleErrorKind(e: unknown): AuthErrorKind {
+  const code = googleErrorCode(e);
+  if (code === GOOGLE_STATUS.PLAY_SERVICES_NOT_AVAILABLE) return 'playServices';
+  if (code === GOOGLE_STATUS.NETWORK_ERROR) return 'network';
+  return 'unknown';
+}
+
+// C7 (RA-155): a failed exchange's kind. On 409 and 422 only, the body's `code` is read first
+// (backend LG-B1-1's refusal codes); every other status keeps v1's mapping.
+export function refusalKind(status: number, body: unknown): SignInFailureKind {
+  if (status === 409 || status === 422) {
+    const code = (body !== null && typeof body === 'object') ? (body as { code?: unknown }).code : undefined;
+    if (code === 'terms_version_mismatch' || code === 'age_consent_mismatch' || code === 'recording_off') return 'termsOutdated';
+    if (code === 'attestation_required') return 'attestationRequired';
+    if (code === 'no_email') return 'noEmail';
+    if (code === undefined) return status === 422 ? 'noEmail' : 'unknown';
+    return 'unknown';
+  }
+  return authErrorKindForStatus(status);
+}

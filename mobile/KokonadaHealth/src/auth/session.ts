@@ -1,5 +1,5 @@
 import * as Keychain from 'react-native-keychain';
-import { AuthSession, type RefreshOutcome, type TokenPair } from './authSession';
+import { AuthSession, type RefreshOutcome, type StoredSession } from './authSession';
 import { BACKEND_URL } from '../health/config';
 
 // The single authoritative token plane for the whole app. Both the socket client
@@ -59,12 +59,16 @@ function serverWaitMs(res: Response): number | undefined {
 }
 
 export const keychainSession = {
-  loadTokens: (): Promise<TokenPair | null> => inIssueOrder(async () => {
+  // C1: one item holds the whole session record ({v:2, access, refresh, uid, age?}, or v1's bare pair);
+  // AuthSession reads which it is. An item that is not a JSON object is no session.
+  loadTokens: (): Promise<StoredSession | null> => inIssueOrder(async () => {
     const creds = await Keychain.getGenericPassword({ service: SESSION_SERVICE });
     if (!creds || !creds.password) return null;
-    try { return JSON.parse(creds.password) as TokenPair; } catch { return null; }
+    let parsed: unknown;
+    try { parsed = JSON.parse(creds.password); } catch { return null; }
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as StoredSession : null;
   }),
-  saveTokens: (t: TokenPair): Promise<void> => inIssueOrder(async () => {
+  saveTokens: (t: StoredSession): Promise<void> => inIssueOrder(async () => {
     await Keychain.setGenericPassword('session', JSON.stringify(t), { service: SESSION_SERVICE });
   }),
   clearTokens: (): Promise<void> => inIssueOrder(async () => { await Keychain.resetGenericPassword({ service: SESSION_SERVICE }); }),

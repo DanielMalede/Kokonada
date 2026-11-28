@@ -59,13 +59,18 @@ describe('QA-047 · the scriptable fake API under the real ApiClient', () => {
     expect(api.log.map((r) => r.headers.Authorization)).toEqual(['Bearer acc-1', 'Bearer acc-2']);
   });
 
-  it('a never-resolving request stays pending however far the clock moves (QA-009\'s driver)', async () => {
+  // QA-009's driver: a fetch that never settles. The real ApiClient bounds each request at 15 s (B1 C1,
+  // MB-223), so the caller sees it pending until then and a network error at 15 000 ms, while the fake's
+  // fetch itself, which ignores the abort as a hung native call may, stays pending.
+  it('a never-resolving request is pending until 15 s, then settles as a network error (QA-009\'s driver)', async () => {
     const api = new FakeApi();
     api.on('GET', '/api/sessions').never();
-    let settled = false;
-    void client(api).get('/api/sessions').then(() => { settled = true; });
-    await clock.advanceAsync(10 * 60_000);
-    expect(settled).toBe(false);
+    let settled: unknown = null;
+    void client(api).get('/api/sessions').then((r) => { settled = r; });
+    await clock.advanceAsync(14_999);
+    expect(settled).toBeNull();
+    await clock.advanceAsync(1);
+    expect(settled).toEqual({ ok: false, error: 'network error' });
     expect(api.pending()).toBe(1);
   });
 

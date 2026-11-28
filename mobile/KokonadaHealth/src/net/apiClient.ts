@@ -8,18 +8,61 @@ import { BACKEND_URL } from '../health/config';
 // status, or an unparseable body all become a typed {ok:false} result the UI can
 // render without a try/catch.
 
+// C1: `sessionKept` marks a 401 whose refresh could not get a verdict (the server unreachable, a 5xx, a
+// 429, inside the hold) while the session is still held: the caller keeps the person signed in.
 export type ApiResult<T> =
   | { ok: true; data: T }
-  | { ok: false; status?: number; error: string };
+  | { ok: false; status?: number; sessionKept?: true; error: string };
 
 type Method = 'GET' | 'POST' | 'DELETE' | 'PUT';
+
+// C1: the parts of the session the 401 path reads. Optional, so a client built without it answers as v1.
+export interface ApiClientSession {
+  hasSession(): boolean;
+  sessionEpoch(): number;
+  endAsDead(opts: { onlyIfEpoch?: number }): Promise<boolean>;
+}
 
 export interface ApiClientDeps {
   baseUrl: string;
   getAccessToken: () => string | null;
   refresh: () => Promise<string | null>;
+  session?: ApiClientSession;
   fetchImpl?: typeof fetch;
+  timeoutMs?: number;
 }
+
+// C1 (RA-7's REST half): RN's fetch has no deadline (RN's Android OkHttp client is built with 0 ms
+// timeouts) and AbortSignal.timeout is not on Hermes, so a request the network never answered never
+// settled. Each attempt, its body included, is aborted after REQUEST_TIMEOUT_MS and settles then as a
+// network error even if the fetch ignores the abort. A timeout is no verdict on the session.
+const REQUEST_TIMEOUT_MS = 15_000;
+
+// RA-4 (#320): the two synchronous erasures run a queue purge and many deletes on the server, which can
+// outlast 15 s; a deadline that fires first reports a deletion the server finished as a failure. They get
+// ERASURE_TIMEOUT_MS. Matched by method and exact path.
+const ERASURE_TIMEOUT_MS = 60_000;
+const ERASURE_CALLS = new Set(['DELETE /api/auth/account', 'POST /api/consent/withdraw']);
+
+class Timeout extends Error {}
+
+async function withDeadline<R>(ms: number, run: (signal: AbortSignal) => Promise<R>): Promise<R> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => { controller.abort(); reject(new Timeout('request timed out')); }, ms);
+  });
+  try {
+    return await Promise.race([run(controller.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// The auth middleware's 401s carry no `code` (backend/app/middleware/auth.js); a route that answers 401
+// for its own reason names one (integrationsController getSpotifyToken: `reconnect_required`).
+const routeCode = (body: unknown): boolean =>
+  body !== null && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string';
 
 export class ApiClient {
   constructor(private readonly deps: ApiClientDeps) {}
@@ -31,37 +74,54 @@ export class ApiClient {
   private async request<T>(method: Method, path: string, body?: unknown): Promise<ApiResult<T>> {
     const fetchImpl = this.deps.fetchImpl ?? fetch;
     const url = `${this.deps.baseUrl}${path}`;
-    const send = (token: string | null) => {
+    const timeoutMs = this.deps.timeoutMs ?? (ERASURE_CALLS.has(`${method} ${path}`) ? ERASURE_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    const session = this.deps.session;
+    type Attempt = { status: number; ok: boolean; read: () => Promise<{ parsed: boolean; data: unknown }> };
+
+    // One attempt, bounded end to end: the response and, when it is read, its body.
+    const attempt = (token: string | null, retried = false): Promise<Attempt | 'network'> => withDeadline(timeoutMs, async (signal) => {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers.Authorization = `Bearer ${token}`;
-      return fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
-    };
+      const res = await fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal });
+      let read: Promise<{ parsed: boolean; data: unknown }> | null = null;
+      const readOnce = () => {
+        read ??= Promise.resolve().then(() => res.json()).then((data) => ({ parsed: true, data }), () => ({ parsed: false, data: undefined }));
+        return read;
+      };
+      if (res.ok || (retried && res.status === 401)) await readOnce(); // inside the deadline
+      return { status: res.status, ok: res.ok, read: readOnce };
+    }).catch(() => 'network' as const);
 
-    let res: Awaited<ReturnType<typeof fetchImpl>>;
-    try {
-      res = await send(this.deps.getAccessToken());
-    } catch {
-      return { ok: false, error: 'network error' };
-    }
+    // RA-2 (#320): the epoch of the session this request is sent under, read before it is sent.
+    const sentEpoch = session?.sessionEpoch();
+    let res = await attempt(this.deps.getAccessToken());
+    if (res === 'network') return { ok: false, error: 'network error' };
 
     if (res.status === 401) {
+      // RA-2: a sign-out or another account's sign-in landed while it was in flight. Its 401 is about the
+      // session it was sent under, so it is never refreshed or re-sent on the new one.
+      if (session && sentEpoch !== session.sessionEpoch()) return { ok: false, status: 401, error: 'unauthorized' };
+      const epoch = sentEpoch;
       const fresh = await this.deps.refresh();
-      if (!fresh) return { ok: false, status: 401, error: 'unauthorized' };
-      try {
-        res = await send(fresh);
-      } catch {
-        return { ok: false, error: 'network error' };
+      if (!fresh) {
+        return session?.hasSession()
+          ? { ok: false, status: 401, sessionKept: true, error: 'unauthorized' }
+          : { ok: false, status: 401, error: 'unauthorized' };
+      }
+      res = await attempt(fresh, true);
+      if (res === 'network') return { ok: false, error: 'network error' };
+      // C1: the server refused the token it has just issued, so the session is dead. Scoped to the
+      // session that rotated it, and never on a route's own 401.
+      if (res.status === 401 && session && epoch !== undefined && !routeCode((await res.read()).data)) {
+        await session.endAsDead({ onlyIfEpoch: epoch });
+        return { ok: false, status: 401, error: 'unauthorized' };
       }
     }
 
     if (!res.ok) return { ok: false, status: res.status, error: `request failed (${res.status})` };
 
-    try {
-      const data = (await res.json()) as T;
-      return { ok: true, data };
-    } catch {
-      return { ok: false, error: 'invalid response body' };
-    }
+    const answer = await res.read();
+    return answer.parsed ? { ok: true, data: answer.data as T } : { ok: false, error: 'invalid response body' };
   }
 }
 
@@ -70,6 +130,7 @@ export const apiClient = new ApiClient({
   baseUrl: BACKEND_URL,
   getAccessToken: () => authSession.getAccessToken(),
   refresh: () => authSession.refresh(),
+  session: authSession,
 });
 
 export const apiGet = <T>(path: string) => apiClient.get<T>(path);

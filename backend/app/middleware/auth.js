@@ -8,6 +8,14 @@ const User = require('../models/User');
 // issues that cookie any more and nothing reads it.
 // Top-level OAuth "connect" navigations, which can send neither a header nor a body,
 // authenticate with a short-lived single-use ?ct= connect token instead. (audit F1)
+// RA-1 (#320): only a token that does not verify, and the explicit verdicts below, answer 401. Any
+// other failure (a transient MongoDB error on the user lookup, a denylist write) goes to next(err) and
+// becomes a 5xx: the mobile client ends a session on a 401 to a just-rotated token, never on a 5xx.
+class TokenRejected extends Error {}
+function verified(token) {
+  try { return verifyToken(token); } catch { throw new TokenRejected(); }
+}
+
 module.exports = async function authMiddleware(req, res, next) {
   try {
     let payload;
@@ -30,7 +38,7 @@ module.exports = async function authMiddleware(req, res, next) {
       if (!/\/(spotify|youtube|garmin)\/connect\/?$/i.test(path)) {
         return res.status(401).json({ error: 'Invalid token scope' });
       }
-      payload = verifyToken(req.query.ct);
+      payload = verified(req.query.ct);
       if (payload.purpose !== 'oauth-connect') {
         return res.status(401).json({ error: 'Invalid token purpose' });
       }
@@ -45,7 +53,7 @@ module.exports = async function authMiddleware(req, res, next) {
       // can send neither header nor body and genuinely needs it.
       const header = req.headers.authorization;
       const token = header?.startsWith('Bearer ') ? header.slice(7) : null;
-      if (token) payload = verifyToken(token);
+      if (token) payload = verified(token);
     }
 
     if (!payload) {
@@ -74,8 +82,10 @@ module.exports = async function authMiddleware(req, res, next) {
 
     req.user = user;
     req.auth = { jti: payload.jti, exp: payload.exp }; // enables logout revocation
-    next();
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired token' });
+  } catch (err) {
+    if (err instanceof TokenRejected) return res.status(401).json({ error: 'Invalid or expired token' });
+    return next(err);
   }
+  // Outside the try: a throw in a later handler is that handler's, never an auth answer.
+  return next();
 };

@@ -149,7 +149,7 @@ describe('AuthSession — refresh (rotating token)', () => {
     expect(session.hasSession()).toBe(false);
     expect(deps.clearTokens).toHaveBeenCalledTimes(1);
     expect(stored.value).toBeNull();
-    expect(events).toEqual([{ type: 'ended', reason: 'dead' }]);
+    expect(events).toEqual([expect.objectContaining({ type: 'ended', reason: 'dead' })]);
   });
 
   it('C1: an unavailable answer (offline, timeout, 5xx, 429) returns null and KEEPS the session in memory and storage', async () => {
@@ -219,7 +219,7 @@ describe('AuthSession — refresh (rotating token)', () => {
     expect(deps.refreshEndpoint).not.toHaveBeenCalled();
     expect(session.getAccessToken()).toBeNull();
     expect(deps.clearTokens).toHaveBeenCalledTimes(1);
-    expect(events).toEqual([{ type: 'ended', reason: 'dead' }]);
+    expect(events).toEqual([expect.objectContaining({ type: 'ended', reason: 'dead' })]);
   });
 
   // REVERSED deliberately (C1): this pinned that a throwing endpoint CLEARS the session. A throw
@@ -258,7 +258,7 @@ describe('AuthSession — refresh (rotating token)', () => {
     expect(session.getAccessToken()).toBe('b-2');
     expect(stored.value).toEqual({ access: 'b-2', refresh: 'b-krt-2' });
     expect(deps.clearTokens).toHaveBeenCalledTimes(1); // the sign-out only
-    expect(events).toEqual([{ type: 'ended', reason: 'cleared' }]);
+    expect(events).toEqual([expect.objectContaining({ type: 'ended', reason: 'cleared' })]);
   });
 });
 
@@ -288,13 +288,13 @@ describe('AuthSession — logout and the ended signal', () => {
     session.subscribe((e) => later.push(e));
     await session.clear();
     await session.clear(); // nothing held any more: no second event
-    expect(heard).toEqual([{ type: 'ended', reason: 'cleared' }]);
+    expect(heard).toEqual([expect.objectContaining({ type: 'ended', reason: 'cleared' })]);
 
     off();
     await session.setSession({ access: 'x', refresh: 'y' });
     await session.clear();
     expect(heard).toHaveLength(1);
-    expect(later).toEqual([{ type: 'ended', reason: 'cleared' }, { type: 'ended', reason: 'cleared' }]);
+    expect(later).toEqual([expect.objectContaining({ type: 'ended', reason: 'cleared' }), expect.objectContaining({ type: 'ended', reason: 'cleared' })]);
   });
 
   it('a listener that throws never breaks the session: the end completes and the other listeners still hear it', async () => {
@@ -306,7 +306,7 @@ describe('AuthSession — logout and the ended signal', () => {
     session.subscribe((e) => heard.push(e));
     await expect(session.refresh()).resolves.toBeNull();
     expect(deps.clearTokens).toHaveBeenCalledTimes(1);
-    expect(heard).toEqual([{ type: 'ended', reason: 'dead' }]);
+    expect(heard).toEqual([expect.objectContaining({ type: 'ended', reason: 'dead' })]);
   });
 
   it('a Keychain that fails to clear still ends the session in memory and tells the listeners', async () => {
@@ -318,7 +318,7 @@ describe('AuthSession — logout and the ended signal', () => {
     session.subscribe((e) => heard.push(e));
     await expect(session.refresh()).resolves.toBeNull();
     expect(session.getAccessToken()).toBeNull();
-    expect(heard).toEqual([{ type: 'ended', reason: 'dead' }]);
+    expect(heard).toEqual([expect.objectContaining({ type: 'ended', reason: 'dead' })]);
   });
 });
 
@@ -449,5 +449,223 @@ describe('keychainSession.refreshEndpoint — the server answer, classified', ()
   ])('a 200 with %s is unavailable, never installed', async (_l, res) => {
     (globalThis as any).fetch = jest.fn(async () => res);
     await expect(keychainSession.refreshEndpoint('krt-1')).resolves.toEqual({ kind: 'unavailable' });
+  });
+});
+
+// ── C1 delta (B1 P1 charter §2) ─────────────────────────────────────────────────────────────────────
+const UID = '0123456789abcdef01234567';
+const v2 = (over: Record<string, unknown> = {}) => ({ v: 2 as const, access: 'acc-v2', refresh: 'krt-v2', uid: UID, ...over });
+
+describe('AuthSession C1 — `ended` carries the ended epoch (RA-118, shadow.endedEpoch)', () => {
+  it('a clear names the session that ended, never the next one', async () => {
+    const { session } = build({ stored: null });
+    const events: SessionEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.setSession({ access: 'a', refresh: 'r' });
+    const ended = session.sessionEpoch();
+    await session.clear();
+    expect(events).toEqual([{ type: 'ended', reason: 'cleared', epoch: ended }]);
+    expect(session.sessionEpoch()).toBe(ended + 1);
+  });
+
+  it('a dead refresh names the session that died', async () => {
+    const { session } = build({ refreshEndpoint: jest.fn(async () => ({ kind: 'dead' })) });
+    await session.bootstrap();
+    const ended = session.sessionEpoch();
+    const events: SessionEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.refresh();
+    expect(events).toEqual([{ type: 'ended', reason: 'dead', epoch: ended }]);
+  });
+});
+
+describe('AuthSession C1 — one session record {v:2, access, refresh, uid, age?}', () => {
+  it('setSession installs a v2 record, saves it as one item, and getSessionUid reads its uid', async () => {
+    const { session, saved } = build({ stored: null });
+    await session.setSession(v2({ age: { over16: true, on: '2026-11-28' } }));
+    expect(session.getAccessToken()).toBe('acc-v2');
+    expect(session.getSessionUid()).toBe(UID);
+    expect(saved).toEqual([{ v: 2, access: 'acc-v2', refresh: 'krt-v2', uid: UID, age: { over16: true, on: '2026-11-28' } }]);
+  });
+
+  it('the age on the device stays {over16, on}: a consent riding on it is never written (REG-P1-R2-1)', async () => {
+    const { session, saved } = build({ stored: null });
+    const age = { over16: true, on: '2026-11-28', consent: { version: '1', language: 'en', hash: 'f'.repeat(64) }, month: 3, year: 2000 };
+    await session.setSession(v2({ age }) as any);
+    expect(saved[0]).toEqual({ v: 2, access: 'acc-v2', refresh: 'krt-v2', uid: UID, age: { over16: true, on: '2026-11-28' } });
+    expect(JSON.stringify(saved[0])).not.toMatch(/consent|hash|language|month|year/);
+  });
+
+  it.each([
+    ['an empty access', v2({ access: '' })],
+    ['an empty refresh', v2({ refresh: '' })],
+    ['a missing uid', v2({ uid: undefined })],
+    ['a v1 uid', v2({ uid: 'u1' })],
+    ['an uppercase uid', v2({ uid: UID.toUpperCase() })],
+    ['a 23-hex uid', v2({ uid: UID.slice(1) })],
+    ['a 25-hex uid', v2({ uid: UID + 'a' })],
+    ['an age that is not a pass', v2({ age: { over16: false, on: '2026-11-28' } })],
+    ['an age with no date', v2({ age: { over16: true } })],
+    ['an age with a time in it', v2({ age: { over16: true, on: '2026-11-28T10:00:00Z' } })],
+  ])('setSession refuses %s: it rejects and touches nothing', async (_l, record) => {
+    const { session, deps } = build();
+    await session.bootstrap();
+    const epoch = session.sessionEpoch();
+    await expect(session.setSession(record as any)).rejects.toThrow();
+    expect(session.getAccessToken()).toBe('access-1');
+    expect(session.getSessionUid()).toBeNull();
+    expect(session.sessionEpoch()).toBe(epoch);
+    expect(deps.saveTokens).not.toHaveBeenCalled();
+  });
+
+  it('v1 is unchanged: setSession({access, refresh}) saves the bare pair, and an access-only pair still installs', async () => {
+    const { session, saved } = build({ stored: null });
+    await session.setSession({ access: 'a', refresh: '' });
+    expect(saved).toEqual([{ access: 'a', refresh: '' }]);
+    expect(session.hasSession()).toBe(true);
+    expect(session.getSessionUid()).toBeNull();
+  });
+
+  it('a rotation keeps uid and age', async () => {
+    const { session, saved } = build({ stored: null });
+    await session.setSession(v2({ age: { over16: true, on: '2026-11-28' } }));
+    expect(await session.refresh()).toBe('access-2');
+    expect(saved[1]).toEqual({ v: 2, access: 'access-2', refresh: 'krt-2', uid: UID, age: { over16: true, on: '2026-11-28' } });
+    expect(session.getSessionUid()).toBe(UID);
+  });
+
+  it('a v1 rotation still saves the bare pair', async () => {
+    const { session, saved } = build();
+    await session.bootstrap();
+    await session.refresh();
+    expect(saved).toEqual([{ access: 'access-2', refresh: 'krt-2' }]);
+  });
+
+  it('bootstrap reads a stored v2 record with its uid', async () => {
+    const { session, saved } = build({ stored: v2({ age: { over16: true, on: '2026-11-28' } }) });
+    expect(await session.bootstrap()).toBe(true);
+    expect(session.getSessionUid()).toBe(UID);
+    await session.refresh();
+    expect(saved[0]).toEqual({ v: 2, access: 'access-2', refresh: 'krt-2', uid: UID, age: { over16: true, on: '2026-11-28' } });
+  });
+
+  it('a stored pair without a uid reads as v1', async () => {
+    const { session } = build({ stored: { access: 'p-acc', refresh: 'p-krt' } });
+    expect(await session.bootstrap()).toBe(true);
+    expect(session.getAccessToken()).toBe('p-acc');
+    expect(session.getSessionUid()).toBeNull();
+  });
+
+  it('a stored v2 record with a malformed uid keeps its tokens and reads as v1', async () => {
+    const { session, saved } = build({ stored: v2({ uid: 'not-a-uid' }) });
+    expect(await session.bootstrap()).toBe(true);
+    expect(session.getAccessToken()).toBe('acc-v2');
+    expect(session.getSessionUid()).toBeNull();
+    await session.refresh();
+    expect(saved[0]).toEqual({ access: 'access-2', refresh: 'krt-2' });
+  });
+
+  it('a stored v2 record with a malformed age keeps its uid and drops the age', async () => {
+    const { session, saved } = build({ stored: v2({ age: { over16: 'yes', on: 5 } }) });
+    await session.bootstrap();
+    expect(session.getSessionUid()).toBe(UID);
+    await session.refresh();
+    expect(saved[0]).toEqual({ v: 2, access: 'access-2', refresh: 'krt-2', uid: UID });
+  });
+
+  it('an end clears the uid with the tokens', async () => {
+    const { session } = build({ stored: null });
+    await session.setSession(v2());
+    await session.clear();
+    expect(session.getSessionUid()).toBeNull();
+  });
+
+  it('a later v1 sign-in drops the earlier v2 uid', async () => {
+    const { session } = build({ stored: null });
+    await session.setSession(v2());
+    await session.setSession({ access: 'a', refresh: 'r' });
+    expect(session.getSessionUid()).toBeNull();
+  });
+});
+
+describe('AuthSession C1 — clear({onlyIfEpoch})', () => {
+  it('ends the session when the epoch still matches', async () => {
+    const { session, deps } = build();
+    await session.bootstrap();
+    const epoch = session.sessionEpoch();
+    await session.clear({ onlyIfEpoch: epoch });
+    expect(session.hasSession()).toBe(false);
+    expect(deps.clearTokens).toHaveBeenCalledTimes(1);
+  });
+
+  it('a stale epoch is a no-op: the newer session, its Keychain item and its listeners are untouched', async () => {
+    const { session, deps, stored } = build({ stored: null });
+    await session.setSession({ access: 'a1', refresh: 'r1' });
+    const old = session.sessionEpoch();
+    await session.setSession(v2());
+    const events: SessionEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    await session.clear({ onlyIfEpoch: old });
+    expect(session.getAccessToken()).toBe('acc-v2');
+    expect(stored.value).toEqual(v2());
+    expect(deps.clearTokens).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
+  it('clear() with no scope behaves as before', async () => {
+    const { session } = build();
+    await session.bootstrap();
+    await session.clear();
+    expect(session.hasSession()).toBe(false);
+  });
+});
+
+describe('AuthSession C1 — endAsDead({onlyIfEpoch}) for a refused fresh token', () => {
+  it('ends the matching session as dead', async () => {
+    const { session } = build();
+    await session.bootstrap();
+    const epoch = session.sessionEpoch();
+    const events: SessionEvent[] = [];
+    session.subscribe((e) => events.push(e));
+    expect(await session.endAsDead({ onlyIfEpoch: epoch })).toBe(true);
+    expect(events).toEqual([{ type: 'ended', reason: 'dead', epoch }]);
+  });
+
+  it('a stale epoch is a no-op', async () => {
+    const { session, deps } = build();
+    await session.bootstrap();
+    const old = session.sessionEpoch();
+    await session.setSession({ access: 'n', refresh: 'nr' });
+    expect(await session.endAsDead({ onlyIfEpoch: old })).toBe(false);
+    expect(session.getAccessToken()).toBe('n');
+    expect(deps.clearTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthSession C1 — a read-only refreshHold()', () => {
+  it('is null with no hold, the remaining ms inside one, and null after it', async () => {
+    const clock = { t: 1_000_000 };
+    const refreshEndpoint = jest.fn(async (): Promise<RefreshOutcome> => ({ kind: 'unavailable', retryAfterMs: 30_000 }));
+    const { session } = build({ refreshEndpoint, now: () => clock.t });
+    await session.bootstrap();
+    expect(session.refreshHold()).toBeNull();
+    await session.refresh();
+    expect(session.refreshHold()).toBe(30_000);
+    clock.t += 10_000;
+    expect(session.refreshHold()).toBe(20_000);
+    expect(session.refreshHold()).toBe(20_000); // reading changes nothing
+    expect(await session.refresh()).toBeNull();
+    expect(refreshEndpoint).toHaveBeenCalledTimes(1);
+    clock.t += 20_000;
+    expect(session.refreshHold()).toBeNull();
+  });
+
+  it('a new session has no hold', async () => {
+    const clock = { t: 0 };
+    const { session } = build({ refreshEndpoint: jest.fn(async () => ({ kind: 'unavailable', retryAfterMs: 30_000 })), now: () => clock.t });
+    await session.bootstrap();
+    await session.refresh();
+    await session.setSession(v2());
+    expect(session.refreshHold()).toBeNull();
   });
 });
